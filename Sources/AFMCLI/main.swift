@@ -1,4 +1,5 @@
 import AFMKit
+import AFMKitDwarfStar
 import AFMServer
 import ArgumentParser
 import Foundation
@@ -176,6 +177,12 @@ struct ServeCommand: ParsableCommand {
 
         print("Server shutdown complete.")
     }
+}
+
+private enum MLXRuntimeBackend: String, CaseIterable {
+    case auto
+    case mlx
+    case dwarfstar
 }
 
 struct MlxCommand: ParsableCommand {
@@ -386,6 +393,8 @@ struct MlxCommand: ParsableCommand {
     var prefillStepSize: Int?
     @Option(name: .long, help: "MLX kernel engine: native or ds4. ds4 enables experimental DeepSeek V4 selected-expert kernels when available.")
     var mlxKernels: String = "native"
+    @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects the fixed-schedule DwarfStar executor for compatible self-contained AFM checkpoints.")
+    var mlxRuntime: String = "auto"
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -587,6 +596,16 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
+        let runtimeBackend = try resolveRuntimeBackend(model: rawModel)
+        if runtimeBackend == .dwarfstar {
+            try runDwarfStar(
+                checkpointPath: localModelPath(rawModel),
+                modelStore: modelStore,
+                chatTemplateKwargs: parsedKwargs,
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema)
+            return
+        }
+
         let runtimeConfiguration = AFMMLXRuntimeConfiguration(
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
@@ -778,11 +797,192 @@ struct MlxCommand: ParsableCommand {
         print("Server shutdown complete.")
     }
 
+    private func resolveRuntimeBackend(model: String) throws -> MLXRuntimeBackend {
+        let normalized = mlxRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let requested = MLXRuntimeBackend(rawValue: normalized) else {
+            throw ValidationError(
+                "--mlx-runtime must be one of: \(MLXRuntimeBackend.allCases.map(\.rawValue).joined(separator: ", "))")
+        }
+        guard requested != .mlx else { return .mlx }
+
+        let path = localModelPath(model)
+        let modelURL = URL(fileURLWithPath: path, isDirectory: true)
+        let isDirectory = (try? modelURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
+            == true
+        guard isDirectory else {
+            if requested == .dwarfstar {
+                throw ValidationError(
+                    "--mlx-runtime dwarfstar requires a local self-contained AFM checkpoint directory")
+            }
+            return .mlx
+        }
+
+        let catalog: AFMDwarfStarCheckpointCatalog
+        do {
+            catalog = try AFMDwarfStarCheckpointCatalog(checkpointURL: modelURL)
+        } catch {
+            if requested == .dwarfstar {
+                throw ValidationError("Checkpoint is not DwarfStar-compatible: \(error.localizedDescription)")
+            }
+            return .mlx
+        }
+        guard catalog.layout.isExecutorReady else {
+            if requested == .dwarfstar {
+                throw ValidationError("Checkpoint does not contain the DwarfStar executor layout")
+            }
+            return .mlx
+        }
+        guard catalog.isSelfContainedExecutorReady else {
+            throw ValidationError(
+                "DwarfStar executor checkpoint is missing \(AFMDwarfStarCheckpointCatalog.bundledTemplateFilename). Re-run mlx-convert --profile dwarfstar-executor --template-gguf <reference.gguf>.")
+        }
+        return .dwarfstar
+    }
+
+    private func localModelPath(_ model: String) -> String {
+        let expanded = NSString(string: model).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        }
+        let cwd = ProcessInfo.processInfo.environment["PWD"]
+            ?? FileManager.default.currentDirectoryPath
+        return URL(fileURLWithPath: cwd, isDirectory: true)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL.path
+    }
+
+    private func runDwarfStar(
+        checkpointPath: String,
+        modelStore: AFMMLXModelStore,
+        chatTemplateKwargs: [String: Any],
+        defaultGuidedJsonSchema: ResponseFormat?
+    ) throws {
+        if !media.isEmpty || vlm {
+            throw ValidationError("The DwarfStar runtime currently supports text input only")
+        }
+        if kvBits != nil || mtp || eagle3 != nil || enablePrefixCaching {
+            throw ValidationError(
+                "KV quantization, speculative decoding, and MLX prefix caching are unavailable in the DwarfStar runtime")
+        }
+        if repetitionPenalty != nil || presencePenalty != nil || guidedJson != nil {
+            throw ValidationError(
+                "Repetition/presence penalties and guided JSON are unavailable in the DwarfStar runtime")
+        }
+        if let concurrent, concurrent > 1 {
+            throw ValidationError("The DwarfStar runtime currently supports one generation at a time")
+        }
+
+        let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
+        if openclawConfig {
+            printOpenClawConfig(
+                model: modelID,
+                hostname: hostname,
+                port: port ?? 9999,
+                modelStore: modelStore)
+            return
+        }
+        if verbose {
+            print("Selected inference runtime: dwarfstar (fixed Metal schedule)")
+            print("AFM checkpoint: \(checkpointPath)")
+        }
+
+        if let prompt = singlePrompt {
+            try runSinglePrompt(
+                prompt,
+                modelID: modelID,
+                chatTemplateKwargs: chatTemplateKwargs,
+                runtimeBackend: .dwarfstar,
+                modelPath: checkpointPath)
+            return
+        }
+        if let stdinContent = try readFromStdin() {
+            try runSinglePrompt(
+                stdinContent,
+                modelID: modelID,
+                chatTemplateKwargs: chatTemplateKwargs,
+                runtimeBackend: .dwarfstar,
+                modelPath: checkpointPath)
+            return
+        }
+
+        let explicitPort = port != nil
+        let chosenPort: Int
+        if let port {
+            chosenPort = port
+        } else if isPortAvailable(9999) {
+            chosenPort = 9999
+        } else {
+            chosenPort = try findEphemeralPort()
+            print("Port 9999 is busy, using ephemeral port \(chosenPort)")
+        }
+        let telegramConfiguration = try makeTelegramConfiguration(
+            rawBotToken: telegramBotToken,
+            rawAllowlist: telegramAllow,
+            hostname: hostname,
+            port: chosenPort,
+            modelID: modelID,
+            instructions: instructions,
+            verbose: verbose || veryVerbose || vv,
+            replyFormat: telegramFormat,
+            requirePrefix: telegramRequirePrefix)
+
+        let model = AnyAFMModel(AFMDwarfStarModel(
+            modelID: AFMModelID(rawValue: modelID),
+            modelPath: checkpointPath,
+            contextWindow: 32_768))
+        _ = Task {
+            do {
+                _ = try await model.load(progress: nil)
+                let server = try await Server(
+                    port: chosenPort,
+                    hostname: hostname,
+                    verbose: verbose,
+                    veryVerbose: veryVerbose || vv,
+                    trace: vv,
+                    streamingEnabled: !noStreaming,
+                    instructions: instructions,
+                    temperature: temperature,
+                    stop: stop,
+                    webuiEnabled: webui,
+                    gatewayEnabled: false,
+                    prewarmEnabled: false,
+                    telegramConfiguration: telegramConfiguration,
+                    defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                    mlxModelID: modelID,
+                    afmModel: model,
+                    mlxTopP: topP,
+                    mlxMaxTokens: maxTokens,
+                    mlxRawOutput: raw,
+                    mlxTopK: topK,
+                    mlxMinP: minP,
+                    mlxSeed: seed,
+                    mlxMaxLogprobs: maxLogprobs,
+                    contextWindow: 32_768)
+                globalServer = server
+                if !explicitPort && chosenPort != 9999 {
+                    print("DwarfStar API URL: http://\(hostname):\(chosenPort)")
+                }
+                try await server.start()
+            } catch {
+                print("Error starting DwarfStar server. CTRL-C to stop: \(error)")
+                shouldKeepRunning = false
+            }
+        }
+
+        let runLoop = RunLoop.current
+        signal(SIGINT, handleShutdown)
+        signal(SIGTERM, handleShutdown)
+        while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+        print("Server shutdown complete.")
+    }
+
     private func runSinglePrompt(
         _ prompt: String,
         modelID: String,
         mediaPaths: [String] = [],
-        chatTemplateKwargs: [String: Any] = [:]
+        chatTemplateKwargs: [String: Any] = [:],
+        runtimeBackend: MLXRuntimeBackend = .mlx,
+        modelPath: String? = nil
     ) throws {
         let group = DispatchGroup()
         let output = SendableBox<Result<AFMResponse, Error>?>(nil)
@@ -810,9 +1010,23 @@ struct MlxCommand: ParsableCommand {
             : try Self.afmJSONValue(from: chatTemplateKwargs)
         group.enter()
         Task {
-            let engine = AFMEngine(
-                backend: .mlx(modelID: modelID),
-                config: EngineConfig(
+            let engine: AFMEngine
+            do {
+                if runtimeBackend == .dwarfstar {
+                    let registry = AFMProviderRegistry()
+                    try registry.register(AFMDwarfStarProviderFactory())
+                    engine = try AFMEngine(
+                        providerID: AFMDwarfStarProviderFactory.providerID,
+                        modelID: AFMModelID(rawValue: modelID),
+                        configuration: AFMProviderConfiguration(values: [
+                            "modelPath": .string(modelPath ?? modelID),
+                            "contextWindow": .integer(32_768)
+                        ]),
+                        registry: registry)
+                } else {
+                    engine = AFMEngine(
+                        backend: .mlx(modelID: modelID),
+                        config: EngineConfig(
                     instructions: self.instructions,
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
@@ -832,8 +1046,13 @@ struct MlxCommand: ParsableCommand {
                     gpuTraceDuration: self.gpuTrace,
                     gpuProfile: self.gpuProfile || self.gpuProfileBw,
                     gpuProfileBandwidth: self.gpuProfileBw
-                )
-            )
+                        ))
+                }
+            } catch {
+                output.value = .failure(error)
+                group.leave()
+                return
+            }
             do {
                 // Pre-load with progress bar (downloads if needed)
                 let loadReporter = MLXLoadReporter(modelID: modelID)
@@ -848,7 +1067,9 @@ struct MlxCommand: ParsableCommand {
                 loadReporter.finish(success: true)
 
                 var messages = [Message]()
-                messages.append(Message(role: "system", content: self.instructions))
+                if !self.instructions.isEmpty {
+                    messages.append(Message(role: "system", content: self.instructions))
+                }
 
                 if mediaPaths.isEmpty {
                     messages.append(Message(role: "user", content: prompt))
@@ -1466,7 +1687,9 @@ struct RootCommand: ParsableCommand {
         """,
         version: MacLocalAPI.buildVersion,
         subcommands: [
-            MlxCommand.self, MLXConvertCommand.self, VisionCommand.self,
+            MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
+            DwarfStarBenchmarkCommand.self,
+            VisionCommand.self,
             SpeechCommand.self, EmbeddingsCommand.self,
         ]
     )
@@ -1599,7 +1822,29 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        var cmd = try DwarfStarBenchmarkCommand.parse(args)
+        let group = DispatchGroup()
+        let errorBox = SendableBox<Error?>(nil)
+        group.enter()
+        Task.detached {
+            do {
+                try await cmd.run()
+            } catch {
+                errorBox.value = error
+            }
+            group.leave()
+        }
+        group.wait()
+        if let error = errorBox.value {
+            throw error
+        }
+    } catch {
+        DwarfStarBenchmarkCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
         var cmd = try MlxCommand.parseAsRoot(args)

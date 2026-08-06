@@ -43,6 +43,84 @@ private enum DeepseekV4PerformanceProfile {
     }
 }
 
+private final class DeepseekV4OuterProfile: @unchecked Sendable {
+    static let shared = DeepseekV4OuterProfile()
+    static let enabled =
+        ProcessInfo.processInfo.environment["VMLX_DSV4_OUTER_PROFILE"] == "1"
+
+    private let lock = NSLock()
+    private var decodeCount = 0
+    private var transformerBuildNs: UInt64 = 0
+    private var transformerEvalNs: UInt64 = 0
+    private var headBuildNs: UInt64 = 0
+    private var headEvalNs: UInt64 = 0
+
+    private init() {}
+
+    func measure(
+        inputs: MLXArray,
+        transformer: () -> MLXArray,
+        head: (MLXArray) -> MLXArray
+    ) -> MLXArray {
+        let transformerBuildStart = DispatchTime.now().uptimeNanoseconds
+        let hidden = transformer()
+        let transformerBuildEnd = DispatchTime.now().uptimeNanoseconds
+        MLX.eval(hidden)
+        Stream().synchronize()
+        let transformerEvalEnd = DispatchTime.now().uptimeNanoseconds
+
+        let logits = head(hidden)
+        let headBuildEnd = DispatchTime.now().uptimeNanoseconds
+        MLX.eval(logits)
+        Stream().synchronize()
+        let headEvalEnd = DispatchTime.now().uptimeNanoseconds
+
+        guard inputs.size == 1 else { return logits }
+        record(
+            transformerBuildNs: transformerBuildEnd - transformerBuildStart,
+            transformerEvalNs: transformerEvalEnd - transformerBuildEnd,
+            headBuildNs: headBuildEnd - transformerEvalEnd,
+            headEvalNs: headEvalEnd - headBuildEnd)
+        return logits
+    }
+
+    private func record(
+        transformerBuildNs: UInt64,
+        transformerEvalNs: UInt64,
+        headBuildNs: UInt64,
+        headEvalNs: UInt64
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        decodeCount += 1
+        self.transformerBuildNs += transformerBuildNs
+        self.transformerEvalNs += transformerEvalNs
+        self.headBuildNs += headBuildNs
+        self.headEvalNs += headEvalNs
+        guard decodeCount == 64 else { return }
+
+        let count = Double(decodeCount)
+        let milliseconds = { (nanoseconds: UInt64) in
+            Double(nanoseconds) / 1_000_000.0 / count
+        }
+        FileHandle.standardError.write(Data(String(format:
+            "[DSV4OuterProfile] tokens=%d transformer_build_ms=%.3f transformer_eval_ms=%.3f head_build_ms=%.3f head_eval_ms=%.3f total_ms=%.3f\n",
+            decodeCount,
+            milliseconds(self.transformerBuildNs),
+            milliseconds(self.transformerEvalNs),
+            milliseconds(self.headBuildNs),
+            milliseconds(self.headEvalNs),
+            milliseconds(
+                self.transformerBuildNs + self.transformerEvalNs
+                    + self.headBuildNs + self.headEvalNs)).utf8))
+        decodeCount = 0
+        self.transformerBuildNs = 0
+        self.transformerEvalNs = 0
+        self.headBuildNs = 0
+        self.headEvalNs = 0
+    }
+}
+
 private enum DeepseekV4RuntimeOptions {
     static func enabled(_ name: String, default defaultValue: Bool) -> Bool {
         guard let raw = ProcessInfo.processInfo.environment[name] else {
@@ -481,7 +559,9 @@ class DeepseekV4Attention: Module {
         let qResidual = qNorm(qA)
         var q = wqB(qResidual)
         if layerIdx == 0 && DeepseekV4NumericTrace.enabled {
-            if let quantized = wqA as? QuantizedLinear {
+            if let quantized = wqA as? QuantizedLinear,
+                !((quantized as? DeepseekV4QuantizedLinear)?.usesQ80Storage ?? false)
+            {
                 let activation = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
                     x, mode: quantized.mode)
                 let dequantized = MLX.dequantized(
@@ -723,7 +803,7 @@ class DeepseekV4Attention: Module {
 
         if Self.quantizedGroupedWoA,
             let quantized = woA as? DeepseekV4QuantizedLinear,
-            quantized.usesSymmetricQ8Storage
+            quantized.usesSymmetricQ8Storage || quantized.usesQ80Storage
         {
             return projectAttentionOutputSymmetricQ8(
                 output, cos: cosT, sin: sinT, quantized: quantized)
@@ -1241,6 +1321,11 @@ class DeepseekV4MoE: Module, UnaryLayer {
         ProcessInfo.processInfo.environment["VMLX_DSV4_COMPILE_MOE"] == "1"
     private static let stagedSelectorDecode = DeepseekV4RuntimeOptions.enabled(
         "VMLX_DSV4_STAGED_SELECTOR", default: false)
+    private static let fusedHCQ8Tail = DeepseekV4RuntimeOptions.enabled(
+        "VMLX_DSV4_FUSED_HC_Q8_TAIL", default: false)
+    private static let fusedHCQ8TailLog: Void = {
+        fputs("[DSV4Path] fused-hc-q8-tail active\n", stderr)
+    }()
     private lazy var compiledDecode: @Sendable (MLXArray, MLXArray) -> MLXArray = {
         let body: (MLXArray, MLXArray) -> MLXArray = { [unowned self] x, ids in
             CompiledDecodeTrace.withActive {
@@ -1292,6 +1377,48 @@ class DeepseekV4MoE: Module, UnaryLayer {
         return forward(x, inputIds: currentInputIds)
     }
 
+    fileprivate func fusedHCTail(
+        residual: MLXArray,
+        hyperConnection: DeepseekV4HyperConnection,
+        normalization: RMSNorm
+    ) -> MLXArray? {
+        guard Self.fusedHCQ8Tail,
+              !gate.isHashLayer,
+              residual.size == 4 * config.hiddenSize,
+              residual.dim(-1) == config.hiddenSize,
+              config.hiddenSize == 4096,
+              config.moeIntermediateSize == 2048,
+              config.nRoutedExperts == 256,
+              config.numExpertsPerTok == 6,
+              let sharedGate = sharedExperts.gateProj as? DeepseekV4QuantizedLinear,
+              let sharedUp = sharedExperts.upProj as? DeepseekV4QuantizedLinear,
+              let sharedDown = sharedExperts.downProj as? DeepseekV4QuantizedLinear,
+              sharedGate.usesSymmetricQ8Storage,
+              sharedUp.usesSymmetricQ8Storage,
+              sharedDown.usesSymmetricQ8Storage
+        else { return nil }
+
+        _ = Self.fusedHCQ8TailLog
+        return switchMLP.deepseekV4FusedHCTailWithSharedQ8(
+            residual: contiguous(residual),
+            hcFunction: contiguous(hyperConnection.fn),
+            hcScale: contiguous(hyperConnection.scale),
+            hcBase: contiguous(hyperConnection.base),
+            normWeight: contiguous(normalization.weight),
+            routerWeight: contiguous(gate.weight.asType(.float32)),
+            routerBias: contiguous(gate.bias.asType(.float32)),
+            routeScale: contiguous(gate.scalingFactorArray.asType(.float32)),
+            sharedGateWeight: contiguous(sharedGate.weight),
+            sharedGateScales: contiguous(sharedGate.scales),
+            sharedUpWeight: contiguous(sharedUp.weight),
+            sharedUpScales: contiguous(sharedUp.scales),
+            sharedDownWeight: contiguous(sharedDown.weight),
+            sharedDownScales: contiguous(sharedDown.scales),
+            activationLimit: config.swigluLimit,
+            hcEps: hyperConnection.hcEps,
+            normEps: normalization.eps)
+    }
+
     fileprivate func forward(_ x: MLXArray, inputIds: MLXArray?) -> MLXArray {
         let profileStages =
             DeepseekV4PerformanceProfile.enabled && !CompiledDecodeTrace.isActive
@@ -1299,6 +1426,7 @@ class DeepseekV4MoE: Module, UnaryLayer {
         func finishStage(_ name: String, _ arrays: [MLXArray]) {
             guard profileStages else { return }
             MLX.eval(arrays)
+            Stream().synchronize()
             let now = CFAbsoluteTimeGetCurrent()
             FileHandle.standardError.write(Data(String(format:
                 "[DSV4MoEProfile] layer=%d stage=%@ ms=%.3f\n",
@@ -1531,6 +1659,7 @@ class DeepseekV4HyperConnection: Module {
             * blockOut.asType(.float32).expandedDimensions(axis: -2) + combResid
         return y.asType(dtype)
     }
+
 }
 
 // MARK: - HyperHead (top-of-model mHC reduce)
@@ -1670,6 +1799,7 @@ class DeepseekV4DecoderLayer: Module {
         func finishStage(_ name: String, _ arrays: [MLXArray]) {
             guard profileStages else { return }
             MLX.eval(arrays)
+            Stream().synchronize()
             let now = CFAbsoluteTimeGetCurrent()
             FileHandle.standardError.write(Data(String(format:
                 "[DSV4StageProfile] layer=%d shape=%@ stage=%@ ms=%.3f\n",
@@ -1714,6 +1844,17 @@ class DeepseekV4DecoderLayer: Module {
             DeepseekV4NumericTrace.tensor("layer.0.attention", attnOut)
         }
         finishStage("attention", [attnOut])
+        if h.dim(1) == 1 && !profileStages && !DeepseekV4NumericTrace.enabled {
+            let hA = attnHC.expand(
+                blockOut: attnOut, residual: residualA, post: postA, comb: combA)
+            if let output = mlp.fusedHCTail(
+                residual: hA,
+                hyperConnection: ffnHC,
+                normalization: postAttentionLayerNorm)
+            {
+                return output
+            }
+        }
         if Self.compileFFNDecode && h.dim(1) == 1
             && !profileStages && !DeepseekV4NumericTrace.enabled
         {
@@ -1870,6 +2011,7 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     DeepseekV4SymmetricQ8Model
 {
     public var usesDeepseekV4SymmetricQ8: Bool { config.afmSymmetricQ8 }
+    public var usesDeepseekV4Q80: Bool { config.afmQ80 }
     public var kvHeads: [Int]
     var config: DeepseekV4Configuration
     public var model: DeepseekV4ModelInner
@@ -1891,6 +2033,9 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
         self.config = config
         if DeepseekV4PerformanceProfile.enabled {
             fputs("[DSV4StageProfile] enabled\n", stderr)
+        }
+        if DeepseekV4OuterProfile.enabled {
+            fputs("[DSV4OuterProfile] enabled\n", stderr)
         }
         if Self.quantizeLMHeadQ8 {
             fputs("[DSV4] output head: runtime affine Q8 (group size 32)\n", stderr)
@@ -2018,7 +2163,13 @@ public class DeepseekV4Model: Module, LLMModel, KVCacheDimensionProvider, LoRAMo
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
-        projectLogits(model(inputs, cache: cache))
+        if DeepseekV4OuterProfile.enabled {
+            return DeepseekV4OuterProfile.shared.measure(
+                inputs: inputs,
+                transformer: { self.model(inputs, cache: cache) },
+                head: { self.projectLogits($0) })
+        }
+        return projectLogits(model(inputs, cache: cache))
     }
 
     /// Authoritative target forward used by DSpARK verification. The logits

@@ -1,8 +1,8 @@
 diff --git a/Source/Cmlx/include-framework/mlx-c-fast.h b/Source/Cmlx/include-framework/mlx-c-fast.h
-index adfdcd0e..20e92bda 100644
+index adfdcd0e..9c64713f 100644
 --- a/Source/Cmlx/include-framework/mlx-c-fast.h
 +++ b/Source/Cmlx/include-framework/mlx-c-fast.h
-@@ -160,6 +160,64 @@ int mlx_fast_metal_kernel_apply(
+@@ -160,6 +160,91 @@ int mlx_fast_metal_kernel_apply(
      const mlx_fast_metal_kernel_config config,
      const mlx_stream stream);
  
@@ -54,6 +54,33 @@ index adfdcd0e..20e92bda 100644
 +    const mlx_array shared_down_weight,
 +    const mlx_array shared_down_scales,
 +    float activation_limit,
++    const mlx_stream stream);
++
++int mlx_fast_deepseek_v4_hc_mxfp4_moe_shared_q8(
++    mlx_array* result,
++    const mlx_array residual,
++    const mlx_array hc_fn,
++    const mlx_array hc_scale,
++    const mlx_array hc_base,
++    const mlx_array norm_weight,
++    const mlx_array router_weight,
++    const mlx_array router_bias,
++    const mlx_array route_scale,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array shared_gate_weight,
++    const mlx_array shared_gate_scales,
++    const mlx_array shared_up_weight,
++    const mlx_array shared_up_scales,
++    const mlx_array shared_down_weight,
++    const mlx_array shared_down_scales,
++    float activation_limit,
++    float hc_eps,
++    float norm_eps,
 +    const mlx_stream stream);
 +
 +int mlx_fast_deepseek_v4_symmetric_q8_matvec(
@@ -68,10 +95,10 @@ index adfdcd0e..20e92bda 100644
      mlx_array* res,
      const mlx_array x,
 diff --git a/Source/Cmlx/include/mlx/c/fast.h b/Source/Cmlx/include/mlx/c/fast.h
-index c825d00e..2f44ac90 100644
+index c825d00e..c35e18cf 100644
 --- a/Source/Cmlx/include/mlx/c/fast.h
 +++ b/Source/Cmlx/include/mlx/c/fast.h
-@@ -160,6 +160,64 @@ int mlx_fast_metal_kernel_apply(
+@@ -160,6 +160,91 @@ int mlx_fast_metal_kernel_apply(
      const mlx_fast_metal_kernel_config config,
      const mlx_stream stream);
  
@@ -123,6 +150,33 @@ index c825d00e..2f44ac90 100644
 +    const mlx_array shared_down_weight,
 +    const mlx_array shared_down_scales,
 +    float activation_limit,
++    const mlx_stream stream);
++
++int mlx_fast_deepseek_v4_hc_mxfp4_moe_shared_q8(
++    mlx_array* result,
++    const mlx_array residual,
++    const mlx_array hc_fn,
++    const mlx_array hc_scale,
++    const mlx_array hc_base,
++    const mlx_array norm_weight,
++    const mlx_array router_weight,
++    const mlx_array router_bias,
++    const mlx_array route_scale,
++    const mlx_array gate_weight,
++    const mlx_array gate_scales,
++    const mlx_array up_weight,
++    const mlx_array up_scales,
++    const mlx_array down_weight,
++    const mlx_array down_scales,
++    const mlx_array shared_gate_weight,
++    const mlx_array shared_gate_scales,
++    const mlx_array shared_up_weight,
++    const mlx_array shared_up_scales,
++    const mlx_array shared_down_weight,
++    const mlx_array shared_down_scales,
++    float activation_limit,
++    float hc_eps,
++    float norm_eps,
 +    const mlx_stream stream);
 +
 +int mlx_fast_deepseek_v4_symmetric_q8_matvec(
@@ -149,10 +203,10 @@ diff --git a/Source/Cmlx/mlx-c b/Source/Cmlx/mlx-c
 -Subproject commit 0726ca922fc902c4c61ef9c27d94132be418e945
 +Subproject commit 0726ca922fc902c4c61ef9c27d94132be418e945-dirty
 diff --git a/Source/MLX/MLXFast.swift b/Source/MLX/MLXFast.swift
-index 92c96da8..318cd845 100644
+index 92c96da8..650992d5 100644
 --- a/Source/MLX/MLXFast.swift
 +++ b/Source/MLX/MLXFast.swift
-@@ -4,6 +4,138 @@ import Cmlx
+@@ -4,6 +4,194 @@ import Cmlx
  
  public enum MLXFast {
  
@@ -264,6 +318,62 @@ index 92c96da8..318cd845 100644
 +            sharedDownWeight.ctx,
 +            sharedDownScales.ctx,
 +            activationLimit,
++            stream.ctx)
++        return MLXArray(result)
++    }
++
++    public static func deepseekV4HCDecodeTailWithSharedQ8(
++        residual: MLXArray,
++        hcFunction: MLXArray,
++        hcScale: MLXArray,
++        hcBase: MLXArray,
++        normWeight: MLXArray,
++        routerWeight: MLXArray,
++        routerBias: MLXArray,
++        routeScale: MLXArray,
++        gateWeight: MLXArray,
++        gateScales: MLXArray,
++        upWeight: MLXArray,
++        upScales: MLXArray,
++        downWeight: MLXArray,
++        downScales: MLXArray,
++        sharedGateWeight: MLXArray,
++        sharedGateScales: MLXArray,
++        sharedUpWeight: MLXArray,
++        sharedUpScales: MLXArray,
++        sharedDownWeight: MLXArray,
++        sharedDownScales: MLXArray,
++        activationLimit: Float,
++        hcEps: Float,
++        normEps: Float,
++        stream: StreamOrDevice = .default
++    ) -> MLXArray {
++        var result = mlx_array_new()
++        mlx_fast_deepseek_v4_hc_mxfp4_moe_shared_q8(
++            &result,
++            residual.ctx,
++            hcFunction.ctx,
++            hcScale.ctx,
++            hcBase.ctx,
++            normWeight.ctx,
++            routerWeight.ctx,
++            routerBias.ctx,
++            routeScale.ctx,
++            gateWeight.ctx,
++            gateScales.ctx,
++            upWeight.ctx,
++            upScales.ctx,
++            downWeight.ctx,
++            downScales.ctx,
++            sharedGateWeight.ctx,
++            sharedGateScales.ctx,
++            sharedUpWeight.ctx,
++            sharedUpScales.ctx,
++            sharedDownWeight.ctx,
++            sharedDownScales.ctx,
++            activationLimit,
++            hcEps,
++            normEps,
 +            stream.ctx)
 +        return MLXArray(result)
 +    }

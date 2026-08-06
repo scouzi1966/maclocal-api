@@ -853,6 +853,7 @@ public enum DeepseekV4Math {
             }
         """)
 
+
     private static let scalarArrayLock = NSLock()
     nonisolated(unsafe) private static var scalarArrays: [Float: MLXArray] = [:]
 
@@ -1038,6 +1039,7 @@ public enum DeepseekV4Math {
             outputShapes: [residual.shape],
             outputDTypes: [.float32])[0]
     }
+
 
     /// Pure-op reference and non-Metal fallback for the fused kernel above.
     public static func hcSplitSinkhornOps(

@@ -1,5 +1,6 @@
 import Foundation
 import AFMOpenAICompat
+import MLX
 
 public protocol AFMMLXOpenAIChatGenerating: Sendable {
     func generate(
@@ -98,12 +99,22 @@ public protocol AFMMLXOpenAIChatServing:
 {
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 
+    /// Reset and read provider-specific request memory telemetry. Providers
+    /// that do not execute through MLX must not initialize MLX merely to serve
+    /// an OpenAI-compatible request.
+    func resetRequestPeakMemory()
+    func currentRequestPeakMemoryGib() -> Double?
+
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
 }
 
 public extension AFMMLXOpenAIChatServing {
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
+
+    func resetRequestPeakMemory() {}
+
+    func currentRequestPeakMemoryGib() -> Double? { nil }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
         OpenAIResponseFormatPolicy.effectiveResponseFormat(
@@ -243,4 +254,13 @@ public extension AFMMLXOpenAIChatGenerating {
     }
 }
 
-extension MLXModelService: AFMMLXOpenAIChatServing {}
+extension MLXModelService: AFMMLXOpenAIChatServing {
+    public func resetRequestPeakMemory() {
+        GPU.resetPeakMemory()
+    }
+
+    public func currentRequestPeakMemoryGib() -> Double? {
+        let gib = 1024.0 * 1024.0 * 1024.0
+        return (Double(Memory.snapshot().peakMemory) / gib * 10).rounded() / 10
+    }
+}

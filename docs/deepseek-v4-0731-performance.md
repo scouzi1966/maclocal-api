@@ -109,11 +109,59 @@ runtime markers:
 - `/Volumes/edata/afm-captures/deepseek-v4-staged-selector/20260804-223535`
 - `/Volumes/edata/afm-captures/deepseek-v4-staged-selector-control/20260804-223623`
 
-With GPU busy profiling enabled, DwarfStar committed approximately two command buffers
-per generated token. AFM's Xcode trace measured roughly thirteen. Copying
-DwarfStar's isolated MXFP4 arithmetic into MLX did not improve throughput; the
-next native optimization must reduce graph/runtime boundaries or fuse broader
-DeepSeek layer work while preserving MLX cache semantics.
+The selector-free staged native MoE is the default autoregressive path. A
+current Release A/B with DSpARK explicitly disabled measured 28.26 tok/s for
+the staged primitive versus 27.15 tok/s for the ordinary multi-operation path,
+a 4.1% gain. All six runs produced the identical 256-token response hash
+`16a6f3491b76`. Set `VMLX_DSV4_STAGED_MOE=0` only for fallback and comparison.
+Artifacts:
+
+- `/Volumes/edata/afm-captures/deepseek-v4-ar-staged-current-20260805/20260805-083139`
+- `/Volumes/edata/afm-captures/deepseek-v4-ar-unstaged-current-20260805/20260805-083232`
+
+The latest exact-output storage/runtime control used DwarfStar-compatible
+interleaved Q8_0 blocks for AFM's dense subset. AFM Q8_0 measured 28.50, 28.48,
+and 28.38 wall tok/s; the same-binary symmetric-Q8 checkpoint measured 28.50,
+28.54, and 28.52 wall tok/s; canonical DwarfStar measured 34.84, 35.01, and
+35.04 wall tok/s. All nine 256-token runs produced SHA-256
+`16a6f3491b760b5b1ae04dedc1b8f76ff74c4688072344054b2d53d74f1a263d`.
+Q8_0 storage is therefore neutral and does not explain DwarfStar's advantage.
+
+Artifacts:
+
+- `/Volumes/edata/afm-captures/deepseek-v4-q80-vs-ds4-256x3-20260805/20260805-122217`
+- `/Volumes/edata/afm-captures/deepseek-v4-symmetric-256x3-control-20260805/20260805-122501`
+
+With GPU busy profiling enabled, DwarfStar committed approximately two command
+buffers per generated token. A direct MLX commit counter on the current
+symmetric-Q8/staged-MoE Release path measured 33.84 buffers/token. The older
+approximately 13-buffer Xcode trace came from a different graph and scheduler
+policy and is not the current count. Copying DwarfStar's isolated MXFP4 or Q8
+arithmetic into MLX did not improve throughput. The remaining optimization
+target is the fixed decode execution schedule and broader runtime structure,
+while preserving MLX cache semantics and exact output.
+
+### Closed Hypotheses
+
+The evidence now rejects the following as primary explanations for the
+remaining approximately 6.5 wall tok/s gap:
+
+- the official-to-MLX checkpoint conversion itself;
+- Vontra versus AFM-native checkpoint provenance;
+- split versus interleaved MXFP4 storage in isolation;
+- symmetric Q8 versus DwarfStar-compatible Q8_0 storage in isolation;
+- isolated DwarfStar gate/up, sum-six down, nibble decode, or launch geometry;
+- sampling, output-head graph construction, and model loading; and
+- simply increasing MLX command-buffer size.
+
+The unresolved controlled difference is execution structure: canonical
+DwarfStar uses a fixed two-command-buffer-per-token schedule with persistent
+scratch storage and direct command encoding, whereas the current AFM/MLX graph
+commits 33.84 buffers/token and rebuilds/evaluates a materially more fragmented
+decode graph. Future work must address that boundary or provide new trace
+evidence that moves the bottleneck. The full rejected-experiment record and
+the conditions for revisiting any item are in
+[`deepseek-v4-0731-rejected-experiments.md`](deepseek-v4-0731-rejected-experiments.md).
 
 The reusable benchmark harness is
 `Scripts/benchmarks/benchmark_deepseek_v4_afm_ds4.py`. It launches DwarfStar
@@ -122,6 +170,71 @@ accepts repeatable `--ds4-env KEY=VALUE` diagnostics. Large models and captures
 must stay on `/Volumes/edata`, never `/tmp` or the internal disk.
 
 ## Optimization
+
+### Decode Boundary Profiling
+
+`VMLX_DSV4_OUTER_PROFILE=1` is a diagnostic-only synchronization boundary that
+reports 64-token rolling averages for transformer graph construction,
+transformer GPU evaluation, language-model-head graph construction, and
+language-model-head GPU evaluation. Pair it with `AFM_PERF=1` to measure the
+remaining sampling and iterator synchronization overhead. The profiler changes
+the lazy execution boundary and must not be used as a throughput result.
+
+```bash
+AFM_PERF=1 VMLX_DSV4_OUTER_PROFILE=1 \
+  Scripts/benchmarks/benchmark_deepseek_v4_afm_ds4.py \
+  --afm-model /Volumes/edata/models/vesta-test-cache/deepseek-ai/DeepSeek-V4-Flash-0731-AFM-MLX \
+  --afm-kernels native --runs 1 --tokens 256 --warmup-tokens 16 \
+  --output-dir /Volumes/edata/afm-captures/deepseek-v4-outer-profile
+```
+
+The harness requires the runtime activation marker, records source and binary
+hashes, and rejects a stale Release binary that does not contain the profiler.
+
+On 2026-08-05, four consecutive 64-token windows from the converted official
+0731 checkpoint measured the following profile-only means:
+
+| Boundary | Time/token | Share |
+|---|---:|---:|
+| Transformer graph construction | 4.65 ms | 10.7% |
+| Transformer evaluation | 35.31 ms | 81.2% |
+| LM-head graph construction | 0.01 ms | 0.0% |
+| LM-head evaluation | 3.51 ms | 8.1% |
+
+The explicit synchronization reduced diagnostic throughput to about 23 tok/s,
+so these values are attribution rather than a production benchmark. They show
+that sampling and LM-head construction are negligible and that LM-head GPU
+work is only about 8% of the profiled token. Even eliminating the head cannot
+close the 35-37 tok/s gap. The next graph-boundary proof should therefore cover
+an entire repeated mHC-collapse/normalization, MoE, and mHC-residual-expansion
+segment rather than another isolated routed-kernel variant.
+
+Artifact:
+`/Volumes/edata/afm-captures/deepseek-v4-outer-profile-20260805/20260805-074955`.
+
+The same Release binary with profiling disabled produced 27.11, 27.04, and
+27.07 wall tok/s. Every run returned SHA-256
+`16a6f3491b760b5b1ae04dedc1b8f76ff74c4688072344054b2d53d74f1a263d`.
+This is the canonical control for the next experiment; artifact:
+`/Volumes/edata/afm-captures/deepseek-v4-outer-profile-disabled-control-20260805/20260805-075402`.
+
+The existing `compiledLayerTailDecode` already places attention residual
+expansion, FFN mHC collapse and normalization, routed/shared MoE, and FFN mHC
+expansion inside one Swift `compile` closure. Extending that closure backward
+through more attention work was exact but substantially slower. The next proof
+must therefore be a typed MLX primitive that owns the intermediate storage and
+GPU dispatch for one representative FFN segment; another larger Swift compile
+closure would repeat a rejected experiment.
+
+Before promotion, that primitive must:
+
+1. be opt-in and emit an unambiguous runtime activation marker;
+2. be compiled from the tracked persistent patch sources;
+3. preserve the canonical output hash above;
+4. run as an interleaved control/experiment sequence in the same thermal
+   session; and
+5. improve median wall throughput by at least 3%, not merely reduce command
+   buffer count.
 
 A runtime MXFP8 output-head experiment measured 29.3-29.5 server tok/s and
 28.64-28.77 wall-clock tok/s, effectively identical to the retained affine-Q8
@@ -368,3 +481,111 @@ Xcode 27 Beta 3's `Metal Shader Profile` attachment did not begin inference:
 The trace was stopped and is not used as performance evidence. Hardware
 utilization above comes from 200 ms `mactop` samples taken only during Release
 decode.
+
+## Fixed-Schedule AFM Projection
+
+AFMKit now has an in-process DwarfStar provider and a zero-copy external-region
+model projection. The projection writes only a page-aligned GGUF metadata
+prefix, reserves one virtual address range, and maps the original tensor files
+into that range. Tensor directory offsets are patched to the mapped file-backed
+locations; tensor bytes are not copied into the metadata file.
+
+The canonical 0731 checkpoint was measured through both mappings in the same
+Release AFM binary with DSpARK disabled, a 16-token warmup, three 256-token
+counting runs, and an exact expected response hash:
+
+- conventional GGUF mmap: 35.14, 34.20, 34.93 wall tok/s; mean 34.76;
+- external-region projection: 34.77, 34.16, 33.91 wall tok/s; mean 34.28;
+- every run matched SHA-256
+  `16a6f3491b760b5b1ae04dedc1b8f76ff74c4688072344054b2d53d74f1a263d`.
+
+The 1.4% mean difference is inside normal run variance and proves that the
+multi-file mapping itself does not explain the native MLX performance gap.
+Artifacts are under
+`/Volumes/edata/afm-captures/integrated-ds4-decision-rerun-20260805` and
+`/Volumes/edata/afm-captures/integrated-ds4-external-map-20260805`.
+
+Direct execution of the existing AFM checkpoint remains gated by tensor ABI,
+not by the projection mechanism. The AFM package stores routed MXFP4 values and
+E8M0 scales in separate safetensor tensors, while the canonical fixed-schedule
+kernel consumes 17-byte blocks containing one scale followed by 16 lane-packed
+value bytes. The accepted executor profile creates that representation and,
+after the alignment correction below, marks layout contract version 3. A
+future split-buffer kernel may remove the one-time packing requirement, but it
+must preserve the exact hash and the 34-37 tok/s fixed-schedule result before
+replacing the packed path.
+
+### Official-checkpoint AFM payload result
+
+The official checkpoint at
+`/Volumes/edata/models/DeepSeek-V4-Flash-0731` was converted with the
+`dwarfstar-executor` profile and executed directly from its 48 AFM safetensor
+shards. The canonical GGUF supplied metadata and tensor schema only; every
+runtime tensor address mapped to the AFM checkpoint payload.
+
+The converter was subsequently corrected to reproduce GGML Q8_0 exactly:
+block reductions run in FP32, normalized values use reciprocal multiplication,
+and ties use `roundf` semantics. The generated 562,626,560-byte output head is
+now byte-for-byte equal to Q8_0 quantization of the official BF16 head.
+
+With the corrected Release converter, the same prompt, 16-token warmup,
+32,768-token context, and three 256-token runs measured 35.24, 35.29, and
+35.31 wall tok/s; mean 35.28. This reaches the 35-37 tok/s target and proves
+that AFM safetensor storage and the official checkpoint do not impose the
+native MLX path's approximately 28.3 tok/s ceiling.
+
+All AFM runs were deterministic with SHA-256
+`08cf54d0225698faf576488cfcb44c7e21395a8c0612651c5ad88b714bf35d1d`.
+That differs from the canonical DS4 chat-v2 package hash
+`16a6f3491b760b5b1ae04dedc1b8f76ff74c4688072344054b2d53d74f1a263d`,
+but a full tensor audit confirms that the official checkpoint and canonical
+chat-v2 GGUF contain different non-output tensors. Their token hashes are
+therefore not an executor-equivalence assertion. The AFM checkpoint was
+deterministic across all runs; semantic quality still requires its own model
+validation before default promotion. Final results are under
+`/Volumes/edata/afm-captures/afm-dwarfstar-direct-exact-20260805`.
+
+### Alignment correction and final integrated result
+
+The preceding direct-checkpoint result was superseded after tracing its
+different token stream to a correctness defect in the executor package, not to
+a model difference. Safetensors does not guarantee alignment suitable for the
+DwarfStar Metal tensor ABI. Most converted tensor payloads began at unaligned
+addresses even though their bytes matched the canonical GGUF. The
+fixed-schedule kernels then emitted a repeated beginning-of-sequence token.
+
+Executor layout contract version 3 requires every real tensor start to be
+32-byte aligned and every shard payload to begin on a 4096-byte boundary. The
+converter enforces this contract, `afm mlx-align-executor` can repair an
+existing package without changing real tensor bytes, and the runtime rejects
+unaligned packages before inference. Padding is represented by reserved
+`__afm_padding_*` U8 tensors so the files remain valid safetensors without
+header holes.
+
+After alignment, the AFM checkpoint and canonical DwarfStar package produced
+the exact same 256-token output hash in every measured run:
+`16a6f3491b760b5b1ae04dedc1b8f76ff74c4688072344054b2d53d74f1a263d`.
+A canonical-AFM-canonical bracket, with a 256-token warmup and five measured
+256-token Release runs per segment, produced:
+
+| Segment | Wall median | Runtime median | Runtime range |
+|---|---:|---:|---:|
+| Canonical before | 34.52 tok/s | 35.95 tok/s | 34.89-37.78 tok/s |
+| AFM aligned | 35.36 tok/s | 36.86 tok/s | 35.09-37.56 tok/s |
+| Canonical after | 33.89 tok/s | 35.31 tok/s | 34.46-37.71 tok/s |
+
+The public `afm mlx --mlx-runtime dwarfstar` path was then validated through
+the OpenAI-compatible HTTP server using the aligned AFM package. A 64-token
+non-streaming request returned correct counting output at 37.21 tok/s. The SSE
+request returned the same output, a terminal `[DONE]`, and 37.62 tok/s. These
+tests use ordinary autoregressive decoding with DSpARK disabled.
+
+This closes the approximately 37 tok/s objective: the integrated AFM executor
+matches canonical DwarfStar within run variance while preserving exact greedy
+output. Evidence:
+
+- `/Volumes/edata/afm-captures/ds4-bracket-before-20260805.json`
+- `/Volumes/edata/afm-captures/afm-bracket-middle-20260805.json`
+- `/Volumes/edata/afm-captures/ds4-bracket-after-20260805.json`
+- `/Volumes/edata/afm-captures/afm-dwarfstar-api-nonstream-20260805.json`
+- `/Volumes/edata/afm-captures/afm-dwarfstar-api-stream-20260805.sse`

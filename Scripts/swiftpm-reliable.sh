@@ -141,9 +141,35 @@ if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
     echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
     swift package resolve
 fi
-"$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
-"$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
-"$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
+run_required_patch_step() {
+    local label="$1"
+    shift
+    if ! "$@"; then
+        echo "[swiftpm-reliable] Required patch step failed: $label" >&2
+        echo "[swiftpm-reliable] Refusing to compile a partially patched MLX checkout." >&2
+        exit 1
+    fi
+}
+
+run_required_patch_step \
+    "official FP8 loader" \
+    "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
+run_required_patch_step \
+    "DeepSeek V4 kernels" \
+    "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
+run_required_patch_step \
+    "DeepSeek V4 kernel verification" \
+    "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
+# Keep the persistent vendor checkout synchronized with the authoritative
+# Swift sources under Scripts/patches before SwiftPM evaluates dependencies.
+# Without this, a Release build can succeed while compiling stale vendored
+# model code and silently omit the optimization being benchmarked.
+run_required_patch_step \
+    "vendored MLX Swift sources" \
+    "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
+run_required_patch_step \
+    "vendored MLX Swift source verification" \
+    "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
 
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
 # local mlx-swift-lm package and report a successful no-op build. Fingerprint
@@ -154,6 +180,8 @@ MLX_SOURCE_FINGERPRINT="$({
     find "$ROOT_DIR/vendor/mlx-swift-lm/Libraries" -type f -print0
     printf '%s\0' "$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
     printf '%s\0' "$MLX_SAFETENSORS_SOURCE"
+    find "$ROOT_DIR/Scripts/patches" -type f -print0
+    printf '%s\0' "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
     find "$ROOT_DIR/Scripts/patches/mlx-swift-deepseek-v4" -type f -print0
 } | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"

@@ -30,6 +30,9 @@ public struct DeepseekV4Configuration: Codable, Sendable {
     /// or repository identifier.
     public var afmSymmetricQ8: Bool = false
 
+    /// Dense projections use GGML/DwarfStar interleaved Q8_0 blocks.
+    public var afmQ80: Bool = false
+
     /// Routed MXFP4 blocks use DwarfStar's lane-oriented nibble ordering.
     public var afmDwarfstarMXFP4Layout: Bool = false
 
@@ -161,6 +164,7 @@ public struct DeepseekV4Configuration: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case afmNativeCheckpoint = "afm_native_checkpoint"
         case afmSymmetricQ8 = "afm_symmetric_q8"
+        case afmQ80 = "afm_q8_0"
         case afmDwarfstarMXFP4Layout = "afm_dwarfstar_mxfp4_layout"
         case afmAlignedMXFP4Layout = "afm_aligned_mxfp4_layout"
         case vocabSize = "vocab_size"
@@ -215,6 +219,7 @@ public struct DeepseekV4Configuration: Codable, Sendable {
 
         self.afmNativeCheckpoint = req(.afmNativeCheckpoint, false)
         self.afmSymmetricQ8 = req(.afmSymmetricQ8, false)
+        self.afmQ80 = req(.afmQ80, false)
         self.afmDwarfstarMXFP4Layout = req(.afmDwarfstarMXFP4Layout, false)
         self.afmAlignedMXFP4Layout = req(.afmAlignedMXFP4Layout, false)
         self.vocabSize = req(.vocabSize, 129_280)
@@ -265,6 +270,7 @@ public struct DeepseekV4Configuration: Codable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(afmNativeCheckpoint, forKey: .afmNativeCheckpoint)
         try c.encode(afmSymmetricQ8, forKey: .afmSymmetricQ8)
+        try c.encode(afmQ80, forKey: .afmQ80)
         try c.encode(afmDwarfstarMXFP4Layout, forKey: .afmDwarfstarMXFP4Layout)
         try c.encode(afmAlignedMXFP4Layout, forKey: .afmAlignedMXFP4Layout)
         try c.encode(vocabSize, forKey: .vocabSize)

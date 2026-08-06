@@ -4,45 +4,82 @@ import AFMKitMLX
 
 /// Bridges the existing OpenAI-compatible HTTP controllers onto AFMKit while
 /// preserving their current `AFMMLXOpenAIChatServing` contract.
-final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokenizing {
-    private let service: MLXModelService
+final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokenizing, @unchecked Sendable {
+    private let service: MLXModelService?
     private let resolver: MLXCacheResolver
+    private let fixedModel: AnyAFMModel?
+    private let fixedModelID: String?
+    private let slotLock = NSLock()
+    private var fixedSlotReserved = false
 
     init(service: MLXModelService, resolver: MLXCacheResolver = .init()) {
         self.service = service
         self.resolver = resolver
+        fixedModel = nil
+        fixedModelID = nil
     }
 
-    var maxConcurrent: Int { service.maxConcurrent }
-    var servingConfiguration: AFMMLXServingConfiguration { service.servingConfiguration }
-    var defaultGuidedJsonSchema: ResponseFormat? { service.defaultGuidedJsonSchema }
+    init(model: AnyAFMModel, modelID: String) {
+        service = nil
+        resolver = .init()
+        fixedModel = model
+        fixedModelID = modelID
+    }
+
+    var maxConcurrent: Int { service?.maxConcurrent ?? 1 }
+    var servingConfiguration: AFMMLXServingConfiguration {
+        service?.servingConfiguration ?? .init()
+    }
+    var defaultGuidedJsonSchema: ResponseFormat? { service?.defaultGuidedJsonSchema }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        service.effectiveResponseFormat(requestFormat: requestFormat)
+        service?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
     }
 
     func normalizeModel(_ raw: String) -> String {
-        service.normalizeModel(raw)
+        service?.normalizeModel(raw) ?? fixedModelID ?? raw
     }
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
-        service.resolvedToolCallParser(logBypass: logBypass)
+        service?.resolvedToolCallParser(logBypass: logBypass)
     }
 
     func tryReserveSlot() -> Bool {
-        service.tryReserveSlot()
+        if let service { return service.tryReserveSlot() }
+        slotLock.lock()
+        defer { slotLock.unlock() }
+        guard !fixedSlotReserved else { return false }
+        fixedSlotReserved = true
+        return true
     }
 
     func waitForSlot(timeout: TimeInterval) async -> Bool {
-        await service.waitForSlot(timeout: timeout)
+        if let service { return await service.waitForSlot(timeout: timeout) }
+        if timeout <= 0 { return tryReserveSlot() }
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            if tryReserveSlot() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     func releaseSlot() {
-        service.releaseSlot()
+        if let service {
+            service.releaseSlot()
+            return
+        }
+        slotLock.lock()
+        fixedSlotReserved = false
+        slotLock.unlock()
     }
 
     func tokenize(text: String) async throws -> [Int] {
         do {
+            guard let service else {
+                throw AFMError.unsupportedCapability("tokenization for this provider")
+            }
             return try await service.tokenize(text: text)
         } catch MLXServiceError.noModelLoaded {
             throw AFMError.unsupportedCapability("tokenization without a loaded model")
@@ -50,19 +87,23 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     }
 
     func ensureBatchMode(concurrency: Int) async throws {
-        try await service.ensureBatchMode(concurrency: concurrency)
+        if let service {
+            try await service.ensureBatchMode(concurrency: concurrency)
+        } else if concurrency > 1 {
+            throw AFMError.unsupportedCapability("concurrent batch generation for this provider")
+        }
     }
 
     func releaseBatchReference() {
-        service.releaseBatchReference()
+        service?.releaseBatchReference()
     }
 
     func cancelBatchSlots(ids: Set<UUID>) async {
-        await service.cancelBatchSlots(ids: ids)
+        if let service { await service.cancelBatchSlots(ids: ids) }
     }
 
     func startAPIProfile() {
-        service.startAPIProfile()
+        service?.startAPIProfile()
     }
 
     func stopAPIProfile(
@@ -71,12 +112,18 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfile {
-        service.stopAPIProfile(
+        if let service {
+            return service.stopAPIProfile(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
+        }
+        return Self.profile(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             promptTime: promptTime,
-            generateTime: generateTime
-        )
+            generateTime: generateTime)
     }
 
     func stopAPIProfileExtended(
@@ -85,12 +132,20 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfileExtended {
-        service.stopAPIProfileExtended(
-            promptTokens: promptTokens,
-            completionTokens: completionTokens,
-            promptTime: promptTime,
-            generateTime: generateTime
-        )
+        if let service {
+            return service.stopAPIProfileExtended(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
+        }
+        return AFMProfileExtended(
+            summary: Self.profile(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime),
+            samples: [])
     }
 
     func generate(
@@ -393,12 +448,33 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         )
     }
 
-    private func afmModel(for model: String) -> AFMMLXModel {
-        AFMMLXModel(
-            modelID: AFMModelID(rawValue: model),
-            resolver: resolver,
-            attachedService: service
-        )
+    private func afmModel(for model: String) -> AnyAFMModel {
+        if let fixedModel { return fixedModel }
+        return AnyAFMModel(
+            AFMMLXModel(
+                modelID: AFMModelID(rawValue: model),
+                resolver: resolver,
+                attachedService: service!))
+    }
+
+    private static func profile(
+        promptTokens: Int,
+        completionTokens: Int,
+        promptTime: Double,
+        generateTime: Double
+    ) -> AFMProfile {
+        AFMProfile(
+            gpuPowerAvgW: nil,
+            gpuPowerPeakW: nil,
+            gpuSamples: nil,
+            memoryWeightsGiB: nil,
+            memoryKvGiB: nil,
+            memoryPeakGiB: nil,
+            prefillTokS: promptTime > 0 ? Double(promptTokens) / promptTime : nil,
+            decodeTokS: generateTime > 0 ? Double(completionTokens) / generateTime : nil,
+            chip: nil,
+            theoreticalBwGbs: nil,
+            estBandwidthGbs: nil)
     }
 
     private func generationConfig(

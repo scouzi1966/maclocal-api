@@ -6,6 +6,13 @@ import MLX
 import MLXNN
 import Tokenizers
 
+private func deepseekV4LoadTrace(_ message: String) {
+    guard ProcessInfo.processInfo.environment["VMLX_DSV4_LOAD_TRACE"] == "1" else {
+        return
+    }
+    fputs("[DSV4Load] \(message)\n", stderr)
+}
+
 /// Download the model using the `HubApi`.
 ///
 /// This will download `*.safetensors` and `*.json` if the ``ModelConfiguration``
@@ -66,6 +73,7 @@ public func loadWeights(
     quantization: BaseConfiguration.Quantization? = nil,
     perLayerQuantization: BaseConfiguration.PerLayerQuantization? = nil
 ) throws {
+    deepseekV4LoadTrace("begin")
     // load the weights
     var weights = [String: MLXArray]()
     let enumerator = FileManager.default.enumerator(
@@ -101,12 +109,17 @@ public func loadWeights(
     }
 
     // per-model cleanup
+    deepseekV4LoadTrace("sanitize begin")
     weights = model.sanitize(weights: weights)
+    deepseekV4LoadTrace("sanitize complete")
     let usesSymmetricQ8 =
         (model as? DeepseekV4SymmetricQ8Model)?.usesDeepseekV4SymmetricQ8 == true
+    let usesQ80 =
+        (model as? DeepseekV4SymmetricQ8Model)?.usesDeepseekV4Q80 == true
 
     // quantize if needed
     if quantization != nil || perLayerQuantization != nil || hasOfficialBlockScaledWeights {
+        deepseekV4LoadTrace("module quantization begin")
         quantize(model: model, filter: { path, module in
             if weights["\(path).scales"] != nil {
                 if let perLayerQuantization {
@@ -133,18 +146,19 @@ public func loadWeights(
             // for MXFP modes (which require biases=nil). Use the direct init
             // for both MXFP4 and MXFP8 checkpoint layers.
             if (mode == .mxfp4 || mode == .mxfp8 ||
-                (usesSymmetricQ8 && mode == .affine && bits == 8 && groupSize == 32)),
+                ((usesSymmetricQ8 || usesQ80) && mode == .affine && bits == 8 && groupSize == 32)),
                 let linear = module as? Linear
             {
                 let (qw, scales, biases) = MLX.quantized(
                     linear.weight, groupSize: groupSize, bits: bits, mode: mode)
                 return DeepseekV4QuantizedLinear(
                     weight: qw, bias: linear.bias, scales: scales,
-                    biases: usesSymmetricQ8 && mode == .affine ? nil : biases,
+                    biases: (usesSymmetricQ8 || usesQ80) && mode == .affine ? nil : biases,
                     groupSize: groupSize, bits: bits, mode: mode)
             }
             return quantizeSingle(layer: module, groupSize: groupSize, bits: bits, mode: mode)
         })
+        deepseekV4LoadTrace("module quantization complete")
     }
 
     // apply the loaded weights
@@ -152,9 +166,13 @@ public func loadWeights(
     // Use .noUnusedKeys only (skip .shapeMismatch) to match Python's strict=False.
     // Custom modules like GLM5's MultiLinear have manually quantized weights with
     // packed shapes that differ from the model's logical init shapes.
+    deepseekV4LoadTrace("parameter update begin")
     try model.update(parameters: parameters, verify: [.noUnusedKeys])
+    deepseekV4LoadTrace("parameter update complete")
 
+    deepseekV4LoadTrace("parameter eval begin")
     eval(model)
+    deepseekV4LoadTrace("parameter eval complete")
 }
 
 /// Infer MLX's floating-point quantization mode from an official packed weight

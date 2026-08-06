@@ -1,19 +1,41 @@
 diff --git a/mlx/backend/metal/custom_kernel.cpp b/mlx/backend/metal/custom_kernel.cpp
-index eec6645b..6b55a63d 100644
+index eec6645b..7b02c7cb 100644
 --- a/mlx/backend/metal/custom_kernel.cpp
 +++ b/mlx/backend/metal/custom_kernel.cpp
 @@ -2,6 +2,7 @@
- 
+
  #include <iostream>
  #include <regex>
 +#include <cstdlib>
- 
+
  #include "mlx/backend/common/compiled.h"
  #include "mlx/backend/gpu/copy.h"
-@@ -324,6 +325,826 @@ CustomKernelFunction metal_kernel(
+@@ -22,6 +23,21 @@ static CustomKernelCache& cache() {
+   return cache_;
+ };
+
++static bool deepseek_v4_aligned_mxfp4_enabled() {
++  const char* value = std::getenv("VMLX_DSV4_ALIGNED_MXFP4");
++  return value != nullptr &&
++      (std::string(value) == "1" || std::string(value) == "true");
++}
++
++static size_t deepseek_v4_expected_mxfp4_weight_elements(
++    size_t packed_weight_elements) {
++  // The aligned layout prefixes every 64 packed words with four uint32 scale
++  // words, so its routed tensors contain 68/64 as many uint32 elements.
++  return deepseek_v4_aligned_mxfp4_enabled()
++      ? packed_weight_elements * 17 / 16
++      : packed_weight_elements;
++}
++
+ std::string write_signature(
+     std::string func_name,
+     const std::string& header,
+@@ -324,6 +340,1234 @@ CustomKernelFunction metal_kernel(
    };
  }
- 
+
 +array deepseek_v4_mxfp4_moe(
 +    const array& x,
 +    const array& gate_weight,
@@ -52,9 +74,15 @@ index eec6645b..6b55a63d 100644
 +      size_t(experts) * hidden_dims * (input_dims / 8);
 +  constexpr size_t down_weight_elements =
 +      size_t(experts) * input_dims * (hidden_dims / 8);
-+  require(gate_weight.size() == routed_weight_elements &&
-+              up_weight.size() == routed_weight_elements &&
-+              down_weight.size() == down_weight_elements,
++  require(gate_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      routed_weight_elements) &&
++              up_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      routed_weight_elements) &&
++              down_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      down_weight_elements),
 +          "[deepseek_v4_mxfp4_moe] unsupported routed weight geometry");
 +  constexpr size_t routed_scale_elements =
 +      size_t(experts) * hidden_dims * groups_in;
@@ -120,9 +148,15 @@ index eec6645b..6b55a63d 100644
 +      size_t(experts) * hidden_dims * (input_dims / 8);
 +  constexpr size_t down_weight_elements =
 +      size_t(experts) * input_dims * (hidden_dims / 8);
-+  require(gate_weight.size() == routed_weight_elements &&
-+              up_weight.size() == routed_weight_elements &&
-+              down_weight.size() == down_weight_elements,
++  require(gate_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      routed_weight_elements) &&
++              up_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      routed_weight_elements) &&
++              down_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      down_weight_elements),
 +          "[deepseek_v4_mxfp4_moe_select] unsupported routed weight geometry");
 +  constexpr size_t routed_scale_elements =
 +      size_t(experts) * hidden_dims * groups_in;
@@ -192,9 +226,15 @@ index eec6645b..6b55a63d 100644
 +  require(gate_scales.dtype() == uint8 && up_scales.dtype() == uint8 &&
 +              down_scales.dtype() == uint8,
 +          "[deepseek_v4_mxfp4_moe_select_shared_q8] invalid routed scales");
-+  require(gate_weight.size() == size_t(experts) * hidden_dims * (input_dims / 8) &&
-+              up_weight.size() == size_t(experts) * hidden_dims * (input_dims / 8) &&
-+              down_weight.size() == size_t(experts) * input_dims * (hidden_dims / 8),
++  require(gate_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      size_t(experts) * hidden_dims * (input_dims / 8)) &&
++              up_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      size_t(experts) * hidden_dims * (input_dims / 8)) &&
++              down_weight.size() ==
++                  deepseek_v4_expected_mxfp4_weight_elements(
++                      size_t(experts) * input_dims * (hidden_dims / 8)),
 +          "[deepseek_v4_mxfp4_moe_select_shared_q8] invalid routed geometry");
 +  require(gate_scales.size() == size_t(experts) * hidden_dims * groups_in &&
 +              up_scales.size() == size_t(experts) * hidden_dims * groups_in &&
@@ -235,6 +275,61 @@ index eec6645b..6b55a63d 100644
 +      x.shape(),
 +      float32,
 +      std::make_shared<DeepseekV4MXFP4MoE>(s, activation_limit, true, true),
++      std::move(inputs));
++}
++
++array deepseek_v4_hc_mxfp4_moe_shared_q8(
++    const array& residual,
++    const array& hc_fn,
++    const array& hc_scale,
++    const array& hc_base,
++    const array& norm_weight,
++    const array& router_weight,
++    const array& router_bias,
++    const array& route_scale,
++    const array& gate_weight,
++    const array& gate_scales,
++    const array& up_weight,
++    const array& up_scales,
++    const array& down_weight,
++    const array& down_scales,
++    const array& shared_gate_weight,
++    const array& shared_gate_scales,
++    const array& shared_up_weight,
++    const array& shared_up_scales,
++    const array& shared_down_weight,
++    const array& shared_down_scales,
++    float activation_limit,
++    float hc_eps,
++    float norm_eps,
++    StreamOrDevice s_ /* = {} */) {
++  auto require = [](bool condition, const char* message) {
++    if (!condition) throw std::invalid_argument(message);
++  };
++  require(residual.size() == 4 * 4096 && residual.shape(-1) == 4096,
++          "[deepseek_v4_hc_mxfp4_moe_shared_q8] invalid HC residual");
++  require(hc_fn.size() == 24 * 4 * 4096 && hc_scale.size() == 3 &&
++              hc_base.size() == 24 && norm_weight.size() == 4096,
++          "[deepseek_v4_hc_mxfp4_moe_shared_q8] invalid HC parameters");
++  require(router_weight.size() == 256 * 4096 && router_bias.size() == 256 &&
++              route_scale.size() == 1,
++          "[deepseek_v4_hc_mxfp4_moe_shared_q8] invalid router parameters");
++  auto s = to_stream(s_);
++  require(s.device == Device::gpu,
++          "[deepseek_v4_hc_mxfp4_moe_shared_q8] only supports the GPU");
++  std::vector<array> inputs{
++      residual, hc_fn, hc_scale, hc_base, norm_weight,
++      router_weight, router_bias, route_scale,
++      gate_weight, gate_scales, up_weight, up_scales,
++      down_weight, down_scales,
++      shared_gate_weight, shared_gate_scales,
++      shared_up_weight, shared_up_scales,
++      shared_down_weight, shared_down_scales};
++  return array(
++      residual.shape(),
++      residual.dtype(),
++      std::make_shared<DeepseekV4HCQ8MoE>(
++          s, activation_limit, hc_eps, norm_eps),
 +      std::move(inputs));
 +}
 +
@@ -521,6 +616,193 @@ index eec6645b..6b55a63d 100644
 +)metal";
 +}
 +
++static const char* deepseek_v4_hc_collapse_norm_route_source() {
++  return R"metal(
++constexpr uint HC = 4u;
++constexpr uint D = 4096u;
++constexpr uint FLAT = HC * D;
++constexpr uint MIX = 24u;
++constexpr uint EXPERTS = 256u;
++const uint tid = thread_position_in_threadgroup.x;
++
++threadgroup float flatRMSPartials[8];
++threadgroup float collapsedRMSPartials[8];
++threadgroup float mixes[24];
++threadgroup float pre[4];
++threadgroup float postLocal[4];
++threadgroup float combLocal[16];
++threadgroup float collapsed[4096];
++threadgroup float invFlatRMS;
++threadgroup float invCollapsedRMS;
++
++float flatSquares = 0.0f;
++for (uint i = tid; i < FLAT; i += 256u) {
++  const float value = static_cast<float>(residual[i]);
++  flatSquares += value * value;
++}
++flatSquares = simd_sum(flatSquares);
++if ((tid & 31u) == 0u) flatRMSPartials[tid >> 5u] = flatSquares;
++threadgroup_barrier(mem_flags::mem_threadgroup);
++if (tid < 8u) {
++  float value = flatRMSPartials[tid];
++  value = simd_sum(value);
++  if (tid == 0u) invFlatRMS = precise::rsqrt(value / float(FLAT) + HC_EPS);
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++
++if (tid < MIX) {
++  float sum = 0.0f;
++  const uint row = tid * FLAT;
++  for (uint i = 0u; i < FLAT; ++i) {
++    sum += static_cast<float>(residual[i]) * static_cast<float>(hcFn[row + i]);
++  }
++  mixes[tid] = sum * invFlatRMS;
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++
++if (tid == 0u) {
++  for (uint i = 0u; i < 4u; ++i) {
++    const float z = mixes[i] * static_cast<float>(hcScale[0])
++        + static_cast<float>(hcBase[i]);
++    pre[i] = 1.0f / (1.0f + metal::fast::exp(-z)) + HC_EPS;
++    const float postZ = mixes[4u + i] * static_cast<float>(hcScale[1])
++        + static_cast<float>(hcBase[4u + i]);
++    postLocal[i] = 2.0f / (1.0f + metal::fast::exp(-postZ));
++    post[i] = postLocal[i];
++  }
++  float c[16];
++  for (uint dst = 0u; dst < 4u; ++dst) {
++    float rowMax = -INFINITY;
++    for (uint src = 0u; src < 4u; ++src) {
++      const uint index = dst * 4u + src;
++      const float value = mixes[8u + index] * static_cast<float>(hcScale[2])
++          + static_cast<float>(hcBase[8u + index]);
++      c[index] = value;
++      rowMax = max(rowMax, value);
++    }
++    float rowSum = 0.0f;
++    for (uint src = 0u; src < 4u; ++src) {
++      const uint index = dst * 4u + src;
++      c[index] = metal::fast::exp(c[index] - rowMax);
++      rowSum += c[index];
++    }
++    const float inv = 1.0f / rowSum;
++    for (uint src = 0u; src < 4u; ++src) c[dst * 4u + src] = c[dst * 4u + src] * inv + HC_EPS;
++  }
++  for (uint src = 0u; src < 4u; ++src) {
++    float sum = 0.0f;
++    for (uint dst = 0u; dst < 4u; ++dst) sum += c[dst * 4u + src];
++    const float inv = 1.0f / (sum + HC_EPS);
++    for (uint dst = 0u; dst < 4u; ++dst) c[dst * 4u + src] *= inv;
++  }
++  for (uint iter = 1u; iter < 20u; ++iter) {
++    for (uint dst = 0u; dst < 4u; ++dst) {
++      float sum = 0.0f;
++      for (uint src = 0u; src < 4u; ++src) sum += c[dst * 4u + src];
++      const float inv = 1.0f / (sum + HC_EPS);
++      for (uint src = 0u; src < 4u; ++src) c[dst * 4u + src] *= inv;
++    }
++    for (uint src = 0u; src < 4u; ++src) {
++      float sum = 0.0f;
++      for (uint dst = 0u; dst < 4u; ++dst) sum += c[dst * 4u + src];
++      const float inv = 1.0f / (sum + HC_EPS);
++      for (uint dst = 0u; dst < 4u; ++dst) c[dst * 4u + src] *= inv;
++    }
++  }
++  for (uint i = 0u; i < 16u; ++i) {
++    combLocal[i] = c[i];
++    comb[i] = c[i];
++  }
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++
++float collapsedSquares = 0.0f;
++for (uint d = tid; d < D; d += 256u) {
++  float value = static_cast<float>(residual[d]) * pre[0];
++  value += static_cast<float>(residual[D + d]) * pre[1];
++  value += static_cast<float>(residual[2u * D + d]) * pre[2];
++  value += static_cast<float>(residual[3u * D + d]) * pre[3];
++  collapsed[d] = value;
++  collapsedSquares += value * value;
++}
++collapsedSquares = simd_sum(collapsedSquares);
++if ((tid & 31u) == 0u) collapsedRMSPartials[tid >> 5u] = collapsedSquares;
++threadgroup_barrier(mem_flags::mem_threadgroup);
++if (tid < 8u) {
++  float value = collapsedRMSPartials[tid];
++  value = simd_sum(value);
++  if (tid == 0u) invCollapsedRMS = precise::rsqrt(value / float(D) + NORM_EPS);
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++for (uint d = tid; d < D; d += 256u) {
++  normalized[d] = static_cast<bfloat16_t>(collapsed[d] * invCollapsedRMS
++      * static_cast<float>(normWeight[d]));
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++
++if (tid < EXPERTS) {
++  float sum = 0.0f;
++  const uint row = tid * D;
++  for (uint d = 0u; d < D; ++d) {
++    const float value = collapsed[d] * invCollapsedRMS
++        * static_cast<float>(normWeight[d]);
++    sum += value * static_cast<float>(routerWeight[row + d]);
++  }
++  logits[tid] = sum;
++}
++)metal";
++}
++
++static const char* deepseek_v4_shared_q8_down_hc_expand_source() {
++  return R"metal(
++constexpr uint INPUT = 2048u;
++constexpr uint OUTPUT = 4096u;
++constexpr uint GROUPS = 64u;
++const uint lane = thread_index_in_simdgroup;
++const uint simd = simdgroup_index_in_threadgroup;
++const uint rowBase = threadgroup_position_in_grid.x * 2u;
++const uint laneGroup = lane >> 2u;
++const uint laneOffset = (lane & 3u) * 8u;
++const device char *packed = reinterpret_cast<const device char *>(sharedDownW);
++
++float rowSum[2] = {0.0f, 0.0f};
++for (uint group = simd * 8u + laneGroup; group < GROUPS; group += 32u) {
++  const uint inputBase = group * 32u + laneOffset;
++  float values[8];
++  for (uint i = 0u; i < 8u; ++i) values[i] = sharedActivated[inputBase + i];
++  for (uint row = 0u; row < 2u && rowBase + row < OUTPUT; ++row) {
++    const uint outputRow = rowBase + row;
++    const uint weightBase = outputRow * INPUT + inputBase;
++    float dot = 0.0f;
++    for (uint i = 0u; i < 8u; ++i) dot += static_cast<float>(packed[weightBase + i]) * values[i];
++    rowSum[row] += dot * static_cast<float>(sharedDownS[outputRow * GROUPS + group]);
++  }
++}
++
++threadgroup float partial[8];
++for (uint row = 0u; row < 2u; ++row) {
++  const float reduced = simd_sum(rowSum[row]);
++  if (lane == 0u) partial[row * 4u + simd] = reduced;
++}
++threadgroup_barrier(mem_flags::mem_threadgroup);
++if (simd == 0u && lane < 2u && rowBase + lane < OUTPUT) {
++  const uint d = rowBase + lane;
++  const uint offset = lane * 4u;
++  const float shared = partial[offset] + partial[offset + 1u]
++      + partial[offset + 2u] + partial[offset + 3u];
++  const float block = routed[d] + shared;
++  for (uint dst = 0u; dst < 4u; ++dst) {
++    float value = block * static_cast<float>(post[dst]);
++    value += static_cast<float>(comb[dst]) * static_cast<float>(residual[d]);
++    value += static_cast<float>(comb[4u + dst]) * static_cast<float>(residual[OUTPUT + d]);
++    value += static_cast<float>(comb[8u + dst]) * static_cast<float>(residual[2u * OUTPUT + d]);
++    value += static_cast<float>(comb[12u + dst]) * static_cast<float>(residual[3u * OUTPUT + d]);
++    expanded[dst * OUTPUT + d] = static_cast<bfloat16_t>(value);
++  }
++}
++)metal";
++}
++
 +static const char* deepseek_v4_mxfp4_gate_up_source() {
 +  return R"metal(
 +constexpr uint ROWS = 2u;
@@ -608,20 +890,20 @@ index eec6645b..6b55a63d 100644
 +    const device uchar *upQ = reinterpret_cast<const device uchar *>(upW)
 +        + (row_base + group * WORDS_PER_GROUP) * 4u;
 +    const uint shift = half_lane * 4u;
-+#define AFM_PACK_INTERLEAVED4(q, offset) \
++#define AFM_PACK_INTERLEAVED8(q, offset) \
 +    (uint((q)[(offset)] >> shift) & 15u) | \
 +    ((uint((q)[(offset) + 1u] >> shift) & 15u) << 4u) | \
 +    ((uint((q)[(offset) + 2u] >> shift) & 15u) << 8u) | \
-+    ((uint((q)[(offset) + 3u] >> shift) & 15u) << 12u)
-+    const uint gate0 = AFM_PACK_INTERLEAVED4(gateQ, 0u);
-+    const uint gate0High = AFM_PACK_INTERLEAVED4(gateQ, 4u);
-+    const uint gate1 = AFM_PACK_INTERLEAVED4(gateQ, 8u);
-+    const uint gate1High = AFM_PACK_INTERLEAVED4(gateQ, 12u);
-+    const uint up0 = AFM_PACK_INTERLEAVED4(upQ, 0u);
-+    const uint up0High = AFM_PACK_INTERLEAVED4(upQ, 4u);
-+    const uint up1 = AFM_PACK_INTERLEAVED4(upQ, 8u);
-+    const uint up1High = AFM_PACK_INTERLEAVED4(upQ, 12u);
-+#undef AFM_PACK_INTERLEAVED4
++    ((uint((q)[(offset) + 3u] >> shift) & 15u) << 12u) | \
++    ((uint((q)[(offset) + 4u] >> shift) & 15u) << 16u) | \
++    ((uint((q)[(offset) + 5u] >> shift) & 15u) << 20u) | \
++    ((uint((q)[(offset) + 6u] >> shift) & 15u) << 24u) | \
++    ((uint((q)[(offset) + 7u] >> shift) & 15u) << 28u)
++    const uint gate0 = AFM_PACK_INTERLEAVED8(gateQ, 0u);
++    const uint gate1 = AFM_PACK_INTERLEAVED8(gateQ, 8u);
++    const uint up0 = AFM_PACK_INTERLEAVED8(upQ, 0u);
++    const uint up1 = AFM_PACK_INTERLEAVED8(upQ, 8u);
++#undef AFM_PACK_INTERLEAVED8
 +#endif
 +#else
 +    const uint gate0 = gateW[word_base];
@@ -637,7 +919,7 @@ index eec6645b..6b55a63d 100644
 +            gate0 >> 16
 +#endif
 +        )) + dot(x2, AFM_DSV4_FP4X4(gate1)) + dot(x3, AFM_DSV4_FP4X4(
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +            gate1High
 +#else
 +            gate1 >> 16
@@ -645,13 +927,13 @@ index eec6645b..6b55a63d 100644
 +        )));
 +    up_sum[row] += up_scale * (dot(x0, AFM_DSV4_FP4X4(up0)) +
 +        dot(x1, AFM_DSV4_FP4X4(
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +            up0High
 +#else
 +            up0 >> 16
 +#endif
 +        )) + dot(x2, AFM_DSV4_FP4X4(up1)) + dot(x3, AFM_DSV4_FP4X4(
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +            up1High
 +#else
 +            up1 >> 16
@@ -704,14 +986,14 @@ index eec6645b..6b55a63d 100644
 +  const uint ix = lane >> 1u;
 +  const uint half_lane = lane & 1u;
 +  for (uint group = ix; group < GROUPS; group += 16u) {
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +    const uint activation_base = route * INPUT + group * GROUP_SIZE + half_lane * 8u;
 +#else
 +    const uint activation_base = route * INPUT + group * GROUP_SIZE + half_lane * 16u;
 +#endif
 +    const float4 x0 = float4(activated[activation_base], activated[activation_base + 1u],
 +                             activated[activation_base + 2u], activated[activation_base + 3u]);
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +    const float4 x1 = float4(activated[activation_base + 16u], activated[activation_base + 17u],
 +                             activated[activation_base + 18u], activated[activation_base + 19u]);
 +    const float4 x2 = float4(activated[activation_base + 4u], activated[activation_base + 5u],
@@ -748,16 +1030,18 @@ index eec6645b..6b55a63d 100644
 +      const device uchar *q = reinterpret_cast<const device uchar *>(downW)
 +          + (row_base + group * WORDS_PER_GROUP) * 4u;
 +      const uint shift = half_lane * 4u;
-+#define AFM_PACK_INTERLEAVED4(q, offset) \
++#define AFM_PACK_INTERLEAVED8(q, offset) \
 +    (uint((q)[(offset)] >> shift) & 15u) | \
 +    ((uint((q)[(offset) + 1u] >> shift) & 15u) << 4u) | \
 +    ((uint((q)[(offset) + 2u] >> shift) & 15u) << 8u) | \
-+    ((uint((q)[(offset) + 3u] >> shift) & 15u) << 12u)
-+      const uint packed0 = AFM_PACK_INTERLEAVED4(q, 0u);
-+      const uint packed0High = AFM_PACK_INTERLEAVED4(q, 4u);
-+      const uint packed1 = AFM_PACK_INTERLEAVED4(q, 8u);
-+      const uint packed1High = AFM_PACK_INTERLEAVED4(q, 12u);
-+#undef AFM_PACK_INTERLEAVED4
++    ((uint((q)[(offset) + 3u] >> shift) & 15u) << 12u) | \
++    ((uint((q)[(offset) + 4u] >> shift) & 15u) << 16u) | \
++    ((uint((q)[(offset) + 5u] >> shift) & 15u) << 20u) | \
++    ((uint((q)[(offset) + 6u] >> shift) & 15u) << 24u) | \
++    ((uint((q)[(offset) + 7u] >> shift) & 15u) << 28u)
++      const uint packed0 = AFM_PACK_INTERLEAVED8(q, 0u);
++      const uint packed1 = AFM_PACK_INTERLEAVED8(q, 8u);
++#undef AFM_PACK_INTERLEAVED8
 +#endif
 +#else
 +      const uint packed0 = downW[word_base];
@@ -765,13 +1049,13 @@ index eec6645b..6b55a63d 100644
 +#endif
 +      route_sum[row] += scale * (dot(x0, AFM_DSV4_FP4X4(packed0)) +
 +          dot(x1, AFM_DSV4_FP4X4(
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +              packed0High
 +#else
 +              packed0 >> 16
 +#endif
 +          )) + dot(x2, AFM_DSV4_FP4X4(packed1)) + dot(x3, AFM_DSV4_FP4X4(
-+#if AFM_DSV4_INTERLEAVED_MXFP4
++#if AFM_DSV4_INTERLEAVED_MXFP4 && AFM_DSV4_INTERLEAVED_LANES
 +              packed1High
 +#else
 +              packed1 >> 16
@@ -782,6 +1066,152 @@ index eec6645b..6b55a63d 100644
 +  for (uint row = 0u; row < ROWS; ++row) {
 +    total[row] += simd_sum(route_sum[row]);
 +  }
++}
++if (lane == 0u) {
++  for (uint row = 0u; row < ROWS; ++row) reduced[hidden + row] = total[row];
++}
++)metal";
++}
++
++static const char* deepseek_v4_aligned_mxfp4_gate_up_source() {
++  return R"metal(
++constexpr uint ROWS = 2u;
++constexpr uint ROUTES = 6u;
++constexpr uint EXPERTS = 256u;
++constexpr uint HIDDEN = 2048u;
++constexpr uint GROUP_SIZE = 32u;
++constexpr uint GROUPS = 128u;
++constexpr uint GROUPS_PER_SUPERBLOCK = 16u;
++constexpr uint SUPERBLOCKS = GROUPS / GROUPS_PER_SUPERBLOCK;
++constexpr uint SUPERBLOCK_WORDS = 68u;
++const uint linear = thread_position_in_grid.x;
++const uint lane = thread_index_in_simdgroup;
++const uint simd = linear / 32u;
++const uint simdInThreadgroup = simdgroup_index_in_threadgroup;
++const uint tile = simd % (HIDDEN / ROWS);
++const uint route = simd / (HIDDEN / ROWS);
++const uint hidden = tile * ROWS;
++if (route >= ROUTES) return;
++const uint expert = static_cast<uint>(indices[route]);
++if (expert >= EXPERTS) return;
++#if AFM_DSV4_THREADGROUP_LUT
++threadgroup float fp4Lut[16];
++if (simdInThreadgroup == 0u && lane < 16u) fp4Lut[lane] = afm_dsv4_fp4[lane];
++threadgroup_barrier(mem_flags::mem_threadgroup);
++#endif
++float gate_sum[ROWS] = {0.0f};
++float up_sum[ROWS] = {0.0f};
++const uint group_offset = lane >> 1u;
++const uint half_lane = lane & 1u;
++for (uint superblock = 0u; superblock < SUPERBLOCKS; ++superblock) {
++  const uint group = superblock * GROUPS_PER_SUPERBLOCK + group_offset;
++  const uint activation_base = group * GROUP_SIZE + half_lane * 16u;
++  const float4 x0 = float4(float(x[activation_base]), float(x[activation_base + 1u]),
++                           float(x[activation_base + 2u]), float(x[activation_base + 3u]));
++  const float4 x1 = float4(float(x[activation_base + 4u]), float(x[activation_base + 5u]),
++                           float(x[activation_base + 6u]), float(x[activation_base + 7u]));
++  const float4 x2 = float4(float(x[activation_base + 8u]), float(x[activation_base + 9u]),
++                           float(x[activation_base + 10u]), float(x[activation_base + 11u]));
++  const float4 x3 = float4(float(x[activation_base + 12u]), float(x[activation_base + 13u]),
++                           float(x[activation_base + 14u]), float(x[activation_base + 15u]));
++  for (uint row = 0u; row < ROWS; ++row) {
++    const uint output = hidden + row;
++    const uint block = ((expert * HIDDEN + output) * SUPERBLOCKS + superblock)
++        * SUPERBLOCK_WORDS;
++    const device uchar *gate_scale_bytes =
++        reinterpret_cast<const device uchar *>(gateW + block);
++    const device uchar *up_scale_bytes =
++        reinterpret_cast<const device uchar *>(upW + block);
++    const uint word_offset = 4u + group_offset * 4u + half_lane * 2u;
++    const uint gate0 = gateW[block + word_offset];
++    const uint gate1 = gateW[block + word_offset + 1u];
++    const uint up0 = upW[block + word_offset];
++    const uint up1 = upW[block + word_offset + 1u];
++    gate_sum[row] += afm_dsv4_e8m0(gate_scale_bytes[group_offset]) *
++        (dot(x0, AFM_DSV4_FP4X4(gate0)) +
++         dot(x1, AFM_DSV4_FP4X4(gate0 >> 16)) +
++         dot(x2, AFM_DSV4_FP4X4(gate1)) +
++         dot(x3, AFM_DSV4_FP4X4(gate1 >> 16)));
++    up_sum[row] += afm_dsv4_e8m0(up_scale_bytes[group_offset]) *
++        (dot(x0, AFM_DSV4_FP4X4(up0)) +
++         dot(x1, AFM_DSV4_FP4X4(up0 >> 16)) +
++         dot(x2, AFM_DSV4_FP4X4(up1)) +
++         dot(x3, AFM_DSV4_FP4X4(up1 >> 16)));
++  }
++}
++for (uint row = 0u; row < ROWS; ++row) {
++  gate_sum[row] = simd_sum(gate_sum[row]);
++  up_sum[row] = simd_sum(up_sum[row]);
++}
++if (lane == 0u) {
++  for (uint row = 0u; row < ROWS; ++row) {
++    const float gate = min(gate_sum[row], ACTIVATION_LIMIT);
++    const float up = clamp(up_sum[row], -ACTIVATION_LIMIT, ACTIVATION_LIMIT);
++    activated[route * HIDDEN + hidden + row] =
++        (gate / (1.0f + metal::fast::exp(-gate))) * up * float(scores[route]);
++  }
++}
++)metal";
++}
++
++static const char* deepseek_v4_aligned_mxfp4_down_source() {
++  return R"metal(
++constexpr uint ROWS = 2u;
++constexpr uint ROUTES = 6u;
++constexpr uint EXPERTS = 256u;
++constexpr uint INPUT = 2048u;
++constexpr uint OUTPUT = 4096u;
++constexpr uint GROUP_SIZE = 32u;
++constexpr uint GROUPS = 64u;
++constexpr uint GROUPS_PER_SUPERBLOCK = 16u;
++constexpr uint SUPERBLOCKS = GROUPS / GROUPS_PER_SUPERBLOCK;
++constexpr uint SUPERBLOCK_WORDS = 68u;
++const uint linear = thread_position_in_grid.x;
++const uint lane = thread_index_in_simdgroup;
++const uint simd = linear / 32u;
++const uint simdInThreadgroup = simdgroup_index_in_threadgroup;
++const uint hidden = simd * ROWS;
++if (hidden >= OUTPUT) return;
++#if AFM_DSV4_THREADGROUP_LUT
++threadgroup float fp4Lut[16];
++if (simdInThreadgroup == 0u && lane < 16u) fp4Lut[lane] = afm_dsv4_fp4[lane];
++threadgroup_barrier(mem_flags::mem_threadgroup);
++#endif
++float total[ROWS] = {0.0f};
++const uint group_offset = lane >> 1u;
++const uint half_lane = lane & 1u;
++for (uint route = 0u; route < ROUTES; ++route) {
++  const uint expert = static_cast<uint>(indices[route]);
++  if (expert >= EXPERTS) continue;
++  float route_sum[ROWS] = {0.0f};
++  for (uint superblock = 0u; superblock < SUPERBLOCKS; ++superblock) {
++    const uint group = superblock * GROUPS_PER_SUPERBLOCK + group_offset;
++    const uint activation_base = route * INPUT + group * GROUP_SIZE + half_lane * 16u;
++    const float4 x0 = float4(activated[activation_base], activated[activation_base + 1u],
++                             activated[activation_base + 2u], activated[activation_base + 3u]);
++    const float4 x1 = float4(activated[activation_base + 4u], activated[activation_base + 5u],
++                             activated[activation_base + 6u], activated[activation_base + 7u]);
++    const float4 x2 = float4(activated[activation_base + 8u], activated[activation_base + 9u],
++                             activated[activation_base + 10u], activated[activation_base + 11u]);
++    const float4 x3 = float4(activated[activation_base + 12u], activated[activation_base + 13u],
++                             activated[activation_base + 14u], activated[activation_base + 15u]);
++    for (uint row = 0u; row < ROWS; ++row) {
++      const uint output = hidden + row;
++      const uint block = ((expert * OUTPUT + output) * SUPERBLOCKS + superblock)
++          * SUPERBLOCK_WORDS;
++      const device uchar *scale_bytes =
++          reinterpret_cast<const device uchar *>(downW + block);
++      const uint word_offset = 4u + group_offset * 4u + half_lane * 2u;
++      const uint packed0 = downW[block + word_offset];
++      const uint packed1 = downW[block + word_offset + 1u];
++      route_sum[row] += afm_dsv4_e8m0(scale_bytes[group_offset]) *
++          (dot(x0, AFM_DSV4_FP4X4(packed0)) +
++           dot(x1, AFM_DSV4_FP4X4(packed0 >> 16)) +
++           dot(x2, AFM_DSV4_FP4X4(packed1)) +
++           dot(x3, AFM_DSV4_FP4X4(packed1 >> 16)));
++    }
++  }
++  for (uint row = 0u; row < ROWS; ++row) total[row] += simd_sum(route_sum[row]);
 +}
 +if (lane == 0u) {
 +  for (uint row = 0u; row < ROWS; ++row) reduced[hidden + row] = total[row];
@@ -837,10 +1267,10 @@ index eec6645b..6b55a63d 100644
  void CustomKernel::eval_gpu(
      const std::vector<array>& inputs,
      std::vector<array>& outputs) {
-@@ -427,4 +1248,347 @@ void CustomKernel::eval_gpu(
+@@ -427,4 +1671,520 @@ void CustomKernel::eval_gpu(
    d.add_temporaries(std::move(copies), s.index);
  }
- 
+
 +void DeepseekV4MXFP4MoE::eval_gpu(
 +    const std::vector<array>& inputs,
 +    std::vector<array>& outputs) {
@@ -890,6 +1320,13 @@ index eec6645b..6b55a63d 100644
 +  const bool interleaved_lanes = interleaved && interleaved_lanes_raw != nullptr &&
 +      (std::string(interleaved_lanes_raw) == "1" ||
 +       std::string(interleaved_lanes_raw) == "true");
++  const char* aligned_raw = std::getenv("VMLX_DSV4_ALIGNED_MXFP4");
++  const bool aligned = aligned_raw != nullptr &&
++      (std::string(aligned_raw) == "1" || std::string(aligned_raw) == "true");
++  if (interleaved && aligned) {
++    throw std::invalid_argument(
++        "DeepSeek V4 interleaved and aligned MXFP4 layouts are mutually exclusive");
++  }
 +  std::string header = threadgroup_lut
 +      ? "\n#define AFM_DSV4_THREADGROUP_LUT 1\n"
 +      : "\n#define AFM_DSV4_THREADGROUP_LUT 0\n";
@@ -912,6 +1349,13 @@ index eec6645b..6b55a63d 100644
 +    if (!did_log_interleaved) {
 +      std::cerr << "[DSV4Path] dwarfstar-mxfp4-layout active\n";
 +      did_log_interleaved = true;
++    }
++  }
++  if (aligned) {
++    static bool did_log_aligned = false;
++    if (!did_log_aligned) {
++      std::cerr << "[DSV4Path] aligned-mxfp4-superblocks active\n";
++      did_log_aligned = true;
 +    }
 +  }
 +  header += "\nconstant float ACTIVATION_LIMIT = ";
@@ -961,7 +1405,8 @@ index eec6645b..6b55a63d 100644
 +  source += write_signature(
 +      gate_name,
 +      select_routes_ ? "" : header,
-+      deepseek_v4_mxfp4_gate_up_source(),
++      aligned ? deepseek_v4_aligned_mxfp4_gate_up_source()
++              : deepseek_v4_mxfp4_gate_up_source(),
 +      {"x", "gateW", "gateS", "upW", "upS", "indices", "scores"},
 +      gate_inputs,
 +      {"activated"},
@@ -973,7 +1418,8 @@ index eec6645b..6b55a63d 100644
 +  source += write_signature(
 +      down_name,
 +      "",
-+      deepseek_v4_mxfp4_down_source(),
++      aligned ? deepseek_v4_aligned_mxfp4_down_source()
++              : deepseek_v4_mxfp4_down_source(),
 +      {"activated", "downW", "downS", "indices"},
 +      down_inputs,
 +      {"reduced"},
@@ -1023,6 +1469,7 @@ index eec6645b..6b55a63d 100644
 +      (threadgroup_lut ? "_tg_lut" : "") +
 +      (interleaved ? "_dwarfstar_layout" : "") +
 +      (interleaved_lanes ? "_dwarfstar_lanes" : "") +
++      (aligned ? "_aligned_superblocks" : "") +
 +      (shared_q8_ ? "_shared_q8_" +
 +          std::to_string(static_cast<int>(inputs[11].dtype().val())) : "");
 +  auto& kernel_cache = cache();
@@ -1105,6 +1552,162 @@ index eec6645b..6b55a63d 100644
 +  }
 +}
 +
++void DeepseekV4HCQ8MoE::eval_gpu(
++    const std::vector<array>& inputs,
++    std::vector<array>& outputs) {
++  assert(inputs.size() == 20);
++  assert(outputs.size() == 1);
++  auto& s = stream();
++  auto& d = metal::device(s.device);
++  auto& out = outputs[0];
++  out.set_data(allocator::malloc(out.nbytes()));
++
++  array normalized(Shape{4096}, inputs[0].dtype(), nullptr, {});
++  normalized.set_data(allocator::malloc(normalized.nbytes()));
++  array logits(Shape{256}, float32, nullptr, {});
++  logits.set_data(allocator::malloc(logits.nbytes()));
++  array post(Shape{4}, float32, nullptr, {});
++  post.set_data(allocator::malloc(post.nbytes()));
++  array comb(Shape{16}, float32, nullptr, {});
++  comb.set_data(allocator::malloc(comb.nbytes()));
++  array indices(Shape{6}, uint32, nullptr, {});
++  indices.set_data(allocator::malloc(indices.nbytes()));
++  array scores(Shape{6}, float32, nullptr, {});
++  scores.set_data(allocator::malloc(scores.nbytes()));
++  array activated(Shape{6, 2048}, float32, nullptr, {});
++  activated.set_data(allocator::malloc(activated.nbytes()));
++  array routed(Shape{4096}, float32, nullptr, {});
++  routed.set_data(allocator::malloc(routed.nbytes()));
++  array shared_activated(Shape{2048}, float32, nullptr, {});
++  shared_activated.set_data(allocator::malloc(shared_activated.nbytes()));
++
++  std::ostringstream constants;
++  constants << "\nconstant float ACTIVATION_LIMIT = " << std::scientific
++            << activation_limit_ << "f;\n";
++  constants << "constant float HC_EPS = " << std::scientific << hc_eps_
++            << "f;\n";
++  constants << "constant float NORM_EPS = " << std::scientific << norm_eps_
++            << "f;\n";
++  std::string header = constants.str() + deepseek_v4_mxfp4_header();
++
++  const std::vector<array> hc_inputs{
++      inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5]};
++  const std::vector<array> selector_inputs{logits, inputs[6], inputs[7]};
++  const std::vector<array> gate_inputs{
++      normalized, inputs[8], inputs[9], inputs[10], inputs[11], indices, scores};
++  const std::vector<array> down_inputs{activated, inputs[12], inputs[13], indices};
++  const std::vector<array> shared_gate_inputs{
++      normalized, inputs[14], inputs[15], inputs[16], inputs[17]};
++  const std::vector<array> expand_inputs{
++      shared_activated, inputs[18], inputs[19], routed,
++      inputs[0], post, comb};
++
++  const std::string hc_name = "afm_dsv4_hc_collapse_norm_route";
++  const std::string selector_name = "afm_dsv4_hc_route_select";
++  const std::string gate_name = "afm_dsv4_hc_mxfp4_gate_up";
++  const std::string down_name = "afm_dsv4_hc_mxfp4_down";
++  const std::string shared_gate_name = "afm_dsv4_hc_shared_q8_gate_up";
++  const std::string expand_name = "afm_dsv4_shared_q8_down_hc_expand";
++
++  std::string source = write_signature(
++      hc_name, header, deepseek_v4_hc_collapse_norm_route_source(),
++      {"residual", "hcFn", "hcScale", "hcBase", "normWeight", "routerWeight"},
++      hc_inputs,
++      {"normalized", "logits", "post", "comb"},
++      {inputs[0].dtype(), float32, float32, float32},
++      {}, {"  uint3 thread_position_in_threadgroup [[thread_position_in_threadgroup]]"},
++      std::vector<std::tuple<bool, bool, bool>>(6), false);
++  source += write_signature(
++      selector_name, "", deepseek_v4_route_select_source(),
++      {"logits", "bias", "routeScale"}, selector_inputs,
++      {"indices", "scores"}, {uint32, float32}, {},
++      {"  uint3 thread_position_in_threadgroup [[thread_position_in_threadgroup]]"},
++      std::vector<std::tuple<bool, bool, bool>>(3), false);
++  const std::vector<std::string> routed_attributes{
++      "  uint thread_index_in_simdgroup [[thread_index_in_simdgroup]]",
++      "  uint simdgroup_index_in_threadgroup [[simdgroup_index_in_threadgroup]]",
++      "  uint3 thread_position_in_grid [[thread_position_in_grid]]"};
++  source += write_signature(
++      gate_name, "", deepseek_v4_mxfp4_gate_up_source(),
++      {"x", "gateW", "gateS", "upW", "upS", "indices", "scores"},
++      gate_inputs, {"activated"}, {float32}, {}, routed_attributes,
++      std::vector<std::tuple<bool, bool, bool>>(7), false);
++  source += write_signature(
++      down_name, "", deepseek_v4_mxfp4_down_source(),
++      {"activated", "downW", "downS", "indices"}, down_inputs,
++      {"reduced"}, {float32}, {}, routed_attributes,
++      std::vector<std::tuple<bool, bool, bool>>(4), false);
++  const std::vector<std::string> q8_attributes{
++      "  uint thread_index_in_simdgroup [[thread_index_in_simdgroup]]",
++      "  uint simdgroup_index_in_threadgroup [[simdgroup_index_in_threadgroup]]",
++      "  uint3 threadgroup_position_in_grid [[threadgroup_position_in_grid]]"};
++  source += write_signature(
++      shared_gate_name, "", deepseek_v4_shared_q8_gate_up_source(),
++      {"x", "sharedGateW", "sharedGateS", "sharedUpW", "sharedUpS"},
++      shared_gate_inputs, {"sharedActivated"}, {float32}, {}, q8_attributes,
++      std::vector<std::tuple<bool, bool, bool>>(5), false);
++  source += write_signature(
++      expand_name, "", deepseek_v4_shared_q8_down_hc_expand_source(),
++      {"sharedActivated", "sharedDownW", "sharedDownS", "routed",
++       "residual", "post", "comb"},
++      expand_inputs, {"expanded"}, {inputs[0].dtype()}, {}, q8_attributes,
++      std::vector<std::tuple<bool, bool, bool>>(7), false);
++
++  const std::string library_name = "afm_dsv4_hc_q8_tail_" +
++      std::to_string(static_cast<int>(inputs[0].dtype().val())) + "_" +
++      std::to_string(static_cast<int>(inputs[1].dtype().val())) + "_" +
++      std::to_string(static_cast<int>(inputs[5].dtype().val())) + "_" +
++      std::to_string(static_cast<int>(inputs[15].dtype().val()));
++  auto& kernel_cache = cache();
++  if (auto it = kernel_cache.libraries.find(library_name);
++      it != kernel_cache.libraries.end()) {
++    if (it->second != source) {
++      d.clear_library(library_name);
++      it->second = source;
++    }
++  } else {
++    kernel_cache.libraries.emplace(library_name, source);
++  }
++  auto library = d.get_library(
++      library_name, [&] { return std::string(metal::utils()) + source; });
++  auto& encoder = d.get_command_encoder(s.index);
++
++  auto dispatch = [&](const std::string& name,
++                      const std::vector<array>& kernel_inputs,
++                      const std::vector<array*>& kernel_outputs,
++                      MTL::Size grid,
++                      MTL::Size group) {
++    encoder.set_compute_pipeline_state(d.get_kernel(name, library));
++    int binding = 0;
++    for (const auto& input : kernel_inputs) encoder.set_input_array(input, binding++);
++    for (auto* output : kernel_outputs) encoder.set_output_array(*output, binding++);
++    encoder.dispatch_threads(grid, group);
++  };
++
++  dispatch(hc_name, hc_inputs, {&normalized, &logits, &post, &comb},
++           MTL::Size(256, 1, 1), MTL::Size(256, 1, 1));
++  dispatch(selector_name, selector_inputs, {&indices, &scores},
++           MTL::Size(256, 1, 1), MTL::Size(256, 1, 1));
++  dispatch(gate_name, gate_inputs, {&activated},
++           MTL::Size(32 * 6 * 1024, 1, 1), MTL::Size(64, 1, 1));
++  dispatch(down_name, down_inputs, {&routed},
++           MTL::Size(32 * 2048, 1, 1), MTL::Size(64, 1, 1));
++  dispatch(shared_gate_name, shared_gate_inputs, {&shared_activated},
++           MTL::Size(128 * 1024, 1, 1), MTL::Size(128, 1, 1));
++  dispatch(expand_name, expand_inputs, {&out},
++           MTL::Size(128 * 2048, 1, 1), MTL::Size(128, 1, 1));
++
++  d.add_temporary(std::move(normalized), s.index);
++  d.add_temporary(std::move(logits), s.index);
++  d.add_temporary(std::move(post), s.index);
++  d.add_temporary(std::move(comb), s.index);
++  d.add_temporary(std::move(indices), s.index);
++  d.add_temporary(std::move(scores), s.index);
++  d.add_temporary(std::move(activated), s.index);
++  d.add_temporary(std::move(routed), s.index);
++  d.add_temporary(std::move(shared_activated), s.index);
++}
++
 +void DeepseekV4SymmetricQ8Matvec::eval_gpu(
 +    const std::vector<array>& inputs,
 +    std::vector<array>& outputs) {
@@ -1185,14 +1788,148 @@ index eec6645b..6b55a63d 100644
 +}
 +
  } // namespace mlx::core::fast
+diff --git a/mlx/backend/metal/device.cpp b/mlx/backend/metal/device.cpp
+index 15824d6c..4d586bd3 100644
+--- a/mlx/backend/metal/device.cpp
++++ b/mlx/backend/metal/device.cpp
+@@ -1,5 +1,6 @@
+ // Copyright © 2023-2024 Apple Inc.
+
++#include <cstdio>
+ #include <cstdlib>
+ #include <sstream>
+
+@@ -365,6 +366,23 @@ Device::Device() {
+
+ Device::~Device() {
+   auto pool = new_scoped_memory_pool();
++  const char* profile_value = std::getenv("MLX_PROFILE_COMMAND_BUFFERS");
++  if (profile_value != nullptr && std::string(profile_value) == "1") {
++    uint64_t buffers = 0;
++    uint64_t ops = 0;
++    uint64_t bytes = 0;
++    for (const auto& [_, stream] : stream_map_) {
++      buffers += stream.committed_buffers;
++      ops += stream.committed_ops;
++      bytes += stream.committed_bytes;
++    }
++    std::fprintf(
++        stderr,
++        "[MLXCommandBufferTotals] buffers=%llu ops=%llu bytes=%llu\n",
++        static_cast<unsigned long long>(buffers),
++        static_cast<unsigned long long>(ops),
++        static_cast<unsigned long long>(bytes));
++  }
+   for (auto& [l, kernel_map] : library_kernels_) {
+     l->release();
+     for (auto& [_, k] : kernel_map) {
+@@ -415,6 +433,9 @@ MTL::CommandBuffer* Device::get_command_buffer(int index) {
+
+ void Device::commit_command_buffer(int index) {
+   auto& stream = get_stream_(index);
++  stream.committed_buffers += 1;
++  stream.committed_ops += stream.buffer_ops;
++  stream.committed_bytes += stream.buffer_sizes;
+   stream.buffer->commit();
+   stream.buffer->release();
+   stream.buffer = nullptr;
+@@ -422,6 +443,18 @@ void Device::commit_command_buffer(int index) {
+   stream.buffer_sizes = 0;
+ }
+
++CommandBufferProfile Device::command_buffer_profile_since_report(int index) {
++  auto& stream = get_stream_(index);
++  CommandBufferProfile profile{
++      stream.committed_buffers - stream.reported_buffers,
++      stream.committed_ops - stream.reported_ops,
++      stream.committed_bytes - stream.reported_bytes};
++  stream.reported_buffers = stream.committed_buffers;
++  stream.reported_ops = stream.committed_ops;
++  stream.reported_bytes = stream.committed_bytes;
++  return profile;
++}
++
+ void Device::add_temporary(array arr, int index) {
+   get_stream_(index).temporaries.push_back(std::move(arr));
+ }
+diff --git a/mlx/backend/metal/device.h b/mlx/backend/metal/device.h
+index e6162d7d..dd44dda7 100644
+--- a/mlx/backend/metal/device.h
++++ b/mlx/backend/metal/device.h
+@@ -138,6 +138,12 @@ struct DeviceStream {
+   MTL::CommandBuffer* buffer{nullptr};
+   int buffer_ops{0};
+   size_t buffer_sizes{0};
++  uint64_t committed_buffers{0};
++  uint64_t committed_ops{0};
++  uint64_t committed_bytes{0};
++  uint64_t reported_buffers{0};
++  uint64_t reported_ops{0};
++  uint64_t reported_bytes{0};
+
+   // The command encoder, fence, and temporaries are updated between command
+   // encoders
+@@ -146,6 +152,12 @@ struct DeviceStream {
+   std::vector<array> temporaries;
+ };
+
++struct CommandBufferProfile {
++  uint64_t buffers;
++  uint64_t ops;
++  uint64_t bytes;
++};
++
+ class MLX_API Device {
+  public:
+   Device();
+@@ -172,6 +184,7 @@ class MLX_API Device {
+   MTL::CommandBuffer* get_command_buffer(int index);
+   bool command_buffer_needs_commit(int index);
+   void commit_command_buffer(int index);
++  CommandBufferProfile command_buffer_profile_since_report(int index);
+   CommandEncoder& get_command_encoder(int index);
+   void end_encoding(int index);
+
+diff --git a/mlx/backend/metal/eval.cpp b/mlx/backend/metal/eval.cpp
+index bd58a691..85001721 100644
+--- a/mlx/backend/metal/eval.cpp
++++ b/mlx/backend/metal/eval.cpp
+@@ -1,4 +1,6 @@
+ // Copyright © 2023-2024 Apple Inc.
++#include <cstdio>
++#include <cstdlib>
+ #include <memory>
+
+ #include "mlx/backend/gpu/eval.h"
+@@ -92,6 +94,20 @@ void synchronize(Stream s) {
+   cb->waitUntilCompleted();
+   check_error(cb);
+   cb->release();
++  static const bool profile_command_buffers = [] {
++    const char* value = std::getenv("MLX_PROFILE_COMMAND_BUFFERS");
++    return value != nullptr && std::string(value) == "1";
++  }();
++  if (profile_command_buffers) {
++    const auto profile = d.command_buffer_profile_since_report(s.index);
++    std::fprintf(
++        stderr,
++        "[MLXCommandBuffers] stream=%d buffers=%llu ops=%llu bytes=%llu\n",
++        s.index,
++        static_cast<unsigned long long>(profile.buffers),
++        static_cast<unsigned long long>(profile.ops),
++        static_cast<unsigned long long>(profile.bytes));
++  }
+ }
+
+ } // namespace mlx::core::gpu
 diff --git a/mlx/fast.h b/mlx/fast.h
-index 1183aba8..41cbd29c 100644
+index 1183aba8..bb197344 100644
 --- a/mlx/fast.h
 +++ b/mlx/fast.h
-@@ -77,6 +77,68 @@ MLX_API CustomKernelFunction metal_kernel(
+@@ -77,6 +77,97 @@ MLX_API CustomKernelFunction metal_kernel(
      bool ensure_row_contiguous = true,
      bool atomic_outputs = false);
- 
+
 +// Metadata-gated DeepSeek V4 decode primitive used by AFM. The caller must
 +// validate the exact 4096/2048/256/top-6 MXFP4 group-32 contract before use.
 +MLX_API array deepseek_v4_mxfp4_moe(
@@ -1245,6 +1982,35 @@ index 1183aba8..41cbd29c 100644
 +    float activation_limit,
 +    StreamOrDevice s = {});
 +
++// Decode-only HC=4 FFN tail. This keeps HC collapse/normalization, routing,
++// routed MXFP4 experts, the symmetric-Q8 shared expert, and HC expansion in a
++// single typed primitive while preserving the ordinary path as a fallback.
++MLX_API array deepseek_v4_hc_mxfp4_moe_shared_q8(
++    const array& residual,
++    const array& hc_fn,
++    const array& hc_scale,
++    const array& hc_base,
++    const array& norm_weight,
++    const array& router_weight,
++    const array& router_bias,
++    const array& route_scale,
++    const array& gate_weight,
++    const array& gate_scales,
++    const array& up_weight,
++    const array& up_scales,
++    const array& down_weight,
++    const array& down_scales,
++    const array& shared_gate_weight,
++    const array& shared_gate_scales,
++    const array& shared_up_weight,
++    const array& shared_up_scales,
++    const array& shared_down_weight,
++    const array& shared_down_scales,
++    float activation_limit,
++    float hc_eps,
++    float norm_eps,
++    StreamOrDevice s = {});
++
 +// Signed symmetric Q8/group-32 matvec used by checkpoints that explicitly
 +// advertise AFM's storage contract. output_groups=1 is an ordinary matvec;
 +// larger values select one weight bank for each penultimate input dimension.
@@ -1259,13 +2025,13 @@ index 1183aba8..41cbd29c 100644
      const std::string& name,
      const std::vector<std::string>& input_names,
 diff --git a/mlx/fast_primitives.h b/mlx/fast_primitives.h
-index 44348308..58cb907f 100644
+index 44348308..83364d60 100644
 --- a/mlx/fast_primitives.h
 +++ b/mlx/fast_primitives.h
-@@ -424,4 +424,55 @@ class CustomKernel : public Primitive {
+@@ -424,4 +424,86 @@ class CustomKernel : public Primitive {
    int shared_memory_;
  };
- 
+
 +class DeepseekV4MXFP4MoE : public Primitive {
 + public:
 +  DeepseekV4MXFP4MoE(
@@ -1317,6 +2083,37 @@ index 44348308..58cb907f 100644
 +  int output_groups_;
 +};
 +
++class DeepseekV4HCQ8MoE : public Primitive {
++ public:
++  DeepseekV4HCQ8MoE(
++      Stream stream,
++      float activation_limit,
++      float hc_eps,
++      float norm_eps)
++      : Primitive(stream),
++        activation_limit_(activation_limit),
++        hc_eps_(hc_eps),
++        norm_eps_(norm_eps) {}
++
++  void eval_cpu(const std::vector<array>& inputs, std::vector<array>& outputs)
++      override {
++    throw std::runtime_error("DeepSeek V4 HC/MoE tail only runs on GPU.");
++  }
++
++  void eval_gpu(const std::vector<array>& inputs, std::vector<array>& outputs)
++      override;
++
++  DEFINE_NAME(DeepseekV4HCQ8MoE);
++  auto state() const {
++    return std::make_tuple(activation_limit_, hc_eps_, norm_eps_);
++  }
++
++ private:
++  float activation_limit_;
++  float hc_eps_;
++  float norm_eps_;
++};
++
  } // namespace mlx::core::fast
 diff --git a/mlx/io/safetensors.cpp b/mlx/io/safetensors.cpp
 index b8f91ba9..e0fc9410 100644
@@ -1327,7 +2124,7 @@ index b8f91ba9..e0fc9410 100644
  #define ST_U64 "U64"
  #define ST_F8_E4M3 "F8_E4M3"
 +#define ST_F8_E8M0 "F8_E8M0" // AFM_PATCH_F8_E8M0_SAFETENSORS
- 
+
  // Note: Complex numbers aren't in the spec yet so this could change -
  // https://github.com/huggingface/safetensors/issues/389
 @@ -94,7 +95,9 @@ Dtype dtype_from_safetensor_str(std::string_view str) {

@@ -117,7 +117,7 @@ private enum SwitchGLUKernelEngine {
     }
 
     static var deepseekMXFP4StagedMoEEnabled: Bool {
-        let raw = (ProcessInfo.processInfo.environment["VMLX_DSV4_STAGED_MOE"] ?? "0")
+        let raw = (ProcessInfo.processInfo.environment["VMLX_DSV4_STAGED_MOE"] ?? "1")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return nativeDeepseekMXFP4Enabled && (raw == "1" || raw == "true")
@@ -1153,6 +1153,72 @@ public class SwitchGLU: Module, SwitchGLULayer {
             sharedUp: sharedUp,
             sharedDown: sharedDown,
             limit: limit)
+    }
+
+    /// Decode-only DeepSeek V4 tail that keeps HC collapse, routing, routed
+    /// MXFP4 experts, the shared symmetric-Q8 expert, and HC expansion in one
+    /// typed primitive. Routed projections remain encapsulated by SwitchGLU;
+    /// model-specific HC and shared-expert tensors are supplied by the caller.
+    public func deepseekV4FusedHCTailWithSharedQ8(
+        residual: MLXArray,
+        hcFunction: MLXArray,
+        hcScale: MLXArray,
+        hcBase: MLXArray,
+        normWeight: MLXArray,
+        routerWeight: MLXArray,
+        routerBias: MLXArray,
+        routeScale: MLXArray,
+        sharedGateWeight: MLXArray,
+        sharedGateScales: MLXArray,
+        sharedUpWeight: MLXArray,
+        sharedUpScales: MLXArray,
+        sharedDownWeight: MLXArray,
+        sharedDownScales: MLXArray,
+        activationLimit: Float,
+        hcEps: Float,
+        normEps: Float
+    ) -> MLXArray? {
+        guard inputDims == 4096,
+              hiddenDims == 2048,
+              numExperts == 256,
+              let gate = gateProj as? QuantizedSwitchLinear,
+              let up = upProj as? QuantizedSwitchLinear,
+              let down = downProj as? QuantizedSwitchLinear,
+              gate.mode == .mxfp4,
+              up.mode == .mxfp4,
+              down.mode == .mxfp4,
+              gate.groupSize == 32,
+              up.groupSize == 32,
+              down.groupSize == 32,
+              gate.bits == 4,
+              up.bits == 4,
+              down.bits == 4
+        else { return nil }
+
+        return MLXFast.deepseekV4HCDecodeTailWithSharedQ8(
+            residual: contiguous(residual),
+            hcFunction: contiguous(hcFunction),
+            hcScale: contiguous(hcScale),
+            hcBase: contiguous(hcBase),
+            normWeight: contiguous(normWeight),
+            routerWeight: contiguous(routerWeight),
+            routerBias: contiguous(routerBias),
+            routeScale: contiguous(routeScale),
+            gateWeight: contiguous(gate.weight),
+            gateScales: contiguous(gate.scales),
+            upWeight: contiguous(up.weight),
+            upScales: contiguous(up.scales),
+            downWeight: contiguous(down.weight),
+            downScales: contiguous(down.scales),
+            sharedGateWeight: contiguous(sharedGateWeight),
+            sharedGateScales: contiguous(sharedGateScales),
+            sharedUpWeight: contiguous(sharedUpWeight),
+            sharedUpScales: contiguous(sharedUpScales),
+            sharedDownWeight: contiguous(sharedDownWeight),
+            sharedDownScales: contiguous(sharedDownScales),
+            activationLimit: activationLimit,
+            hcEps: hcEps,
+            normEps: normEps)
     }
 
     /// Variant for model graphs that weight each routed activation before its

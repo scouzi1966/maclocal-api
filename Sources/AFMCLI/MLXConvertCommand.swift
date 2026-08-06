@@ -1,4 +1,5 @@
 import AFMKitMLX
+import AFMKitDwarfStar
 import ArgumentParser
 import Foundation
 
@@ -19,9 +20,15 @@ struct MLXConvertCommand: ParsableCommand {
 
     @Option(
         name: .long,
-        help: "Conversion profile: native, dwarfstar-q8, dwarfstar-symmetric-q8, dwarfstar-symmetric-q8-interleaved-mxfp4, or dwarfstar-symmetric-q8-aligned-mxfp4"
+        help: "Conversion profile: native, dwarfstar-executor, dwarfstar-q8, dwarfstar-q8-0, dwarfstar-symmetric-q8, dwarfstar-symmetric-q8-interleaved-mxfp4, or dwarfstar-symmetric-q8-aligned-mxfp4"
     )
     var profile = DeepseekV4CheckpointConverter.Profile.native.rawValue
+
+    @Option(
+        name: .long,
+        help: "Reference DS4 GGUF used to bundle the compact metadata template required by dwarfstar-executor"
+    )
+    var templateGGUF: String?
 
     mutating func run() throws {
         guard let conversionProfile = DeepseekV4CheckpointConverter.Profile(rawValue: profile) else {
@@ -35,5 +42,36 @@ struct MLXConvertCommand: ParsableCommand {
             profile: conversionProfile,
             progress: { print($0) })
         try converter.run()
+
+        if conversionProfile == .dwarfstarExecutor {
+            guard let templateGGUF, !templateGGUF.isEmpty else {
+                throw ValidationError(
+                    "--template-gguf is required for dwarfstar-executor so the converted checkpoint is self-contained")
+            }
+            let templateOutput = URL(fileURLWithPath: output, isDirectory: true)
+                .appendingPathComponent(
+                    AFMDwarfStarCheckpointCatalog.bundledTemplateFilename,
+                    isDirectory: false)
+            try AFMDwarfStarProjection.writeMetadataTemplate(
+                from: URL(fileURLWithPath: templateGGUF),
+                to: templateOutput)
+            print("Bundled DwarfStar metadata template: \(templateOutput.path)")
+        }
+    }
+}
+
+struct MLXAlignExecutorCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "mlx-align-executor",
+        abstract: "Align an existing AFM DwarfStar executor checkpoint for Metal"
+    )
+
+    @Option(name: .long, help: "Executor checkpoint directory to upgrade in place")
+    var checkpoint: String
+
+    mutating func run() throws {
+        try AlignedSafetensorRewriter.rewriteCheckpoint(
+            at: URL(fileURLWithPath: checkpoint, isDirectory: true),
+            progress: { print($0) })
     }
 }

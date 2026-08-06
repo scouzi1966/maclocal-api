@@ -7,11 +7,14 @@ import MLXLMCommon
 /// into the tensor layout consumed directly by AFMKit's MLX provider.
 public struct DeepseekV4CheckpointConverter {
     public typealias ProgressHandler = (String) -> Void
+    private static let currentFormatVersion = 11
 
     public enum Profile: String, Codable, CaseIterable, Sendable {
         case native
         case dwarfstarQ8 = "dwarfstar-q8"
         case dwarfstarSymmetricQ8 = "dwarfstar-symmetric-q8"
+        case dwarfstarQ80 = "dwarfstar-q8-0"
+        case dwarfstarExecutor = "dwarfstar-executor"
         case dwarfstarSymmetricQ8InterleavedMXFP4 =
             "dwarfstar-symmetric-q8-interleaved-mxfp4"
         case dwarfstarSymmetricQ8AlignedMXFP4 =
@@ -37,7 +40,7 @@ public struct DeepseekV4CheckpointConverter {
     }
 
     struct State: Codable {
-        var formatVersion = 1
+        var formatVersion = DeepseekV4CheckpointConverter.currentFormatVersion
         var profile: String?
         var completed: [String: CompletedShard] = [:]
         var quantization: [String: Quantization] = [:]
@@ -118,6 +121,10 @@ public struct DeepseekV4CheckpointConverter {
         try fm.createDirectory(at: outputURL, withIntermediateDirectories: true)
 
         var state = try loadState()
+        guard state.formatVersion == Self.currentFormatVersion else {
+            throw ConversionError.outputExists(
+                "Conversion format mismatch: output uses version \(state.formatVersion), current converter uses \(Self.currentFormatVersion). Use --overwrite to rebuild it.")
+        }
         if state.profile != nil || !state.completed.isEmpty {
             let storedProfile = state.profile ?? Profile.native.rawValue
             guard storedProfile == profile.rawValue else {
@@ -140,6 +147,8 @@ public struct DeepseekV4CheckpointConverter {
         guard !shards.isEmpty else {
             throw ConversionError.invalidSource("No .safetensors shards found in \(sourceURL.path)")
         }
+        let sourceTensorNames = try Self.safetensorNames(in: shards)
+        let materializeTiedOutputHead = !Self.containsOutputHead(sourceTensorNames)
 
         report("Converting \(shards.count) DeepSeek V4 shards")
         report("  source: \(sourceURL.path)")
@@ -169,6 +178,13 @@ public struct DeepseekV4CheckpointConverter {
             var converted = model.sanitize(weights: weights)
             if profile == .dwarfstarQ8 {
                 converted = try convertDwarfstarQ8Control(converted)
+            } else if profile == .dwarfstarQ80 || profile == .dwarfstarExecutor {
+                converted = try convertDwarfstarQ80(
+                    converted,
+                    materializeTiedOutputHead: materializeTiedOutputHead)
+                if profile == .dwarfstarExecutor {
+                    converted = try convertDwarfstarExecutorLayout(converted)
+                }
             } else if profile == .dwarfstarSymmetricQ8
                         || profile == .dwarfstarSymmetricQ8InterleavedMXFP4
                         || profile == .dwarfstarSymmetricQ8AlignedMXFP4 {
@@ -185,6 +201,9 @@ public struct DeepseekV4CheckpointConverter {
             try? fm.removeItem(at: partial)
             report("[\(index + 1)/\(shards.count)] \(name): writing \(converted.count) tensors")
             try save(arrays: converted, metadata: metadata, url: partial)
+            if profile == .dwarfstarExecutor {
+                try AlignedSafetensorRewriter.rewriteFileInPlace(partial)
+            }
             try replaceOrMove(partial, to: destination)
             let outputSize = Int64(
                 try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
@@ -201,10 +220,18 @@ public struct DeepseekV4CheckpointConverter {
         configObject["afm_symmetric_q8"] = profile == .dwarfstarSymmetricQ8
             || profile == .dwarfstarSymmetricQ8InterleavedMXFP4
             || profile == .dwarfstarSymmetricQ8AlignedMXFP4
+        configObject["afm_q8_0"] = profile == .dwarfstarQ80
+            || profile == .dwarfstarExecutor
         configObject["afm_dwarfstar_mxfp4_layout"] =
             profile == .dwarfstarSymmetricQ8InterleavedMXFP4
+                || profile == .dwarfstarExecutor
+        configObject["afm_dwarfstar_mxfp4_packed"] = profile == .dwarfstarExecutor
         configObject["afm_aligned_mxfp4_layout"] =
             profile == .dwarfstarSymmetricQ8AlignedMXFP4
+        configObject["afm_dwarfstar_executor_layout_version"] =
+            profile == .dwarfstarExecutor ? 3 : 0
+        configObject["afm_dwarfstar_tensor_alignment"] =
+            profile == .dwarfstarExecutor ? 32 : 0
         configObject["quantization"] = quantizationJSON(state.quantization)
         let convertedConfig = try JSONSerialization.data(
             withJSONObject: configObject, options: [.prettyPrinted, .sortedKeys])
@@ -235,7 +262,9 @@ public struct DeepseekV4CheckpointConverter {
             state.weightMap[key] = shard
             guard key.hasSuffix(".scales") else { continue }
             let base = String(key.dropLast(".scales".count))
-            if (profile == .dwarfstarSymmetricQ8
+            if (profile == .dwarfstarQ80
+                    || profile == .dwarfstarExecutor
+                    || profile == .dwarfstarSymmetricQ8
                     || profile == .dwarfstarSymmetricQ8InterleavedMXFP4
                     || profile == .dwarfstarSymmetricQ8AlignedMXFP4),
                Self.usesDwarfstarQ8Control(base)
@@ -377,6 +406,167 @@ public struct DeepseekV4CheckpointConverter {
         return result
     }
 
+    /// Converts dense tensors to the GGML/DwarfStar Q8_0 row ABI. Each block
+    /// stores one FP16 scale immediately followed by 32 signed weight bytes.
+    /// A scale sidecar is retained only so the generic model loader can recover
+    /// the logical matrix geometry; the Q8_0 runtime reads the interleaved scale.
+    private func convertDwarfstarQ80(
+        _ weights: [String: MLXArray],
+        materializeTiedOutputHead: Bool
+    ) throws -> [String: MLXArray] {
+        var result = materializeTiedOutputHead
+            ? try Self.addDwarfstarTiedOutputHead(weights)
+            : weights
+        if materializeTiedOutputHead,
+           weights["model.embed_tokens.weight"] != nil,
+           weights["lm_head.weight"] == nil {
+            report("    Q8_0: lm_head (tied embedding copy)")
+        }
+        let sidecarBases = weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".scales") else { return nil }
+            return String(key.dropLast(".scales".count))
+        }
+        let denseBases = weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".weight") else { return nil }
+            let base = String(key.dropLast(".weight".count))
+            guard let value = weights[key],
+                  Self.usesDwarfstarQ8Control(base),
+                  weights["\(base).scales"] == nil,
+                  value.dtype.isFloatingPoint,
+                  value.ndim == 2,
+                  value.dim(1).isMultiple(of: 32)
+            else { return nil }
+            return base
+        }
+        let bases = Set(sidecarBases + denseBases)
+
+        for base in bases.sorted() where Self.usesDwarfstarQ8Control(base) {
+            guard let weight = weights["\(base).weight"] else {
+                throw ConversionError.unsupportedQuantization(
+                    "Cannot convert \(base) to Q8_0")
+            }
+
+            let dequantized: MLXArray
+            if let scales = weights["\(base).scales"] {
+                guard let source = inferOfficialBlockQuantization(
+                    weightShape: weight.shape, scaleShape: scales.shape)
+                else {
+                    throw ConversionError.unsupportedQuantization(
+                        "Cannot infer source quantization for \(base)")
+                }
+                dequantized = MLX.dequantized(
+                    weight,
+                    scales: scales,
+                    biases: weights["\(base).biases"],
+                    groupSize: source.groupSize,
+                    bits: source.bits,
+                    mode: source.mode,
+                    dtype: .float16)
+            } else {
+                dequantized = weight.asType(.float16)
+            }
+            guard dequantized.ndim == 2, dequantized.dim(1).isMultiple(of: 32) else {
+                throw ConversionError.unsupportedQuantization(
+                    "Q8_0 requires a 2-D matrix with 32-aligned input: \(base) \(dequantized.shape)")
+            }
+
+            let (blocks, q8Scales) = try Self.q80Blocks(dequantized)
+            MLX.eval(blocks, q8Scales)
+
+            result["\(base).weight"] = blocks
+            result["\(base).scales"] = q8Scales
+            result.removeValue(forKey: "\(base).biases")
+            report("    Q8_0: \(base)")
+        }
+        return result
+    }
+
+    static func containsOutputHead(_ tensorNames: Set<String>) -> Bool {
+        tensorNames.contains("head.weight")
+            || tensorNames.contains("lm_head.weight")
+            || tensorNames.contains("model.lm_head.weight")
+    }
+
+    private static func safetensorNames(in shards: [URL]) throws -> Set<String> {
+        var names: Set<String> = []
+        for shard in shards {
+            let handle = try FileHandle(forReadingFrom: shard)
+            defer { try? handle.close() }
+            guard let sizeData = try handle.read(upToCount: 8), sizeData.count == 8 else {
+                throw ConversionError.invalidSource(
+                    "Invalid safetensor header in \(shard.lastPathComponent)")
+            }
+            let headerSize = sizeData.enumerated().reduce(UInt64(0)) { value, byte in
+                value | (UInt64(byte.element) << UInt64(byte.offset * 8))
+            }
+            guard headerSize <= UInt64(Int.max),
+                  let headerData = try handle.read(upToCount: Int(headerSize)),
+                  headerData.count == Int(headerSize),
+                  let header = try JSONSerialization.jsonObject(with: headerData)
+                    as? [String: Any]
+            else {
+                throw ConversionError.invalidSource(
+                    "Invalid safetensor metadata in \(shard.lastPathComponent)")
+            }
+            names.formUnion(header.keys.filter { $0 != "__metadata__" })
+        }
+        return names
+    }
+
+    /// DeepSeek V4 ties the output head to the FP16 token embedding. DS4 uses
+    /// the same values through two different ABIs, so retain the embedding and
+    /// materialize a separate Q8_0 output projection for its fixed schedule.
+    static func addDwarfstarTiedOutputHead(
+        _ weights: [String: MLXArray]
+    ) throws -> [String: MLXArray] {
+        guard weights["lm_head.weight"] == nil,
+              let embedding = weights["model.embed_tokens.weight"]
+        else { return weights }
+        let (blocks, scales) = try q80Blocks(embedding.asType(.float16))
+        MLX.eval(blocks, scales)
+        var result = weights
+        result["lm_head.weight"] = blocks
+        result["lm_head.scales"] = scales
+        return result
+    }
+
+    static func q80Blocks(_ dequantized: MLXArray) throws -> (MLXArray, MLXArray) {
+        guard dequantized.ndim == 2, dequantized.dim(1).isMultiple(of: 32) else {
+            throw ConversionError.unsupportedQuantization(
+                "Q8_0 requires a 2-D matrix with 32-aligned input: \(dequantized.shape)")
+        }
+        let rows = dequantized.dim(0)
+        let inputDimensions = dequantized.dim(1)
+        let groups = inputDimensions / 32
+        // GGML computes Q8_0 block scales and normalized values in float32,
+        // even when the checkpoint source is BF16/F16. Keeping these
+        // reductions in F16 changes both scale bits and rounded quants.
+        let grouped = dequantized.asType(.float32).reshaped([rows, groups, 32])
+        let scale = abs(grouped).max(axis: 2, keepDims: true) / 127
+        let inverseScale = MLX.where(
+            scale .== Float(0),
+            MLXArray(Float(0)),
+            MLXArray(Float(1)) / scale)
+        // GGML multiplies by the reciprocal; division is not bit-equivalent
+        // near half-integer rounding boundaries.
+        let normalized = grouped * inverseScale
+        let magnitude = abs(normalized)
+        let integral = floor(magnitude)
+        // GGML Q8_0 uses roundf semantics (half away from zero). MLX.round
+        // uses a different tie rule, which changes checkpoint bytes and can
+        // alter greedy token selection despite otherwise identical weights.
+        let rounded = sign(normalized)
+            * (integral + floor(2 * (magnitude - integral)))
+        let quantized = clip(rounded, min: -127, max: 127)
+            .asType(.int8)
+        let q8Scales = scale.reshaped([rows, groups]).asType(.float16)
+        let scaleBytes = q8Scales.reshaped([rows, groups, 1]).view(dtype: .uint8)
+        let quantizedBytes = quantized.view(dtype: .uint8)
+        let blocks = concatenated([scaleBytes, quantizedBytes], axis: 2)
+            .reshaped([rows, groups * 34])
+        return (blocks, q8Scales)
+    }
+
     /// Reorders each 32-value routed MXFP4 block into DwarfStar's lane-oriented
     /// byte layout. Quantized values and E8M0 scales are unchanged.
     private func convertRoutedMXFP4ToDwarfstarLayout(
@@ -425,6 +615,142 @@ public struct DeepseekV4CheckpointConverter {
             report("    DwarfStar MXFP4 layout: \(base)")
         }
         return result
+    }
+
+    /// Produces the tensor byte ABI consumed by the fixed-schedule DwarfStar
+    /// executor. Unlike the MLX-oriented profiles, every executable tensor is
+    /// self-contained: Q8_0 and MXFP4 scales are interleaved with their values.
+    private func convertDwarfstarExecutorLayout(
+        _ weights: [String: MLXArray]
+    ) throws -> [String: MLXArray] {
+        var result = try Self.packDwarfstarRoutedMXFP4(weights)
+        result = Self.normalizeDwarfstarExecutorIntegers(result)
+        let bases = weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".scales") else { return nil }
+            return String(key.dropLast(".scales".count))
+        }
+
+        for base in bases.sorted() where base.contains(".switch_mlp.") {
+            report("    packed DwarfStar MXFP4: \(base)")
+        }
+
+        // The canonical DS4 schedule stores all other quantized controls as
+        // F16. Main attention/shared/output matrices were already converted to
+        // Q8_0 above and are deliberately left packed with their scale sidecar.
+        for base in bases.sorted()
+        where !base.contains(".switch_mlp.") && !Self.usesDwarfstarQ8Control(base) {
+            guard let weight = result["\(base).weight"],
+                  let scales = result["\(base).scales"],
+                  let source = inferOfficialBlockQuantization(
+                    weightShape: weight.shape, scaleShape: scales.shape)
+            else {
+                throw ConversionError.unsupportedQuantization(
+                    "Cannot convert DwarfStar F16 control \(base)")
+            }
+            let dequantized = MLX.dequantized(
+                weight,
+                scales: scales,
+                biases: result["\(base).biases"],
+                groupSize: source.groupSize,
+                bits: source.bits,
+                mode: source.mode,
+                dtype: .float16)
+            MLX.eval(dequantized)
+            result["\(base).weight"] = dequantized
+            result.removeValue(forKey: "\(base).scales")
+            result.removeValue(forKey: "\(base).biases")
+            report("    DwarfStar F16: \(base)")
+        }
+
+        let packedBases = Set(bases.filter {
+            $0.contains(".switch_mlp.") || Self.usesDwarfstarQ8Control($0)
+        })
+        for key in result.keys.sorted() {
+            guard var value = result[key],
+                  !key.hasSuffix(".scales"),
+                  !key.hasSuffix(".biases")
+            else { continue }
+            let base = key.hasSuffix(".weight")
+                ? String(key.dropLast(".weight".count)) : key
+            guard !packedBases.contains(base), value.dtype.isFloatingPoint else { continue }
+            value = value.ndim == 1 ? value.asType(.float32) : value.asType(.float16)
+            MLX.eval(value)
+            result[key] = value
+        }
+        return result
+    }
+
+    /// DS4 consumes the token-to-expert routing table as signed 32-bit IDs.
+    /// Official checkpoints store this table as Int64, so preserving the source
+    /// dtype doubles the mapped byte range and violates the executor ABI.
+    static func normalizeDwarfstarExecutorIntegers(
+        _ weights: [String: MLXArray]
+    ) -> [String: MLXArray] {
+        var result = weights
+        for key in result.keys where key.hasSuffix(".mlp.gate.tid2eid") {
+            guard let value = result[key] else { continue }
+            let normalized = value.asType(.int32)
+            MLX.eval(normalized)
+            result[key] = normalized
+        }
+        return result
+    }
+
+    /// Converts routed experts to DS4's self-contained MXFP4 block ABI. Scale
+    /// and bias sidecars must not survive: their presence makes metadata
+    /// inference treat the packed weight as ordinary MLX quantization.
+    static func packDwarfstarRoutedMXFP4(
+        _ weights: [String: MLXArray]
+    ) throws -> [String: MLXArray] {
+        var result = weights
+        let bases = weights.keys.compactMap { key -> String? in
+            guard key.hasSuffix(".scales") else { return nil }
+            return String(key.dropLast(".scales".count))
+        }
+
+        for base in bases.sorted() where base.contains(".switch_mlp.") {
+            guard let weight = weights["\(base).weight"],
+                  let scales = weights["\(base).scales"]
+            else {
+                throw ConversionError.unsupportedQuantization(
+                    "Missing routed MXFP4 tensors for \(base)")
+            }
+            let packed = try dwarfstarMXFP4Blocks(weight: weight, scales: scales)
+            MLX.eval(packed)
+            result["\(base).weight"] = packed
+            result.removeValue(forKey: "\(base).scales")
+            result.removeValue(forKey: "\(base).biases")
+        }
+        return result
+    }
+
+    /// Packs one E8M0 scale byte followed by the 16 lane-reordered E2M1 bytes
+    /// for each group of 32 values, exactly matching GGUF tensor type 39.
+    static func dwarfstarMXFP4Blocks(
+        weight: MLXArray, scales: MLXArray
+    ) throws -> MLXArray {
+        guard weight.dtype == .uint32,
+              scales.dtype == .uint8,
+              weight.size == scales.size * 4
+        else {
+            throw ConversionError.unsupportedQuantization(
+                "DwarfStar MXFP4 blocks require four UInt32 words per E8M0 scale.")
+        }
+
+        let rows = scales.size
+        let words = weight.reshaped([rows, 4])
+        var payload: [MLXArray] = []
+        payload.reserveCapacity(16)
+        for index in 0..<16 {
+            let low = bitwiseAnd(
+                rightShift(words[0..., index / 8], (index % 8) * 4), 0xf)
+            let highIndex = index + 16
+            let high = bitwiseAnd(
+                rightShift(words[0..., highIndex / 8], (highIndex % 8) * 4), 0xf)
+            payload.append(bitwiseOr(low, leftShift(high, 4)).asType(.uint8))
+        }
+        let values = stacked(payload, axis: 1)
+        return concatenated([scales.reshaped([rows, 1]), values], axis: 1)
     }
 
     /// Packs 16 routed MXFP4 groups into a 272-byte aligned superblock:

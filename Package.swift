@@ -32,6 +32,10 @@ let package = Package(
             targets: ["AFMKitMLX"]
         ),
         .library(
+            name: "AFMKitDwarfStar",
+            targets: ["AFMKitDwarfStar"]
+        ),
+        .library(
             name: "AFMKitFoundationModels",
             targets: ["AFMKitFoundationModels"]
         ),
@@ -111,6 +115,50 @@ let package = Package(
             name: "AFMKitServices",
             dependencies: [
                 "AFMKitCore"
+            ]
+        ),
+        .target(
+            name: "CDwarfStar",
+            path: "Sources/CDwarfStar",
+            sources: [
+                "AFMDwarfStarBridge.c",
+                "CDwarfStarEngine.c",
+                "CDwarfStarDistributed.c",
+                "CDwarfStarTensorParallel.c",
+                "CDwarfStarSSD.c",
+                "CDwarfStarMetal.m",
+                "CDwarfStarLayerPack.c"
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .unsafeFlags(
+                    ["-O3", "-ffast-math", "-mcpu=native"],
+                    .when(configuration: .release)
+                )
+            ],
+            linkerSettings: [
+                .linkedFramework("Foundation"),
+                .linkedFramework("Metal")
+            ]
+        ),
+        .target(
+            name: "AFMKitDwarfStar",
+            dependencies: [
+                "AFMKitCore",
+                "CDwarfStar"
+            ],
+            resources: [
+                // `.process` dereferences the source-tree link into the product
+                // bundle. `.copy` preserved the relative symlink, which became
+                // broken once the resource moved under `.build` or an app bundle.
+                .process("Resources/metal")
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-O"], .when(configuration: .release)),
+                .unsafeFlags(
+                    ["-file-prefix-map", "\(packageDir)/="],
+                    .when(configuration: .release)
+                )
             ]
         ),
         .target(
@@ -200,6 +248,7 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
+                "AFMKitDwarfStar",
                 "AFMKitMLX",
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
@@ -239,6 +288,8 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
+                "AFMKitDwarfStar",
+                "AFMKitMLX",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitServices",

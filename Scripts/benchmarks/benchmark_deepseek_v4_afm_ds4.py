@@ -28,7 +28,13 @@ DEFAULT_PROMPT = (
 STATS_RE = re.compile(
     r"\[STATS\].*?tg:\s*(\d+)\s+tok,\s*([0-9.]+)s\s*\(([0-9.]+)\s+tok/s\)"
 )
-PROVENANCE_ENV_PREFIXES = ("AFM_MLX_", "VMLX_DSV4_", "BENCH_")
+PROVENANCE_ENV_PREFIXES = (
+    "AFM_DSPARK",
+    "AFM_MLX_",
+    "MLX_",
+    "VMLX_DSV4_",
+    "BENCH_",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,14 +182,22 @@ def required_afm_markers(environment: dict[str, str]) -> list[str]:
         "1", "true", "on",
     }
     markers: list[str] = []
-    if enabled("VMLX_DSV4_SHARED_Q8_STAGE"):
+    if enabled("VMLX_DSV4_FUSED_HC_Q8_TAIL"):
+        markers.append("[DSV4Path] fused-hc-q8-tail active")
+    elif enabled("VMLX_DSV4_SHARED_Q8_STAGE"):
         markers.append("[DSV4Path] staged-shared-q8 active")
     elif enabled("VMLX_DSV4_STAGED_SELECTOR"):
         markers.append("[DSV4Path] staged-selector active")
-    elif enabled("VMLX_DSV4_STAGED_MOE"):
+    elif (
+        environment.get("AFM_MLX_KERNELS", "native").strip().lower() == "native"
+        and environment.get("VMLX_DSV4_STAGED_MOE", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    ):
         markers.append("[DSV4Path] staged-moe active")
     if enabled("VMLX_DSV4_Q8_LM_HEAD"):
         markers.append("[DSV4] output head: runtime affine Q8")
+    if enabled("VMLX_DSV4_OUTER_PROFILE"):
+        markers.append("[DSV4OuterProfile] enabled")
     if enabled("VMLX_DSV4_DWARFSTAR_AFFINE_Q8"):
         markers.append("[DSV4Path] dwarfstar-affine-q8 active")
     if enabled("VMLX_DSV4_SYMMETRIC_Q8"):
@@ -247,6 +261,9 @@ def completion_request(port: int, prompt: str, tokens: int) -> tuple[dict[str, A
         "temperature": 0,
         "max_tokens": tokens,
         "stream": False,
+        # Canonical ds4 uses this OpenAI-compatible control. AFM ignores
+        # unknown request fields and is already launched with --no-think.
+        "thinking": {"type": "disabled"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
     started = time.perf_counter()
@@ -255,14 +272,18 @@ def completion_request(port: int, prompt: str, tokens: int) -> tuple[dict[str, A
 
 
 def response_record(response: dict[str, Any], elapsed: float) -> dict[str, Any]:
-    content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    message = response.get("choices", [{}])[0].get("message", {})
+    content = message.get("content", "")
+    reasoning = message.get("reasoning_content", "")
+    effective_text = content if content else reasoning
     completion_tokens = int(response.get("usage", {}).get("completion_tokens", 0))
     return {
         "completion_tokens": completion_tokens,
         "elapsed_seconds": elapsed,
         "wall_tokens_per_second": completion_tokens / elapsed if elapsed > 0 else 0,
         "finish_reason": response.get("choices", [{}])[0].get("finish_reason"),
-        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "response_field": "content" if content else "reasoning_content",
+        "content_sha256": hashlib.sha256(effective_text.encode("utf-8")).hexdigest(),
     }
 
 
@@ -374,6 +395,7 @@ def main() -> int:
         afm_model = require_model(args.afm_model, "AFM model")
         environment = os.environ.copy()
         environment.update(parse_environment(args.afm_env))
+        environment["AFM_MLX_KERNELS"] = args.afm_kernels
         command = [
             str(afm_binary), "mlx", "-m", str(afm_model),
             "-p", str(args.afm_port), "--no-think", "-t", "0",
