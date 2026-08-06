@@ -8,11 +8,14 @@ final class AFMMLXModelCatalogTests: XCTestCase {
             [
                 "mlx-community/Qwen3-0.6B-4bit",
                 "mlx-community/Qwen3-Coder-Next-4bit",
-                "mlx-community/Qwen3.5-35B-A3B-4bit",
+                "mlx-community/Qwen3.6-35B-A3B-4bit",
                 "mlx-community/gemma-3-4b-it-8bit",
                 "mlx-community/Llama-3.2-1B-Instruct-4bit",
                 "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
                 "mlx-community/gpt-oss-20b-MXFP4-Q8",
+                "mlx-community/North-Mini-Code-1.0-4bit",
+                "mlx-community/gemma-4-e2b-it-4bit",
+                "mlx-community/gemma-4-e4b-it-4bit",
                 "mlx-community/Qwen3-VL-4B-Instruct-4bit",
                 "mlx-community/Qwen3-VL-4B-Instruct-5bit",
                 "mlx-community/Qwen3-VL-4B-Instruct-8bit",
@@ -20,12 +23,26 @@ final class AFMMLXModelCatalogTests: XCTestCase {
                 "mlx-community/Qwen3-VL-8B-Instruct-5bit",
                 "mlx-community/Qwen3-VL-8B-Instruct-8bit",
                 "mlx-community/Qwen3-VL-8B-Instruct-bf16",
+                "mlx-community/Qwen3.6-27B-4bit",
+                "mlx-community/gemma-4-26b-a4b-it-4bit",
+                "mlx-community/gemma-4-31b-it-4bit",
+                "mlx-community/gemma-4-31b-it-8bit",
+                "mlx-community/Qwen3.6-35B-A3B-8bit",
             ]
         )
         XCTAssertEqual(
             AFMMLXModelCatalog.defaultModelID,
             "mlx-community/Qwen3-VL-4B-Instruct-5bit"
         )
+    }
+
+    func testCatalogRetiresQwen35WithoutRemovingGenericLoadSupport() {
+        XCTAssertFalse(
+            AFMMLXModelCatalog.availableModels.contains {
+                $0.repoID.localizedCaseInsensitiveContains("qwen3.5")
+            }
+        )
+        XCTAssertNotNil(AFMMLXModelCatalog.genericModelConfiguration(isVision: false))
     }
 
     func testGenerationPresetsPreserveKnownValues() throws {

@@ -250,8 +250,8 @@ public enum AFMMLXModelCatalog {
             maxTokens: 16384
         ),
         textModel(
-            displayName: "Qwen3.5-35B-A3B-4bit",
-            repoID: "mlx-community/Qwen3.5-35B-A3B-4bit",
+            displayName: "Qwen3.6-35B-A3B-4bit",
+            repoID: "mlx-community/Qwen3.6-35B-A3B-4bit",
             temperature: 0.6,
             topP: 0.95,
             maxTokens: 32768
@@ -284,9 +284,30 @@ public enum AFMMLXModelCatalog {
             topP: 0.95,
             maxTokens: 16384
         ),
+        textModel(
+            displayName: "North-Mini-Code-1.0-4bit",
+            repoID: "mlx-community/North-Mini-Code-1.0-4bit",
+            temperature: 0.3,
+            topP: 0.95,
+            maxTokens: 16384
+        ),
     ]
 
     public static let visionModels: [AFMMLXCuratedModel] = [
+        visionModel(
+            displayName: "Gemma-4-E2B-it-4bit",
+            repoID: "mlx-community/gemma-4-e2b-it-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 8192
+        ),
+        visionModel(
+            displayName: "Gemma-4-E4B-it-4bit",
+            repoID: "mlx-community/gemma-4-e4b-it-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 16384
+        ),
         visionModel(
             displayName: "Qwen3-VL-4B-Instruct-4bit",
             repoID: "mlx-community/Qwen3-VL-4B-Instruct-4bit",
@@ -322,6 +343,41 @@ public enum AFMMLXModelCatalog {
             repoID: "mlx-community/Qwen3-VL-8B-Instruct-bf16",
             maxTokens: 32768
         ),
+        visionModel(
+            displayName: "Qwen3.6-27B-Instruct-4bit",
+            repoID: "mlx-community/Qwen3.6-27B-4bit",
+            temperature: 0.6,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Gemma-4-26B-A4B-it-4bit",
+            repoID: "mlx-community/gemma-4-26b-a4b-it-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Gemma-4-31B-it-4bit",
+            repoID: "mlx-community/gemma-4-31b-it-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Gemma-4-31B-it-8bit",
+            repoID: "mlx-community/gemma-4-31b-it-8bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Qwen3.6-35B-A3B-8bit",
+            repoID: "mlx-community/Qwen3.6-35B-A3B-8bit",
+            temperature: 0.6,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
     ]
 
     public static let availableModels: [AFMMLXCuratedModel] = textModels + visionModels
@@ -350,7 +406,8 @@ public enum AFMMLXModelCatalog {
         case "mlx-community/Qwen3-Coder-Next-4bit",
              "mlx-community/gemma-3-4b-it-8bit":
             return LLMRegistry.qwen3_4b_4bit
-        case "mlx-community/Qwen3.5-35B-A3B-4bit",
+        case "mlx-community/Qwen3.6-35B-A3B-4bit",
+             "mlx-community/North-Mini-Code-1.0-4bit",
              "mlx-community/gpt-oss-20b-MXFP4-Q8":
             return LLMRegistry.qwen3_8b_4bit
         case "mlx-community/Llama-3.2-1B-Instruct-4bit":
@@ -358,11 +415,18 @@ public enum AFMMLXModelCatalog {
         case "mlx-community/Qwen3-VL-4B-Instruct-4bit",
              "mlx-community/Qwen3-VL-4B-Instruct-5bit",
              "mlx-community/Qwen3-VL-8B-Instruct-4bit",
-             "mlx-community/Qwen3-VL-8B-Instruct-5bit":
+             "mlx-community/Qwen3-VL-8B-Instruct-5bit",
+             "mlx-community/gemma-4-e2b-it-4bit",
+             "mlx-community/gemma-4-e4b-it-4bit",
+             "mlx-community/Qwen3.6-27B-4bit",
+             "mlx-community/gemma-4-26b-a4b-it-4bit",
+             "mlx-community/gemma-4-31b-it-4bit":
             return VLMRegistry.qwen3VL4BInstruct4Bit
         case "mlx-community/Qwen3-VL-4B-Instruct-8bit",
              "mlx-community/Qwen3-VL-8B-Instruct-8bit",
-             "mlx-community/Qwen3-VL-8B-Instruct-bf16":
+             "mlx-community/Qwen3-VL-8B-Instruct-bf16",
+             "mlx-community/gemma-4-31b-it-8bit",
+             "mlx-community/Qwen3.6-35B-A3B-8bit":
             return VLMRegistry.qwen3VL4BInstruct8Bit
         default:
             return nil
@@ -393,6 +457,8 @@ public enum AFMMLXModelCatalog {
     private static func visionModel(
         displayName: String,
         repoID: String,
+        temperature: Double = 0.7,
+        topP: Double = 0.8,
         maxTokens: Int
     ) -> AFMMLXCuratedModel {
         AFMMLXCuratedModel(
@@ -401,8 +467,8 @@ public enum AFMMLXModelCatalog {
             capabilities: [.text, .vision, .streaming],
             contextWindow: maxTokens,
             generationPreset: AFMMLXGenerationPreset(
-                temperature: 0.7,
-                topP: 0.8,
+                temperature: temperature,
+                topP: topP,
                 repetitionPenalty: nil,
                 maxTokens: maxTokens
             )
