@@ -1,6 +1,7 @@
 import Foundation
 import AFMOpenAICompat
 import MLX
+@preconcurrency import MLXLLM
 // See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
 // concurrency; downgrade their Sendable diagnostics to warnings.
 @preconcurrency import MLXLMCommon
@@ -207,6 +208,7 @@ actor BatchScheduler {
         cache is KVCacheSimple
             || cache is ArraysCache
             || cache is CacheList
+            || cache is DeepseekV4Cache
             || (cache as? RotatingKVCache)?.isBatchable == true
     }
 
@@ -1270,7 +1272,9 @@ actor BatchScheduler {
         // BatchRotatingKVCache. The decode loop handles them correctly in batch.
         // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
         let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
+        let hasDeepseekHybridLayers = templateCache.contains { $0 is DeepseekV4Cache }
         let canBatch = !hasRotatingLayers
+            && !hasDeepseekHybridLayers
             && templateCache.allSatisfy(Self.supportsDenseBatchMerge)
         if !canBatch {
             for req in requests { prefillOne(req) }
@@ -1500,6 +1504,7 @@ actor BatchScheduler {
             // B=0 → B=1: Keep individual caches if all are simple/batchable types (zero overhead)
             let allSimple = individualCache.allSatisfy {
                 $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList
+                || $0 is DeepseekV4Cache
                 || ($0 as? RotatingKVCache)?.isBatchable == true
             }
             if allSimple {
@@ -1535,7 +1540,9 @@ actor BatchScheduler {
             // B=1 → B≥2: Promote existing + new to batch caches
             Stream.gpu.synchronize()  // Ensure B=1 cache arrays are fully evaluated
             batchCaches = zip(batchCaches, individualCache).map { existing, new in
-                if let existingCL = existing as? CacheList, new is CacheList {
+                if existing is DeepseekV4Cache, new is DeepseekV4Cache {
+                    return BatchDeepseekV4Cache.merge([existing, new]) as KVCache
+                } else if let existingCL = existing as? CacheList, new is CacheList {
                     return BatchCacheList.merge([existingCL, new], leftPadding: [0, 0]) as KVCache
                 } else if let existingAC = existing as? ArraysCache,
                    let newAC = new as? ArraysCache {
@@ -1552,7 +1559,10 @@ actor BatchScheduler {
         case .batched:
             // B≥2 → B+1: Extend existing batch caches
             for layer in 0..<batchCaches.count where layer < individualCache.count {
-                if let batchBCL = batchCaches[layer] as? BatchCacheList,
+                if let batchDeepseek = batchCaches[layer] as? BatchDeepseekV4Cache,
+                   let newDeepseek = individualCache[layer] as? DeepseekV4Cache {
+                    batchDeepseek.extend(with: newDeepseek)
+                } else if let batchBCL = batchCaches[layer] as? BatchCacheList,
                    let newCL = individualCache[layer] as? CacheList {
                     for subIdx in 0..<batchBCL.count where subIdx < newCL.count {
                         if let batchAC = batchBCL[subIdx] as? ArraysCache,
@@ -1708,7 +1718,9 @@ actor BatchScheduler {
             case .batched:
                 let idxArray = MLXArray(keepIndices.map { Int32($0) })
                 for layer in 0..<batchCaches.count {
-                    if let bclCache = batchCaches[layer] as? BatchCacheList {
+                    if let deepseekCache = batchCaches[layer] as? BatchDeepseekV4Cache {
+                        deepseekCache.filter(keepIndices)
+                    } else if let bclCache = batchCaches[layer] as? BatchCacheList {
                         // Filter each sub-cache inside the CacheList
                         for subIdx in 0..<bclCache.count {
                             if let bkvSub = bclCache[subIdx] as? BatchKVCacheSimple {
