@@ -69,6 +69,21 @@ public struct AFMDwarfStarCheckpointCatalog: Sendable {
         tensors.values.reduce(0) { $0 + $1.byteCount }
     }
 
+    /// Returns true when the file has a readable GGUF v3 container header.
+    public static func isGGUF(at url: URL) -> Bool {
+        ggufArchitecture(at: url) != nil
+    }
+
+    /// Reads the model architecture from GGUF metadata without loading tensor
+    /// data. This is the runtime auto-selection signal; filenames are ignored.
+    public static func ggufArchitecture(at url: URL) -> String? {
+        try? GGUFMetadataReader(url: url).architecture()
+    }
+
+    public static func isDwarfStarCompatibleGGUF(at url: URL) -> Bool {
+        ggufArchitecture(at: url) == "deepseek4"
+    }
+
     public init(checkpointURL: URL) throws {
         let root = checkpointURL.standardizedFileURL
         let config = try Self.jsonObject(
@@ -336,5 +351,76 @@ public struct AFMDwarfStarCheckpointCatalog: Sendable {
             return UInt64(value.int64Value)
         }
         return nil
+    }
+}
+
+private final class GGUFMetadataReader {
+    private let handle: FileHandle
+
+    init(url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else { throw CocoaError(.fileReadCorruptFile) }
+        handle = try FileHandle(forReadingFrom: url)
+    }
+
+    deinit { try? handle.close() }
+
+    func architecture() throws -> String? {
+        guard try bytes(4) == Data("GGUF".utf8), try u32() == 3 else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        _ = try u64() // tensor count
+        let metadataCount = try u64()
+        for _ in 0..<metadataCount {
+            let key = try string()
+            let type = try u32()
+            if key == "general.architecture", type == 8 {
+                return try string()
+            }
+            try skipValue(type: type)
+        }
+        return nil
+    }
+
+    private func bytes(_ count: Int) throws -> Data {
+        let data = try handle.read(upToCount: count) ?? Data()
+        guard data.count == count else { throw CocoaError(.fileReadCorruptFile) }
+        return data
+    }
+
+    private func u32() throws -> UInt32 { try integer(UInt32.self) }
+    private func u64() throws -> UInt64 { try integer(UInt64.self) }
+
+    private func string() throws -> String {
+        let count = try u64()
+        guard count <= UInt64(Int.max),
+              let value = String(data: try bytes(Int(count)), encoding: .utf8)
+        else { throw CocoaError(.fileReadCorruptFile) }
+        return value
+    }
+
+    private func skipValue(type: UInt32, depth: Int = 0) throws {
+        guard depth <= 8 else { throw CocoaError(.fileReadCorruptFile) }
+        let scalarSizes: [UInt32: Int] = [
+            0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1,
+            10: 8, 11: 8, 12: 8,
+        ]
+        if let count = scalarSizes[type] {
+            _ = try bytes(count)
+        } else if type == 8 {
+            _ = try string()
+        } else if type == 9 {
+            let elementType = try u32()
+            let count = try u64()
+            for _ in 0..<count { try skipValue(type: elementType, depth: depth + 1) }
+        } else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    private func integer<T: FixedWidthInteger>(_ type: T.Type) throws -> T {
+        try bytes(MemoryLayout<T>.size).withUnsafeBytes {
+            T(littleEndian: $0.loadUnaligned(as: T.self))
+        }
     }
 }

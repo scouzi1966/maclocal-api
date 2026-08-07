@@ -7,6 +7,20 @@ import Testing
 @testable import AFMServer
 
 struct RadixTreeCacheTests {
+
+    @Test("Detailed prefix match reports descendant state boundary")
+    func descendantStateBoundary() {
+        let cache = RadixTreeCache(modelID: "test")
+        cache.insert(
+            tokens: [1, 2, 3, 4],
+            layerStates: [[MLXArray([1])]]
+        )
+
+        let match = cache.findPrefixMatch([1, 2, 9])
+        #expect(match.prefixLen == 2)
+        #expect(match.sourceTokenCount == 4)
+        #expect(match.layerStates != nil)
+    }
 // dimensions: prefix_caching=on
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)

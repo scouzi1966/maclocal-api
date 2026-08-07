@@ -14,9 +14,6 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
             privacyBoundary: .device,
             configurationKeys: [
                 "modelPath",
-                "templateGGUF",
-                "projectionMetadataPath",
-                "externalMapGGUF",
                 "contextWindow",
                 "prefillChunk",
                 "powerPercent",
@@ -29,7 +26,8 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
             ],
             metadata: [
                 "runtime": .string("in-process-ds4"),
-                "execution": .string("fixed-metal-schedule")
+                "execution": .string("fixed-metal-schedule"),
+                "checkpointFormat": .string("native-gguf")
             ]
         )
     }
@@ -50,9 +48,6 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
             AFMDwarfStarModel(
                 modelID: id,
                 modelPath: modelPath,
-                templateGGUF: configuration.string("templateGGUF"),
-                projectionMetadataPath: configuration.string("projectionMetadataPath"),
-                externalMapGGUF: configuration.boolean("externalMapGGUF") ?? false,
                 contextWindow: configuration.integer("contextWindow") ?? 32_768,
                 prefillChunk: configuration.integer("prefillChunk") ?? 0,
                 powerPercent: configuration.integer("powerPercent") ?? 100,
@@ -71,9 +66,6 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
     public let descriptor: AFMModelDescriptor
 
     private let modelPath: String
-    private let templateGGUF: String?
-    private let projectionMetadataPath: String?
-    private let externalMapGGUF: Bool
     private let contextWindow: Int
     private let prefillChunk: Int
     private let powerPercent: Int
@@ -88,9 +80,6 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
     public init(
         modelID: AFMModelID,
         modelPath: String,
-        templateGGUF: String? = nil,
-        projectionMetadataPath: String? = nil,
-        externalMapGGUF: Bool = false,
         contextWindow: Int = 32_768,
         prefillChunk: Int = 0,
         powerPercent: Int = 100,
@@ -103,16 +92,6 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
         runtime: AFMDwarfStarRuntimeCoordinator = .shared
     ) {
         self.modelPath = modelPath
-        let modelURL = URL(fileURLWithPath: modelPath)
-        let bundledTemplate = modelURL.appendingPathComponent(
-            AFMDwarfStarCheckpointCatalog.bundledTemplateFilename,
-            isDirectory: false)
-        self.templateGGUF = templateGGUF ?? (
-            FileManager.default.fileExists(atPath: bundledTemplate.path)
-                ? bundledTemplate.path
-                : nil)
-        self.projectionMetadataPath = projectionMetadataPath
-        self.externalMapGGUF = externalMapGGUF
         self.contextWindow = contextWindow
         self.prefillChunk = prefillChunk
         self.powerPercent = powerPercent
@@ -135,6 +114,7 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
                 "runtime": .string("dwarfstar"),
                 "backend": .string("metal"),
                 "modelPath": .string(modelPath),
+                "checkpointFormat": .string("native-gguf"),
                 "dsparkEnabled": .bool(dsparkSupportPath != nil),
                 "dsparkDraftTokens": .integer(max(1, min(16, dsparkDraftTokens))),
                 "dsparkConfidenceThreshold": .number(max(0, min(1, dsparkConfidenceThreshold))),
@@ -157,9 +137,6 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
         progress?(0)
         try await runtime.load(
             modelPath: modelPath,
-            templateGGUF: templateGGUF,
-            projectionMetadataPath: projectionMetadataPath,
-            externalMapGGUF: externalMapGGUF,
             contextWindow: contextWindow,
             prefillChunk: prefillChunk,
             powerPercent: powerPercent,

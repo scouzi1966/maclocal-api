@@ -115,6 +115,7 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 log_info "Binary: $BIN"
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
 
 # Stable release binaries must expose only the semantic version. Commit
 # suffixes are reserved for development and nightly builds.
@@ -135,12 +136,16 @@ mkdir -p "$STAGING"
 
 cp "$BIN" "$STAGING/"
 
-# Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle"
-if [ -d "$BUNDLE_DIR" ]; then
+# Runtime resource bundles. Both must remain beside the relocated executable.
+for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
+  if [ ! -d "$BUNDLE_DIR" ]; then
+    log_error "Required runtime bundle missing: $BUNDLE_DIR"
+    exit 1
+  fi
   cp -r "$BUNDLE_DIR" "$STAGING/"
-  log_info "Included metallib bundle"
-fi
+  log_info "Included runtime bundle: $BUNDLE_NAME"
+done
 
 # WebUI
 if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
@@ -243,6 +248,16 @@ log_info "Updated pyproject.toml and macafm/__init__.py"
 log_info "Staging assets into macafm/ for Python package..."
 mkdir -p "$ROOT_DIR/macafm/bin"
 cp "$BIN" "$ROOT_DIR/macafm/bin/"
+
+for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
+  if [ ! -d "$BUNDLE_DIR" ]; then
+    log_error "Required runtime bundle missing: $BUNDLE_DIR"
+    exit 1
+  fi
+  cp -R "$BUNDLE_DIR" "$ROOT_DIR/macafm/bin/"
+  log_info "  Staged $BUNDLE_NAME"
+done
 
 # Metallib
 METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"

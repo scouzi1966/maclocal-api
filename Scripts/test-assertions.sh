@@ -22,6 +22,7 @@ TIER="smoke"
 BIN=".build/release/afm"
 SECTION=""  # empty = run all sections; set to a number to run only that section
 GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --enable-grammar-constraints
+SAFE_PARTIAL_CACHE_MISS=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="$PROJECT_ROOT/test-reports"
@@ -321,6 +322,37 @@ if [ -z "$MODEL" ]; then
   MODEL=$(curl -sf "$BASE_URL/v1/models" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null || echo "unknown")
 fi
 echo "  Model: $MODEL"
+
+# Recurrent/linear-attention state cannot be rewound like a KV cache. For
+# hybrid models, rejecting a descendant cache state and reporting a cold
+# prefill is the correctness-preserving behavior.
+model_config=""
+if [ -f "$MODEL/config.json" ]; then
+  model_config="$MODEL/config.json"
+elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
+  model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
+fi
+if [ -n "$model_config" ]; then
+  SAFE_PARTIAL_CACHE_MISS=$(python3 - "$model_config" <<'PY'
+import json, sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    config = json.load(handle)
+
+text_config = config.get("text_config") or {}
+layer_types = text_config.get("layer_types") or config.get("layer_types") or []
+recurrent_markers = ("linear", "mamba", "ssm", "delta", "recurrent")
+has_recurrent_layers = any(
+    any(marker in str(layer_type).lower() for marker in recurrent_markers)
+    for layer_type in layer_types
+)
+print("true" if has_recurrent_layers else "false")
+PY
+  )
+fi
+if [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ]; then
+  echo "  Cache policy: recurrent hybrid; safe cold fallback is valid"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 1: Server lifecycle
@@ -1180,9 +1212,11 @@ except Exception as e:
     print(f'ERROR: {e}')
 " 2>/dev/null || echo "ERROR")
   if [ "$cached2" != "NULL" ] && [ "$cached2" != "ERROR" ] && [ "$cached2" != "MISSING" ] && [ "$cached2" -gt 0 ] 2>/dev/null; then
-    run_test "Cache" "Shared-prefix request: cached_tokens>0" ">0" "PASS" "$dur"
+    run_test "Cache" "Shared-prefix request: cache hit or safe recurrent fallback" ">0 for rewindable caches" "PASS" "$dur"
+  elif [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ] && [ "$cached2" = "0" ]; then
+    run_test "Cache" "Shared-prefix request: cache hit or safe recurrent fallback" "safe cold fallback for recurrent state" "PASS" "$dur"
   else
-    run_test "Cache" "Shared-prefix request: cached_tokens>0" ">0" "FAIL: cached_tokens=$cached2" "$dur"
+    run_test "Cache" "Shared-prefix request: cache hit or safe recurrent fallback" ">0 for rewindable caches" "FAIL: cached_tokens=$cached2" "$dur"
   fi
 
   # Test: deterministic exact replay should not change content on cache hit
@@ -1253,7 +1287,7 @@ except Exception as e:
   dur=$(( $(now_ms) - t0 ))
   stream_cached=$(echo "$stream_resp" | python3 -c "
 import sys, json
-found = False
+cached_values = []
 for line in sys.stdin:
     line = line.strip()
     if not line.startswith('data: ') or line == 'data: [DONE]':
@@ -1263,16 +1297,19 @@ for line in sys.stdin:
         usage = d.get('usage')
         if usage:
             ptd = usage.get('prompt_tokens_details')
-            if ptd and ptd.get('cached_tokens', 0) > 0:
-                found = True
+            cached = ptd.get('cached_tokens') if ptd else None
+            if isinstance(cached, int):
+                cached_values.append(cached)
     except Exception:
         pass
-print('PASS' if found else 'FAIL: no cached_tokens>0 in stream usage')
+print(max(cached_values) if cached_values else 'MISSING')
 " 2>/dev/null || echo "FAIL: parse error")
-  if [ "$stream_cached" = "PASS" ]; then
-    run_test "Cache" "Streaming shared-prefix: cached_tokens>0 in usage chunk" ">0" "PASS" "$dur"
+  if [ "$stream_cached" != "MISSING" ] && [ "$stream_cached" -gt 0 ] 2>/dev/null; then
+    run_test "Cache" "Streaming shared-prefix: cache hit or safe recurrent fallback" ">0 for rewindable caches" "PASS" "$dur"
+  elif [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ] && [ "$stream_cached" = "0" ]; then
+    run_test "Cache" "Streaming shared-prefix: cache hit or safe recurrent fallback" "safe cold fallback for recurrent state" "PASS" "$dur"
   else
-    run_test "Cache" "Streaming shared-prefix: cached_tokens>0 in usage chunk" ">0" "$stream_cached" "$dur"
+    run_test "Cache" "Streaming shared-prefix: cache hit or safe recurrent fallback" ">0 for rewindable caches" "FAIL: cached_tokens=$stream_cached" "$dur"
   fi
 
   # Test: non-streaming warmup and streaming replay should produce identical content
@@ -1332,10 +1369,11 @@ print(''.join(parts))
   wait 2>/dev/null || true
   dur=$(( $(now_ms) - t0 ))
 
-  concurrent_cache_state=$(python3 - "$concurrent_tmpdir" <<'PY'
+  concurrent_cache_state=$(python3 - "$concurrent_tmpdir" "$SAFE_PARTIAL_CACHE_MISS" <<'PY'
 import json, os, re, sys
 
 root = sys.argv[1]
+safe_miss_allowed = sys.argv[2] == "true"
 failures = []
 for i in range(1, 9):
     body_path = os.path.join(root, f"resp_{i}.json")
@@ -1354,7 +1392,14 @@ for i in range(1, 9):
             continue
         cached = ptd.get("cached_tokens", "MISSING")
         prompt = usage.get("prompt_tokens", "MISSING")
-        if not isinstance(cached, int) or not isinstance(prompt, int) or cached <= 0 or cached >= prompt:
+        invalid_cached_count = (
+            not isinstance(cached, int)
+            or not isinstance(prompt, int)
+            or cached < 0
+            or cached >= prompt
+            or (cached == 0 and not safe_miss_allowed)
+        )
+        if invalid_cached_count:
             failures.append(f"{i}:{cached}/{prompt}")
     except Exception as e:
         failures.append(f"{i}:error={e}")
@@ -1366,9 +1411,9 @@ else:
 PY
 )
   if [ "$concurrent_cache_state" = "PASS" ]; then
-    run_test "Cache" "Concurrent x8 shared-prefix: uncached suffix remains on every branch" "0 < cached_tokens < prompt_tokens for all 8" "PASS" "$dur"
+    run_test "Cache" "Concurrent x8 shared-prefix: cache hit or safe fallback on every branch" "valid partial hit or recurrent cold fallback for all 8" "PASS" "$dur"
   else
-    run_test "Cache" "Concurrent x8 shared-prefix: uncached suffix remains on every branch" "0 < cached_tokens < prompt_tokens for all 8" "$concurrent_cache_state" "$dur"
+    run_test "Cache" "Concurrent x8 shared-prefix: cache hit or safe fallback on every branch" "valid partial hit or recurrent cold fallback for all 8" "$concurrent_cache_state" "$dur"
   fi
 
   concurrent_content_state=$(python3 - "$concurrent_tmpdir" "${concurrent_tokens[@]}" <<'PY'

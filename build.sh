@@ -217,6 +217,11 @@ else
   log_warn "Skipping submodule initialization"
 fi
 
+if [ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]; then
+  log_error "vendor/ds4 is not clean; DwarfStar must remain an unchanged upstream dependency"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
@@ -227,12 +232,6 @@ fi
 
 if $DO_PATCHES; then
   log_step "Applying vendored dependency patch sets"
-  if [ ! -x "$SCRIPTS_DIR/apply-ds4-patches.sh" ]; then
-    log_error "Missing patch script: $SCRIPTS_DIR/apply-ds4-patches.sh"
-    exit 1
-  fi
-  "$SCRIPTS_DIR/apply-ds4-patches.sh"
-  "$SCRIPTS_DIR/apply-ds4-patches.sh" --check
   if [ ! -x "$SCRIPTS_DIR/apply-mlx-patches.sh" ]; then
     log_error "Missing patch script: $SCRIPTS_DIR/apply-mlx-patches.sh"
     exit 1
@@ -355,10 +354,21 @@ else
 fi
 
 BUILDINFO="$ROOT_DIR/Sources/AFMKit/BuildInfo.swift"
+BUILDINFO_BACKUP=""
+restore_buildinfo() {
+  if [ -n "$BUILDINFO_BACKUP" ] && [ -f "$BUILDINFO_BACKUP" ]; then
+    cp "$BUILDINFO_BACKUP" "$BUILDINFO"
+    rm -f "$BUILDINFO_BACKUP"
+  fi
+}
+
 if $INCLUDE_BUILD_COMMIT; then
   log_step "Injecting build commit into BuildInfo.swift"
   BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
   if [ -f "$BUILDINFO" ]; then
+    BUILDINFO_BACKUP="$ROOT_DIR/.build/BuildInfo.swift.pre-build"
+    cp "$BUILDINFO" "$BUILDINFO_BACKUP"
+    trap restore_buildinfo EXIT
     sed -i '' "s/static let commit: String? = nil/static let commit: String? = \"${BUILD_COMMIT}\"/" "$BUILDINFO"
     log_info "Commit: $BUILD_COMMIT"
   fi
@@ -390,10 +400,9 @@ if [ "$BUILD_CONFIG" = "release" ]; then
   log_info "Stripped debug symbols"
 fi
 
-# Restore BuildInfo.swift to committed state (keep working tree clean)
-if [ -f "$BUILDINFO" ]; then
-  git checkout -- "$BUILDINFO" 2>/dev/null || true
-fi
+# Restore the exact pre-build file, including legitimate local version edits.
+restore_buildinfo
+trap - EXIT
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
 
@@ -413,6 +422,10 @@ else
   log_error "Missing MLX metallib bundle under: $METALLIB_BUNDLE_DIR"
   exit 1
 fi
+
+# The selected Xcode may be newer than the package deployment target. Verify
+# both the executable and embedded MLX shaders before anything is packaged.
+"$SCRIPTS_DIR/check-macos26-compatibility.sh" "$FINAL_BIN" "$METALLIB_BUNDLE"
 
 # Verify Info.plist is embedded in the binary's __TEXT,__info_plist section.
 # Without this, macOS 26 SIGABRTs any process that requests privacy-sensitive APIs

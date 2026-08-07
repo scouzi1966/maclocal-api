@@ -121,6 +121,7 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 log_info "Binary: $BIN"
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
 
 # Step 3: Package
 log_info "Creating release package..."
@@ -130,12 +131,17 @@ mkdir -p "$STAGING"
 
 cp "$BIN" "$STAGING/"
 
-# Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle"
-if [ -d "$BUNDLE_DIR" ]; then
+# Runtime resource bundles. Both must remain beside the relocated executable:
+# MLX supplies its compiled Metal library and DwarfStar supplies Metal sources.
+for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
+  if [ ! -d "$BUNDLE_DIR" ]; then
+    log_error "Required runtime bundle missing: $BUNDLE_DIR"
+    exit 1
+  fi
   cp -r "$BUNDLE_DIR" "$STAGING/"
-  log_info "Included metallib bundle"
-fi
+  log_info "Included runtime bundle: $BUNDLE_NAME"
+done
 
 # WebUI
 if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then

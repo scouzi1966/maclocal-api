@@ -394,6 +394,51 @@ public final class MLXModelService: @unchecked Sendable {
         }
         return parser
     }
+
+    private func nativeToolCallRuntimeConfiguration(
+        tools: [RequestTool]
+    ) -> BatchScheduler.ToolCallRuntimeConfiguration {
+        let architecture = withStateLock {
+            currentModelArchitecture?.canonicalModelType
+        }
+        if architecture == "deepseek_v4" {
+            return .init(
+                startTag: "<｜DSML｜tool_calls>",
+                endTag: "</｜DSML｜tool_calls>",
+                parser: "deepseek_dsml",
+                tools: tools
+            )
+        }
+
+        let format = withStateLock({ currentToolCallFormat })
+        if let format {
+            switch format {
+            case .xmlFunction:
+                return .init(
+                    startTag: "<tool_call>",
+                    endTag: "</tool_call>",
+                    parser: resolvedToolCallParser(logBypass: false),
+                    tools: tools
+                )
+            default:
+                let parser = format.createParser()
+                return .init(
+                    startTag: parser.startTag ?? "<tool_call>",
+                    endTag: parser.endTag ?? "</tool_call>",
+                    parser: resolvedToolCallParser(logBypass: false),
+                    tools: tools
+                )
+            }
+        }
+
+        return .init(
+            startTag: "<tool_call>",
+            endTag: "</tool_call>",
+            parser: resolvedToolCallParser(logBypass: false),
+            tools: tools
+        )
+    }
+
     /// Path to write a Metal GPU trace (.gputrace) — captures the first request only, then resets to nil.
     /// Auto-limits max tokens to 5 to keep trace size manageable.
     public var gpuCapturePath: String?
@@ -2330,13 +2375,17 @@ public final class MLXModelService: @unchecked Sendable {
 
             if useCache, let radix = self.radixCache {
                 let tLookup0 = Date.timeIntervalSinceReferenceDate
-                let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+                let match = radix.findPrefixMatch(inputTokens)
+                let prefixLen = match.prefixLen
+                let layerStates = match.layerStates
+                let layerMetaStates = match.layerMetaStates
                 let tLookup1 = Date.timeIntervalSinceReferenceDate
                 cacheLookupTime = tLookup1 - tLookup0
                 let effectivePrefix = self.effectiveCachedPrefix(
                     prefixLen: prefixLen,
                     inputTokenCount: inputTokens.count,
-                    cache: generationCache
+                    cache: generationCache,
+                    sourceTokenCount: match.sourceTokenCount
                 )
                 let bypassExactReplay = prefixLen == inputTokens.count && effectivePrefix == 0 && prefixLen > 0
 
@@ -2850,33 +2899,7 @@ public final class MLXModelService: @unchecked Sendable {
 
             let toolRuntimeConfig: BatchScheduler.ToolCallRuntimeConfiguration?
             if let tools, !tools.isEmpty, !toolCallParserDisabled {
-                let format = withStateLock({ currentToolCallFormat })
-                if let format {
-                    switch format {
-                    case .xmlFunction:
-                        toolRuntimeConfig = .init(
-                            startTag: "<tool_call>",
-                            endTag: "</tool_call>",
-                            parser: self.resolvedToolCallParser(logBypass: false),
-                            tools: tools
-                        )
-                    default:
-                        let parser = format.createParser()
-                        toolRuntimeConfig = .init(
-                            startTag: parser.startTag ?? "<tool_call>",
-                            endTag: parser.endTag ?? "</tool_call>",
-                            parser: self.resolvedToolCallParser(logBypass: false),
-                            tools: tools
-                        )
-                    }
-                } else {
-                    toolRuntimeConfig = .init(
-                        startTag: "<tool_call>",
-                        endTag: "</tool_call>",
-                        parser: self.resolvedToolCallParser(logBypass: false),
-                        tools: tools
-                    )
-                }
+                toolRuntimeConfig = nativeToolCallRuntimeConfiguration(tools: tools)
             } else {
                 toolRuntimeConfig = nil
             }
@@ -3184,13 +3207,17 @@ public final class MLXModelService: @unchecked Sendable {
 
                         if useCache, let radix = self.radixCache {
                             let tLookup0 = Date.timeIntervalSinceReferenceDate
-                            let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+                            let match = radix.findPrefixMatch(inputTokens)
+                            let prefixLen = match.prefixLen
+                            let layerStates = match.layerStates
+                            let layerMetaStates = match.layerMetaStates
                             let tLookup1 = Date.timeIntervalSinceReferenceDate
                             cacheLookupTime = tLookup1 - tLookup0
                             let effectivePrefix = self.effectiveCachedPrefix(
                                 prefixLen: prefixLen,
                                 inputTokenCount: inputTokens.count,
-                                cache: generationCache
+                                cache: generationCache,
+                                sourceTokenCount: match.sourceTokenCount
                             )
                             let bypassExactReplay = prefixLen == inputTokens.count && effectivePrefix == 0 && prefixLen > 0
 
@@ -3597,19 +3624,8 @@ public final class MLXModelService: @unchecked Sendable {
         // Derive tool call start/end tags for streaming detection
         let toolTags: (start: String, end: String)?
         if let tools, !tools.isEmpty, !toolCallParserDisabled {
-            let format = withStateLock({ currentToolCallFormat })
-            if let format {
-                switch format {
-                case .xmlFunction:
-                    // XMLFunctionParser has nil tags; chat template wraps in <tool_call>
-                    toolTags = ("<tool_call>", "</tool_call>")
-                default:
-                    let parser = format.createParser()
-                    toolTags = (parser.startTag ?? "<tool_call>", parser.endTag ?? "</tool_call>")
-                }
-            } else {
-                toolTags = ("<tool_call>", "</tool_call>")
-            }
+            let configuration = nativeToolCallRuntimeConfiguration(tools: tools)
+            toolTags = (configuration.startTag, configuration.endTag)
         } else {
             toolTags = nil
         }
@@ -6266,7 +6282,12 @@ public final class MLXModelService: @unchecked Sendable {
         return savedMetaState
     }
 
-    private func effectiveCachedPrefix(prefixLen: Int, inputTokenCount: Int, cache: [KVCache]) -> Int {
+    private func effectiveCachedPrefix(
+        prefixLen: Int,
+        inputTokenCount: Int,
+        cache: [KVCache],
+        sourceTokenCount: Int?
+    ) -> Int {
         // Hybrid recurrent layers (for example Mamba/GatedDeltaNet state in ArraysCache)
         // are not replay-safe for exact full-prefix restores on Qwen3.5-35B-A3B. Falling
         // back to a cold prefill preserves correctness for deterministic replays.
@@ -6281,7 +6302,12 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         let minSuffix = 16
-        return min(prefixLen, max(0, inputTokenCount - minSuffix))
+        let effectivePrefix = min(prefixLen, max(0, inputTokenCount - minSuffix))
+        if hasRecurrentLayers(cache) && forcedSuffix == nil,
+           let sourceTokenCount, sourceTokenCount != effectivePrefix {
+            return 0
+        }
+        return effectivePrefix
     }
 
     // MARK: - Prompt cache helpers

@@ -9,6 +9,7 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         XCTAssertEqual(descriptor.privacyBoundary, .device)
         XCTAssertEqual(descriptor.metadata["runtime"], .string("in-process-ds4"))
         XCTAssertEqual(descriptor.metadata["execution"], .string("fixed-metal-schedule"))
+        XCTAssertEqual(descriptor.metadata["checkpointFormat"], .string("native-gguf"))
         XCTAssertTrue(descriptor.configurationKeys.contains("modelPath"))
         XCTAssertTrue(descriptor.configurationKeys.contains("enablePrefixCaching"))
         XCTAssertTrue(descriptor.configurationKeys.contains("maxConcurrent"))
@@ -16,6 +17,9 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         XCTAssertTrue(descriptor.configurationKeys.contains("dsparkDraftTokens"))
         XCTAssertTrue(descriptor.configurationKeys.contains("dsparkConfidenceThreshold"))
         XCTAssertTrue(descriptor.configurationKeys.contains("dsparkStrict"))
+        XCTAssertFalse(descriptor.configurationKeys.contains("templateGGUF"))
+        XCTAssertFalse(descriptor.configurationKeys.contains("projectionMetadataPath"))
+        XCTAssertFalse(descriptor.configurationKeys.contains("externalMapGGUF"))
     }
 
     func testBundledMetalRuntimeContainsEveryRequiredSource() throws {
@@ -64,6 +68,7 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(model.descriptor.metadata["enablePrefixCaching"], .bool(true))
+        XCTAssertEqual(model.descriptor.metadata["checkpointFormat"], .string("native-gguf"))
         XCTAssertEqual(model.descriptor.metadata["maxConcurrent"], .integer(4))
         XCTAssertEqual(model.descriptor.metadata["dsparkEnabled"], .bool(true))
         XCTAssertEqual(model.descriptor.metadata["dsparkDraftTokens"], .integer(8))

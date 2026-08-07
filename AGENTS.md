@@ -5,7 +5,7 @@ See `CLAUDE.md` for additional project-specific build, architecture, and workflo
 ## Project Structure & Module Organization
 `Sources/MacLocalAPI/` contains the Swift CLI and server code, with `Controllers/`, `Models/`, `Services/`, and `Utils/` split by responsibility. `Sources/CXGrammar/` holds the C++ grammar bridge used by the Swift package. Tests live in `Tests/MacLocalAPITests/` as `XCTest` cases such as `XMLToolCallParsingTests.swift`. Automation and regression scripts are in `Scripts/`, design notes in `docs/`, and generated artifacts in `test-reports/` and `archive/`.
 
-`vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`, `xgrammar`, and canonical `antirez/ds4`). Do not edit vendor files directly. Keep AFM-owned adaptations under `Scripts/patches/` and apply them through the corresponding idempotent patch script (`apply-mlx-patches.sh` or `apply-ds4-patches.sh`).
+`vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`, `xgrammar`, and canonical `antirez/ds4`). Do not edit vendor files directly. MLX adaptations live under `Scripts/patches/` and are applied by `apply-mlx-patches.sh`. DwarfStar must remain an unchanged upstream checkout; keep its integration in AFM-owned `CDwarfStar` and Swift adapter sources.
 
 ## Build, Test, and Development Commands
 Use the project `Makefile` for normal workflows. All direct SwiftPM build and

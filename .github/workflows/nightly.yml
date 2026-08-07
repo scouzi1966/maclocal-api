@@ -31,6 +31,7 @@ jobs:
         if [ ! -x "$BIN" ]; then
           BIN=".build/release/afm"
         fi
+        Scripts/check-macos26-compatibility.sh "$BIN"
         cp "$BIN" release-package/
 
         # Copy webui resources
@@ -39,11 +40,12 @@ jobs:
           cp Resources/webui/index.html.gz release-package/Resources/webui/
         fi
 
-        # Copy metallib resource bundle
-        BUNDLE_DIR=$(dirname "$BIN")/MacLocalAPI_MacLocalAPI.bundle
-        if [ -d "$BUNDLE_DIR" ]; then
+        # Copy required runtime resource bundles beside the executable.
+        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+          BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
+          test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/
-        fi
+        done
 
         cp README.md LICENSE release-package/ 2>/dev/null || true
 

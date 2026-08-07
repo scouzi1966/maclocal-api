@@ -200,6 +200,16 @@ actor BatchScheduler {
         cache.contains { $0 is ArraysCache || $0 is CacheList }
     }
 
+    /// Whether a per-request cache can be promoted into the scheduler's dense
+    /// batch cache representation. Hybrid caches carry model-specific state and
+    /// must provide their own batch implementation before entering this path.
+    nonisolated static func supportsDenseBatchMerge(_ cache: KVCache) -> Bool {
+        cache is KVCacheSimple
+            || cache is ArraysCache
+            || cache is CacheList
+            || (cache as? RotatingKVCache)?.isBatchable == true
+    }
+
     private func unsafeExactReplaySuffix() -> Int? {
         let env = ProcessInfo.processInfo.environment
         guard let rawValue = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?
@@ -886,7 +896,8 @@ actor BatchScheduler {
         matchedPrefix: Int,
         inputTokenCount: Int,
         hasRecurrentLayers: Bool,
-        forcedSuffix: Int?
+        forcedSuffix: Int?,
+        sourceTokenCount: Int? = nil
     ) -> Int {
         if matchedPrefix == inputTokenCount && hasRecurrentLayers && forcedSuffix == nil {
             return 0
@@ -895,7 +906,12 @@ actor BatchScheduler {
             return max(0, inputTokenCount - forcedSuffix)
         }
         let minSuffix = 16
-        return min(matchedPrefix, max(0, inputTokenCount - minSuffix))
+        let effectivePrefix = min(matchedPrefix, max(0, inputTokenCount - minSuffix))
+        if hasRecurrentLayers && forcedSuffix == nil,
+           let sourceTokenCount, sourceTokenCount != effectivePrefix {
+            return 0
+        }
+        return effectivePrefix
     }
 
     /// Probe whether a request must use individual prefill to preserve a reusable
@@ -905,16 +921,17 @@ actor BatchScheduler {
         let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
         guard !inputTokens.isEmpty else { return false }
 
-        let (prefixLen, states, _) = radix.findPrefix(inputTokens)
-        guard prefixLen > 0, states != nil else { return false }
+        let match = radix.findPrefixMatch(inputTokens)
+        guard match.prefixLen > 0, match.layerStates != nil else { return false }
 
         let cache = model.newCache(parameters: req.parameters)
         let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
         return Self.effectiveCachedPrefixLength(
-            matchedPrefix: prefixLen,
+            matchedPrefix: match.prefixLen,
             inputTokenCount: inputTokens.count,
             hasRecurrentLayers: recurrent,
-            forcedSuffix: unsafeExactReplaySuffix()
+            forcedSuffix: unsafeExactReplaySuffix(),
+            sourceTokenCount: match.sourceTokenCount
         ) > 0
     }
 
@@ -939,7 +956,10 @@ actor BatchScheduler {
         // Prefix cache: restore KV state if available
         if !isMultimodal, let radix = radixCache {
             let tLookup0 = Date.timeIntervalSinceReferenceDate
-            let (prefixLen, layerStates, layerMetaStates) = radix.findPrefix(inputTokens)
+            let match = radix.findPrefixMatch(inputTokens)
+            let prefixLen = match.prefixLen
+            let layerStates = match.layerStates
+            let layerMetaStates = match.layerMetaStates
             let tLookup1 = Date.timeIntervalSinceReferenceDate
             cacheLookupTime = tLookup1 - tLookup0
             let forcedSuffix = unsafeExactReplaySuffix()
@@ -951,7 +971,8 @@ actor BatchScheduler {
                 matchedPrefix: prefixLen,
                 inputTokenCount: inputTokens.count,
                 hasRecurrentLayers: recurrent,
-                forcedSuffix: forcedSuffix
+                forcedSuffix: forcedSuffix,
+                sourceTokenCount: match.sourceTokenCount
             )
             if prefixLen == inputTokens.count && recurrent && forcedSuffix == nil && prefixLen > 0 {
                 cacheOutcome = "exact-replay-bypass"
@@ -1027,14 +1048,14 @@ actor BatchScheduler {
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
-        // RotatingKVCache models with keep>0 (e.g. some Mistral variants) must stay serial.
-        // Models with keep=0 (Gemma 4) can batch via BatchRotatingKVCache.
-        let hasUnbatchableRotating = cache.contains { c in
-            if let rc = c as? RotatingKVCache { return !rc.isBatchable }
-            return false
+        let unsupportedCacheTypes = cache.compactMap { layerCache -> String? in
+            Self.supportsDenseBatchMerge(layerCache)
+                ? nil
+                : String(describing: type(of: layerCache))
         }
-        if hasUnbatchableRotating {
-            print("[\(batchTs())] [BatchScheduler] RotatingKVCache (keep>0) detected — running serial")
+        if !unsupportedCacheTypes.isEmpty {
+            let types = Array(Set(unsupportedCacheTypes)).sorted().joined(separator: ",")
+            print("[\(batchTs())] [BatchScheduler] Dense batch cache unsupported (\(types)) — running serial")
             runSerialGeneration(
                 req: req, cache: cache, modelState: result.state,
                 firstToken: tokenArray, inputTokens: inputTokens,
@@ -1148,10 +1169,11 @@ actor BatchScheduler {
         DebugLogger.log("[BatchScheduler] Prefilled slot req=\(slot.requestId) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
 
-    // MARK: - Serial Generation (CacheList models)
+    // MARK: - Serial Generation (non-batchable cache models)
 
-    /// Run full generation for a CacheList model using the existing generate() API.
-    /// These models can't be merged into BatchKVCacheSimple due to asymmetric K/V shapes.
+    /// Run full generation for a model whose cache has no dense batch representation.
+    /// These caches cannot be coerced into BatchKVCacheSimple without corrupting their
+    /// model-specific state layout.
     /// See: https://github.com/scouzi1966/maclocal-api/issues/66
     private func runSerialGeneration(
         req: PendingRequest, cache: [KVCache], modelState: LMOutput.State?,
@@ -1167,7 +1189,7 @@ actor BatchScheduler {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
         }
 
-        print("[\(batchTs())] [BatchScheduler] CacheList serial generation: prompt=\(inputTokens.count) tokens")
+        print("[\(batchTs())] [BatchScheduler] Serial cache generation: prompt=\(inputTokens.count) tokens")
 
         // Build EOS set
         var eosTokenIds = configuration.eosTokenIds
@@ -1209,7 +1231,7 @@ actor BatchScheduler {
         }
 
         let generateTime = Date().timeIntervalSince(genStart)
-        print("[\(batchTs())] [BatchScheduler] CacheList serial done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
+        print("[\(batchTs())] [BatchScheduler] Serial cache generation done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
 
         // Signal completion
         req.continuation.yield(StreamChunk(
@@ -1223,9 +1245,8 @@ actor BatchScheduler {
         ))
         req.continuation.finish()
 
-        // Skip prefix cache for CacheList models — their flattened state layout
-        // (4 arrays per layer) is incompatible with KVCacheSimple restore (expects 2).
-        // TODO: Support CacheList prefix caching (issue #66)
+        // Prefix-cache persistence for model-specific hybrid caches requires a
+        // dedicated snapshot contract. Do not reinterpret their state as KVCacheSimple.
     }
 
     // MARK: - Batched Prefill
@@ -1249,10 +1270,8 @@ actor BatchScheduler {
         // BatchRotatingKVCache. The decode loop handles them correctly in batch.
         // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
         let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
-        let canBatch = !hasRotatingLayers && templateCache.allSatisfy { c in
-            c is KVCacheSimple || c is ArraysCache || c is CacheList
-            || (c as? RotatingKVCache)?.isBatchable == true
-        }
+        let canBatch = !hasRotatingLayers
+            && templateCache.allSatisfy(Self.supportsDenseBatchMerge)
         if !canBatch {
             for req in requests { prefillOne(req) }
             return
@@ -1781,6 +1800,24 @@ actor BatchScheduler {
         if let toolRuntime = slot.toolRuntime {
             let output = toolRuntime.process(piece: chunk)
             if output.handled {
+                if let passthroughText = output.passthroughText, !passthroughText.isEmpty {
+                    let stopResult = Self.stopChunksToEmit(
+                        from: passthroughText,
+                        stopBuffer: &slot.stopBuffer,
+                        activeStops: slot.activeStops,
+                        maxStopLength: slot.maxStopLength,
+                        insideThink: &slot.insideThink,
+                        thinkStartTag: slot.thinkStartTag,
+                        thinkEndTag: slot.thinkEndTag
+                    )
+                    for emit in stopResult.chunks {
+                        slot.continuation.yield(emit)
+                    }
+                    if stopResult.stopped {
+                        slot.stoppedBySequence = true
+                        return true
+                    }
+                }
                 yieldToolRuntimeEvents(output.events, to: slot)
                 return false
             }

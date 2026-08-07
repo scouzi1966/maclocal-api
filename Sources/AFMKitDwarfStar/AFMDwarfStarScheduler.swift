@@ -160,9 +160,6 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
     public func load(
         modelPath: String,
-        templateGGUF: String? = nil,
-        projectionMetadataPath: String? = nil,
-        externalMapGGUF: Bool = false,
         contextWindow: Int,
         prefillChunk: Int,
         powerPercent: Int,
@@ -175,9 +172,6 @@ public actor AFMDwarfStarRuntimeCoordinator {
     ) throws {
         let residentSessions = max(1, maxConcurrent)
         let mappingIdentity = [
-            externalMapGGUF ? "external-gguf" : "normal",
-            templateGGUF ?? "",
-            projectionMetadataPath ?? "",
             dsparkSupportPath ?? "",
             String(dsparkDraftTokens),
             String(dsparkConfidenceThreshold),
@@ -198,8 +192,11 @@ public actor AFMDwarfStarRuntimeCoordinator {
         guard let sourceRoot = AFMDwarfStarRuntime.metalSourceDirectory?.path else {
             throw AFMError.loadingFailed("Bundled DwarfStar Metal sources are missing.")
         }
-        guard FileManager.default.fileExists(atPath: modelPath) else {
-            throw AFMError.loadingFailed("Model or checkpoint does not exist at \(modelPath)")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: modelPath, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw AFMError.loadingFailed(
+                "DwarfStar requires a native GGUF file; AFM checkpoint directories run through MLX.")
         }
         if let dsparkSupportPath,
            !FileManager.default.fileExists(atPath: dsparkSupportPath) {
@@ -209,98 +206,29 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
         var openedEngine: OpaquePointer?
         var error = [CChar](repeating: 0, count: 512)
-        let modelURL = URL(fileURLWithPath: modelPath)
-        let isDirectory = (try? modelURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
-            == true
-        let projection: AFMDwarfStarProjection?
-        if isDirectory {
-            guard let templateGGUF, !templateGGUF.isEmpty else {
-                throw AFMError.loadingFailed(
-                    "An AFM DwarfStar checkpoint requires a metadata template GGUF.")
+        let openModel: (UnsafePointer<CChar>?) -> Int32 = { supportPointer in
+            modelPath.withCString { modelPathPointer in
+                sourceRoot.withCString { sourceRootPointer in
+                    afm_ds4_engine_open(
+                        &openedEngine,
+                        modelPathPointer,
+                        Int32(contextWindow),
+                        UInt32(clamping: prefillChunk),
+                        Int32(powerPercent),
+                        supportPointer,
+                        Int32(clamping: dsparkDraftTokens),
+                        Float(dsparkConfidenceThreshold),
+                        dsparkStrict ? 1 : 0,
+                        sourceRootPointer,
+                        &error,
+                        error.count)
+                }
             }
-            let metadataURL = URL(fileURLWithPath: projectionMetadataPath
-                ?? modelURL.appendingPathComponent(".afm-dwarfstar-projection.gguf").path)
-            projection = try AFMDwarfStarProjection.build(
-                checkpointURL: modelURL,
-                templateGGUF: URL(fileURLWithPath: templateGGUF),
-                metadataOutputURL: metadataURL)
-        } else if externalMapGGUF {
-            guard let projectionMetadataPath, !projectionMetadataPath.isEmpty else {
-                throw AFMError.loadingFailed(
-                    "External GGUF mapping requires a projection metadata path.")
-            }
-            projection = try AFMDwarfStarProjection.buildGGUFAlias(
-                ggufURL: modelURL,
-                metadataOutputURL: URL(fileURLWithPath: projectionMetadataPath))
-        } else {
-            projection = nil
         }
-
-        let status: Int32
-        if let projection {
-            let pathPointers = projection.regions.map { strdup($0.path) }
-            defer { pathPointers.forEach { free($0) } }
-            let regions = zip(projection.regions, pathPointers).map { region, path in
-                ds4_model_map_region(
-                    path: UnsafePointer(path),
-                    virtual_offset: region.virtualOffset,
-                    file_offset: region.fileOffset,
-                    length: region.length)
-            }
-            let openMapped: (UnsafePointer<CChar>?) -> Int32 = { supportPointer in
-                projection.metadataPath.withCString { metadataPointer in
-                    sourceRoot.withCString { sourceRootPointer in
-                        regions.withUnsafeBufferPointer { regionBuffer in
-                            afm_ds4_engine_open_mapped(
-                                &openedEngine,
-                                metadataPointer,
-                                projection.virtualSize,
-                                regionBuffer.baseAddress,
-                                regionBuffer.count,
-                                Int32(contextWindow),
-                                UInt32(clamping: prefillChunk),
-                                Int32(powerPercent),
-                                supportPointer,
-                                Int32(clamping: dsparkDraftTokens),
-                                Float(dsparkConfidenceThreshold),
-                                dsparkStrict ? 1 : 0,
-                                sourceRootPointer,
-                                &error,
-                                error.count)
-                        }
-                    }
-                }
-            }
-            status = if let dsparkSupportPath {
-                dsparkSupportPath.withCString(openMapped)
-            } else {
-                openMapped(nil)
-            }
+        let status = if let dsparkSupportPath {
+            dsparkSupportPath.withCString(openModel)
         } else {
-            let openModel: (UnsafePointer<CChar>?) -> Int32 = { supportPointer in
-                modelPath.withCString { modelPathPointer in
-                    sourceRoot.withCString { sourceRootPointer in
-                        afm_ds4_engine_open(
-                            &openedEngine,
-                            modelPathPointer,
-                            Int32(contextWindow),
-                            UInt32(clamping: prefillChunk),
-                            Int32(powerPercent),
-                            supportPointer,
-                            Int32(clamping: dsparkDraftTokens),
-                            Float(dsparkConfidenceThreshold),
-                            dsparkStrict ? 1 : 0,
-                            sourceRootPointer,
-                            &error,
-                            error.count)
-                    }
-                }
-            }
-            status = if let dsparkSupportPath {
-                dsparkSupportPath.withCString(openModel)
-            } else {
-                openModel(nil)
-            }
+            openModel(nil)
         }
         guard status == 0, let openedEngine else {
             throw AFMError.loadingFailed(Self.errorText(error))

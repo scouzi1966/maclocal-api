@@ -29,9 +29,9 @@ from pydantic import BaseModel
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
-AFM_BINARY = REPO_ROOT / ".build" / "arm64-apple-macosx" / "release" / "afm"
+AFM_BINARY = Path(os.environ.get("AFM_BINARY", REPO_ROOT / ".build" / "arm64-apple-macosx" / "release" / "afm"))
 CASES_PATH = SCRIPT_DIR / "guided-json-cases.json"
-REPORT_DIR = SCRIPT_DIR / "results"
+REPORT_DIR = Path(os.environ.get("AFM_REPORT_DIR", SCRIPT_DIR / "results"))
 MODEL_CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", str(Path.home() / ".cache" / "macafm" / "models"))
 DEFAULT_MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
 
@@ -185,7 +185,7 @@ def run_api_schema_case(client: OpenAI, model: str, case: dict) -> dict:
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": case["prompt"]}],
-            max_tokens=400,
+            max_tokens=case.get("max_tokens", 1024),
             temperature=0,
             response_format=build_response_format(case),
         )
@@ -223,7 +223,7 @@ def run_api_stream_schema_case(client: OpenAI, model: str, case: dict) -> dict:
         stream = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": case["prompt"]}],
-            max_tokens=400,
+            max_tokens=case.get("max_tokens", 1024),
             temperature=0,
             stream=True,
             stream_options={"include_usage": True},

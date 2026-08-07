@@ -28,6 +28,13 @@ final class KVCacheEntry: @unchecked Sendable {
     func touch() { lastAccessTime = mach_absolute_time() }
 }
 
+struct RadixPrefixMatch {
+    let prefixLen: Int
+    let sourceTokenCount: Int?
+    let layerStates: [[MLXArray]]?
+    let layerMetaStates: [[String]]?
+}
+
 /// Radix tree node. Each edge is labeled with a token subsequence.
 final class RadixNode: @unchecked Sendable {
     var children: [Int: RadixNode] = [:]  // keyed by first token of edge
@@ -68,6 +75,14 @@ final class RadixTreeCache: @unchecked Sendable {
         layerStates: [[MLXArray]]?,
         layerMetaStates: [[String]]?
     ) {
+        let match = findPrefixMatch(tokens)
+        return (match.prefixLen, match.layerStates, match.layerMetaStates)
+    }
+
+    /// Return the matched prefix and the token boundary where its state was captured.
+    /// Recurrent caches cannot rewind state from a longer descendant entry, so callers
+    /// use `sourceTokenCount` to reject unsafe partial restores.
+    func findPrefixMatch(_ tokens: [Int]) -> RadixPrefixMatch {
         var node = root
         var matched = 0
         var lastCachedEntry: KVCacheEntry? = nil
@@ -128,10 +143,11 @@ final class RadixTreeCache: @unchecked Sendable {
                 let entryTokenCount = cached.tokens.count
                 print("[PrefixCache] Radix hit: \(lastCachedLen)/\(tokens.count) tokens matched (entry has \(entryTokenCount) tokens)")
             }
-            return (
-                lastCachedLen,
-                cached.layerStates,
-                cached.layerMetaStates
+            return RadixPrefixMatch(
+                prefixLen: lastCachedLen,
+                sourceTokenCount: cached.tokens.count,
+                layerStates: cached.layerStates,
+                layerMetaStates: cached.layerMetaStates
             )
         }
 
@@ -142,7 +158,12 @@ final class RadixTreeCache: @unchecked Sendable {
                 print("[PrefixCache] Radix miss for \(tokens.count) tokens (no prefix match)")
             }
         }
-        return (0, nil, nil)
+        return RadixPrefixMatch(
+            prefixLen: 0,
+            sourceTokenCount: nil,
+            layerStates: nil,
+            layerMetaStates: nil
+        )
     }
 
     /// Insert a cached prefix into the tree.

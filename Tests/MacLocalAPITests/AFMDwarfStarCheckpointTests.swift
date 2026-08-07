@@ -4,6 +4,42 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMDwarfStarCheckpointTests: XCTestCase {
+    func testGGUFProbeUsesContainerHeaderRatherThanFilename() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ggufWithoutExtension = directory.appendingPathComponent("checkpoint")
+        try writeMinimalGGUF(to: ggufWithoutExtension, architecture: "deepseek4")
+
+        XCTAssertTrue(AFMDwarfStarCheckpointCatalog.isGGUF(at: ggufWithoutExtension))
+        XCTAssertTrue(
+            AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: ggufWithoutExtension))
+        XCTAssertEqual(
+            AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: ggufWithoutExtension),
+            "deepseek4")
+
+        let misleadingName = directory.appendingPathComponent("not-a-model.gguf")
+        try Data("not gguf".utf8).write(to: misleadingName)
+        XCTAssertFalse(AFMDwarfStarCheckpointCatalog.isGGUF(at: misleadingName))
+
+        let otherArchitecture = directory.appendingPathComponent("deepseek-in-name.gguf")
+        try writeMinimalGGUF(to: otherArchitecture, architecture: "qwen3")
+        XCTAssertTrue(AFMDwarfStarCheckpointCatalog.isGGUF(at: otherArchitecture))
+        XCTAssertFalse(
+            AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: otherArchitecture))
+    }
+
+    func testGGUFProbeRejectsUnsupportedContainerVersion() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = directory.appendingPathComponent("checkpoint.gguf")
+        var header = Data("GGUF".utf8)
+        var version = UInt32(2).littleEndian
+        withUnsafeBytes(of: &version) { header.append(contentsOf: $0) }
+        try header.write(to: model)
+
+        XCTAssertFalse(AFMDwarfStarCheckpointCatalog.isGGUF(at: model))
+    }
+
     func testExternalAFMCheckpointHeadersCanBeCataloged() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["AFM_DWARFSTAR_REAL_CHECKPOINT_TEST"] == "1" else {
@@ -174,6 +210,24 @@ final class AFMDwarfStarCheckpointTests: XCTestCase {
             metadataOutputURL: fixture.appendingPathComponent("projection.gguf"))) { error in
             XCTAssertTrue(error.localizedDescription.contains("expects 6 bytes"))
         }
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("afm-dwarfstar-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func writeMinimalGGUF(to url: URL, architecture: String) throws {
+        var data = Data("GGUF".utf8)
+        data.appendLittleEndian(UInt32(3))
+        data.appendLittleEndian(UInt64(0))
+        data.appendLittleEndian(UInt64(1))
+        data.appendGGUFString("general.architecture")
+        data.appendLittleEndian(UInt32(8))
+        data.appendGGUFString(architecture)
+        try data.write(to: url)
     }
 
     private func makeFixture(executorReady: Bool) throws -> URL {

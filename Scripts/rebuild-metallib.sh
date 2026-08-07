@@ -27,7 +27,7 @@
 # Usage:
 #   ./Scripts/rebuild-metallib.sh            # build + verify symbol parity + install
 #   ./Scripts/rebuild-metallib.sh --check    # only check toolchain availability
-#   ./Scripts/rebuild-metallib.sh --no-install  # build to /tmp, verify, do NOT replace the committed metallib
+#   ./Scripts/rebuild-metallib.sh --no-install  # build under .build, verify, do NOT replace the committed metallib
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +35,8 @@ MLXROOT="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx"
 KDIR="$MLXROOT/mlx/backend/metal/kernels"
 TARGET_METALLIB="$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib"
 OSX_MIN="26.0"            # matches `apple-macosx26.0.0` baked into the shipped metallib
-BUILD_DIR="$(mktemp -d /tmp/afm-metallib.XXXXXX)"
+mkdir -p "$ROOT_DIR/.build"
+BUILD_DIR="$(mktemp -d "$ROOT_DIR/.build/afm-metallib.XXXXXX")"
 
 # Exact translation-unit set found in the shipped metallib (the MLX JIT-on always-built
 # set + steel_attention). Paths are relative to $KDIR. Do NOT add JIT-only kernels here.
@@ -90,7 +91,9 @@ check_toolchain(){
 }
 
 # Distinct kernel entrypoint symbols (typed/sized instantiations) — used for parity check.
-kernel_symbols(){ strings "$1" | grep -oE '^[a-z_]+(_[a-z0-9]+)*_(float|float16_t|bfloat16_t)(_[0-9]+)+$' | sort -u; }
+# Scan printable byte runs directly because Xcode 27's `strings` can refuse AIR
+# produced for an older OS target even though Metal loads that AIR correctly.
+kernel_symbols(){ LC_ALL=C grep -aoE '[a-z_]+(_[a-z0-9]+)*_(float|float16_t|bfloat16_t)(_[0-9]+)+' "$1" | sort -u; }
 
 MODE="build"
 ALLOW_KERNEL_CHANGE=0
@@ -122,9 +125,30 @@ done
 
 NEW_METALLIB="$BUILD_DIR/default.metallib"
 info "Linking metallib ..."
-xcrun -sdk macosx metal "${AIR_FILES[@]}" -o "$NEW_METALLIB"
+# The deployment target is part of the final metallib container as well as each
+# AIR object. Omitting it here silently relinks macOS 26 AIR as a macOS 27
+# library when Xcode 27 is selected, producing a package that builds correctly
+# but fails to load on macOS 26.
+xcrun -sdk macosx metal -mmacosx-version-min="$OSX_MIN" "${AIR_FILES[@]}" -o "$NEW_METALLIB"
 [ -f "$NEW_METALLIB" ] || { err "metallib link produced no output"; exit 1; }
 info "Built: $(du -h "$NEW_METALLIB" | cut -f1) ($NEW_METALLIB)"
+
+# Inspect the binary directly rather than using `strings`: Xcode 27's strings
+# rejects some valid Xcode 26 AIR triples before it can print their metadata.
+METAL_TARGETS="$(LC_ALL=C grep -aoE 'air64(_v[0-9]+)?-apple-macosx[0-9]+(\.[0-9]+){2}' "$NEW_METALLIB" | sort -u || true)"
+if [ -z "$METAL_TARGETS" ]; then
+  err "Built metallib contains no readable macOS deployment target."
+  exit 1
+fi
+while IFS= read -r target; do
+  target_version="${target##*macosx}"
+  target_major="${target_version%%.*}"
+  if [ "$target_major" -gt "${OSX_MIN%%.*}" ]; then
+    err "Built metallib targets $target_version, newer than required macOS $OSX_MIN."
+    exit 1
+  fi
+done <<< "$METAL_TARGETS"
+info "Metal deployment target OK: $(echo "$METAL_TARGETS" | tr '\n' ' ')"
 
 # Required-kernel guard: catch whole-TU omissions that the name-pattern parity check below
 # can miss (e.g. the RNG kernels have no `*_float_NxN` symbol). A metallib missing `rbits`
@@ -134,7 +158,7 @@ for req in rbits; do
   # Count matches without `grep -q`: -q closes the pipe on first hit, which SIGPIPEs `strings`
   # → non-zero → `set -o pipefail` would make this read as "missing" even when present.
   # `grep -c` consumes all input, so the pipeline exits cleanly.
-  n=$(strings "$NEW_METALLIB" | grep -ci "$req" || true)
+  n=$(LC_ALL=C grep -aoc "$req" "$NEW_METALLIB" || true)
   if [ "${n:-0}" -eq 0 ]; then
     err "Built metallib is MISSING required kernel '$req' — a translation unit is absent from METAL_TUS."
     err "(Most likely 'random'.) This would FATAL on sampled generation. Refusing to install."
@@ -169,8 +193,9 @@ else
 fi
 
 if [ "$MODE" = "no-install" ]; then
-  cp "$NEW_METALLIB" /tmp/afm-default.metallib
-  info "--no-install: new metallib left at /tmp/afm-default.metallib (committed one untouched)."
+  OUTPUT_METALLIB="$ROOT_DIR/.build/afm-default.metallib"
+  cp "$NEW_METALLIB" "$OUTPUT_METALLIB"
+  info "--no-install: new metallib left at $OUTPUT_METALLIB (committed one untouched)."
   exit 0
 fi
 

@@ -40,6 +40,41 @@ final class DeepseekV40731EncodingTests: XCTestCase {
         ))
     }
 
+    func testRequiredToolChoicePromptAddsDSMLReminder() throws {
+        let prompt = try DeepseekV4ChatEncoder.renderOpenAIChat(
+            messages: [["role": "user", "content": "Use the weather tool for Toronto."]],
+            tools: [Self.weatherTool],
+            additionalContext: [
+                "enable_thinking": false,
+                "tool_choice": "required"
+            ],
+            addGenerationPrompt: true
+        )
+
+        XCTAssertTrue(prompt.contains("<｜latest_reminder｜>"))
+        XCTAssertTrue(prompt.contains("Call exactly one available tool now using a <｜DSML｜tool_calls> block."))
+        XCTAssertTrue(prompt.contains("Use the `get_weather` function."))
+    }
+
+    func testNamedToolChoicePromptAddsSpecificDSMLReminder() throws {
+        let prompt = try DeepseekV4ChatEncoder.renderOpenAIChat(
+            messages: [["role": "user", "content": "Use the requested tool."]],
+            tools: [Self.weatherTool, Self.lookupTool],
+            additionalContext: [
+                "enable_thinking": false,
+                "tool_choice": [
+                    "type": "function",
+                    "function": ["name": "lookup_city"]
+                ] as [String: any Sendable]
+            ],
+            addGenerationPrompt: true
+        )
+
+        XCTAssertTrue(prompt.contains("<｜latest_reminder｜>"))
+        XCTAssertTrue(prompt.contains("Call exactly one available tool now using a <｜DSML｜tool_calls> block."))
+        XCTAssertTrue(prompt.contains("Use the `lookup_city` function."))
+    }
+
     func testScoredSwiGLUPreservesSortedPrefillRouteCount() {
         let tokenCount = 16
         let topK = 6
@@ -349,4 +384,38 @@ final class DeepseekV40731EncodingTests: XCTestCase {
             expansionMatches,
             "max expansion error: \(MLX.max(MLX.abs(expanded - expandedReference)).item(Float.self))")
     }
+
+    private static let weatherTool: [String: any Sendable] = [
+        "type": "function",
+        "function": [
+            "name": "get_weather",
+            "description": "Get current weather.",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "location": [
+                        "type": "string"
+                    ] as [String: any Sendable]
+                ] as [String: any Sendable],
+                "required": ["location"]
+            ] as [String: any Sendable]
+        ] as [String: any Sendable]
+    ]
+
+    private static let lookupTool: [String: any Sendable] = [
+        "type": "function",
+        "function": [
+            "name": "lookup_city",
+            "description": "Look up city metadata.",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "name": [
+                        "type": "string"
+                    ] as [String: any Sendable]
+                ] as [String: any Sendable],
+                "required": ["name"]
+            ] as [String: any Sendable]
+        ] as [String: any Sendable]
+    ]
 }

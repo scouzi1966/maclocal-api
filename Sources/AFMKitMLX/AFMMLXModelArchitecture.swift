@@ -49,6 +49,7 @@ public struct AFMMLXRemoteModelLoadPlan: Hashable, Sendable {
 
 public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendable {
     case invalidConfiguration(String)
+    case draftOnlyArchitecture(architecture: String, modelID: String)
     case unsupportedArchitecture(modelType: String, modelID: String)
     case metalCrashArchitecture(modelType: String, modelID: String)
 
@@ -56,6 +57,8 @@ public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendab
         switch self {
         case .invalidConfiguration(let modelID):
             return "Could not read model_type from \(modelID)'s config.json."
+        case .draftOnlyArchitecture(let architecture, let modelID):
+            return "Model '\(modelID)' (architecture: \(architecture)) is a speculative draft checkpoint, not a standalone language model. Pair it with its full target model using a compatible speculative runtime; AFM does not currently support DFlash pairing."
         case .unsupportedArchitecture(let modelType, let modelID):
             return "Unsupported model architecture '\(modelType)' for \(modelID)."
         case .metalCrashArchitecture(let modelType, let modelID):
@@ -94,6 +97,24 @@ public enum AFMMLXRemoteModelLoadPolicy {
 }
 
 public enum AFMMLXModelArchitecture {
+    public static func draftOnlyArchitecture(in config: [String: Any]) -> String? {
+        let architectures = (config["architectures"] as? [String]) ?? []
+        if let architecture = architectures.first(where: {
+            $0.lowercased().contains("dflashdraftmodel")
+        }) {
+            return architecture
+        }
+
+        if let autoMap = config["auto_map"] as? [String: Any],
+           let mappedType = autoMap.values.compactMap({ $0 as? String }).first(where: {
+               $0.lowercased().contains("dflashdraftmodel")
+           }) {
+            return mappedType
+        }
+
+        return nil
+    }
+
     public static func canonicalModelType(_ modelType: String) -> String {
         switch modelType.lowercased() {
         case "qwen3.5":
@@ -255,6 +276,13 @@ public enum AFMMLXModelArchitecture {
         _ config: [String: Any],
         modelID: String
     ) throws -> AFMMLXModelArchitecturePreflight {
+        if let architecture = draftOnlyArchitecture(in: config) {
+            throw AFMMLXModelArchitecturePreflightError.draftOnlyArchitecture(
+                architecture: architecture,
+                modelID: modelID
+            )
+        }
+
         guard let modelType = config["model_type"] as? String else {
             throw AFMMLXModelArchitecturePreflightError.invalidConfiguration(modelID)
         }

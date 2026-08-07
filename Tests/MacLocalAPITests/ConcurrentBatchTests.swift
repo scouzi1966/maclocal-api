@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import MLXLLM
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -132,6 +133,12 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
+    @Test("BatchScheduler rejects DeepSeek hybrid cache from dense batching")
+    func rejectsDeepseekHybridCacheFromDenseBatching() {
+        let cache = DeepseekV4Cache(slidingWindow: 128, compressRatio: 4)
+        #expect(!BatchScheduler.supportsDenseBatchMerge(cache))
+    }
+
     @Test("BatchScheduler preserves reusable partial prefixes for individual prefill")
     func reusablePartialPrefix() {
         #expect(BatchScheduler.effectiveCachedPrefixLength(
@@ -162,6 +169,24 @@ struct ConcurrentBatchTests {
             hasRecurrentLayers: true,
             forcedSuffix: 16
         ) == 43)
+    }
+
+    @Test("BatchScheduler rejects recurrent state captured beyond the matched prefix")
+    func recurrentDescendantStateBypass() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 60,
+            inputTokenCount: 95,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 69
+        ) == 0)
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 60,
+            inputTokenCount: 95,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 60
+        ) == 60)
     }
 
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")

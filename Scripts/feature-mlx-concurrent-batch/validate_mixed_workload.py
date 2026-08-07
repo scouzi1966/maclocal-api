@@ -11,8 +11,8 @@ Usage:
 """
 import asyncio, aiohttp, json, time, sys, subprocess, threading, os
 
-URL = "http://localhost:9999/v1/chat/completions"
-MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
+URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
+MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
 
 # --- Short-answer tests (long prompts, expect brief response) ---
 SHORT_ANSWER_TESTS = [
@@ -141,9 +141,11 @@ class MactopSampler:
         self._stop = False
 
     def start(self):
+        if os.environ.get("AFM_SKIP_MACTOP") == "1":
+            return
         try:
             self._proc = subprocess.Popen(
-                ["sudo", "mactop", "--headless", "--format", "json", "-i", "500"],
+                ["sudo", "-n", "mactop", "--headless", "--format", "json", "-i", "500"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
             )
             self._thread = threading.Thread(target=self._reader, daemon=True)
@@ -463,5 +465,7 @@ async def main():
         print(f"  ({total_failed} failures: model answer mismatches, not code bugs)")
     print(f"{'='*120}")
 
+    return 1 if total_failed else 0
 
-asyncio.run(main())
+
+raise SystemExit(asyncio.run(main()))

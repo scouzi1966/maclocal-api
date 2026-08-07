@@ -244,6 +244,52 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         }
     }
 
+    func testPreflightRejectsDFlashDraftCheckpointBeforeQwenFactorySelection() {
+        let config: [String: Any] = [
+            "architectures": ["DFlashDraftModel"],
+            "auto_map": ["AutoModel": "dflash.DFlashDraftModel"],
+            "dflash_config": ["block_size": 16],
+            "model_type": "qwen3",
+            "num_hidden_layers": 6,
+        ]
+
+        XCTAssertEqual(
+            AFMMLXModelArchitecture.draftOnlyArchitecture(in: config),
+            "DFlashDraftModel"
+        )
+        XCTAssertThrowsError(try AFMMLXModelArchitecture.preflightConfiguration(
+            config,
+            modelID: "z-lab/Qwen3.6-35B-A3B-DFlash"
+        )) { error in
+            guard case AFMMLXModelArchitecturePreflightError.draftOnlyArchitecture(
+                let architecture,
+                let modelID
+            ) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertEqual(architecture, "DFlashDraftModel")
+            XCTAssertEqual(modelID, "z-lab/Qwen3.6-35B-A3B-DFlash")
+            XCTAssertTrue(error.localizedDescription.contains("not a standalone language model"))
+        }
+    }
+
+    func testPreflightRejectsDFlashDraftCheckpointFromAutoMap() {
+        let config: [String: Any] = [
+            "architectures": [],
+            "auto_map": ["AutoModel": "dflash.DFlashDraftModel"],
+            "model_type": "qwen3",
+        ]
+
+        XCTAssertEqual(
+            AFMMLXModelArchitecture.draftOnlyArchitecture(in: config),
+            "dflash.DFlashDraftModel"
+        )
+        XCTAssertThrowsError(try AFMMLXModelArchitecture.preflightConfiguration(
+            config,
+            modelID: "local/dflash"
+        ))
+    }
+
     func testRepositoryNameHeuristics() {
         XCTAssertTrue(AFMMLXModelArchitecture.matchesSupportedNamePattern("mlx-community/Qwen3-4B-4bit"))
         XCTAssertTrue(AFMMLXModelArchitecture.matchesSupportedNamePattern("mlx-community/FastVLM-1.5B"))

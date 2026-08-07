@@ -77,11 +77,14 @@ def main() -> int:
     args = parser.parse_args()
 
     baseline = None
+    failures = 0
     for idx in range(1, args.runs + 1):
         result = send(args.url, args.model, args.prompt, args.stream)
         prompt_tokens, cached_tokens, content = extract(result)
         if baseline is None:
             baseline = content
+        elif content != baseline:
+            failures += 1
         record = {
             "run": idx,
             "prompt_tokens": prompt_tokens,
@@ -92,7 +95,7 @@ def main() -> int:
         print(json.dumps(record))
         sys.stdout.flush()
 
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

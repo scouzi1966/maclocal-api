@@ -12,11 +12,11 @@ Usage:
     python3 validate_multiturn_prefix.py 1 4          # specific batch sizes
     python3 validate_multiturn_prefix.py --label "overlap+prefix" 1 2 4 8
 """
-import asyncio, aiohttp, json, time, sys
+import asyncio, aiohttp, json, time, sys, os
 
-URL = "http://localhost:9999/v1/chat/completions"
-MODEL = "mlx-community/Qwen3.5-35B-A3B-4bit"
-REQUEST_TIMEOUT_S = 180
+URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
+MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
+REQUEST_TIMEOUT_S = int(os.environ.get("AFM_REQUEST_TIMEOUT_S", "180"))
 
 # ─── Long system prompts (simulate agent instructions) ────────────────────────
 
@@ -501,5 +501,7 @@ async def main():
     print(f"  TOTAL: {total_passed}/{total_passed+total_failed} passed across {len(batch_sizes)} batch sizes")
     print(f"{'='*130}")
 
+    return 1 if total_failed else 0
 
-asyncio.run(main())
+
+raise SystemExit(asyncio.run(main()))

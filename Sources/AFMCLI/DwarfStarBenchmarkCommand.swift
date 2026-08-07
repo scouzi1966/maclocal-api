@@ -15,17 +15,8 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
 
     static let canonicalPrompt = dwarfStarCanonicalPrompt
 
-    @Option(name: [.customShort("m"), .long], help: "DwarfStar GGUF or executor-ready AFM checkpoint")
+    @Option(name: [.customShort("m"), .long], help: "Native DwarfStar GGUF checkpoint")
     var model: String
-
-    @Option(name: .long, help: "Metadata template GGUF for an AFM checkpoint")
-    var templateGGUF: String?
-
-    @Option(name: .long, help: "Persistent path for the generated projection metadata")
-    var projectionMetadata: String?
-
-    @Flag(name: .long, help: "Map a GGUF through the external-region projection loader")
-    var externalMapGGUF = false
 
     @Option(name: .long, help: "Prompt sent as one user message")
     var prompt = dwarfStarCanonicalPrompt
@@ -67,16 +58,9 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
         guard FileManager.default.fileExists(atPath: model) else {
             throw ValidationError("GGUF model does not exist at \(model)")
         }
-        if externalMapGGUF && projectionMetadata == nil {
-            throw ValidationError("--external-map-gguf requires --projection-metadata")
-        }
-
         let runtimeModel = AFMDwarfStarModel(
             modelID: AFMModelID(rawValue: URL(fileURLWithPath: model).lastPathComponent),
             modelPath: model,
-            templateGGUF: templateGGUF,
-            projectionMetadataPath: projectionMetadata,
-            externalMapGGUF: externalMapGGUF,
             contextWindow: context,
             prefillChunk: prefillChunk,
             powerPercent: powerPercent,
@@ -85,7 +69,7 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
 
         print("runtime: in-process DwarfStar (\(AFMDwarfStarRuntime.backendName))")
         print("model: \(model)")
-        print("mapping: \(externalMapGGUF ? "external-region projection" : "conventional mmap")")
+        print("mapping: vanilla DwarfStar GGUF mmap")
         let loadStart = ContinuousClock.now
         _ = try await runtimeModel.load { progress in
             if progress >= 1 { print("model loaded") }
