@@ -145,7 +145,7 @@ render_next_versioned() {
   class="$(class_name_for "afm-next" "$full_version")"
   cat <<EOF
 class ${class} < Formula
-  desc "AFM next — OpenAI-compatible local LLM API (pinned nightly ${datestr})"
+  desc "OpenAI-compatible local LLM API pinned nightly from ${datestr}"
   homepage "https://github.com/scouzi1966/maclocal-api"
   url "${url}"
   version "${full_version}"
