@@ -3,13 +3,13 @@ If you find this useful, please ⭐ the repo! &nbsp; Also check out [Vesta AI Ex
 ## Install
 
 > [!NOTE]
-> **Stable (v0.9.14) is the absolute latest version** — it was cut from the current `main` HEAD, so it already includes everything in the latest nightly. Just install the stable build; the nightly track is only for previewing changes between releases.
+> **Stable v0.9.14 remains the recommended release.** The v0.9.15-next nightly previews the new AFMKit provider architecture, DeepSeek V4 Flash 0731 support, and the latest runtime and packaging work. Install `afm-next` to test those changes before the next stable release.
 
 |  | Stable (v0.9.14) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.14](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.14) | [v0.9.14-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260703-33e60dd) |
+| **Release notes** | [v0.9.14](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.14) | [v0.9.15-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260808-e70cc52) |
 
 ### Install a previous version
 
@@ -24,10 +24,10 @@ brew link afm@0.9.10                        # expose `afm` on PATH
 afm --version                               # → v0.9.10
 ```
 
-**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.11-next.9c3225e.20260418`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
+**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — e.g. `afm-next@0.9.15-next.20260808.e70cc52`. Lists of available pinned nightlies are at [github.com/scouzi1966/homebrew-afm](https://github.com/scouzi1966/homebrew-afm).
 
 ```bash
-brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
+brew install scouzi1966/afm/afm-next@0.9.15-next.20260808.e70cc52
 ```
 
 **pip (version-pinned wheels):** any published release.
@@ -35,7 +35,7 @@ brew install scouzi1966/afm/afm-next@0.9.11-next.9c3225e.20260418
 ```bash
 pip install macafm==0.9.10                  # previous stable
 pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ \
-  macafm-next==0.9.14.dev20260703           # pinned nightly
+  macafm-next==0.9.15.dev20260808           # pinned nightly
 ```
 
 ### 🔨 Build from source — one command
@@ -103,13 +103,17 @@ Run open-source MLX models **or** Apple's on-device Foundation Model through an 
 ## What's new in afm-next
 
 > [!IMPORTANT]
-> The nightly build is the future stable release. It includes everything in v0.9.12 plus:
-> - **⚡ Speculative decoding** — up to **+52% faster decode**, quality-preserving. Two model-specific options:
->   - **`--mtp`** for **Qwen3.6-27B** (self-speculative MTP head) → **~+52%**
->   - **`--eagle3 <drafter>`** for **dense Gemma4-31B** (EAGLE3 drafter) → **~+30%**
->   - Both work for streaming *and* non-streaming and preserve greedy-decode quality (bit-exact on short generations; may differ token-for-token on longer ones). See [⚡ Speculative Decoding](#-speculative-decoding) below.
-> - **Faster long context** — backported adaptive-block SDPA (~+10% decode @16k), eager `<think>`-tag streaming (reasoning TTFT ~610ms→~346ms), and Metal-kernel prewarm for a faster cold first token.
-> - **Swift 6 language mode** migration.
+> **v0.9.15-next** includes everything in v0.9.14 plus:
+>
+> - **AFMKit as a reusable Swift package.** The runtime is split into dependency-scoped products for portable provider contracts, OpenAI DTOs, MLX, Apple Foundation Models, macOS 27 `LanguageModel` adapters, and Apple Vision/Speech/embeddings services. Applications such as Vesta can consume the same loading, generation, caching, reasoning, and tool-event logic instead of duplicating it.
+> - **An open provider and event contract.** Providers register through `AFMProviderRegistry`; generation streams typed response-text, reasoning, tool-call, usage, metadata, completion, and error events. Public API symbol-graph checks guard the stable `AFMKitCore` boundary.
+> - **DeepSeek V4 Flash 0731 support.** AFM can load official or AFM-native MLX checkpoints, convert official safetensors incrementally with `afm mlx-convert`, and run compatible native GGUF files through the unmodified DwarfStar runtime. Runtime selection uses checkpoint metadata rather than filenames.
+> - **DeepSeek runtime controls.** MLX and DwarfStar support streaming, concurrency, prefix reuse, cancellation, thinking modes/budgets, and optional speculative decoding where the selected engine exposes it. DwarfStar-specific capability limits are reported explicitly instead of silently disabling MLX features.
+> - **More reliable MLX serving.** DeepSeek's hybrid cache has a dedicated safe batch path, request timeout/cancellation behavior is hardened, and streamed generation avoids UI/output backpressure reducing model throughput.
+> - **macOS 26 and 27 packaging.** Release artifacts include both MLX and DwarfStar runtime bundles, validate their deployment targets, and keep macOS 27-only adapters isolated so the main executable continues to run on macOS 26.
+> - **Expanded release qualification.** AFMKit/HTTP parity checks, API and dependency-graph gates, model/runtime tests, concurrent workload coverage, AgentBlaster suites, and reproducible Release packaging are now part of the release workflow.
+>
+> See [AFMKit's public API policy](docs/afmkit-public-api.md), the [DeepSeek V4 performance notes](docs/deepseek-v4-0731-performance.md), and the [DwarfStar runtime boundary](docs/dwarfstar-runtime.md) for technical details and current limitations.
 
 > [!TIP]
 > 🙏 **Huge thanks to [@jesserobbins](https://github.com/jesserobbins)** — first-time contributor, landed two substantial features in this cycle (Vision OCR + Speech transcription). Both PRs brought afm's Apple-native capabilities from the CLI into first-class HTTP APIs. Contributions of this size and quality from a new contributor are rare and appreciated.
