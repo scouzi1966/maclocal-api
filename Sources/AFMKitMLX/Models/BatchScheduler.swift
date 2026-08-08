@@ -119,10 +119,9 @@ actor BatchScheduler {
         var stopBuffer = ""
         var insideThink = false
         var stoppedBySequence = false
-        /// Set to true to signal this slot should stop generating.
-        var isCancelled = false
 
         init(
+            id: UUID,
             requestId: String = "",
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
@@ -147,7 +146,7 @@ actor BatchScheduler {
             topLogprobsCount: Int = 0,
             temperatureForLogprobs: Float = 1.0
         ) {
-            self.id = UUID()
+            self.id = id
             self.requestId = requestId
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
@@ -198,7 +197,9 @@ actor BatchScheduler {
     private var totalTokensGenerated = 0
 
     private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
-        cache.contains { $0 is ArraysCache || $0 is CacheList }
+        cache.contains {
+            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+        }
     }
 
     /// Whether a per-request cache can be promoted into the scheduler's dense
@@ -329,6 +330,7 @@ actor BatchScheduler {
     }
 
     struct PendingRequest: @unchecked Sendable {
+        let id: UUID
         let requestId: String
         /// Wall-clock instant the request was accepted by `submit()`. Used to
         /// derive queue time, e2e latency, and TTFT in `/metrics`.
@@ -354,6 +356,11 @@ actor BatchScheduler {
     /// Thread-safe in-flight counter (pending + active). Incremented in submit(),
     /// decremented in finishSlot() and error paths. Used for capacity checks.
     private let _inFlightCount = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Cancellation must be observable from the synchronous GPU loop without
+    /// waiting for an actor hop. The generation loop intentionally contains no
+    /// suspension point while slots are active.
+    private let _cancelledSlotIDs = OSAllocatedUnfairLock(initialState: Set<UUID>())
 
     /// Atomically reserve a slot if under capacity. Returns true if reserved.
     nonisolated func tryReserve() -> Bool {
@@ -416,10 +423,39 @@ actor BatchScheduler {
         _inFlightCount.withLock { $0 }
     }
 
-    /// Cancel all slots matching the given IDs.
-    func cancelSlots(ids: Set<UUID>) {
-        for slot in slots where ids.contains(slot.id) {
-            slot.isCancelled = true
+    /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
+    /// stream's termination handler can signal the synchronous GPU loop.
+    nonisolated func cancelSlots(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        _cancelledSlotIDs.withLock { $0.formUnion(ids) }
+
+        let removed = _pendingQueue.withLock { queue -> [PendingRequest] in
+            var cancelled: [PendingRequest] = []
+            queue.removeAll { request in
+                guard ids.contains(request.id) else { return false }
+                cancelled.append(request)
+                return true
+            }
+            return cancelled
+        }
+        guard !removed.isEmpty else { return }
+
+        _inFlightCount.withLock { $0 = max(0, $0 - removed.count) }
+        for request in removed {
+            clearCancellation(request.id)
+            request.continuation.finish(throwing: CancellationError())
+            StatsAggregator.shared.requestSucceeded(reason: "abort")
+            StatsAggregator.shared.requestCompleted()
+        }
+    }
+
+    nonisolated private func isCancellationRequested(_ id: UUID) -> Bool {
+        _cancelledSlotIDs.withLock { $0.contains(id) }
+    }
+
+    nonisolated private func clearCancellation(_ id: UUID) {
+        _cancelledSlotIDs.withLock { cancelledIDs in
+            _ = cancelledIDs.remove(id)
         }
     }
 
@@ -517,10 +553,17 @@ actor BatchScheduler {
         }
 
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
+        let slotID = UUID()
+
+        continuation.onTermination = { [weak self] termination in
+            guard case .cancelled = termination else { return }
+            self?.cancelSlots(ids: [slotID])
+        }
 
         // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
             $0.append(PendingRequest(
+                id: slotID,
                 requestId: requestId,
                 queuedAt: Date(),
                 input: input,
@@ -627,6 +670,14 @@ actor BatchScheduler {
                 // Separate capacity-limited requests from overflow
                 var accepted: [PendingRequest] = []
                 for req in newRequests {
+                    if isCancellationRequested(req.id) {
+                        clearCancellation(req.id)
+                        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                        req.continuation.finish(throwing: CancellationError())
+                        StatsAggregator.shared.requestSucceeded(reason: "abort")
+                        StatsAggregator.shared.requestCompleted()
+                        continue
+                    }
                     if slots.count + accepted.count < maxConcurrent {
                         accepted.append(req)
                     } else {
@@ -738,7 +789,7 @@ actor BatchScheduler {
                     let slot = slots[i]
 
                     // Check for per-slot cancellation
-                    if slot.isCancelled {
+                    if isCancellationRequested(slot.id) {
                         completedIndices.append(i)
                         continue
                     }
@@ -927,7 +978,9 @@ actor BatchScheduler {
         guard match.prefixLen > 0, match.layerStates != nil else { return false }
 
         let cache = model.newCache(parameters: req.parameters)
-        let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
+        let recurrent = cache.contains {
+            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+        }
         return Self.effectiveCachedPrefixLength(
             matchedPrefix: match.prefixLen,
             inputTokenCount: inputTokens.count,
@@ -968,7 +1021,9 @@ actor BatchScheduler {
             // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
             // the compiler treat the non-Sendable `cache` as "sent", conflicting
             // with its later in-actor uses. Inlining keeps it in one region.
-            let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
+            let recurrent = cache.contains {
+                $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+            }
             let effectivePrefix = Self.effectiveCachedPrefixLength(
                 matchedPrefix: prefixLen,
                 inputTokenCount: inputTokens.count,
@@ -1084,6 +1139,7 @@ actor BatchScheduler {
         }
 
         let slot = SlotState(
+            id: req.id,
             requestId: req.requestId,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
@@ -1416,6 +1472,7 @@ actor BatchScheduler {
             let firstToken = tokenArrays[i].item(Int.self)
 
             let slot = SlotState(
+                id: req.id,
                 requestId: req.requestId,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
@@ -1603,6 +1660,7 @@ actor BatchScheduler {
         let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         let finishStart = debugTiming ? Date() : Date.distantPast
         let slot = slots[index]
+        let wasCancelled = isCancellationRequested(slot.id)
         let elapsed = Date().timeIntervalSince(slot.startTime)
         let generateTime = elapsed - slot.prefillTime
 
@@ -1620,7 +1678,7 @@ actor BatchScheduler {
         var saveTrimTime: Double? = nil
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
-        if let radix = radixCache, !slot.inputTokens.isEmpty {
+        if let radix = radixCache, !slot.inputTokens.isEmpty, !wasCancelled {
             let tSave0 = Date.timeIntervalSinceReferenceDate
             // Use pre-snapshotted state from prefill time — immune to decode mutations.
             let layerStates = slot.prefillStates
@@ -1651,7 +1709,7 @@ actor BatchScheduler {
         logCacheProfile(
             phase: "save",
             mode: "batch",
-            outcome: slot.inputTokens.isEmpty ? "skip" : "save",
+            outcome: slot.inputTokens.isEmpty || wasCancelled ? "skip" : "save",
             inputTokenCount: slot.inputTokens.count,
             cachedTokenCount: slot.cachedTokens,
             promptTime: slot.prefillTime,
@@ -1680,7 +1738,9 @@ actor BatchScheduler {
         // implies an explicit stop string match), then length-cap, otherwise
         // a clean stop (EOS / model-emitted end).
         let finishedReason: String
-        if slot.stoppedBySequence {
+        if wasCancelled {
+            finishedReason = "abort"
+        } else if slot.stoppedBySequence {
             finishedReason = "stop"
         } else if let max = slot.maxTokens, slot.tokenCount >= max {
             finishedReason = "length"
@@ -1702,6 +1762,7 @@ actor BatchScheduler {
         )
         StatsAggregator.shared.requestSucceeded(reason: finishedReason)
         StatsAggregator.shared.requestCompleted()
+        clearCancellation(slot.id)
 
         DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 

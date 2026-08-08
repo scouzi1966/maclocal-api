@@ -1858,7 +1858,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Forward cancellation to the scheduler for in-flight batch slots.
     public func cancelBatchSlots(ids: Set<UUID>) async {
         guard let sched = withStateLock({ scheduler }) else { return }
-        await sched.cancelSlots(ids: ids)
+        sched.cancelSlots(ids: ids)
     }
 
     public func generate(
