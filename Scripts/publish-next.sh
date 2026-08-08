@@ -96,7 +96,7 @@ else
   fi
   BASE_VERSION="${BASE_VERSION:-0.0.0}"
 fi
-VERSION="${BASE_VERSION}-next.${SHORT_SHA}.${DATE}"
+VERSION="${BASE_VERSION}-next.${DATE}.${SHORT_SHA}"
 
 log_info "Building afm-next"
 log_info "  Commit: ${SHORT_SHA}"
@@ -121,7 +121,15 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 log_info "Binary: $BIN"
-"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
+MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
+if [ ! -f "$MLX_METALLIB" ]; then
+  MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib"
+fi
+if [ ! -f "$MLX_METALLIB" ]; then
+  log_error "Required MLX metallib missing beside release binary"
+  exit 1
+fi
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN" "$MLX_METALLIB"
 
 # Step 3: Package
 log_info "Creating release package..."
@@ -156,6 +164,12 @@ cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
 TARBALL="$ROOT_DIR/afm-next-arm64.tar.gz"
 tar -czf "$TARBALL" -C "$STAGING" .
 log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
+shasum -a 256 "$TARBALL" > "$TARBALL.sha256"
+
+# Exercise the relocated payload before publishing it. This catches missing
+# SwiftPM resource bundles while the candidate is still local.
+"$STAGING/afm" --version
+"$STAGING/afm" --help | grep -q 'mlx'
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."
@@ -226,7 +240,8 @@ EOF
 )" \
   --target main \
   --repo "$REPO" \
-  "$TARBALL"
+  "$TARBALL" \
+  "$TARBALL.sha256"
 
 log_info "Release uploaded: $RELEASE_TAG"
 

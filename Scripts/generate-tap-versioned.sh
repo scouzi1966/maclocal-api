@@ -150,28 +150,24 @@ class ${class} < Formula
   url "${url}"
   version "${full_version}"
   sha256 "${sha256}"
+  license "MIT"
+  version_scheme 1
 
   depends_on arch: :arm64
-  depends_on :macos
+  depends_on macos: :tahoe
 
-  conflicts_with "afm", because: "both install an \`afm\` binary"
-  conflicts_with "afm-next", because: "both install an \`afm\` binary"
+  conflicts_with "afm", "afm-next", "afm-staging", because: "all install an \`afm\` executable"
 
   def install
-    bin.install "afm"
-    if File.directory?("MacLocalAPI_AFMKitMLX.bundle")
-      (libexec/"MacLocalAPI_AFMKitMLX.bundle").install Dir["MacLocalAPI_AFMKitMLX.bundle/*"]
-    end
+    libexec.install "afm"
+    libexec.install "MacLocalAPI_AFMKitMLX.bundle"
+    libexec.install "MacLocalAPI_AFMKitDwarfStar.bundle"
+    (bin/"afm").write_env_script libexec/"afm", AFM_BUILD_VERSION: "v#{version}"
+
     if File.exist?("Resources/webui/index.html.gz")
       (share/"afm/webui").install "Resources/webui/index.html.gz"
     end
-  end
-
-  def post_install
-    bundle_src = libexec/"MacLocalAPI_AFMKitMLX.bundle"
-    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_AFMKitMLX.bundle"
-    bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
-    bundle_dst.make_symlink(bundle_src) if bundle_src.exist?
+    doc.install "README.md"
   end
 
   def caveats
@@ -183,7 +179,8 @@ class ${class} < Formula
   end
 
   test do
-    assert_match "afm", shell_output("#{bin}/afm --version")
+    assert_match "v#{version}", shell_output("#{bin}/afm --version")
+    assert_match "mlx", shell_output("#{bin}/afm --help")
   end
 end
 EOF
@@ -280,10 +277,9 @@ backfill_next() {
 # Remove versioned formulae for a family beyond the KEEP most recent.
 #
 # Stable formulae (afm@X.Y.Z.rb): sort by SemVer — highest first.
-# Nightly formulae (afm-next@X.Y.Z-next.SHA.YYYYMMDD.rb): sort by the trailing
-# date field (YYYYMMDD) — newest first. The base SemVer at the front can be
-# smaller than a later nightly when the base version hasn't bumped yet, so we
-# sort by date specifically to keep the 10 most recently built nightlies.
+# Nightly formulae use either the legacy next.SHA.YYYYMMDD order or the current
+# next.YYYYMMDD.SHA order. Extract the eight-digit field instead of relying on
+# its position so pruning remains correct across both generations.
 prune_formulae() {
   local family="$1" keep="$2"
   local files_sorted=()
@@ -301,11 +297,11 @@ prune_formulae() {
       done < <(
         cd "$TAP_DIR" && ls -1 'afm-next@'*.rb 2>/dev/null \
           | awk -F'.' '{
-              # Last field before .rb is the date; second-to-last when .rb is at the end
-              # Filename: afm-next@0.9.10-next.628c2bb.20260408.rb
-              # Split on "." → ["afm-next@0","9","10-next","628c2bb","20260408","rb"]
-              # Date = $(NF-1)
-              printf "%s\t%s\n", $(NF-1), $0
+              date = ""
+              for (i = 1; i <= NF; i++) {
+                if ($i ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/) date = $i
+              }
+              printf "%s\t%s\n", date, $0
             }' \
           | sort -r \
           | cut -f2-
