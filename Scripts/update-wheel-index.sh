@@ -121,7 +121,10 @@ fi
 # ---------- build + deploy to Cloudflare Pages ----------
 if [ "$DEPLOY" = true ]; then
     echo "[INFO] Building afm-web site..."
-    npm install --silent
+    # npm can omit Sharp's optional macOS binary on newer Node/macOS betas and
+    # then fail by attempting a source build. Install the locked optional
+    # packages without lifecycle scripts; Astro consumes the prebuilt binaries.
+    npm ci --include=optional --ignore-scripts --silent
     npm run build
     if [ ! -f "dist/afm/wheels/simple/macafm-next/index.html" ]; then
         echo "[ERROR] Built dist/ is missing the wheel index — aborting deploy"
