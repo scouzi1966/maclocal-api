@@ -228,6 +228,8 @@ public final class MLXModelService: @unchecked Sendable {
     private let stateLock = NSLock()
     private var currentModelID: String?
     private var currentModelArchitecture: AFMMLXModelArchitecturePreflight?
+    private var currentModelDirectory: URL?
+    private var currentLoadedWithVisionFactory = false
     private var currentContainer: ModelContainer?
     private var activeOperations: Int = 0
     private var isShuttingDown = false
@@ -1484,6 +1486,8 @@ public final class MLXModelService: @unchecked Sendable {
                 currentContainer = loaded
                 currentModelID = modelID
                 currentModelArchitecture = modelArchitecture
+                currentModelDirectory = directory
+                currentLoadedWithVisionFactory = selectedFactory == "VLM"
                 currentToolCallFormat = detectedFormat
             }
             // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
@@ -1901,10 +1905,7 @@ public final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestCompleted()
             }
         }
-        let requestHasTools = !(tools?.isEmpty ?? true)
-
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -1916,6 +1917,7 @@ public final class MLXModelService: @unchecked Sendable {
             includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
         )
         defer { cleanupTempFiles(mediaTempFiles) }
+        let container = try await containerForRequest(modelID: modelID, messages: messages)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
 
@@ -2832,7 +2834,6 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -2854,10 +2855,9 @@ public final class MLXModelService: @unchecked Sendable {
             includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
         )
         let promptTokens = estimateTokens(promptText)
+        let container = try await containerForRequest(modelID: modelID, messages: messages)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
-        let streamRequestHasTools = !(tools?.isEmpty ?? true)
-
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -3660,6 +3660,8 @@ public final class MLXModelService: @unchecked Sendable {
                 currentContainer = nil
                 currentModelID = nil
                 currentModelArchitecture = nil
+                currentModelDirectory = nil
+                currentLoadedWithVisionFactory = false
             }
         }
 
@@ -5595,6 +5597,53 @@ public final class MLXModelService: @unchecked Sendable {
             return true
         }
         return false
+    }
+
+    private func containerForRequest(
+        modelID: String,
+        messages: [AFMOpenAICompat.Message]
+    ) async throws -> ModelContainer {
+        guard !isTextOnlyInput(messages) else {
+            guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
+            return container
+        }
+
+        let state = withStateLock { () -> (ModelContainer?, AFMMLXModelArchitecturePreflight?, URL?, Bool, Bool) in
+            (
+                currentContainer,
+                currentModelArchitecture,
+                currentModelDirectory,
+                currentLoadedWithVisionFactory,
+                currentModelID == modelID
+            )
+        }
+        guard let container = state.0, state.4 else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.1, let directory = state.2 else { return container }
+
+        let shouldReload = AFMMLXLoadedModeSwitchPolicy.shouldReloadVisionFactoryForMultimodalRequest(
+            loadedModelType: architecture.modelType,
+            isLoadedModelVLM: state.3,
+            loadedModelDirectoryIsVision: architecture.isVisionConfiguration
+        )
+        guard shouldReload else {
+            if architecture.isVisionConfiguration {
+                return container
+            }
+            throw MLXServiceError.loadFailed("\(modelID): request includes image/video input but the loaded model is not vision-capable")
+        }
+
+        print("[\(ts())] [MLX] Multimodal request for \(modelID) requires VLM factory; reloading loaded model as VLM")
+        let loaded = try await VLMModelFactory.shared.loadContainer(configuration: ModelConfiguration(directory: directory))
+        if let scheduler = withStateLock({ self.scheduler }) {
+            await scheduler.shutdown()
+        }
+        withStateLock {
+            currentContainer = loaded
+            currentLoadedWithVisionFactory = true
+            scheduler = nil
+            radixCache = nil
+        }
+        return loaded
     }
 
     private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {

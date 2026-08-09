@@ -50,4 +50,34 @@ final class AFMMLXLoadedModeSwitchPolicyTests: XCTestCase {
         XCTAssertEqual(plan, .currentLoadedModel(targetVLM: false))
         XCTAssertEqual(plan?.targetVLM, false)
     }
+
+    func testMultimodalRequestReloadsDualModeTextFactory() {
+        XCTAssertTrue(
+            AFMMLXLoadedModeSwitchPolicy.shouldReloadVisionFactoryForMultimodalRequest(
+                loadedModelType: "gemma4",
+                isLoadedModelVLM: false,
+                loadedModelDirectoryIsVision: true
+            )
+        )
+    }
+
+    func testMultimodalRequestKeepsAlreadyLoadedVisionFactory() {
+        XCTAssertFalse(
+            AFMMLXLoadedModeSwitchPolicy.shouldReloadVisionFactoryForMultimodalRequest(
+                loadedModelType: "gemma4",
+                isLoadedModelVLM: true,
+                loadedModelDirectoryIsVision: true
+            )
+        )
+    }
+
+    func testMultimodalRequestDoesNotReloadTextOnlyModel() {
+        XCTAssertFalse(
+            AFMMLXLoadedModeSwitchPolicy.shouldReloadVisionFactoryForMultimodalRequest(
+                loadedModelType: "llama",
+                isLoadedModelVLM: false,
+                loadedModelDirectoryIsVision: false
+            )
+        )
+    }
 }

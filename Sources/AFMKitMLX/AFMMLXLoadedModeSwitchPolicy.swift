@@ -11,6 +11,20 @@ public enum AFMMLXLoadedModeSwitchPlan: Equatable, Sendable {
 }
 
 public enum AFMMLXLoadedModeSwitchPolicy {
+    public static func shouldReloadVisionFactoryForMultimodalRequest(
+        loadedModelType: String?,
+        isLoadedModelVLM: Bool,
+        loadedModelDirectoryIsVision: Bool
+    ) -> Bool {
+        let trimmedModelType = loadedModelType?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedModelType.isEmpty,
+              AFMMLXModelArchitecture.isDualModeModelType(trimmedModelType),
+              loadedModelDirectoryIsVision else {
+            return false
+        }
+        return !isLoadedModelVLM
+    }
+
     public static func make(
         loadedModelRepoID: String?,
         loadedModelType: String?,
