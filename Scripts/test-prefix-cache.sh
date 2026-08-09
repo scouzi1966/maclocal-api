@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SERVER_PID=""
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-REPORT_DIR="$PROJECT_ROOT/test-reports/prefix-cache-${TIMESTAMP}"
+REPORT_DIR="${AFM_PREFIX_CACHE_REPORT_DIR:-$PROJECT_ROOT/test-reports/prefix-cache-${TIMESTAMP}}"
 
 # ─── Argument parsing ────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do

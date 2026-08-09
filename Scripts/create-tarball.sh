@@ -79,7 +79,10 @@ if [ ! -f "$WEBUI" ]; then
 fi
 
 # Stage tarball contents
-STAGING=$(mktemp -d)
+PACKAGE_WORK_ROOT="${AFM_PACKAGE_WORK_ROOT:-$ROOT_DIR/.build/package-work}"
+mkdir -p "$PACKAGE_WORK_ROOT"
+STAGING=$(mktemp -d "$PACKAGE_WORK_ROOT/afm-package.XXXXXX")
+trap 'rm -rf "$STAGING"' EXIT
 DIRNAME="afm-${VERSION}-${ARCH}"
 mkdir -p "$STAGING/$DIRNAME/Resources/webui"
 cp "$BIN" "$STAGING/$DIRNAME/"
@@ -96,6 +99,7 @@ cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"
 rm -rf "$STAGING"
+trap - EXIT
 
 SIZE=$(du -h "$OUTPUT" | cut -f1 | xargs)
 BIN_SIZE=$(du -h "$BIN" | cut -f1 | xargs)

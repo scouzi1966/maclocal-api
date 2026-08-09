@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 MODEL_CACHE="$ROOT_DIR/.build/afmcli-presentation-cache"
 MODEL_DIR="$MODEL_CACHE/acme/vision-reasoning-model"
-AFM_BIN="$ROOT_DIR/.build/debug/afm"
+AFM_BIN="${AFMCLI_PRESENTATION_BIN:-$ROOT_DIR/.build/debug/afm}"
 
 rm -rf "$MODEL_CACHE"
 mkdir -p "$MODEL_DIR"

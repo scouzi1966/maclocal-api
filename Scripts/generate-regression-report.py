@@ -2,8 +2,15 @@
 """Generate HTML regression test report from JSONL results."""
 import json, html, datetime, sys, os
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+default_work_dir = os.path.join(project_root, ".build", "test-work", "regression")
+results_path = os.environ.get(
+    "AFM_REGRESSION_RESULTS_FILE",
+    os.path.join(default_work_dir, "regression-test-results.jsonl"),
+)
 results = []
-with open("/tmp/regression-test-results.jsonl") as f:
+with open(results_path) as f:
     for line in f:
         line = line.strip()
         if line:
@@ -193,9 +200,10 @@ document.querySelectorAll('.badge-fail').forEach(function(badge) {{
 </html>
 """
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-outpath = os.path.join(script_dir, f"regression-report-{timestamp}.html")
+out_dir = os.environ.get("AFM_REGRESSION_REPORT_DIR", default_work_dir)
+os.makedirs(out_dir, exist_ok=True)
+outpath = os.path.join(out_dir, f"regression-report-{timestamp}.html")
 with open(outpath, "w") as f:
     f.write(report)
 

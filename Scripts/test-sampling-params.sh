@@ -17,7 +17,7 @@ PORT=9998
 MODEL=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-REPORT_DIR="$PROJECT_ROOT/test-reports"
+REPORT_DIR="${AFM_SAMPLING_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
