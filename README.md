@@ -20,6 +20,44 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 
 > AFM is for Apple Silicon Macs running current macOS/Xcode toolchains. MLX model weights download from Hugging Face the first time you use them.
 
+## Install
+
+> [!NOTE]
+> **Stable v0.9.14 remains the recommended release.** The v0.9.15-next nightly previews the new AFMKit provider architecture, DeepSeek V4 Flash 0731 support, and the latest runtime and packaging work. Install `afm-next` to test those changes before the next stable release.
+
+|  | Stable (v0.9.14) | Nightly (afm-next) |
+|---|---|---|
+| **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
+| **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
+| **Release notes** | [v0.9.14](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.14) | [v0.9.15-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260808-e70cc52) |
+
+### Install a previous version
+
+Older stable releases are kept as pinned formulae in the Homebrew tap and as version-pinned wheels on PyPI. This is useful for reproducing an issue against a specific build or rolling back without waiting for a new release.
+
+**Homebrew (pinned stable formulae):** `afm@<version>` — available for `0.9.0`, `0.9.1`, and `0.9.3`–`0.9.10`.
+
+```bash
+brew install scouzi1966/afm/afm@0.9.10
+brew uninstall afm
+brew link afm@0.9.10
+afm --version
+```
+
+**Homebrew (pinned nightly formulae):** `afm-next@<full-version>` — for example, `afm-next@0.9.15-next.20260808.e70cc52`. See the [Homebrew tap](https://github.com/scouzi1966/homebrew-afm) for available pinned nightlies.
+
+```bash
+brew install scouzi1966/afm/afm-next@0.9.15-next.20260808.e70cc52
+```
+
+**pip (version-pinned wheels):** install any published release by version.
+
+```bash
+pip install macafm==0.9.10
+pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ \
+  macafm-next==0.9.15.dev20260808
+```
+
 ## Start in two minutes
 
 ```bash
@@ -216,25 +254,7 @@ dependencies: [
 
 Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the [consumer examples](Examples/).
 
-## Install options
-
-### Stable
-
-```bash
-brew install scouzi1966/afm/afm
-# or
-pip install macafm
-```
-
-### Nightly
-
-```bash
-brew install scouzi1966/afm/afm-next
-# or
-pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next
-```
-
-### Build from source
+## Build from source
 
 ```bash
 git clone https://github.com/scouzi1966/maclocal-api.git
