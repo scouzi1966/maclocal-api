@@ -74,6 +74,66 @@ final class AFMMLXProviderTests: XCTestCase {
         })
     }
 
+    func testRawToolStreamFallbackConvertsDeepseekDSMLWhenAdapterOmitsTags() throws {
+        let tools = [
+            RequestTool(
+                type: "function",
+                function: RequestToolFunction(
+                    name: "get_weather",
+                    description: nil,
+                    parameters: AnyCodable([
+                        "type": "object",
+                        "properties": ["location": ["type": "string"]],
+                        "required": ["location"]
+                    ]),
+                    strict: true
+                )
+            )
+        ]
+        var fallback = AFMMLXRawToolStreamFallback(
+            toolCallStartTag: nil,
+            toolCallEndTag: nil,
+            toolCallParser: nil,
+            tools: tools,
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 64
+        )
+        let rawChunks = [
+            StreamChunk(text: "<｜DSML｜tool_calls>\n"),
+            StreamChunk(text: "<｜DSML｜invoke name=\"get_weather\">\n"),
+            StreamChunk(text: "<｜DSML｜parameter name=\"location\" string=\"true\">Toronto</｜DSML｜parameter>\n"),
+            StreamChunk(text: "</｜DSML｜invoke>\n</｜DSML｜tool_calls>")
+        ]
+
+        var events: [AFMGenerationEvent] = []
+        for chunk in rawChunks {
+            for normalized in fallback.consume(chunk) {
+                events.append(contentsOf: translator.consume(normalized))
+            }
+        }
+        for normalized in fallback.finish() {
+            events.append(contentsOf: translator.consume(normalized))
+        }
+        events.append(contentsOf: translator.finish())
+
+        let completedCalls = events.compactMap { event -> AFMToolCall? in
+            guard case .toolCall(let call, .completed) = event else { return nil }
+            return call
+        }
+        XCTAssertEqual(completedCalls.count, 1)
+        XCTAssertEqual(completedCalls[0].name, "get_weather")
+        XCTAssertEqual(completedCalls[0].arguments, #"{"location":"Toronto"}"#)
+        XCTAssertFalse(events.contains { event in
+            guard case .responseText(_, let text, _) = event else { return false }
+            return text.contains("DSML")
+        })
+    }
+
     func testOpenAIDeveloperRoleMapsToSystemRole() throws {
         let request = try AFMRequest(
             openAIMessages: [Message(role: "developer", content: "Follow project policy.")],

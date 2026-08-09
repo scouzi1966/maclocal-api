@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import MLX
+import MLXLLM
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -132,6 +134,72 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
+    @Test("BatchScheduler supports DeepSeek hybrid cache through its batch container")
+    func supportsDeepseekHybridCacheBatching() {
+        let cache = DeepseekV4Cache(slidingWindow: 128, compressRatio: 4)
+        #expect(BatchScheduler.supportsDenseBatchMerge(cache))
+    }
+
+    @Test("DeepSeek batch cache preserves independent hybrid state")
+    func deepseekBatchCachePreservesIndependentState() {
+        func makeCache(offset: Int, poolRows: Int, bufferRows: Int) -> DeepseekV4Cache {
+            let cache = DeepseekV4Cache(
+                slidingWindow: 128,
+                compressRatio: 4,
+                poolQuantizationEnabled: false)
+            if offset > 0 {
+                _ = cache.update(
+                    keys: MLXArray.zeros([1, 2, offset, 8], dtype: .float16),
+                    values: MLXArray.zeros([1, 2, offset, 8], dtype: .float16))
+            }
+            cache.setPooled(
+                .compressor,
+                value: MLXArray.zeros([1, poolRows, 16], dtype: .float16))
+            cache.setPooled(
+                .indexer,
+                value: MLXArray.zeros([1, poolRows + 1, 8], dtype: .float16))
+            cache.setBuffers(
+                .compressor,
+                kv: MLXArray.zeros([1, bufferRows, 16], dtype: .float16),
+                gate: MLXArray.zeros([1, bufferRows, 2], dtype: .float16))
+            cache.setBuffers(
+                .indexer,
+                kv: MLXArray.zeros([1, bufferRows + 1, 8], dtype: .float16),
+                gate: MLXArray.zeros([1, bufferRows + 1, 2], dtype: .float16))
+            return cache
+        }
+
+        let first = makeCache(offset: 3, poolRows: 2, bufferRows: 1)
+        let second = makeCache(offset: 7, poolRows: 5, bufferRows: 3)
+        let third = makeCache(offset: 11, poolRows: 7, bufferRows: 2)
+        let batch = BatchDeepseekV4Cache.merge([first, second])
+
+        #expect(batch.count == 2)
+        #expect(batch.offset == 7)
+        #expect(batch.cache(at: 0).offset == 3)
+        #expect(batch.cache(at: 1).offset == 7)
+        #expect(batch.cache(at: 0).getPooled(.compressor)?.dim(1) == 2)
+        #expect(batch.cache(at: 1).getPooled(.compressor)?.dim(1) == 5)
+        #expect(batch.cache(at: 0).getBuffers(.compressor).kv?.dim(1) == 1)
+        #expect(batch.cache(at: 1).getBuffers(.compressor).kv?.dim(1) == 3)
+
+        batch.extend(with: third)
+        #expect(batch.count == 3)
+        #expect(batch.offset == 11)
+
+        let extracted = batch.extract(1)
+        #expect(extracted.offset == 7)
+        #expect(extracted.getPooled(.indexer)?.dim(1) == 6)
+        #expect(extracted.getBuffers(.indexer).kv?.dim(1) == 4)
+
+        batch.filter([2, 0])
+        #expect(batch.count == 2)
+        #expect(batch.cache(at: 0).offset == 11)
+        #expect(batch.cache(at: 1).offset == 3)
+        #expect(batch.cache(at: 0).getPooled(.compressor)?.dim(1) == 7)
+        #expect(batch.cache(at: 1).getPooled(.compressor)?.dim(1) == 2)
+    }
+
     @Test("BatchScheduler preserves reusable partial prefixes for individual prefill")
     func reusablePartialPrefix() {
         #expect(BatchScheduler.effectiveCachedPrefixLength(
@@ -162,6 +230,24 @@ struct ConcurrentBatchTests {
             hasRecurrentLayers: true,
             forcedSuffix: 16
         ) == 43)
+    }
+
+    @Test("BatchScheduler rejects recurrent state captured beyond the matched prefix")
+    func recurrentDescendantStateBypass() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 60,
+            inputTokenCount: 95,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 69
+        ) == 0)
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 60,
+            inputTokenCount: 95,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 60
+        ) == 60)
     }
 
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")

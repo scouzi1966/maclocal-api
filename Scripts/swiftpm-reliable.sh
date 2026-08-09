@@ -132,10 +132,14 @@ run_native() {
 
 cd "$ROOT_DIR"
 
-# DwarfStar is pinned to canonical upstream. AFM-specific integration remains
-# owned by this repository and is applied idempotently, matching the existing
-# vendored MLX patch workflow. Never require a fork branch or upstream PR just
-# to reproduce an AFM build.
+# DwarfStar is a vanilla dependency. AFM integration belongs in CDwarfStar and
+# AFMKitDwarfStar; fail instead of compiling locally modified engine sources.
+if [[ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]]; then
+    echo "[swiftpm-reliable] vendor/ds4 is not a clean upstream checkout." >&2
+    echo "[swiftpm-reliable] Keep DwarfStar vanilla and move interface work into AFM-owned adapters." >&2
+    exit 1
+fi
+
 run_required_patch_step() {
     local label="$1"
     shift
@@ -145,13 +149,6 @@ run_required_patch_step() {
         exit 1
     fi
 }
-
-run_required_patch_step \
-    "DwarfStar integration" \
-    "$ROOT_DIR/Scripts/apply-ds4-patches.sh"
-run_required_patch_step \
-    "DwarfStar integration verification" \
-    "$ROOT_DIR/Scripts/apply-ds4-patches.sh" --check
 
 # The official DeepSeek V4 checkpoint uses F8_E8M0 safetensor metadata for
 # byte-packed block scales. The pinned mlx-swift release predates that tag.
@@ -183,15 +180,11 @@ run_required_patch_step \
     "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
 
 # Xcode 27's native driver can also miss changes in the C sources included by
-# CDwarfStar. Fingerprint both the pinned revision and AFM-owned patch payload;
-# invalidate compiled products only when that effective source changes.
+# CDwarfStar. The dependency is consumed unchanged, so its pinned revision is
+# the complete native-source identity.
 DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
 DS4_SOURCE_FINGERPRINT="$({
     git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD
-    find "$ROOT_DIR/Scripts/patches/ds4" -type f -print0 \
-        | sort -z \
-        | xargs -0 shasum -a 256
-    shasum -a 256 "$ROOT_DIR/Scripts/apply-ds4-patches.sh"
 } | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
 if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then

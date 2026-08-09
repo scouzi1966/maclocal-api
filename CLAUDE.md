@@ -44,7 +44,6 @@ vendor/
 Scripts/
 ├── patches/                            # Our patches to vendor code (copied over originals)
 ├── apply-mlx-patches.sh                # Applies patches from Scripts/patches/ to vendor/
-├── apply-ds4-patches.sh                # Applies AFM integration patches to canonical ds4
 ├── build-from-scratch.sh               # Full build: submodules + patches + webui + build
 ```
 
@@ -59,17 +58,14 @@ The patch script (`Scripts/apply-mlx-patches.sh`) copies complete Swift files fr
 
 Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
-### DwarfStar patches
+### DwarfStar dependency boundary
 
 `vendor/ds4` is pinned directly to canonical `https://github.com/antirez/ds4.git`.
-Do not point the submodule at an AFM fork or require a DS4 pull request for AFM
-integration. AFM-specific public mapping adaptations are stored as ordered Git
-patches under `Scripts/patches/ds4/` and managed by
-`Scripts/apply-ds4-patches.sh`. The script supports the same no-flag,
-`--check`, and `--revert` workflow and rejects an unexpected upstream revision.
-`Scripts/swiftpm-reliable.sh` always applies and verifies the patches before
-compiling `CDwarfStar`, and fingerprints their effective source to prevent
-Xcode's native driver from reusing stale C objects.
+Do not point the submodule at an AFM fork, patch its loader, sampler, cache, or
+Metal kernels, or require a DS4 pull request for AFM integration. Keep interface
+adaptations in `Sources/CDwarfStar` and `Sources/AFMKitDwarfStar` using the
+public upstream C API. `Scripts/swiftpm-reliable.sh` fingerprints the pinned
+submodule revision to prevent Xcode's native driver from reusing stale C objects.
 
 ### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
 

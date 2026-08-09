@@ -18,8 +18,12 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Parse version from BuildInfo.swift
-VERSION=$(grep -o '"v[0-9.]*"' "$ROOT_DIR/Sources/AFMKit/BuildInfo.swift" | tr -d '"')
+# Parse only the declared semantic version. BuildInfo also contains string
+# interpolation beginning with "v", which the old broad grep treated as a
+# second version and embedded a newline in the archive's root directory.
+VERSION=$(grep 'static let version' "$ROOT_DIR/Sources/AFMKit/BuildInfo.swift" \
+  | head -1 \
+  | sed -E 's/.*"(v[0-9]+(\.[0-9]+)+)".*/\1/')
 if [ -z "$VERSION" ]; then
   log_error "Could not read version from BuildInfo.swift"
   exit 1
@@ -65,6 +69,8 @@ else
   exit 1
 fi
 
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
+
 # Verify webui
 WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
 if [ ! -f "$WEBUI" ]; then
@@ -77,6 +83,14 @@ STAGING=$(mktemp -d)
 DIRNAME="afm-${VERSION}-${ARCH}"
 mkdir -p "$STAGING/$DIRNAME/Resources/webui"
 cp "$BIN" "$STAGING/$DIRNAME/"
+for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
+  if [ ! -d "$BUNDLE_DIR" ]; then
+    log_error "Required runtime bundle missing: $BUNDLE_DIR"
+    exit 1
+  fi
+  cp -R "$BUNDLE_DIR" "$STAGING/$DIRNAME/"
+done
 cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball

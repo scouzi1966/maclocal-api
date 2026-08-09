@@ -318,6 +318,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     let looksLikeToolCall =
                         fullText.contains("<function=") ||
                         fullText.contains("<tool_call>") ||
+                        fullText.contains("DSML｜tool_calls>") ||
+                        fullText.contains("DSML|tool_calls>") ||
                         fullText.contains("[TOOL_CALLS]") ||
                         fullText.contains("[ARGS]") ||
                         (trimmed.hasPrefix("{") && trimmed.contains("\"name\""))
@@ -656,11 +658,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 // streams normally; only the tool call body is buffered and parsed.
                 let toolCallStartTag = res.toolCallStartTag
                 let toolCallEndTag = res.toolCallEndTag
+                let defaultDeepseekToolCallStartTag = "<｜DSML｜tool_calls>"
+                let defaultDeepseekToolCallEndTag = "</｜DSML｜tool_calls>"
+                let effectiveToolCallStartTag = toolCallStartTag ?? (
+                    effectiveTools?.isEmpty == false ? defaultDeepseekToolCallStartTag : nil
+                )
+                let effectiveToolCallEndTag = toolCallEndTag ?? (
+                    effectiveTools?.isEmpty == false ? defaultDeepseekToolCallEndTag : nil
+                )
                 let thinkStartTag = res.thinkStartTag
                 let thinkEndTag = res.thinkEndTag
-                let toolRuntime = (toolCallStartTag != nil && toolCallEndTag != nil) ? ToolCallStreamingRuntime(
-                    toolCallStartTag: toolCallStartTag!,
-                    toolCallEndTag: toolCallEndTag!,
+                let toolRuntime = (effectiveToolCallStartTag != nil && effectiveToolCallEndTag != nil) ? ToolCallStreamingRuntime(
+                    toolCallStartTag: effectiveToolCallStartTag!,
+                    toolCallEndTag: effectiveToolCallEndTag!,
                     toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
                     tools: effectiveTools,
                     applyFixToolArgs: { rtc in
@@ -765,11 +775,35 @@ struct MLXChatCompletionsController: RouteCollection {
                         continue
                     }
 
-                    fullContent += piece
-
                     if let toolRuntime {
-                        let runtimeOutput = toolRuntime.process(piece: piece)
+                        var toolPiece = piece
+                        if !toolRuntime.inToolCall,
+                           let effectiveToolCallStartTag,
+                           let range = toolPiece.range(of: effectiveToolCallStartTag),
+                           range.lowerBound != toolPiece.startIndex {
+                            let prefix = String(toolPiece[..<range.lowerBound])
+                            if !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                fullContent += prefix
+                            }
+                            toolPiece = String(toolPiece[range.lowerBound...])
+                        }
+                        let runtimeOutput = toolRuntime.process(piece: toolPiece)
                         if runtimeOutput.handled {
+                            if let passthroughText = runtimeOutput.passthroughText, !passthroughText.isEmpty {
+                                fullContent += passthroughText
+                                if !deferStructuredOutputContent {
+                                    let passthroughChunk = ChatCompletionStreamResponse(
+                                        id: streamId,
+                                        model: res.modelID,
+                                        content: passthroughText,
+                                        isFirst: false
+                                    )
+                                    let passthroughData = try encoder.encode(passthroughChunk)
+                                    if let jsonString = String(data: passthroughData, encoding: .utf8) {
+                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                                    }
+                                }
+                            }
                             if runtimeOutput.events.contains(where: {
                                 if case .started = $0 { return true }
                                 return false
@@ -829,6 +863,8 @@ struct MLXChatCompletionsController: RouteCollection {
                             continue
                         }
                     }
+
+                    fullContent += piece
 
                     if let lps = streamChunk.logprobs {
                         logprobBuffer.append(contentsOf: lps)
@@ -1029,7 +1065,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
                 let parserName = self.service.toolCallParser ?? "auto"
                 if !hasToolCalls && !service.isToolCallParserDisabled(service.toolCallParser) && (
-                    (toolCallStartTag != nil && fullContent.contains(toolCallStartTag!)) ||
+                    (effectiveToolCallStartTag != nil && fullContent.contains(effectiveToolCallStartTag!)) ||
+                    fullContent.contains("DSML｜tool_calls>") ||
+                    fullContent.contains("DSML|tool_calls>") ||
                     fullContent.contains("[TOOL_CALLS]") ||
                     fullContent.contains("[ARGS]") ||
                     (chatRequest.tools != nil && looksLikeBareJsonToolCall) ||

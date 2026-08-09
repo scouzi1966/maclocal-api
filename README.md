@@ -7,7 +7,7 @@
 [![OpenAI compatible](https://img.shields.io/badge/API-OpenAI%20compatible-74e6df.svg)](#api-surface)
 [![MIT](https://img.shields.io/badge/license-MIT-8cc665.svg)](LICENSE)
 
-[Website](https://afm-local-ai.sylvain-cousineau.chatgpt.site) · [Documentation](https://afm-local-ai.sylvain-cousineau.chatgpt.site/docs) · [GitHub releases](https://github.com/scouzi1966/maclocal-api/releases)
+[Website](https://maclocal.ai) · [Documentation](https://maclocal.ai/docs) · [GitHub releases](https://github.com/scouzi1966/maclocal-api/releases)
 
 AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run Hugging Face MLX models or Apple’s on-device Foundation Model, then connect the clients and SDKs you already use.
 
@@ -263,8 +263,8 @@ Small 0.6B–4B quantized models are the easiest way to confirm a setup. Large 3
 - [Model path resolution](docs/model-path-resolution.md)
 - [Decode optimizations](docs/decode-optimizations.md)
 - [AFMKit public API](docs/afmkit-public-api.md)
-- [Parameter combinations and use cases](https://afm-local-ai.sylvain-cousineau.chatgpt.site/docs/configuration-recipes)
-- [Supported model architecture catalog](https://afm-local-ai.sylvain-cousineau.chatgpt.site/docs/model-architectures)
+- [Parameter combinations and use cases](https://maclocal.ai/docs/configuration-recipes)
+- [Supported model architecture catalog](https://maclocal.ai/docs/model-architectures)
 - [Roadmap](docs/ROADMAP.md)
 
 ## Contributing

@@ -300,12 +300,12 @@ struct MlxCommand: ParsableCommand {
             - You want vision/multimodal inference with local VLM models
           when_not_to_use:
             - You need cloud-scale throughput or multi-GPU inference (use vLLM, TGI, or cloud APIs)
-            - You need GGUF/llama.cpp format models (use Ollama or llama-server instead)
+            - You need a GGUF architecture other than the supported DeepSeek V4 DwarfStar format
             - You are not on Apple Silicon (MLX is Apple-only)
           integration_pattern: Start server with `afm mlx -m <model>`, then point any OpenAI SDK client at http://127.0.0.1:9999/v1. Drop-in replacement for OpenAI API.
           limitations:
             - Single-sequence inference only (one request at a time, queued)
-            - MLX-format models only (safetensors from Hugging Face, not GGUF)
+            - Safetensors models use MLX; compatible DeepSeek V4 GGUF files auto-select DwarfStar
             - JSON mode uses prompt injection, not grammar-constrained decoding
             - Apple Silicon Mac required (M1/M2/M3/M4)
           typical_workflow:
@@ -405,7 +405,7 @@ struct MlxCommand: ParsableCommand {
     var prefillStepSize: Int?
     @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
-    @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects the fixed-schedule DwarfStar executor for compatible self-contained AFM checkpoints.")
+    @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects vanilla DwarfStar for compatible DeepSeek V4 GGUF metadata; directory checkpoints use MLX.")
     var mlxRuntime: String = "auto"
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
@@ -860,35 +860,39 @@ struct MlxCommand: ParsableCommand {
         guard requested != .mlx else { return .mlx }
 
         let path = localModelPath(model)
-        let modelURL = URL(fileURLWithPath: path, isDirectory: true)
-        let isDirectory = (try? modelURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
-            == true
-        guard isDirectory else {
+        let modelURL = URL(fileURLWithPath: path)
+        let resourceValues = try? modelURL.resourceValues(
+            forKeys: [.isDirectoryKey, .isRegularFileKey])
+        guard resourceValues?.isDirectory != true else {
             if requested == .dwarfstar {
                 throw ValidationError(
-                    "--mlx-runtime dwarfstar requires a local self-contained AFM checkpoint directory")
+                    "--mlx-runtime dwarfstar requires a native DwarfStar GGUF file; AFM checkpoint directories use MLX")
             }
             return .mlx
         }
-
-        let catalog: AFMDwarfStarCheckpointCatalog
-        do {
-            catalog = try AFMDwarfStarCheckpointCatalog(checkpointURL: modelURL)
-        } catch {
+        guard resourceValues?.isRegularFile == true else {
             if requested == .dwarfstar {
-                throw ValidationError("Checkpoint is not DwarfStar-compatible: \(error.localizedDescription)")
+                throw ValidationError(
+                    "--mlx-runtime dwarfstar requires a local compatible GGUF file")
             }
             return .mlx
         }
-        guard catalog.layout.isExecutorReady else {
+        guard AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: modelURL) else {
             if requested == .dwarfstar {
-                throw ValidationError("Checkpoint does not contain the DwarfStar executor layout")
+                let architecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: modelURL)
+                    ?? "unreadable"
+                throw ValidationError(
+                    "DwarfStar does not support GGUF architecture \(architecture)")
             }
             return .mlx
         }
-        guard catalog.isSelfContainedExecutorReady else {
-            throw ValidationError(
-                "DwarfStar executor checkpoint is missing \(AFMDwarfStarCheckpointCatalog.bundledTemplateFilename). Re-run mlx-convert --profile dwarfstar-executor --template-gguf <reference.gguf>.")
+        if requested == .auto {
+            print(
+                "[Runtime] Auto-selected DwarfStar over MLX: "
+                    + "GGUF metadata declares general.architecture=deepseek4."
+            )
+        } else {
+            print("[Runtime] Selected DwarfStar for compatible raw GGUF.")
         }
         return .dwarfstar
     }
@@ -943,7 +947,7 @@ struct MlxCommand: ParsableCommand {
         }
         if verbose {
             print("Selected inference runtime: dwarfstar (fixed Metal schedule)")
-            print("AFM checkpoint: \(checkpointPath)")
+            print("DwarfStar GGUF: \(checkpointPath)")
             if let resolvedDSparkPath {
                 print("DSpark support: \(resolvedDSparkPath) (draft=\(dsparkDraftTokens), confidence=\(dsparkConfidenceThreshold), strict=\(dsparkStrict))")
             }

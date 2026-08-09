@@ -11,6 +11,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     # Use the runner's default Xcode toolchain (Swift 6.x on macos-latest),
     # which is required both for the macOS 26 SDK / Foundation Models APIs and
@@ -19,15 +21,23 @@ jobs:
     # cannot build a 6.0 tools-version package, and a swift.org toolchain lacks
     # the FoundationModels framework.
     - name: Build Release Binary
-      run: swift build --configuration release
+      run: ./build.sh --stable --yes
     
     - name: Create Release Package
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
         mkdir -p release-package
+
+        Scripts/check-macos26-compatibility.sh .build/arm64-apple-macosx/release/afm
         
         # Copy binary with new name
         cp .build/arm64-apple-macosx/release/afm release-package/
+
+        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+          BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
+          test -d "$BUNDLE_DIR"
+          cp -r "$BUNDLE_DIR" release-package/
+        done
         
         # Copy scripts and docs
         cp test-streaming.sh test-metrics.sh release-package/

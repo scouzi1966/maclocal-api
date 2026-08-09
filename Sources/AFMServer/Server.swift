@@ -559,7 +559,7 @@ public class Server: @unchecked Sendable {
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",
-                    build_info: "AFM \(BuildInfo.version ?? "dev")",
+                    build_info: "AFM \(BuildInfo.fullVersion)",
                     default_model: mlxModelID
                 )
             }
@@ -602,7 +602,7 @@ public class Server: @unchecked Sendable {
                 chat_template: "",
                 bos_token: "",
                 eos_token: "",
-                build_info: "AFM \(BuildInfo.version ?? "dev")",
+                build_info: "AFM \(BuildInfo.fullVersion)",
                 default_model: "foundation"
             )
         }
@@ -1626,7 +1626,7 @@ public class Server: @unchecked Sendable {
     
     public func start() async throws {
         // Print ASCII art splash screen
-        let version = BuildInfo.version ?? "dev-build"
+        let version = BuildInfo.fullVersion
 
         // ANSI color codes - Apple Intelligence inspired gradient
         let cyan = "\u{001B}[36m"

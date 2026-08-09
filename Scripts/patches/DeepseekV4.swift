@@ -528,6 +528,22 @@ class DeepseekV4Attention: Module {
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
+        if let batchCache = cache as? BatchDeepseekV4Cache {
+            precondition(
+                batchCache.count == x.dim(0),
+                "DeepSeek V4 batch cache count must match the hidden-state batch")
+            let rows = (0..<batchCache.count).map { index -> MLXArray in
+                let row = x[index ..< index + 1]
+                let rowCache = batchCache.cache(at: index)
+                let rowMask = createAttentionMask(
+                    h: row.reshaped(row.dim(0), row.dim(1), -1),
+                    cache: rowCache,
+                    returnArray: row.dim(1) > 1 && rowCache.offset > 0)
+                return callAsFunction(row, mask: rowMask, cache: rowCache)
+            }
+            return concatenated(rows, axis: 0)
+        }
+
         let B = x.dim(0)
         let L = x.dim(1)
         let offset = cache?.offset ?? 0

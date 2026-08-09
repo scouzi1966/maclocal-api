@@ -48,6 +48,47 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testStreamingControllerParsesDeepseekDSMLWithoutAdvertisedToolTags() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(
+                chunks: [
+                    StreamChunk(text: "\n\n"),
+                    StreamChunk(text: "<｜DSML｜"),
+                    StreamChunk(text: "tool"),
+                    StreamChunk(text: "_c"),
+                    StreamChunk(text: "alls>\n"),
+                    StreamChunk(text: "<｜DSML｜invoke name=\"get_weather\">\n"),
+                    StreamChunk(text: "<｜DSML｜parameter name=\"location\" string=\"true\">Toronto</｜DSML｜parameter>\n"),
+                    StreamChunk(text: "</｜DSML｜invoke>\n</｜DSML｜tool_calls>"),
+                    StreamChunk(text: "", promptTokens: 415, completionTokens: 44, cachedTokens: 0, promptTime: 1.5, generateTime: 1.8),
+                ],
+                toolCallStartTag: nil,
+                toolCallEndTag: nil
+            )
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, toolChoiceJSON: "\"required\"")
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, "\"tool_calls\"")
+            XCTAssertContains(res.body.string, "\"get_weather\"")
+            XCTAssertContains(res.body.string, "\\\"location\\\":\\\"Toronto\\\"")
+            XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
+            XCTAssertFalse(res.body.string.contains("DSML"))
+        }
+    }
+
     func testRawOutputPreservesStructuralTagsAtGenerationSource() async throws {
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(chunks: [
@@ -661,7 +702,37 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         Self.makeDelayedStreamingResult(modelID: "test-model", chunks: chunks, delayNanoseconds: nil)
     }
 
+    private func makeStreamingResult(
+        chunks: [StreamChunk],
+        toolCallStartTag: String?,
+        toolCallEndTag: String?
+    ) -> AFMMLXChatStreamingResult {
+        Self.makeDelayedStreamingResult(
+            modelID: "test-model",
+            chunks: chunks,
+            delayNanoseconds: nil,
+            toolCallStartTag: toolCallStartTag,
+            toolCallEndTag: toolCallEndTag
+        )
+    }
+
     private static func makeDelayedStreamingResult(modelID: String, chunks: [StreamChunk], delayNanoseconds: UInt64?) -> AFMMLXChatStreamingResult {
+        Self.makeDelayedStreamingResult(
+            modelID: modelID,
+            chunks: chunks,
+            delayNanoseconds: delayNanoseconds,
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>"
+        )
+    }
+
+    private static func makeDelayedStreamingResult(
+        modelID: String,
+        chunks: [StreamChunk],
+        delayNanoseconds: UInt64?,
+        toolCallStartTag: String?,
+        toolCallEndTag: String?
+    ) -> AFMMLXChatStreamingResult {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             Task {
                 for chunk in chunks {
@@ -677,8 +748,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             modelID: modelID,
             stream: stream,
             promptTokens: 8,
-            toolCallStartTag: "<tool_call>",
-            toolCallEndTag: "</tool_call>",
+            toolCallStartTag: toolCallStartTag,
+            toolCallEndTag: toolCallEndTag,
             thinkStartTag: nil,
             thinkEndTag: nil
         )

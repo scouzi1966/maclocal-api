@@ -12,6 +12,17 @@ public enum ToolCallStreamingEvent: Sendable {
 public struct ToolCallStreamingOutput: Sendable {
     public let handled: Bool
     public let events: [ToolCallStreamingEvent]
+    public let passthroughText: String?
+
+    public init(
+        handled: Bool,
+        events: [ToolCallStreamingEvent],
+        passthroughText: String? = nil
+    ) {
+        self.handled = handled
+        self.events = events
+        self.passthroughText = passthroughText
+    }
 }
 
 public final class ToolCallStreamingRuntime {
@@ -35,6 +46,7 @@ public final class ToolCallStreamingRuntime {
     private var incrementalParamCount = 0
     private var incrementalEmittedKeys = Set<String>()
     private var collectedCount = 0
+    private var pendingStartProbe = ""
 
     public init(
         toolCallStartTag: String,
@@ -69,11 +81,45 @@ public final class ToolCallStreamingRuntime {
     }
 
     public func process(piece: String) -> ToolCallStreamingOutput {
-        if !inToolCall, let startRange = piece.range(of: toolCallStartTag) {
-            inToolCall = true
-            madeToolCall = true
-            let afterStart = String(piece[startRange.upperBound...])
-            return self.consumeToolBodyFragment(afterStart, prependStarted: true)
+        if !inToolCall {
+            let candidate = pendingStartProbe + piece
+            if let startRange = candidate.range(of: toolCallStartTag) {
+                let prefix = String(candidate[..<startRange.lowerBound])
+                pendingStartProbe = ""
+                inToolCall = true
+                madeToolCall = true
+                let afterStart = String(candidate[startRange.upperBound...])
+                let output = self.consumeToolBodyFragment(afterStart, prependStarted: true)
+                guard !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return output
+                }
+                return ToolCallStreamingOutput(
+                    handled: true,
+                    events: output.events,
+                    passthroughText: prefix
+                )
+            }
+
+            let retained = Self.partialSuffixLength(in: candidate, matching: toolCallStartTag)
+            if retained > 0 {
+                let emitEnd = candidate.index(candidate.endIndex, offsetBy: -retained)
+                let emit = String(candidate[..<emitEnd])
+                pendingStartProbe = String(candidate[emitEnd...])
+                return ToolCallStreamingOutput(
+                    handled: true,
+                    events: [],
+                    passthroughText: emit.isEmpty ? nil : emit
+                )
+            }
+
+            if !pendingStartProbe.isEmpty {
+                pendingStartProbe = ""
+                return ToolCallStreamingOutput(
+                    handled: true,
+                    events: [],
+                    passthroughText: candidate.isEmpty ? nil : candidate
+                )
+            }
         }
 
         guard inToolCall else {
@@ -371,11 +417,23 @@ public final class ToolCallStreamingRuntime {
     private func resetState() {
         currentToolText = ""
         inToolCall = false
+        pendingStartProbe = ""
         incrementalEmittedFirst = false
         incrementalCallId = ""
         incrementalFunctionName = ""
         incrementalParamCount = 0
         incrementalEmittedKeys = Set<String>()
+    }
+
+    private static func partialSuffixLength(in text: String, matching boundary: String) -> Int {
+        let maximum = min(text.count, max(0, boundary.count - 1))
+        guard maximum > 0 else { return 0 }
+        for length in stride(from: maximum, through: 1, by: -1) {
+            if text.suffix(length) == boundary.prefix(length) {
+                return length
+            }
+        }
+        return 0
     }
 
     private static func fuzzyMatchToolName(_ name: String, candidates: [String]) -> String? {
@@ -437,6 +495,9 @@ public final class ToolCallStreamingRuntime {
         toolCallParser: String?,
         tools: [RequestTool]?
     ) -> ([ToolCall], String) {
+        if let dsml = parseDeepseekDSMLToolCalls(from: text, tools: tools) {
+            return dsml
+        }
         if toolCallParser == "afm_adaptive_xml",
            let direct = parseSingleAdaptiveJSONToolCall(from: text, tools: tools) {
             return direct
@@ -497,6 +558,94 @@ public final class ToolCallStreamingRuntime {
         return ([toolCall], "")
     }
 
+    /// Parse DeepSeek's native DSML envelope. Detection is syntax-based so a
+    /// converted checkpoint does not depend on its repository or model name.
+    private static func parseDeepseekDSMLToolCalls(
+        from text: String,
+        tools: [RequestTool]?
+    ) -> ([ToolCall], String)? {
+        let envelopePattern = #"<[|｜]DSML[|｜]tool_calls>\s*(.*?)\s*</[|｜]DSML[|｜]tool_calls>"#
+        guard let envelopeRegex = try? NSRegularExpression(
+            pattern: envelopePattern,
+            options: [.dotMatchesLineSeparators]
+        ) else { return nil }
+
+        let source = text as NSString
+        let envelopeMatches = envelopeRegex.matches(
+            in: text,
+            range: NSRange(location: 0, length: source.length)
+        )
+        guard !envelopeMatches.isEmpty else { return nil }
+
+        let invokeRegex = try? NSRegularExpression(
+            pattern: #"<[|｜]DSML[|｜]invoke\s+name=\"([^\"]+)\">\s*(.*?)\s*</[|｜]DSML[|｜]invoke>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let parameterRegex = try? NSRegularExpression(
+            pattern: #"<[|｜]DSML[|｜]parameter\s+name=\"([^\"]+)\"(?:\s+string=\"(true|false)\")?>(.*?)</[|｜]DSML[|｜]parameter>"#,
+            options: [.dotMatchesLineSeparators, .caseInsensitive]
+        )
+        guard let invokeRegex, let parameterRegex else { return nil }
+
+        let validNames = tools?.map(\.function.name) ?? []
+        var calls: [ToolCall] = []
+        for envelope in envelopeMatches {
+            guard let bodyRange = Range(envelope.range(at: 1), in: text) else { continue }
+            let body = String(text[bodyRange])
+            let bodyNSString = body as NSString
+            for invoke in invokeRegex.matches(
+                in: body,
+                range: NSRange(location: 0, length: bodyNSString.length)
+            ) {
+                guard invoke.numberOfRanges >= 3 else { continue }
+                let rawName = bodyNSString.substring(with: invoke.range(at: 1))
+                let invokeBody = bodyNSString.substring(with: invoke.range(at: 2))
+                let invokeNSString = invokeBody as NSString
+                var arguments: [String: any Sendable] = [:]
+                for parameter in parameterRegex.matches(
+                    in: invokeBody,
+                    range: NSRange(location: 0, length: invokeNSString.length)
+                ) {
+                    let name = MLXModelService.decodeXMLEntities(
+                        invokeNSString.substring(with: parameter.range(at: 1))
+                    )
+                    let forceString = parameter.range(at: 2).location != NSNotFound
+                        && invokeNSString.substring(with: parameter.range(at: 2)).lowercased() == "true"
+                    let value = invokeNSString.substring(with: parameter.range(at: 3))
+                    arguments[name] = decodeDSMLParameterValue(value, forceString: forceString)
+                }
+                let resolvedName: String
+                if validNames.isEmpty || validNames.contains(rawName) {
+                    resolvedName = rawName
+                } else {
+                    resolvedName = fuzzyMatchToolName(rawName, candidates: validNames) ?? rawName
+                }
+                calls.append(ToolCall(function: .init(name: resolvedName, arguments: arguments)))
+            }
+        }
+        guard !calls.isEmpty else { return nil }
+
+        let mutableRemaining = NSMutableString(string: text)
+        for match in envelopeMatches.reversed() {
+            mutableRemaining.replaceCharacters(in: match.range, with: "")
+        }
+        return (calls, mutableRemaining.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func decodeDSMLParameterValue(
+        _ value: String,
+        forceString: Bool
+    ) -> any Sendable {
+        let decoded = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(value))
+        guard !forceString else { return decoded }
+        let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            return makeSendableJSON(json)
+        }
+        return decoded
+    }
+
     private static func parseAdaptiveJSONToolCallBody(_ body: String, tools: [RequestTool]?) -> ToolCall? {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedBody.hasPrefix("{"),
@@ -540,12 +689,6 @@ public final class ToolCallStreamingRuntime {
         switch value {
         case let string as String:
             return string
-        case let int as Int:
-            return int
-        case let double as Double:
-            return double
-        case let bool as Bool:
-            return bool
         case let number as NSNumber:
             if CFGetTypeID(number) == CFBooleanGetTypeID() {
                 return number.boolValue
@@ -555,6 +698,12 @@ public final class ToolCallStreamingRuntime {
                 return number.intValue
             }
             return doubleValue
+        case let int as Int:
+            return int
+        case let double as Double:
+            return double
+        case let bool as Bool:
+            return bool
         case let dict as [String: Any]:
             return dict.mapValues { makeSendableJSON($0) }
         case let array as [Any]:

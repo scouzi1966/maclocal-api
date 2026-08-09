@@ -112,6 +112,88 @@ struct ToolCallStreamingRuntimeTests {
         #expect(replacement(from: trailing)?.function.arguments == #"{"location":"Ber"}"#)
     }
 
+    @Test("completed parser extracts DeepSeek DSML calls by syntax")
+    func parsesDeepseekDSMLToolCalls() throws {
+        let text = """
+        I will update the file.
+        <｜DSML｜tool_calls>
+        <｜DSML｜invoke name="edit">
+        <｜DSML｜parameter name="path" string="true">README.md</｜DSML｜parameter>
+        <｜DSML｜parameter name="line">42</｜DSML｜parameter>
+        <｜DSML｜parameter name="enabled">true</｜DSML｜parameter>
+        </｜DSML｜invoke>
+        </｜DSML｜tool_calls>
+        """
+        let tools = [makeTool(
+            name: "edit",
+            properties: [
+                "path": ["type": "string"],
+                "line": ["type": "integer"],
+                "enabled": ["type": "boolean"],
+            ],
+            required: ["path"]
+        )]
+
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text,
+            toolCallParser: nil,
+            tools: tools
+        )
+
+        #expect(calls.count == 1)
+        #expect(calls[0].function.name == "edit")
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "README.md")
+        #expect(calls[0].function.arguments["line"]?.anyValue as? Int == 42)
+        #expect(calls[0].function.arguments["enabled"] == .bool(true))
+        #expect(remaining == "I will update the file.")
+    }
+
+    @Test("completed parser supports ASCII DeepSeek DSML markers and parallel calls")
+    func parsesASCIIAndParallelDeepseekDSMLToolCalls() throws {
+        let text = """
+        <|DSML|tool_calls>
+        <|DSML|invoke name="read"><|DSML|parameter name="path" string="true">a.txt</|DSML|parameter></|DSML|invoke>
+        <|DSML|invoke name="read"><|DSML|parameter name="path" string="true">b.txt</|DSML|parameter></|DSML|invoke>
+        </|DSML|tool_calls>
+        """
+
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text,
+            toolCallParser: nil,
+            tools: [makeTool(name: "read", properties: ["path": ["type": "string"]])]
+        )
+
+        #expect(calls.count == 2)
+        #expect(calls[0].function.arguments["path"]?.anyValue as? String == "a.txt")
+        #expect(calls[1].function.arguments["path"]?.anyValue as? String == "b.txt")
+        #expect(remaining.isEmpty)
+    }
+
+    @Test("streaming runtime buffers split DeepSeek DSML start tags")
+    func buffersSplitDeepseekDSMLStartTags() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<｜DSML｜tool_calls>",
+            toolCallEndTag: "</｜DSML｜tool_calls>",
+            toolCallParser: "deepseek_dsml",
+            tools: [makeTool(name: "get_weather", properties: ["location": ["type": "string"]], required: ["location"])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        #expect(!runtime.process(piece: "prefix ").handled)
+        #expect(runtime.process(piece: "<｜DSML｜").handled)
+        #expect(runtime.process(piece: "tool").handled)
+        #expect(runtime.process(piece: "_calls>\n").handled)
+        _ = runtime.process(piece: "<｜DSML｜invoke name=\"get_weather\">\n")
+        _ = runtime.process(piece: "<｜DSML｜parameter name=\"location\" string=\"true\">Toronto</｜DSML｜parameter>\n")
+        let end = runtime.process(piece: "</｜DSML｜invoke>\n</｜DSML｜tool_calls>")
+
+        #expect(end.handled)
+        #expect(appended(from: end.events)?.function.name == "get_weather")
+        #expect(appended(from: end.events)?.function.arguments == #"{"location":"Toronto"}"#)
+        #expect(delta(from: end.events)?.function?.arguments == #"{"location":"Toronto"}"#)
+    }
+
     private func makeTool(name: String, properties: [String: [String: Any]], required: [String]? = nil) -> RequestTool {
         var schemaDict: [String: Any] = [
             "type": "object",

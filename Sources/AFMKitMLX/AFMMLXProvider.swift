@@ -385,6 +385,9 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
 /// the scheduler. This is a fallback for attached hosts that preserve tool tags
 /// but do not install the scheduler's parser.
 struct AFMMLXRawToolStreamFallback {
+    private static let defaultDeepseekToolCallStartTag = "<｜DSML｜tool_calls>"
+    private static let defaultDeepseekToolCallEndTag = "</｜DSML｜tool_calls>"
+
     private let toolCallStartTag: String?
     private let runtime: ToolCallStreamingRuntime?
 
@@ -396,11 +399,13 @@ struct AFMMLXRawToolStreamFallback {
         applyFixToolArgs: @escaping @Sendable (ResponseToolCall) -> ResponseToolCall,
         remapSingleKey: @escaping @Sendable (String, String) -> String
     ) {
-        self.toolCallStartTag = toolCallStartTag
-        if let toolCallStartTag, let toolCallEndTag {
+        let startTag = toolCallStartTag ?? Self.defaultDeepseekToolCallStartTag
+        let endTag = toolCallEndTag ?? Self.defaultDeepseekToolCallEndTag
+        self.toolCallStartTag = startTag
+        if tools?.isEmpty == false {
             self.runtime = ToolCallStreamingRuntime(
-                toolCallStartTag: toolCallStartTag,
-                toolCallEndTag: toolCallEndTag,
+                toolCallStartTag: startTag,
+                toolCallEndTag: endTag,
                 toolCallParser: toolCallParser,
                 tools: tools,
                 applyFixToolArgs: applyFixToolArgs,
@@ -431,6 +436,9 @@ struct AFMMLXRawToolStreamFallback {
         let output = runtime.process(piece: toolPiece)
         guard output.handled else { return [chunk] }
 
+        if let passthroughText = output.passthroughText, !passthroughText.isEmpty {
+            chunks.append(StreamChunk(text: passthroughText))
+        }
         chunks.append(contentsOf: BatchScheduler.streamChunksToEmit(from: output.events))
         if chunk.logprobs != nil || chunk.promptTokens != nil ||
             chunk.completionTokens != nil || chunk.cachedTokens != nil ||
@@ -658,6 +666,16 @@ extension AFMRequest {
         var result: [String: AnyCodable] = [
             "afm_include_schema_in_prompt": AnyCodable(includeSchemaInPrompt)
         ]
+        if requiresToolCall {
+            if let requiredToolName {
+                result["tool_choice"] = AnyCodable([
+                    "type": "function",
+                    "function": ["name": requiredToolName]
+                ])
+            } else {
+                result["tool_choice"] = AnyCodable("required")
+            }
+        }
         if case .object(let values)? = metadata["chatTemplateKwargs"] {
             result.merge(
                 values.mapValues { AnyCodable($0.foundationValue) }

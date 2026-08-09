@@ -23,6 +23,7 @@
 #
 # KNOWN PARAMETERS (parsed as config, not prompts):
 #   max_tokens:          Max tokens to generate (int)
+#   max_completion_tokens: OpenAI-compatible completion token limit (int)
 #   temperature:         Sampling temperature (float, 0.0-2.0)
 #   top_p:               Nucleus sampling threshold (float, 0.0-1.0)
 #   top_k:               Top-k sampling (int, 0 = disabled) [non-standard, via extra_body]
@@ -36,6 +37,8 @@
 #   stop:                Comma-separated stop sequences (e.g. stop: </s>,<|end|>)
 #   response_format:     text | json_object
 #   system:              System prompt text
+#   developer:           OpenAI developer-role message text
+#   tools:               OpenAI tools array as JSON
 #   afm:                 CLI flags passed to the afm server process, e.g.:
 #                          --verbose / --very-verbose
 #                          --no-streaming
@@ -126,7 +129,8 @@ fi
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 PORT=9877
 DEFAULT_PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
-RESULTS_FILE="/tmp/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl"
+RESULTS_FILE="${AFM_RESULTS_FILE:-/tmp/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl}"
+SERVER_LOG_DIR="${AFM_SERVER_LOG_DIR:-$(dirname "$RESULTS_FILE")/server-logs}"
 DEFAULT_MAX_TOKENS=5000
 DEFAULT_TEMPERATURE=0.7
 TIMEOUT_LOAD=900     # seconds to wait for server to start (15 min)
@@ -141,6 +145,7 @@ REANALYSE_FILE=""
 NO_REPORT=false
 TEST_INDICES=""
 CLI_AFM_ARGS=""
+OVERALL_STATUS=0
 
 # Parse arguments
 args=("$@")
@@ -310,6 +315,8 @@ PROMPTS FILE FORMAT
 
   Known parameters (parsed as config, not prompts):
     max_tokens:          Max tokens to generate (e.g. max_tokens: 2000)
+    max_completion_tokens: OpenAI-compatible completion limit
+                         (e.g. max_completion_tokens: 100)
     temperature:         Sampling temperature (e.g. temperature: 0.3)
     top_p:               Nucleus sampling (e.g. top_p: 0.9)
     top_k:               Top-k sampling (e.g. top_k: 50)
@@ -323,6 +330,9 @@ PROMPTS FILE FORMAT
     stop:                Comma-separated stop sequences (e.g. stop: </s>,<|end|>)
     response_format:     Response format (e.g. response_format: json_object)
     system:              System prompt (e.g. system: You are a helpful assistant)
+    developer:           OpenAI developer-role message
+                         (e.g. developer: Return code only)
+    tools:               OpenAI tools array encoded as JSON
     afm:                 Extra CLI flags passed to afm server
                          (e.g. afm: --verbose --enable-prefix-caching)
     media:               Comma-separated media file paths for VLM testing
@@ -471,6 +481,7 @@ if [ -n "$STALE_PID" ]; then
   sleep 1
 fi
 
+mkdir -p "$(dirname "$RESULTS_FILE")" "$SERVER_LOG_DIR"
 > "$RESULTS_FILE"
 
 # ── Capture test run metadata (version, command) ─────────────────────────────
@@ -543,6 +554,8 @@ with open(filepath) as f:
         if current_section is None:
             if line.startswith('max_tokens:'):
                 config['defaults']['max_tokens'] = int(line.split(':', 1)[1].strip())
+            elif line.startswith('max_completion_tokens:'):
+                config['defaults']['max_completion_tokens'] = int(line.split(':', 1)[1].strip())
             elif line.startswith('temperature:'):
                 config['defaults']['temperature'] = float(line.split(':', 1)[1].strip())
             elif line.startswith('top_p:'):
@@ -571,9 +584,17 @@ with open(filepath) as f:
                 except (json.JSONDecodeError, ValueError):
                     config['defaults']['stop'] = [s.strip() for s in raw.split(',')]
             elif line.startswith('response_format:'):
-                config['defaults']['response_format'] = line.split(':', 1)[1].strip()
+                raw = line.split(':', 1)[1].strip()
+                try:
+                    config['defaults']['response_format'] = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    config['defaults']['response_format'] = raw
             elif line.startswith('system:'):
                 config['defaults']['system'] = line.split(':', 1)[1].strip()
+            elif line.startswith('developer:'):
+                config['defaults']['developer'] = line.split(':', 1)[1].strip()
+            elif line.startswith('tools:'):
+                config['defaults']['tools'] = json.loads(line.split(':', 1)[1].strip())
             elif line.startswith('afm:'):
                 config['defaults']['afm'] = line.split(':', 1)[1].strip()
             elif line.startswith('media:'):
@@ -591,6 +612,8 @@ with open(filepath) as f:
             sec['skip'] = True
         elif line.startswith('max_tokens:'):
             sec['params']['max_tokens'] = int(line.split(':', 1)[1].strip())
+        elif line.startswith('max_completion_tokens:'):
+            sec['params']['max_completion_tokens'] = int(line.split(':', 1)[1].strip())
         elif line.startswith('temperature:'):
             sec['params']['temperature'] = float(line.split(':', 1)[1].strip())
         elif line.startswith('top_p:'):
@@ -619,9 +642,17 @@ with open(filepath) as f:
             except (json.JSONDecodeError, ValueError):
                 sec['params']['stop'] = [s.strip() for s in raw.split(',')]
         elif line.startswith('response_format:'):
-            sec['params']['response_format'] = line.split(':', 1)[1].strip()
+            raw = line.split(':', 1)[1].strip()
+            try:
+                sec['params']['response_format'] = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                sec['params']['response_format'] = raw
         elif line.startswith('system:'):
             sec['params']['system'] = line.split(':', 1)[1].strip()
+        elif line.startswith('developer:'):
+            sec['params']['developer'] = line.split(':', 1)[1].strip()
+        elif line.startswith('tools:'):
+            sec['params']['tools'] = json.loads(line.split(':', 1)[1].strip())
         elif line.startswith('afm:'):
             sec['afm'] = line.split(':', 1)[1].strip()
         elif line.startswith('media:'):
@@ -840,8 +871,11 @@ result = {
     'prompts': prompts,
     'num_baseline': num_baseline,
     'max_tokens': max_tokens,
+    'max_completion_tokens': merge_param('max_completion_tokens'),
     'temperature': temperature,
     'system': system,
+    'developer': merge_param('developer'),
+    'tools': merge_param('tools'),
     'afm_args': afm_args,
     'top_p': merge_param('top_p'),
     'top_k': merge_param('top_k'),
@@ -899,7 +933,10 @@ kill_server() {
   if [ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null; then
     pkill -TERM -P "$pid" 2>/dev/null || true
     kill -TERM "$pid" 2>/dev/null || true
-    sleep 0.5
+    local deadline=$((SECONDS + 10))
+    while kill -0 "$pid" 2>/dev/null && [ $SECONDS -lt $deadline ]; do
+      sleep 0.25
+    done
     pkill -KILL -P "$pid" 2>/dev/null || true
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
@@ -983,7 +1020,9 @@ display_name = config['display_name']
 label = config.get('label', '')
 prompt_text = config['prompt_text']
 system_prompt = config.get('system', '')
+developer_prompt = config.get('developer', '')
 max_tokens = config['max_tokens']
+max_completion_tokens = config.get('max_completion_tokens')
 temperature = config['temperature']
 afm_args = config.get('afm_args', '')
 
@@ -991,6 +1030,8 @@ afm_args = config.get('afm_args', '')
 messages = []
 if system_prompt:
     messages.append({'role': 'system', 'content': system_prompt})
+if developer_prompt:
+    messages.append({'role': 'developer', 'content': developer_prompt})
 
 media_paths = config.get('media') or []
 if media_paths:
@@ -1015,10 +1056,15 @@ else:
 kwargs = {
     'model': model,
     'messages': messages,
-    'max_tokens': max_tokens,
     'temperature': temperature,
     'stream': False,
 }
+if max_completion_tokens is not None:
+    kwargs['max_completion_tokens'] = max_completion_tokens
+else:
+    kwargs['max_tokens'] = max_tokens
+if config.get('tools') is not None:
+    kwargs['tools'] = config['tools']
 
 # Standard OpenAI params (only set if non-None)
 if config.get('top_p') is not None:
@@ -1039,6 +1085,8 @@ if config.get('response_format') is not None:
     rf = config['response_format']
     if rf == 'json_object':
         kwargs['response_format'] = {'type': 'json_object'}
+    elif isinstance(rf, dict):
+        kwargs['response_format'] = rf
     elif rf != 'text':
         kwargs['response_format'] = {'type': rf}
 
@@ -1070,7 +1118,21 @@ try:
         if not reasoning and hasattr(message, 'model_extra') and message.model_extra:
             reasoning = message.model_extra.get('reasoning_content', '') or ''
 
+    tool_calls = []
+    if message and getattr(message, 'tool_calls', None):
+        for tool_call in message.tool_calls:
+            tool_calls.append({
+                'id': tool_call.id,
+                'type': tool_call.type,
+                'function': {
+                    'name': tool_call.function.name,
+                    'arguments': tool_call.function.arguments,
+                },
+            })
+
     full_content = msg if msg else reasoning
+    if not full_content and tool_calls:
+        full_content = json.dumps(tool_calls)
     usage = response.usage
     prompt_tokens = usage.prompt_tokens if usage else 0
     completion_tokens = usage.completion_tokens if usage else 0
@@ -1091,7 +1153,9 @@ try:
 
     # JSON validation: check if content is valid JSON
     is_valid_json = None  # None = not tested
-    if config.get('response_format') in ('json_object', 'json_schema') or \
+    response_format = config.get('response_format')
+    response_format_type = response_format.get('type') if isinstance(response_format, dict) else response_format
+    if response_format_type in ('json_object', 'json_schema') or \
        any(kw in prompt_text.lower() for kw in ('json', 'valid json')):
         try:
             json.loads(msg)
@@ -1114,13 +1178,17 @@ try:
         'tokens_per_sec_note': tps_note,
         'temperature': temperature,
         'max_tokens': max_tokens,
+        'max_completion_tokens': max_completion_tokens,
         'system_prompt': system_prompt,
+        'developer_prompt': developer_prompt,
         'afm_args': afm_args,
         'content_preview': content_preview,
         'content': msg,
         'reasoning_content': reasoning,
         'finish_reason': finish_reason,
         'logprobs_count': logprobs_count,
+        'tool_calls': tool_calls,
+        'tool_calls_count': len(tool_calls),
     }
     if system_fingerprint:
         result['system_fingerprint'] = system_fingerprint
@@ -1130,7 +1198,7 @@ try:
     # Record all optional params that were set
     for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
                 'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media'):
+                'stop', 'response_format', 'media', 'tools'):
         if config.get(key) is not None:
             result[key] = config[key]
 
@@ -1148,19 +1216,36 @@ except Exception as e:
         'load_time_s': load_time,
         'temperature': temperature,
         'max_tokens': max_tokens,
+        'max_completion_tokens': max_completion_tokens,
         'system_prompt': system_prompt,
+        'developer_prompt': developer_prompt,
         'afm_args': afm_args,
     }
     for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
                 'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media'):
+                'stop', 'response_format', 'media', 'tools'):
         if config.get(key) is not None:
             result[key] = config[key]
     print(json.dumps(result))
 SEND_PYEOF
   )
 
-  echo "$METRICS" >> "$RESULTS_FILE"
+  if ! printf '%s' "$METRICS" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+    local raw_metrics="$METRICS"
+    METRICS=$(_RAW_METRICS="$raw_metrics" _SEND_CONFIG="$send_config" python3 - <<'PYEOF'
+import json, os
+config = json.loads(os.environ['_SEND_CONFIG'])
+print(json.dumps({
+    'model': config.get('display_name', config.get('model', '')),
+    'label': config.get('label', ''),
+    'prompt': config.get('prompt_text', ''),
+    'status': 'FAIL',
+    'error': 'Test client did not return valid JSON: ' + os.environ.get('_RAW_METRICS', '')[:400],
+}))
+PYEOF
+    )
+  fi
+  printf '%s\n' "$METRICS" >> "$RESULTS_FILE"
 
   # Extract status for display
   local status=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','?'))")
@@ -1172,6 +1257,7 @@ SEND_PYEOF
   else
     local error_msg=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error','unknown')[:200])")
     echo "    FAIL: $error_msg"
+    OVERALL_STATUS=1
   fi
 }
 
@@ -1212,6 +1298,7 @@ cli = c.get('afm_args', '')
 api_parts = []
 if c.get('temperature') is not None: api_parts.append(f'temp={c[\"temperature\"]}')
 if c.get('max_tokens') is not None: api_parts.append(f'max_tokens={c[\"max_tokens\"]}')
+if c.get('max_completion_tokens') is not None: api_parts.append(f'max_completion_tokens={c[\"max_completion_tokens\"]}')
 if c.get('top_p') is not None: api_parts.append(f'top_p={c[\"top_p\"]}')
 if c.get('top_k') is not None: api_parts.append(f'top_k={c[\"top_k\"]}')
 if c.get('min_p') is not None: api_parts.append(f'min_p={c[\"min_p\"]}')
@@ -1223,6 +1310,8 @@ if c.get('repetition_penalty') is not None: api_parts.append(f'repetition_penalt
 if c.get('stop') is not None: api_parts.append(f'stop={json.dumps(c[\"stop\"])}')
 if c.get('response_format') is not None: api_parts.append(f'response_format={c[\"response_format\"]}')
 if c.get('system'): api_parts.append(f'system=\"{c[\"system\"][:60]}...\"' if len(c.get('system',''))>60 else f'system=\"{c[\"system\"]}\"')
+if c.get('developer'): api_parts.append(f'developer=\"{c[\"developer\"][:60]}...\"' if len(c.get('developer',''))>60 else f'developer=\"{c[\"developer\"]}\"')
+if c.get('tools') is not None: api_parts.append(f'tools={len(c[\"tools\"])}')
 if c.get('stream') is not None: api_parts.append(f'stream={c[\"stream\"]}')
 api = ', '.join(api_parts)
 print(f'CLI: {cli}' if cli else 'CLI: (none)')
@@ -1253,7 +1342,7 @@ print(f'API: {api}' if api else 'API: (none)')
   fi
 
   # Start server
-  SERVER_LOG="/tmp/mlx-server-${idx}-$$.log"
+  SERVER_LOG="$SERVER_LOG_DIR/mlx-server-${idx}-$$.log"
   load_start=$SECONDS
   "$AFM" mlx -m "$model" -p "$PORT" ${SERVER_EXTRA_ARGS[@]+"${SERVER_EXTRA_ARGS[@]}"} > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
@@ -1271,6 +1360,7 @@ print(f'API: {api}' if api else 'API: (none)')
     fi
     echo "  FAIL: $error_msg"
     echo "{\"model\":$(escape_json "$display_name"),\"label\":$(escape_json "$label"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time,\"temperature\":$temperature,\"max_tokens\":$max_tokens,\"system_prompt\":$(escape_json "$sys_prompt"),\"afm_args\":$(escape_json "$afm_args")}" >> "$RESULTS_FILE"
+    OVERALL_STATUS=1
     kill_server $SERVER_PID
     SERVER_PID=0
     sleep 2
@@ -1442,7 +1532,8 @@ result = {
 }
 for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
             'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-            'stop', 'response_format', 'media'):
+            'stop', 'response_format', 'media', 'max_completion_tokens',
+            'developer', 'tools'):
     if key in defaults:
         result[key] = defaults[key]
 print(json.dumps(result))
@@ -2025,3 +2116,31 @@ else
   echo "=== Skipping HTML report (--no-report) ==="
   echo "  JSONL: $RESULTS_FILE"
 fi
+
+if [ -f "$RESULTS_FILE" ]; then
+  RECORDED_FAILURES=$(python3 - "$RESULTS_FILE" <<'PYEOF'
+import json, sys
+
+failures = 0
+with open(sys.argv[1]) as handle:
+    for line in handle:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            failures += 1
+            continue
+        if not record.get('_meta') and record.get('status') != 'OK':
+            failures += 1
+print(failures)
+PYEOF
+  )
+  if [ "$RECORDED_FAILURES" -gt 0 ]; then
+    echo "=== FAILED: $RECORDED_FAILURES result record(s) did not pass ===" >&2
+    OVERALL_STATUS=1
+  fi
+fi
+
+exit "$OVERALL_STATUS"

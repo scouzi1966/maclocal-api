@@ -714,6 +714,140 @@ public final class DeepseekV4Cache: QuantizedHybridPoolCache, CacheRetainedByteC
     }
 }
 
+// MARK: - Batched DeepSeek V4 cache
+
+/// Ephemeral scheduler container for concurrent DeepSeek V4 generation.
+///
+/// The hybrid cache cannot be represented by the generic dense KV batch:
+/// compressor/indexer pools and incomplete windows have request-specific row
+/// counts and phases. Keep each request's complete cache independent while the
+/// transformer continues to execute a batched hidden-state/MoE graph.
+public final class BatchDeepseekV4Cache: KVCache, CacheRetainedByteCountProviding {
+    private var caches: [DeepseekV4Cache]
+
+    public init(caches: [DeepseekV4Cache]) {
+        precondition(!caches.isEmpty, "BatchDeepseekV4Cache requires at least one cache")
+        let first = caches[0]
+        precondition(caches.allSatisfy {
+            $0.slidingWindow == first.slidingWindow
+                && $0.compressRatio == first.compressRatio
+                && $0.hybridPoolQuantizationEnabled == first.hybridPoolQuantizationEnabled
+        }, "DeepSeek V4 batch caches must have matching configurations")
+        self.caches = caches
+    }
+
+    public var count: Int { caches.count }
+    public var offset: Int { caches.map(\.offset).max() ?? 0 }
+    public var offsetArray: MLXArray? {
+        MLXArray(caches.map { Int32($0.offset) })
+    }
+    public var maxSize: Int? { caches.first?.maxSize }
+    public var isTrimmable: Bool { caches.allSatisfy(\.isTrimmable) }
+    public var retainedCacheByteCount: Int {
+        caches.reduce(0) { $0 + $1.retainedCacheByteCount }
+    }
+
+    public func cache(at index: Int) -> DeepseekV4Cache {
+        caches[index]
+    }
+
+    public static func merge(_ source: [KVCache]) -> BatchDeepseekV4Cache {
+        BatchDeepseekV4Cache(caches: source.map { cache in
+            guard let deepseek = cache as? DeepseekV4Cache else {
+                preconditionFailure("BatchDeepseekV4Cache.merge requires DeepseekV4Cache inputs")
+            }
+            return deepseek
+        })
+    }
+
+    public func extend(with cache: DeepseekV4Cache) {
+        guard let first = caches.first else {
+            caches = [cache]
+            return
+        }
+        precondition(
+            cache.slidingWindow == first.slidingWindow
+                && cache.compressRatio == first.compressRatio
+                && cache.hybridPoolQuantizationEnabled == first.hybridPoolQuantizationEnabled,
+            "Cannot extend DeepSeek V4 batch with a different cache configuration")
+        caches.append(cache)
+    }
+
+    public func filter(_ keepIndices: [Int]) {
+        caches = keepIndices.map { caches[$0] }
+    }
+
+    public func extract(_ index: Int) -> DeepseekV4Cache {
+        caches[index].copy() as! DeepseekV4Cache
+    }
+
+    /// Attention recognizes this container and updates each child directly.
+    /// Keep a defensive implementation for generic cache inspection utilities.
+    public func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+        precondition(keys.dim(0) == caches.count && values.dim(0) == caches.count)
+        var keyRows: [MLXArray] = []
+        var valueRows: [MLXArray] = []
+        var lengths: [Int] = []
+        for index in caches.indices {
+            let (rowKeys, rowValues) = caches[index].update(
+                keys: keys[index ..< index + 1],
+                values: values[index ..< index + 1])
+            keyRows.append(rowKeys)
+            valueRows.append(rowValues)
+            lengths.append(rowKeys.dim(2))
+        }
+        let maximum = lengths.max() ?? 0
+        func pad(_ rows: [MLXArray]) -> MLXArray {
+            concatenated(zip(rows, lengths).map { row, length in
+                guard length < maximum else { return row }
+                let shape = [row.dim(0), row.dim(1), maximum - length, row.dim(3)]
+                return concatenated([MLXArray.zeros(shape, dtype: row.dtype), row], axis: 2)
+            }, axis: 0)
+        }
+        return (pad(keyRows), pad(valueRows))
+    }
+
+    /// Batch containers are runtime-only and are never persisted as one cache.
+    public var state: [MLXArray] {
+        get { [] }
+        set {
+            precondition(newValue.isEmpty,
+                "BatchDeepseekV4Cache state must be extracted per request")
+        }
+    }
+
+    public var metaState: [String] {
+        get { [] }
+        set {
+            precondition(newValue.isEmpty,
+                "BatchDeepseekV4Cache metadata must be extracted per request")
+        }
+    }
+
+    public func innerState() -> [MLXArray] {
+        caches.flatMap { $0.innerState() }
+    }
+
+    @discardableResult
+    public func trim(_ n: Int) -> Int {
+        caches.map { $0.trim(n) }.min() ?? 0
+    }
+
+    public func truncateToOffset() {
+        caches.forEach { $0.truncateToOffset() }
+    }
+
+    public func makeMask(
+        n: Int, windowSize: Int?, returnArray: Bool
+    ) -> MLXFast.ScaledDotProductAttentionMaskMode {
+        caches[0].makeMask(n: n, windowSize: windowSize, returnArray: returnArray)
+    }
+
+    public func copy() -> any KVCache {
+        BatchDeepseekV4Cache(caches: caches.map { $0.copy() as! DeepseekV4Cache })
+    }
+}
+
 // MARK: - Compressor
 //
 // Projects input x through `wkv` + `wgate`, accumulates raw windows
