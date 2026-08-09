@@ -8,7 +8,9 @@
 #   ./Scripts/regression-test.sh [-b /path/to/afm]
 #   AFM_BIN=/path/to/afm ./Scripts/regression-test.sh
 
-AFM="${AFM_BIN:-/tmp/afm-fresh-build/.build/release/afm}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+AFM="${AFM_BIN:-$ROOT_DIR/.build/arm64-apple-macosx/release/afm}"
 export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
 MLX_SMALL_MODEL="mlx-community/Qwen2.5-0.5B-Instruct-4bit"
 MLX_CACHED_MODEL="mlx-community/lille-130m-instruct-8bit"
@@ -25,7 +27,7 @@ while getopts "b:h" opt; do
 Usage: $0 [-b /path/to/afm]
 
 Options:
-  -b PATH   Path to afm binary (default: /tmp/afm-fresh-build/.build/release/afm)
+  -b PATH   Path to afm binary (default: .build/arm64-apple-macosx/release/afm)
   -h        Show this help
 
 Environment variables:
@@ -1104,7 +1106,6 @@ echo "    $AFM mlx -m \"nonexistent/model-xyz\" -s \"Test\""
 echo ""
 
 echo "=== Generating HTML report ==="
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AFM_REGRESSION_RESULTS_FILE="$RESULTS_FILE" \
 AFM_REGRESSION_REPORT_DIR="${AFM_REGRESSION_REPORT_DIR:-$AFM_TEST_WORK_ROOT}" \
 python3 "$SCRIPT_DIR/generate-regression-report.py"
