@@ -134,7 +134,9 @@ let package = Package(
                 // Canonical DS4 uses -O3 for every configuration. Besides
                 // performance, this removes compile-time-impossible CUDA/TP
                 // branches before a macOS Metal link.
-                .unsafeFlags(["-O3", "-ffast-math", "-mcpu=native"])
+                // Keep release artifacts portable across supported Apple Silicon hosts.
+                // DwarfStar's performance-critical work runs in Metal kernels.
+                .unsafeFlags(["-O3", "-ffast-math"])
             ],
             linkerSettings: [
                 .linkedFramework("Foundation"),

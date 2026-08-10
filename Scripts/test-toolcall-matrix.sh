@@ -39,7 +39,7 @@ done
 
 BASE_URL="http://127.0.0.1:$PORT"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-REPORT_DIR="test-reports/toolcall-matrix-${TIMESTAMP}"
+REPORT_DIR="${AFM_TOOLCALL_REPORT_DIR:-test-reports/toolcall-matrix-${TIMESTAMP}}"
 mkdir -p "$REPORT_DIR"
 JSONL_FILE="$REPORT_DIR/results.jsonl"
 : > "$JSONL_FILE"
@@ -259,7 +259,8 @@ echo "════════════════════════�
 echo ""
 
 # Create workload bodies once
-BODY_DIR="/tmp/afm-toolcall-matrix-bodies-${TIMESTAMP}"
+BODY_DIR="${AFM_TOOLCALL_WORK_DIR:-${REPORT_DIR}/request-bodies}"
+mkdir -p "$BODY_DIR"
 if [[ "$WORKLOAD" == "realworld" ]]; then
   echo "  Generating real-world workload (OpenCode patterns)..."
   python3 "$SCRIPT_DIR/generate-realworld-workload.py" "$BODY_DIR" "$NUM_REQUESTS"

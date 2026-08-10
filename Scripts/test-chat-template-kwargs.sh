@@ -28,7 +28,7 @@ BIN=".build/arm64-apple-macosx/release/afm"
 MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-REPORT_DIR="$PROJECT_ROOT/test-reports"
+REPORT_DIR="${AFM_CHAT_TEMPLATE_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
 SERVER_PID=""
 MAX_TOKENS_LOW=50
 MAX_TOKENS_HIGH=2000
@@ -434,26 +434,26 @@ else
   run_test "Precedence" "--no-think + API false: both agree, streaming" "no_think" "FAIL: got $state" "$dur"
 fi
 
-# --- Test 13: --no-think + API true (request overrides), non-streaming ---
+# --- Test 13: --no-think + API true (CLI safety override wins), non-streaming ---
 t0=$(now_ms)
 resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\"}],\"chat_template_kwargs\":{\"enable_thinking\":true},\"max_tokens\":$MAX_TOKENS_HIGH,\"temperature\":0}")
 dur=$(( $(now_ms) - t0 ))
 state=$(check_response "$resp")
-if [ "$state" = "thinking" ]; then
-  run_test "Precedence" "--no-think + API true: request overrides, non-stream" "thinking" "PASS" "$dur"
+if [ "$state" = "no_think" ]; then
+  run_test "Precedence" "--no-think + API true: CLI override wins, non-stream" "no_think" "PASS" "$dur"
 else
-  run_test "Precedence" "--no-think + API true: request overrides, non-stream" "thinking" "FAIL: got $state" "$dur"
+  run_test "Precedence" "--no-think + API true: CLI override wins, non-stream" "no_think" "FAIL: got $state" "$dur"
 fi
 
-# --- Test 14: --no-think + API true (request overrides), streaming ---
+# --- Test 14: --no-think + API true (CLI safety override wins), streaming ---
 t0=$(now_ms)
 resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\"}],\"chat_template_kwargs\":{\"enable_thinking\":true},\"max_tokens\":$MAX_TOKENS_HIGH,\"temperature\":0,\"stream\":true}")
 dur=$(( $(now_ms) - t0 ))
 state=$(check_stream "$resp")
-if [ "$state" = "thinking" ]; then
-  run_test "Precedence" "--no-think + API true: request overrides, streaming" "thinking" "PASS" "$dur"
+if [ "$state" = "no_think" ]; then
+  run_test "Precedence" "--no-think + API true: CLI override wins, streaming" "no_think" "PASS" "$dur"
 else
-  run_test "Precedence" "--no-think + API true: request overrides, streaming" "thinking" "FAIL: got $state" "$dur"
+  run_test "Precedence" "--no-think + API true: CLI override wins, streaming" "no_think" "FAIL: got $state" "$dur"
 fi
 
 stop_server

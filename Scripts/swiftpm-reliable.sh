@@ -140,6 +140,15 @@ if [[ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=a
     exit 1
 fi
 
+EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
+ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
+if [[ -z "$EXPECTED_DS4_REVISION" || "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]]; then
+    echo "[swiftpm-reliable] vendor/ds4 revision does not match the repository gitlink." >&2
+    echo "[swiftpm-reliable] expected=${EXPECTED_DS4_REVISION:-missing} actual=$ACTUAL_DS4_REVISION" >&2
+    echo "[swiftpm-reliable] Run: git submodule update --init vendor/ds4" >&2
+    exit 1
+fi
+
 run_required_patch_step() {
     local label="$1"
     shift
@@ -184,7 +193,7 @@ run_required_patch_step \
 # the complete native-source identity.
 DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
 DS4_SOURCE_FINGERPRINT="$({
-    git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD
+    printf '%s\n' "$ACTUAL_DS4_REVISION"
 } | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
 if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then

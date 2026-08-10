@@ -25,7 +25,7 @@ GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --ena
 SAFE_PARTIAL_CACHE_MISS=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-REPORT_DIR="$PROJECT_ROOT/test-reports"
+REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -49,6 +49,8 @@ TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 REPORT_FILE="$REPORT_DIR/assertions-report-${TIMESTAMP}.html"
 JSONL_FILE="$REPORT_DIR/assertions-report-${TIMESTAMP}.jsonl"
 mkdir -p "$REPORT_DIR"
+WORK_ROOT="${AFM_ASSERTIONS_WORK_ROOT:-$REPORT_DIR/work}"
+mkdir -p "$WORK_ROOT"
 
 # ─── Test infrastructure ─────────────────────────────────────────────────────
 PASS=0
@@ -220,7 +222,7 @@ if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" !=
   #   􁁛  Test "test name here" passed after 0.002 seconds.
   #   􁁕  Test "test name here" failed after 0.003 seconds.
   #   􁁛  Suite XMLToolCallParsingTests passed after 0.006 seconds.
-  UT_PARSED_FILE=$(mktemp /tmp/afm-ut-parsed-XXXXXX.tsv)
+  UT_PARSED_FILE=$(mktemp "$WORK_ROOT/afm-ut-parsed.XXXXXX")
   echo "$swift_test_output" | python3 -c "
 import sys, re
 
@@ -1354,7 +1356,7 @@ print(''.join(parts))
   api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
 
   t0=$(now_ms)
-  concurrent_tmpdir=$(mktemp -d)
+  concurrent_tmpdir=$(mktemp -d "$WORK_ROOT/afm-concurrent.XXXXXX")
   concurrent_tokens=()
   for i in 1 2 3 4 5 6 7 8; do
     token="$i"
@@ -1459,7 +1461,7 @@ if should_run_section 7 && min_tier standard; then
 
   # Test: two simultaneous requests both return 200
   t0=$(now_ms)
-  tmpdir=$(mktemp -d)
+  tmpdir=$(mktemp -d "$WORK_ROOT/afm-test.XXXXXX")
   curl -sf --max-time 30 "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d '{"messages":[{"role":"user","content":"Say A"}],"max_tokens":5,"stream":false,"temperature":0}' \
@@ -1483,7 +1485,7 @@ if should_run_section 7 && min_tier standard; then
 
   # Test: three simultaneous requests
   t0=$(now_ms)
-  tmpdir=$(mktemp -d)
+  tmpdir=$(mktemp -d "$WORK_ROOT/afm-test.XXXXXX")
   for i in 1 2 3; do
     curl -sf --max-time 30 "$BASE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
@@ -3871,7 +3873,7 @@ if should_run_section 15 && min_tier standard; then
   BATCH_JSONL_LINE='{"custom_id":"assert-1","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say hello in 3 words"}],"max_tokens":20}}'
   BATCH_JSONL_LINE2='{"custom_id":"assert-2","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"What is 2+2? Just the number"}],"max_tokens":10}}'
 
-  BATCH_TMPFILE=$(mktemp /tmp/afm-batch-XXXXXX.jsonl)
+  BATCH_TMPFILE=$(mktemp "$WORK_ROOT/afm-batch.XXXXXX")
   printf '%s\n%s\n' "$BATCH_JSONL_LINE" "$BATCH_JSONL_LINE2" > "$BATCH_TMPFILE"
 
   t0=$(now_ms)

@@ -23,7 +23,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SERVER_PID=""
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-REPORT_DIR="$PROJECT_ROOT/test-reports/prefix-cache-${TIMESTAMP}"
+REPORT_DIR="${AFM_PREFIX_CACHE_REPORT_DIR:-$PROJECT_ROOT/test-reports/prefix-cache-${TIMESTAMP}}"
+WORK_DIR="${AFM_PREFIX_CACHE_WORK_DIR:-$REPORT_DIR/work}"
 
 # ─── Argument parsing ────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -45,7 +46,7 @@ if [[ ! "$WORKLOAD" =~ ^(W1|W2|W3|all)$ ]]; then
   echo "ERROR: --workload must be W1, W2, W3, or all"; exit 1
 fi
 
-mkdir -p "$REPORT_DIR"
+mkdir -p "$REPORT_DIR" "$WORK_DIR"
 BASE_URL="http://127.0.0.1:$PORT"
 JSONL_FILE="$REPORT_DIR/results.jsonl"
 : > "$JSONL_FILE"
@@ -141,8 +142,8 @@ run_requests() {
 # stop server, start without cache, send same requests, stop server, write JSONL, print report.
 run_ab_comparison() {
   local wl_id="$1" wl_name="$2" count="$3" body_source="$4"
-  local log_on="/tmp/afm-prefix-test-$(echo "$wl_id" | tr 'A-Z' 'a-z')-cache-on.log"
-  local log_off="/tmp/afm-prefix-test-$(echo "$wl_id" | tr 'A-Z' 'a-z')-cache-off.log"
+  local log_on="$WORK_DIR/$(echo "$wl_id" | tr 'A-Z' 'a-z')-cache-on.log"
+  local log_off="$WORK_DIR/$(echo "$wl_id" | tr 'A-Z' 'a-z')-cache-off.log"
 
   # Clear result arrays
   on_prompt_n=(); on_prompt_ms=(); on_pred_n=(); on_pred_ms=()
@@ -254,7 +255,7 @@ run_w2() {
   echo "── W2: Identical Repeats (10 requests) ──────────────────────────"
   echo ""
 
-  local body_file="/tmp/afm-prefix-test-w2-body.json"
+  local body_file="$WORK_DIR/w2-body.json"
   cat > "$body_file" <<'ENDBODY'
 {
   "model":"test",
@@ -292,7 +293,7 @@ run_w1() {
   echo "── W1: OpenCode Session (5 requests) ────────────────────────────"
   echo ""
 
-  local body_dir="/tmp/afm-prefix-test-w1-bodies"
+  local body_dir="$WORK_DIR/w1-bodies"
   mkdir -p "$body_dir"
 
   python3 << PYEOF
@@ -358,7 +359,7 @@ run_w3() {
   echo "── W3: Growing Conversation (10 requests) ──────────────────────"
   echo ""
 
-  local body_dir="/tmp/afm-prefix-test-w3-bodies"
+  local body_dir="$WORK_DIR/w3-bodies"
   mkdir -p "$body_dir"
 
   W3_BODY_DIR="$body_dir" python3 << 'PYEOF'

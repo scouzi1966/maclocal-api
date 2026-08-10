@@ -177,7 +177,8 @@ content=$(echo "$resp" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
-    c = d['choices'][0]['message']['content'].strip()
+    message = d['choices'][0]['message']
+    c = (message.get('content') or message.get('reasoning_content') or '').strip()
     print(c if c else '__EMPTY__')
 except Exception as e:
     print('__ERROR__')
@@ -210,7 +211,8 @@ for line in sys.stdin:
         continue
     try:
         d = json.loads(line[6:])
-        c = d.get('choices', [{}])[0].get('delta', {}).get('content', '')
+        delta = d.get('choices', [{}])[0].get('delta', {})
+        c = delta.get('content') or delta.get('reasoning_content') or ''
         if c:
             found = True
     except:

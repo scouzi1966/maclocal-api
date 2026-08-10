@@ -8,13 +8,16 @@
 #   ./Scripts/regression-test.sh [-b /path/to/afm]
 #   AFM_BIN=/path/to/afm ./Scripts/regression-test.sh
 
-AFM="${AFM_BIN:-/tmp/afm-fresh-build/.build/release/afm}"
-export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+AFM="${AFM_BIN:-$ROOT_DIR/.build/arm64-apple-macosx/release/afm}"
+export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-$ROOT_DIR/.build/model-cache}"
 MLX_SMALL_MODEL="mlx-community/Qwen2.5-0.5B-Instruct-4bit"
 MLX_CACHED_MODEL="mlx-community/lille-130m-instruct-8bit"
 PORT_AFM=9871
 PORT_MLX=9872
-RESULTS_FILE="/tmp/regression-test-results.jsonl"
+AFM_TEST_WORK_ROOT="${AFM_TEST_WORK_ROOT:-$ROOT_DIR/.build/test-work/regression}"
+RESULTS_FILE="${AFM_REGRESSION_RESULTS_FILE:-$AFM_TEST_WORK_ROOT/regression-test-results.jsonl}"
 TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
 
 while getopts "b:h" opt; do
@@ -24,7 +27,7 @@ while getopts "b:h" opt; do
 Usage: $0 [-b /path/to/afm]
 
 Options:
-  -b PATH   Path to afm binary (default: /tmp/afm-fresh-build/.build/release/afm)
+  -b PATH   Path to afm binary (default: .build/arm64-apple-macosx/release/afm)
   -h        Show this help
 
 Environment variables:
@@ -32,6 +35,9 @@ Environment variables:
   RUN_EXTENDED_TESTS=1      Enable Section 15: Extended API Conformance
   RUN_GATEWAY_TESTS=1       Enable Section 14: Gateway Mode (requires external backends)
   MACAFM_MLX_MODEL_CACHE    Override MLX model cache directory
+  AFM_TEST_WORK_ROOT=PATH   Store transient logs and download fixtures under PATH
+  AFM_REGRESSION_RESULTS_FILE=PATH
+                            Override the JSONL result path
 HELP
        exit 0 ;;
     *) echo "Unknown option"; exit 1 ;;
@@ -43,6 +49,7 @@ if [ ! -x "$AFM" ]; then
   exit 1
 fi
 
+mkdir -p "$AFM_TEST_WORK_ROOT" "$(dirname "$RESULTS_FILE")"
 > "$RESULTS_FILE"
 
 # Counters
@@ -115,7 +122,7 @@ _SERVER_PID=0
 start_server() {
   local port=$1; shift
   _SERVER_PID=0
-  "$@" < /dev/null > "/tmp/regression-server-${port}.log" 2>&1 &
+  "$@" < /dev/null > "$AFM_TEST_WORK_ROOT/regression-server-${port}.log" 2>&1 &
   _SERVER_PID=$!
   local deadline=$((SECONDS + 60))
   while [ $SECONDS -lt $deadline ]; do
@@ -723,7 +730,7 @@ echo "━━━ Section 8: MLX Model Download ━━━"
 SEC="MLX Download"
 
 # Use a temp cache to test downloading a small model
-DOWNLOAD_CACHE="/tmp/regression-download-cache-${TIMESTAMP}"
+DOWNLOAD_CACHE="$AFM_TEST_WORK_ROOT/regression-download-cache-${TIMESTAMP}"
 mkdir -p "$DOWNLOAD_CACHE"
 
 t0=$SECONDS
@@ -1099,5 +1106,6 @@ echo "    $AFM mlx -m \"nonexistent/model-xyz\" -s \"Test\""
 echo ""
 
 echo "=== Generating HTML report ==="
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AFM_REGRESSION_RESULTS_FILE="$RESULTS_FILE" \
+AFM_REGRESSION_REPORT_DIR="${AFM_REGRESSION_REPORT_DIR:-$AFM_TEST_WORK_ROOT}" \
 python3 "$SCRIPT_DIR/generate-regression-report.py"

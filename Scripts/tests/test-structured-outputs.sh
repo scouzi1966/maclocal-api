@@ -54,9 +54,9 @@ TIMEOUT="${TIMEOUT:-120}"
 MLX_MODELS="${MLX_MODELS:-Qwen3-30B-A3B-4bit gpt-oss-20b-MXFP4-Q4 gemma-3-4b-it-8bit Qwen3-Coder-Next-4bit}"
 
 TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
-REPORT_DIR="test-reports"
+REPORT_DIR="${AFM_STRUCTURED_REPORT_DIR:-test-reports}"
 RESULTS_FILE="${REPORT_DIR}/structured-outputs-${TIMESTAMP}.jsonl"
-LOG_DIR="/tmp/afm-structured-test-${TIMESTAMP}"
+LOG_DIR="${AFM_STRUCTURED_LOG_DIR:-${REPORT_DIR}/logs-${TIMESTAMP}}"
 
 # Parse flags
 RUN_AFM=1
@@ -127,7 +127,8 @@ record() {
 start_server() {
   local label="$1"; shift
   local port="$1"; shift
-  local logfile="$LOG_DIR/${label}.log"
+  local safe_label="${label//\//_}"
+  local logfile="$LOG_DIR/${safe_label}.log"
 
   echo -e "  ${CYAN}Starting $label on port $port ...${RESET}"
   "$AFM" "$@" -p "$port" > "$logfile" 2>&1 &

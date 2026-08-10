@@ -7,7 +7,9 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    # Pin the OS/architecture image. macos-latest is mutable and previously
+    # produced host-dependent binaries when combined with -mcpu=native.
+    runs-on: macos-26
     
     steps:
     - uses: actions/checkout@v4
@@ -21,7 +23,11 @@ jobs:
     # cannot build a 6.0 tools-version package, and a swift.org toolchain lacks
     # the FoundationModels framework.
     - name: Build Release Binary
-      run: ./build.sh --stable --yes
+      run: |
+        sw_vers
+        xcodebuild -version
+        swift --version
+        ./build.sh --stable --yes
     
     - name: Create Release Package
       run: |
@@ -42,6 +48,13 @@ jobs:
         # Copy scripts and docs
         cp test-streaming.sh test-metrics.sh release-package/
         cp README.md LICENSE release-package/ || true
+
+        {
+          sw_vers
+          xcodebuild -version
+          swift --version
+          echo "DwarfStar: $(git -C vendor/ds4 rev-parse HEAD)"
+        } > release-package/BUILD-ENVIRONMENT.txt
         
         # Create install guide
         cat > release-package/INSTALL.md << EOF

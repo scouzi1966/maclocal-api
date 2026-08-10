@@ -11,7 +11,7 @@ AFM="${2:-$(dirname "$0")/../.build/release/afm}"
 M="${1:-gemma-3-4b-it-8bit}"
 CD="$(cd "$(dirname "$0")/.." && pwd)"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-REPORT_DIR="$CD/test-reports"
+REPORT_DIR="${AFM_CLI_REPORT_DIR:-$CD/test-reports}"
 REPORT_FILE="$REPORT_DIR/cli-pipe-report-${TIMESTAMP}.html"
 mkdir -p "$REPORT_DIR"
 
