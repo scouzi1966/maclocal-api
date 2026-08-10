@@ -10,11 +10,24 @@ results_path = os.environ.get(
     os.path.join(default_work_dir, "regression-test-results.jsonl"),
 )
 results = []
-with open(results_path) as f:
-    for line in f:
-        line = line.strip()
-        if line:
-            results.append(json.loads(line))
+if not os.path.isfile(results_path):
+    print(
+        f"Regression results file not found: {results_path}\n"
+        "Run Scripts/regression-test.sh first or set "
+        "AFM_REGRESSION_RESULTS_FILE to a readable JSONL file.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+try:
+    with open(results_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                results.append(json.loads(line))
+except OSError as error:
+    print(f"Unable to read regression results file {results_path}: {error}", file=sys.stderr)
+    sys.exit(1)
 
 passed = [r for r in results if r["status"] == "PASS"]
 failed = [r for r in results if r["status"] == "FAIL"]

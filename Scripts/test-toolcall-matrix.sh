@@ -260,6 +260,7 @@ echo ""
 
 # Create workload bodies once
 BODY_DIR="${AFM_TOOLCALL_WORK_DIR:-${REPORT_DIR}/request-bodies}"
+mkdir -p "$BODY_DIR"
 if [[ "$WORKLOAD" == "realworld" ]]; then
   echo "  Generating real-world workload (OpenCode patterns)..."
   python3 "$SCRIPT_DIR/generate-realworld-workload.py" "$BODY_DIR" "$NUM_REQUESTS"

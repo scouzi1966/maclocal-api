@@ -81,8 +81,17 @@ fi
 # Stage tarball contents
 PACKAGE_WORK_ROOT="${AFM_PACKAGE_WORK_ROOT:-$ROOT_DIR/.build/package-work}"
 mkdir -p "$PACKAGE_WORK_ROOT"
-STAGING=$(mktemp -d "$PACKAGE_WORK_ROOT/afm-package.XXXXXX")
-trap 'rm -rf "$STAGING"' EXIT
+STAGING=""
+cleanup_staging() {
+  if [[ -n "$STAGING" && -d "$STAGING" ]]; then
+    rm -rf -- "$STAGING"
+  fi
+}
+trap cleanup_staging EXIT
+if ! STAGING=$(mktemp -d "$PACKAGE_WORK_ROOT/afm-package.XXXXXX"); then
+  log_error "Unable to create package staging directory under $PACKAGE_WORK_ROOT"
+  exit 1
+fi
 DIRNAME="afm-${VERSION}-${ARCH}"
 mkdir -p "$STAGING/$DIRNAME/Resources/webui"
 cp "$BIN" "$STAGING/$DIRNAME/"
@@ -98,7 +107,7 @@ cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"
-rm -rf "$STAGING"
+cleanup_staging
 trap - EXIT
 
 SIZE=$(du -h "$OUTPUT" | cut -f1 | xargs)

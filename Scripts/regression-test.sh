@@ -11,7 +11,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 AFM="${AFM_BIN:-$ROOT_DIR/.build/arm64-apple-macosx/release/afm}"
-export MACAFM_MLX_MODEL_CACHE="/Volumes/edata/models/vesta-test-cache"
+export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-$ROOT_DIR/.build/model-cache}"
 MLX_SMALL_MODEL="mlx-community/Qwen2.5-0.5B-Instruct-4bit"
 MLX_CACHED_MODEL="mlx-community/lille-130m-instruct-8bit"
 PORT_AFM=9871

@@ -222,6 +222,14 @@ if [ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=al
   exit 1
 fi
 
+EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
+ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
+if [ -z "$EXPECTED_DS4_REVISION" ] || [ "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]; then
+  log_error "vendor/ds4 revision mismatch (expected ${EXPECTED_DS4_REVISION:-missing}, actual $ACTUAL_DS4_REVISION)"
+  log_error "Run: git submodule update --init vendor/ds4"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
