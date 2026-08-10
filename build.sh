@@ -295,9 +295,12 @@ swift package resolve
 
 if $DO_PATCHES; then
   log_step "Applying persistent DeepSeek V4 MLX primitive"
-  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
   "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh"
   "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh" --check
+  # The complete MLX core patch includes the F8_E8M0 loader change. Verify it
+  # only after applying that patch so a clean checkout is never left in the
+  # partial state that the all-or-nothing patch guard correctly rejects.
+  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
 fi
 
 # ---------------------------------------------------------------------------
