@@ -137,7 +137,9 @@ def run_mode(
         environment.pop("DS4_METAL_DISABLE_METAL4", None)
     log_path = output / "run.log"
     with log_path.open("w") as log:
-        result = subprocess.run(
+        # The executable is an explicit local CLI input. Arguments are passed as
+        # an argv list with shell=False, so paths cannot be interpreted as shell syntax.
+        result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             command,
             cwd=binary.parent,
             env=environment,
@@ -176,7 +178,9 @@ def run_afm_integration(
         str(result_path),
     ]
     with log_path.open("w") as log:
-        result = subprocess.run(
+        # The executable is an explicit local CLI input. Arguments are passed as
+        # an argv list with shell=False, so paths cannot be interpreted as shell syntax.
+        result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             command,
             stdout=log,
             stderr=subprocess.STDOUT,
