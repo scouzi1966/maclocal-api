@@ -30,7 +30,18 @@ PROMPT = sys.argv[3] if len(sys.argv) > 3 else (
 )
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
-AFM = os.path.join(PROJECT_DIR, ".build/release/afm")
+AFM = os.environ.get("AFM_BIN", "")
+if not AFM:
+    candidates = [
+        os.path.join(PROJECT_DIR, ".build/arm64-apple-macosx/release/afm"),
+        os.path.join(PROJECT_DIR, ".build/release/afm"),
+    ]
+    AFM = next((path for path in candidates if os.path.isfile(path)), candidates[0])
+if not os.path.isfile(AFM) or not os.access(AFM, os.X_OK):
+    raise SystemExit(
+        f"Release AFM binary not found or executable: {AFM}. "
+        "Build Release first or set AFM_BIN to the full binary path."
+    )
 CACHE = os.environ.get("MACAFM_MLX_MODEL_CACHE", "/Volumes/edata/models/vesta-test-cache")
 TRACE_DURATION = 15
 THEORETICAL_BW = 800.0

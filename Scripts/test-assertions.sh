@@ -348,6 +348,14 @@ has_recurrent_layers = any(
     any(marker in str(layer_type).lower() for marker in recurrent_markers)
     for layer_type in layer_types
 )
+model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
+architectures = text_config.get("architectures") or config.get("architectures") or []
+architecture_text = " ".join(str(architecture).lower() for architecture in architectures)
+recurrent_architectures = ("deepseek_v4", "deepseekv4")
+has_recurrent_layers = has_recurrent_layers or any(
+    marker in model_type or marker in architecture_text
+    for marker in recurrent_architectures
+)
 print("true" if has_recurrent_layers else "false")
 PY
   )

@@ -12,8 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 AFM="${AFM_BIN:-$ROOT_DIR/.build/arm64-apple-macosx/release/afm}"
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-$ROOT_DIR/.build/model-cache}"
-MLX_SMALL_MODEL="mlx-community/Qwen2.5-0.5B-Instruct-4bit"
-MLX_CACHED_MODEL="mlx-community/lille-130m-instruct-8bit"
+MLX_SMALL_MODEL="${AFM_REGRESSION_MLX_SMALL_MODEL:-mlx-community/Qwen2.5-0.5B-Instruct-4bit}"
+MLX_CACHED_MODEL="${AFM_REGRESSION_MLX_CACHED_MODEL:-mlx-community/lille-130m-instruct-8bit}"
 PORT_AFM=9871
 PORT_MLX=9872
 AFM_TEST_WORK_ROOT="${AFM_TEST_WORK_ROOT:-$ROOT_DIR/.build/test-work/regression}"
@@ -38,6 +38,14 @@ Environment variables:
   AFM_TEST_WORK_ROOT=PATH   Store transient logs and download fixtures under PATH
   AFM_REGRESSION_RESULTS_FILE=PATH
                             Override the JSONL result path
+  AFM_REGRESSION_MLX_SMALL_MODEL=MODEL
+                            Override the MLX download/single-prompt fixture
+  AFM_REGRESSION_MLX_CACHED_MODEL=MODEL
+                            Override the cached MLX server fixture
+  AFM_REGRESSION_MLX_VLM_MODEL=MODEL
+                            Override the VLM fixture
+  AFM_REGRESSION_MLX_MOE_MODEL=MODEL
+                            Override the MoE fixture
 HELP
        exit 0 ;;
     *) echo "Unknown option"; exit 1 ;;
@@ -393,14 +401,17 @@ else:
     delta0 = c0.get('choices', [{}])[0].get('delta', {})
     if 'role' not in delta0:
         errors.append('first chunk delta missing role')
-    # Last chunk should have finish_reason
-    last = chunks[-1]
-    fr = last.get('choices', [{}])[0].get('finish_reason')
+    # A trailing usage-only chunk can have choices: []. The last
+    # choice-bearing chunk carries finish_reason.
+    choice_chunks = [c for c in chunks if c.get('choices')]
+    last_choice = choice_chunks[-1] if choice_chunks else {}
+    fr = (last_choice.get('choices') or [{}])[0].get('finish_reason')
     if fr is None:
         errors.append('last chunk missing finish_reason')
-    # Final chunk should have usage
-    usage = last.get('usage')
-    if usage and isinstance(usage, dict):
+    # Usage can be attached to a trailing choices:[] chunk.
+    usage_chunks = [c for c in chunks if isinstance(c.get('usage'), dict)]
+    usage = usage_chunks[-1].get('usage') if usage_chunks else None
+    if usage:
         for f in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
             if f not in usage: errors.append(f'final usage missing: {f}')
     # All chunks should have consistent id
@@ -484,7 +495,7 @@ header_test() {
   elif [ "$method" = "OPTIONS" ]; then
     headers=$(curl -sI --max-time 30 -X OPTIONS "http://127.0.0.1:${port}${endpoint}" 2>&1) && rc=$? || rc=$?
   else
-    headers=$(curl -sI --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
+    headers=$(curl -sS -D - -o /dev/null --max-time 60 -X POST "http://127.0.0.1:${port}${endpoint}" \
       -H "Content-Type: application/json" -d "$data" 2>&1) && rc=$? || rc=$?
   fi
   local elapsed=$((SECONDS - t0))
@@ -710,7 +721,8 @@ SEC="MLX Server"
 
 if start_server $PORT_MLX "$AFM" mlx -m "$MLX_CACHED_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "GET /health" $PORT_MLX GET "/health" "" "healthy"
-  api_test "$SEC" "GET /v1/models" $PORT_MLX GET "/v1/models" "" "lille"
+  schema_api_test "$SEC" "GET /v1/models" $PORT_MLX GET "/v1/models" "" \
+    validate_models_response "200"
   api_test "$SEC" "POST chat completion" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"Say hi"}],"max_tokens":50}' "choices"
   api_test "$SEC" "POST chat with temperature" $PORT_MLX POST "/v1/chat/completions" \
@@ -761,7 +773,7 @@ echo ""
 echo "━━━ Section 9: MLX VLM Model ━━━"
 SEC="MLX VLM"
 
-MLX_VLM_MODEL="mlx-community/Qwen3-VL-4B-Instruct-4bit"
+MLX_VLM_MODEL="${AFM_REGRESSION_MLX_VLM_MODEL:-mlx-community/Qwen3-VL-4B-Instruct-4bit}"
 if start_server $PORT_MLX "$AFM" mlx -m "$MLX_VLM_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "VLM text-only chat" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":50}' "choices"
@@ -775,7 +787,7 @@ echo ""
 echo "━━━ Section 10: MLX MoE Model ━━━"
 SEC="MLX MoE"
 
-MLX_MOE_MODEL="mlx-community/Qwen3-30B-A3B-4bit"
+MLX_MOE_MODEL="${AFM_REGRESSION_MLX_MOE_MODEL:-mlx-community/Qwen3-30B-A3B-4bit}"
 if start_server $PORT_MLX "$AFM" mlx -m "$MLX_MOE_MODEL" -p $PORT_MLX; then
   api_test "$SEC" "MoE chat completion" $PORT_MLX POST "/v1/chat/completions" \
     '{"model":"test","messages":[{"role":"user","content":"What is 2+2? Answer briefly."}],"max_tokens":50}' "choices"
@@ -1058,13 +1070,15 @@ if [ "${RUN_GATEWAY_TESTS:-0}" = "1" ]; then
 
     # If Ollama is running, test proxied completion
     if curl -s --max-time 5 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
-      # Get first available Ollama model
-      OLLAMA_MODEL=$(curl -s "http://127.0.0.1:11434/api/tags" | python3 -c "import json,sys; m=json.load(sys.stdin).get('models',[]); print(m[0]['name'] if m else '')" 2>/dev/null)
+      # Resolve the native Ollama name to the ID advertised by AFM. Gateway
+      # IDs can be namespaced and must be sent back exactly as listed.
+      OLLAMA_NATIVE_MODEL=$(curl -s "http://127.0.0.1:11434/api/tags" | python3 -c "import json,sys; m=json.load(sys.stdin).get('models',[]); print(m[0]['name'] if m else '')" 2>/dev/null)
+      OLLAMA_MODEL=$(curl -s "http://127.0.0.1:${PORT_GW}/v1/models" | python3 -c "import json,sys; models=json.load(sys.stdin).get('data',[]); native='$OLLAMA_NATIVE_MODEL'; candidates=[m.get('id','') for m in models if m.get('owned_by') == 'ollama' and (m.get('id','').endswith(native) or native in m.get('id',''))]; print(candidates[0] if candidates else '')" 2>/dev/null)
       if [ -n "$OLLAMA_MODEL" ]; then
         api_test "$SEC" "Ollama proxy: $OLLAMA_MODEL" $PORT_GW POST "/v1/chat/completions" \
           "{\"model\":\"$OLLAMA_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi\"}],\"max_tokens\":50}" "choices"
       else
-        record "$SEC" "Ollama proxy" "SKIP" "Ollama running but no models loaded" "0"
+        record "$SEC" "Ollama proxy" "SKIP" "Ollama model not advertised by AFM gateway" "0"
       fi
     else
       record "$SEC" "Ollama proxy" "SKIP" "Ollama not running on :11434" "0"

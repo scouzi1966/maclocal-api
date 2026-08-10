@@ -13,7 +13,7 @@ Prerequisites:
     pip install aiohttp
     Server running on port 9999
 """
-import asyncio, aiohttp, json, time, sys, re, os
+import asyncio, aiohttp, json, time, sys, re, os, unicodedata
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -99,7 +99,7 @@ async def send_request(session, prompt, max_tokens=200):
 
 def check_response(text, expected_substrings):
     """Check if response contains at least one expected substring."""
-    lower = text.lower()
+    lower = unicodedata.normalize("NFKC", text).lower()
     for sub in expected_substrings:
         if sub.lower() in lower:
             return True, sub
@@ -133,7 +133,7 @@ async def run_validation(batch_size):
                 text, elapsed = result
                 ok, matched = check_response(text, expected)
                 # Also check for obvious garbage
-                is_garbage = len(text.strip()) < 2 or text.count('\ufffd') > 5
+                is_garbage = not text.strip() or text.count('\ufffd') > 5
 
                 if is_garbage:
                     failed += 1

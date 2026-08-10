@@ -13,6 +13,7 @@ import asyncio, aiohttp, json, time, sys, subprocess, threading, os
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
+REQUEST_TIMEOUT_S = int(os.environ.get("AFM_REQUEST_TIMEOUT_S", "1200"))
 
 # --- Short-answer tests (long prompts, expect brief response) ---
 SHORT_ANSWER_TESTS = [
@@ -281,7 +282,8 @@ async def run_batch(batch_size, tests):
     failed = 0
     results = []
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S + 30, sock_read=REQUEST_TIMEOUT_S)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for batch_start in range(0, len(tests), batch_size):
             batch = tests[batch_start:batch_start + batch_size]
             tasks = [
@@ -294,8 +296,8 @@ async def run_batch(batch_size, tests):
                 name = test["name"]
                 if isinstance(outcome, Exception):
                     failed += 1
-                    print(f"  FAIL  {name}: exception {outcome}")
-                    results.append({"name": name, "status": "EXCEPTION"})
+                    print(f"  FAIL  {name}: exception {outcome!r}")
+                    results.append({"name": name, "status": "EXCEPTION", "error": repr(outcome)})
                     continue
 
                 r = outcome
