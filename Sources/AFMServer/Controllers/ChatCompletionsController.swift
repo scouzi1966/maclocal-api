@@ -207,6 +207,14 @@ struct ChatCompletionsController: RouteCollection {
 
             return try await createSuccessResponse(req: req, response: response)
 
+        } catch let decodingError as DecodingError {
+            req.logger.warning("Invalid chat completion request: \(decodingError)")
+            let error = OpenAIError(
+                message: "Invalid request body: \(Self.describeDecodingError(decodingError))",
+                type: "invalid_request_error"
+            )
+            return try await createErrorResponse(req: req, error: error, status: .badRequest)
+
         } catch let foundationError as FoundationModelError {
             if case .responseTruncated(let maxTokens) = foundationError {
                 let promptTokens = estimateTokens(for: fallbackMessages)
@@ -278,6 +286,19 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: .accessControlAllowOrigin, value: "*")
         try httpResponse.content.encode(error)
         return httpResponse
+    }
+
+    private static func describeDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .keyNotFound(let key, _):
+            return "Missing required field '\(key.stringValue)'"
+        case .typeMismatch(_, let context),
+             .valueNotFound(_, let context),
+             .dataCorrupted(let context):
+            return context.debugDescription
+        @unknown default:
+            return "The JSON request could not be decoded"
+        }
     }
     
     private func estimateTokens(for messages: [Message]) -> Int {
