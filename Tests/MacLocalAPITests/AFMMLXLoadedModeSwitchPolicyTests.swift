@@ -50,4 +50,51 @@ final class AFMMLXLoadedModeSwitchPolicyTests: XCTestCase {
         XCTAssertEqual(plan, .currentLoadedModel(targetVLM: false))
         XCTAssertEqual(plan?.targetVLM, false)
     }
+
+    func testVisionConfigurationLoadsVLMInitially() {
+        let architecture = AFMMLXModelArchitecturePreflight(
+            modelID: "gemma4-vision",
+            modelType: "gemma4",
+            canonicalModelType: "gemma4",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: false
+        )
+        XCTAssertEqual(AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: architecture), .vlm)
+    }
+
+    func testTextOnlyDualModeConfigurationLoadsLLM() {
+        let architecture = AFMMLXModelArchitecturePreflight(
+            modelID: "qwen-text",
+            modelType: "qwen3_6",
+            canonicalModelType: "qwen3_6",
+            isVisionConfiguration: false,
+            requiresVisionModelFactory: false
+        )
+        XCTAssertEqual(AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: architecture), .llm)
+    }
+
+    func testMediaKindsAndCapabilitiesAreExplicit() {
+        let gemma = AFMMLXModelArchitecturePreflight(
+            modelID: "gemma4-vision",
+            modelType: "gemma4",
+            canonicalModelType: "gemma4",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: false
+        )
+        let qwen = AFMMLXModelArchitecturePreflight(
+            modelID: "qwen-vl",
+            modelType: "qwen3_vl",
+            canonicalModelType: "qwen3_vl",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: true
+        )
+
+        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "data:image/png;base64,AA=="), .image)
+        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "https://example.com/clip.mp4"), .video)
+        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "input_audio"), .audio)
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.image, architecture: gemma))
+        XCTAssertFalse(AFMMLXRequestMediaPolicy.supports(.video, architecture: gemma))
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.video, architecture: qwen))
+        XCTAssertFalse(AFMMLXRequestMediaPolicy.supports(.audio, architecture: qwen))
+    }
 }

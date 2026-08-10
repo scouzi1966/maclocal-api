@@ -216,6 +216,7 @@ public enum AFMMLXModelArchitecture {
         "qwen3_6_moe",
         "idefics3",
         "gemma3",
+        "gemma4",
         "smolvlm",
         "fastvlm",
         "llava_qwen2",

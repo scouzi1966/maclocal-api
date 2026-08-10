@@ -1454,17 +1454,20 @@ public final class MLXModelService: @unchecked Sendable {
         // VLM-only guard: if text_config exists but lacks key architecture fields
         // (num_attention_heads, head_dim), the LLM model will use wrong defaults
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
-        let vlmOnly = isVLMOnlyConfig(directory: directory)
-        let selectedFactory = (forceVLM || vlmOnly) ? "VLM" : "LLM"
+        let selectedFactory = AFMMLXModelFactoryPolicy.initialFactory(
+            forceVLM: forceVLM,
+            architecture: modelArchitecture
+        )
         print(
             "[\(ts())] [ModelArchitecture] declared=\(modelArchitecture.modelType) "
                 + "canonical=\(modelArchitecture.canonicalModelType) "
                 + "vision=\(modelArchitecture.isVisionConfiguration) "
-                + "factory=\(selectedFactory)"
+                + "factory=\(selectedFactory == .vlm ? "VLM" : "LLM")"
         )
         do {
             let loaded: ModelContainer
-            if forceVLM || vlmOnly {
+            var actualFactory = selectedFactory
+            if selectedFactory == .vlm {
                 loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
             } else {
                 do {
@@ -1474,11 +1477,16 @@ public final class MLXModelService: @unchecked Sendable {
                     // LLM factory failed — try VLM factory as fallback
                     do {
                         loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                        actualFactory = .vlm
+                        print("[\(ts())] [MLX] Loaded \(modelID) with VLM fallback")
                     } catch let vlmError {
                         print("[\(ts())] [MLX] VLM fallback also failed for \(modelID): \(vlmError)")
                         throw llmError
                     }
                 }
+            }
+            if actualFactory != selectedFactory {
+                print("[\(ts())] [ModelArchitecture] actualFactory=VLM (LLM fallback)")
             }
             withStateLock {
                 currentContainer = loaded
@@ -1901,10 +1909,8 @@ public final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestCompleted()
             }
         }
-        let requestHasTools = !(tools?.isEmpty ?? true)
-
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
+        let container = try validatedContainerForRequest(modelID: modelID, messages: messages)
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -2832,7 +2838,7 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
+        let container = try validatedContainerForRequest(modelID: modelID, messages: messages)
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -2853,11 +2859,15 @@ public final class MLXModelService: @unchecked Sendable {
             chatTemplateKwargs: chatTemplateKwargs,
             includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
         )
+        var streamOwnsTempFiles = false
+        defer {
+            if !streamOwnsTempFiles {
+                cleanupTempFiles(mediaTempFiles)
+            }
+        }
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
-        let streamRequestHasTools = !(tools?.isEmpty ?? true)
-
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -3031,6 +3041,7 @@ public final class MLXModelService: @unchecked Sendable {
                 let thinkStartTag = self.thinkStartTag
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
+                        defer { self.cleanupTempFiles(mediaTempFiles) }
                         StatsAggregator.shared.requestStarted()
                         if openedThink, let thinkStartTag {
                             continuation.yield(StreamChunk(text: thinkStartTag))
@@ -3096,6 +3107,7 @@ public final class MLXModelService: @unchecked Sendable {
                     // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
                     continuation.onTermination = { _ in task.cancel() }
                 }
+                streamOwnsTempFiles = true
                 endOperationOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
             }
@@ -3630,6 +3642,7 @@ public final class MLXModelService: @unchecked Sendable {
             toolTags = nil
         }
 
+        streamOwnsTempFiles = true
         endOperationOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
@@ -5559,19 +5572,6 @@ public final class MLXModelService: @unchecked Sendable {
         return required
     }
 
-    /// Returns true when the model has a VLM config layout that can't be loaded
-    /// correctly by the LLM factory.  VLM models like gemma-3 store architecture
-    /// fields (num_attention_heads, head_dim, etc.) only inside text_config, not at
-    /// the top level.  The LLM factory's Codable config fills in wrong defaults for
-    /// these missing fields, causing inference crashes.
-    ///
-    /// Models like Qwen3.5-35B-A3B also have text_config but their LLM model class
-    /// (Qwen3_5MoE) properly reads from text_config with full field coverage.
-    /// We detect the "sparse text_config" case by checking for missing key fields.
-    private func isVLMOnlyConfig(directory: URL) -> Bool {
-        AFMMLXModelDescriptor.requiresVisionModelFactory(in: directory)
-    }
-
     private func isVisionModel(directory: URL) throws -> Bool {
         let config = directory.appendingPathComponent("config.json")
         guard let data = try? Data(contentsOf: config),
@@ -5597,6 +5597,39 @@ public final class MLXModelService: @unchecked Sendable {
         return false
     }
 
+    private func validatedContainerForRequest(
+        modelID: String,
+        messages: [AFMOpenAICompat.Message]
+    ) throws -> ModelContainer {
+        let state = withStateLock { (currentContainer, currentModelArchitecture, currentModelID == modelID) }
+        guard let container = state.0, state.2 else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.1 else {
+            throw MLXServiceError.loadFailed("\(modelID): model architecture is unavailable")
+        }
+
+        for message in messages {
+            guard let content = message.content, case .parts(let parts) = content else { continue }
+            for part in parts {
+                guard let kind = AFMMLXRequestMediaPolicy.kind(
+                    contentPartType: part.type,
+                    mediaURL: part.image_url?.url
+                ) else { continue }
+                guard AFMMLXRequestMediaPolicy.supports(kind, architecture: architecture) else {
+                    let label: String
+                    switch kind {
+                    case .image: label = "image"
+                    case .video: label = "video"
+                    case .audio: label = "audio"
+                    }
+                    throw MLXServiceError.loadFailed(
+                        "\(modelID): \(label) input is not supported by the loaded MLX model"
+                    )
+                }
+            }
+        }
+        return container
+    }
+
     private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
@@ -5611,6 +5644,12 @@ public final class MLXModelService: @unchecked Sendable {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
+        var callerOwnsTempFiles = false
+        defer {
+            if !callerOwnsTempFiles {
+                cleanupTempFiles(allTempFiles)
+            }
+        }
         // Merge consecutive system/developer messages into one so that Jinja
         // templates requiring a single system message at position 0 don't fail
         // (e.g. Qwen3.5). The OpenAI API allows multiple system messages, so
@@ -5746,6 +5785,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         if chatMessages.isEmpty {
+            callerOwnsTempFiles = true
             return (UserInput(prompt: ""), tempFiles: allTempFiles)
         }
 
@@ -5852,6 +5892,7 @@ public final class MLXModelService: @unchecked Sendable {
                 additionalContext: additionalContext,
                 addGenerationPrompt: true
             )
+            callerOwnsTempFiles = true
             return (
                 UserInput(
                     prompt: .text(prompt),
@@ -5873,6 +5914,7 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        callerOwnsTempFiles = true
         return (input, tempFiles: allTempFiles)
     }
 
@@ -5950,10 +5992,17 @@ public final class MLXModelService: @unchecked Sendable {
             } else if let url = URL(string: raw),
                       let scheme = url.scheme, scheme == "http" || scheme == "https" {
                 let (data, _) = try awaitURL(url: url)
-                let temp = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("afm_mlx_image_\(UUID().uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension)")
+                let ext = url.pathExtension.lowercased()
+                let isVideo = Self.videoExtensions.contains(ext)
+                let temp = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    "afm_mlx_\(isVideo ? "video" : "image")_\(UUID().uuidString).\(ext.isEmpty ? (isVideo ? "mp4" : "jpg") : ext)"
+                )
                 try data.write(to: temp)
-                images.append(.url(temp))
+                if isVideo {
+                    videos.append(.url(temp))
+                } else {
+                    images.append(.url(temp))
+                }
                 tempFiles.append(temp)
             } else if let url = URL(string: raw) {
                 let ext = url.pathExtension.lowercased()
@@ -6322,15 +6371,13 @@ public final class MLXModelService: @unchecked Sendable {
         input.image != nil || input.video != nil
     }
 
-    /// Check the OpenAI request shape before preparing UserInput, so multimodal/audio
-    /// inputs can stay on the legacy container.perform path.
+    /// Keep media requests on the processor-backed path; the lock-free text
+    /// adapter intentionally accepts text-only OpenAI content.
     private func isTextOnlyInput(_ messages: [AFMOpenAICompat.Message]) -> Bool {
         for message in messages {
-            guard let content = message.content else { continue }
-            if case .parts(let parts) = content {
-                if parts.contains(where: { $0.type != "text" }) {
-                    return false
-                }
+            guard let content = message.content, case .parts(let parts) = content else { continue }
+            if parts.contains(where: { $0.type != "text" }) {
+                return false
             }
         }
         return true
