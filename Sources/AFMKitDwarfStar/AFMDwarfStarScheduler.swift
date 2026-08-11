@@ -100,6 +100,12 @@ enum AFMDwarfStarSchedulingPolicy {
     }
 }
 
+enum AFMDwarfStarSpeculativePolicy {
+    static func isAvailable(requested: Bool, draftTokenCount: Int) -> Bool {
+        requested && draftTokenCount > 0
+    }
+}
+
 enum AFMDwarfStarPrefixCachePolicy {
     static let defaultBudgetMB: UInt64 = 4_096
 
@@ -325,7 +331,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
         loadedContextWindow = contextWindow
         loadedMaxConcurrent = residentSessions
         prefixCachingEnabled = enablePrefixCaching
-        dsparkEnabled = dsparkSupportPath != nil && ds4_engine_has_mtp(openedEngine)
+        dsparkEnabled = AFMDwarfStarSpeculativePolicy.isAvailable(
+            requested: dsparkSupportPath != nil,
+            draftTokenCount: Int(ds4_engine_mtp_draft_tokens(openedEngine)))
     }
 
     public func unload(modelPath: String) {
@@ -598,7 +606,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 continue
             }
 
-            if dsparkEnabled, temperature <= 0, ds4_engine_has_mtp(engine) {
+            if dsparkEnabled,
+               temperature <= 0,
+               ds4_engine_mtp_draft_tokens(engine) > 0 {
                 let remaining = job.maximumTokens - job.outputTokens
                 let capacity = max(1, min(16, remaining))
                 var accepted = [Int32](repeating: 0, count: capacity)

@@ -149,6 +149,21 @@ final class AFMDwarfStarProviderTests: XCTestCase {
                 currentPosition: 128, activeDecodeCount: 0))
     }
 
+    func testDSparkAvailabilityUsesGeneralizedDraftDepth() {
+        XCTAssertFalse(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: false,
+                draftTokenCount: 5))
+        XCTAssertFalse(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: true,
+                draftTokenCount: 0))
+        XCTAssertTrue(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: true,
+                draftTokenCount: 5))
+    }
+
     func testSchedulerRotatesAcrossWaitingPrefills() {
         XCTAssertEqual(
             AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
