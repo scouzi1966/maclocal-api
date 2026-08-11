@@ -4,9 +4,13 @@ import AFMKitCore
 enum AFMDwarfStarToolCodec {
     static let blockStart = "<｜DSML｜tool_calls>"
     static let blockEnd = "</｜DSML｜tool_calls>"
+    static let thinkStart = "<think>"
+    static let thinkEnd = "</think>"
+    static let endOfSentence = "<｜end▁of▁sentence｜>"
 
     enum StreamOutput: Equatable {
         case text(String)
+        case reasoning(String)
         case toolCalls([AFMToolCall])
     }
 
@@ -60,6 +64,12 @@ enum AFMDwarfStarToolCodec {
         return content
     }
 
+    static func assistantReplaySuffix(for message: AFMMessage) throws -> String {
+        let calls = message.toolCalls
+        guard !calls.isEmpty else { return endOfSentence }
+        return "\n\n" + (try renderedToolCalls(calls)) + endOfSentence
+    }
+
     static func renderedToolCalls(_ calls: [AFMToolCall]) throws -> String {
         var content = blockStart + "\n"
         for call in calls {
@@ -98,55 +108,127 @@ enum AFMDwarfStarToolCodec {
     }
 
     struct StreamParser {
+        private enum Channel {
+            case reasoning
+            case response
+        }
+
         private var buffer = ""
         private var parsingTools = false
+        private var completedToolCall = false
         private var nextCallIndex = 0
+        private var channel: Channel
+
+        init(startsInReasoning: Bool = false) {
+            channel = startsInReasoning ? .reasoning : .response
+        }
 
         mutating func consume(_ text: String) throws -> [StreamOutput] {
+            guard !completedToolCall else { return [] }
             buffer += text
             var outputs: [StreamOutput] = []
 
-            if !parsingTools {
-                if let start = buffer.range(of: blockStart) {
-                    let prefix = String(buffer[..<start.lowerBound])
-                    if !prefix.isEmpty { outputs.append(.text(prefix)) }
-                    buffer = String(buffer[start.lowerBound...])
-                    parsingTools = true
-                } else {
-                    let retained = longestStartPrefixSuffix(in: buffer)
-                    let emitCount = buffer.count - retained
-                    if emitCount > 0 {
-                        let split = buffer.index(buffer.startIndex, offsetBy: emitCount)
-                        outputs.append(.text(String(buffer[..<split])))
-                        buffer = String(buffer[split...])
+            while true {
+                if parsingTools {
+                    guard let end = buffer.range(of: blockEnd) else { return outputs }
+                    let block = String(buffer[..<end.upperBound])
+                    let calls = try parseToolCalls(block, nextIndex: &nextCallIndex)
+                    if !calls.isEmpty {
+                        outputs.append(.toolCalls(calls))
+                        completedToolCall = true
                     }
+                    buffer = ""
+                    parsingTools = false
+                    return outputs
+                }
+
+                switch channel {
+                case .reasoning:
+                    if buffer.hasPrefix(thinkStart) {
+                        buffer.removeFirst(thinkStart.count)
+                        continue
+                    }
+                    if let end = buffer.range(of: thinkEnd) {
+                        append(String(buffer[..<end.lowerBound]), to: .reasoning, in: &outputs)
+                        buffer = String(buffer[end.upperBound...])
+                        channel = .response
+                        continue
+                    }
+                    emitSafePrefix(retaining: [thinkStart, thinkEnd], asReasoning: true, into: &outputs)
+                    return outputs
+
+                case .response:
+                    let toolRange = buffer.range(of: blockStart)
+                    let thinkRange = buffer.range(of: thinkStart)
+                    if let next = earliest(toolRange, thinkRange) {
+                        append(String(buffer[..<next.lowerBound]), to: .response, in: &outputs)
+                        let marker = String(buffer[next])
+                        buffer = String(buffer[next.upperBound...])
+                        if marker == blockStart {
+                            buffer = marker + buffer
+                            parsingTools = true
+                        } else {
+                            channel = .reasoning
+                        }
+                        continue
+                    }
+                    emitSafePrefix(retaining: [blockStart, thinkStart], asReasoning: false, into: &outputs)
                     return outputs
                 }
             }
-
-            guard let end = buffer.range(of: blockEnd) else { return outputs }
-            let block = String(buffer[..<end.upperBound])
-            let calls = try parseToolCalls(block, nextIndex: &nextCallIndex)
-            if !calls.isEmpty { outputs.append(.toolCalls(calls)) }
-            buffer = String(buffer[end.upperBound...])
-            parsingTools = false
-            if !buffer.isEmpty {
-                outputs += try consume("")
-            }
-            return outputs
         }
 
         mutating func finish() -> [StreamOutput] {
+            guard !completedToolCall else { return [] }
             guard !buffer.isEmpty else { return [] }
             defer { buffer = "" }
-            return parsingTools ? [] : [.text(buffer)]
+            guard !parsingTools else { return [] }
+            return channel == .reasoning ? [.reasoning(buffer)] : [.text(buffer)]
         }
 
-        private func longestStartPrefixSuffix(in text: String) -> Int {
-            let maximum = min(text.count, blockStart.count - 1)
+        private func earliest(
+            _ lhs: Range<String.Index>?,
+            _ rhs: Range<String.Index>?
+        ) -> Range<String.Index>? {
+            switch (lhs, rhs) {
+            case (.none, .none): nil
+            case (.some(let range), .none), (.none, .some(let range)): range
+            case (.some(let left), .some(let right)):
+                left.lowerBound < right.lowerBound ? left : right
+            }
+        }
+
+        private mutating func emitSafePrefix(
+            retaining markers: [String],
+            asReasoning: Bool,
+            into outputs: inout [StreamOutput]
+        ) {
+            let retained = markers.map { longestMarkerPrefixSuffix(in: buffer, marker: $0) }.max() ?? 0
+            let emitCount = buffer.count - retained
+            guard emitCount > 0 else { return }
+            let split = buffer.index(buffer.startIndex, offsetBy: emitCount)
+            let value = String(buffer[..<split])
+            outputs.append(asReasoning ? .reasoning(value) : .text(value))
+            buffer = String(buffer[split...])
+        }
+
+        private func append(
+            _ value: String,
+            to channel: Channel,
+            in outputs: inout [StreamOutput]
+        ) {
+            guard !value.isEmpty else { return }
+            switch channel {
+            case .response: outputs.append(.text(value))
+            case .reasoning: outputs.append(.reasoning(value))
+            }
+        }
+
+        private func longestMarkerPrefixSuffix(in text: String, marker: String) -> Int {
+            let maximum = min(text.count, marker.count - 1)
             guard maximum > 0 else { return 0 }
             for count in stride(from: maximum, through: 1, by: -1) {
-                if text.suffix(count) == blockStart.prefix(count) { return count }
+                if text.suffix(count) == marker.prefix(count) { return count }
             }
             return 0
         }

@@ -1,6 +1,7 @@
 #if canImport(FoundationModels)
 import AFMKit
 import AFMKitDwarfStar
+import AFMKitFoundationModels27
 import Foundation
 import FoundationModels
 

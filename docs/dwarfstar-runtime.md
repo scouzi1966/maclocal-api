@@ -67,8 +67,8 @@ resident session reuse without introducing disk I/O into the decode hot path.
 - KV-cache quantization is unavailable through AFM because DwarfStar owns its
   cache representation
 - MLX MTP and EAGLE options do not apply; DwarfStar uses DSpark
-- Reasoning generation is supported, but reasoning and final-answer event
-  separation is not yet complete in the AFM adapter
+- Reasoning and final-answer streams are separated for both AFMKit consumers
+  and the macOS 27 Foundation Models executor channel
 
 Tool calling is implemented in AFM-owned interface code, without modifying the
 DwarfStar dependency. AFM renders tool schemas and prior calls using DeepSeek's

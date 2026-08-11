@@ -44,6 +44,10 @@ let package = Package(
             targets: ["AFMKitFoundationModels27"]
         ),
         .library(
+            name: "AFMKitFoundationModels27DwarfStar",
+            targets: ["AFMKitFoundationModels27DwarfStar"]
+        ),
+        .library(
             name: "AFMKitServices",
             targets: ["AFMKitServices"]
         ),
@@ -112,8 +116,15 @@ let package = Package(
         .target(
             name: "AFMKitFoundationModels27",
             dependencies: [
+                "AFMKit"
+            ]
+        ),
+        .target(
+            name: "AFMKitFoundationModels27DwarfStar",
+            dependencies: [
                 "AFMKit",
-                "AFMKitDwarfStar"
+                "AFMKitDwarfStar",
+                "AFMKitFoundationModels27"
             ]
         ),
         .target(
@@ -156,10 +167,9 @@ let package = Package(
                 "CDwarfStar"
             ],
             resources: [
-                // `.process` dereferences the source-tree link into the product
-                // bundle. `.copy` preserved the relative symlink, which became
-                // broken once the resource moved under `.build` or an app bundle.
-                .process("Resources/metal")
+                // DS4 compiles these include-style fragments at runtime. Keep the
+                // directory opaque so SwiftPM does not compile each file alone.
+                .copy("../../vendor/ds4/metal")
             ],
             swiftSettings: [
                 .unsafeFlags(["-O"], .when(configuration: .release)),
@@ -304,6 +314,7 @@ let package = Package(
                 "AFMKitMLX",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
+                "AFMKitFoundationModels27DwarfStar",
                 "AFMKitServices",
                 "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),

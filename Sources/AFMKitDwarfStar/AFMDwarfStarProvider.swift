@@ -106,7 +106,7 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
             providerID: AFMDwarfStarProviderFactory.providerID,
             modelID: modelID,
             displayName: URL(fileURLWithPath: modelPath).deletingPathExtension().lastPathComponent,
-            capabilities: [.text, .streaming, .toolCalling, .prefixCaching],
+            capabilities: [.text, .streaming, .reasoning, .toolCalling, .prefixCaching],
             contextWindow: contextWindow,
             privacyBoundary: .device,
             requiresNetwork: false,

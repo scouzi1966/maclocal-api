@@ -11,9 +11,7 @@ public enum AFMDwarfStarRuntime {
         if let directory = Bundle.module.url(forResource: "metal", withExtension: nil) {
             return directory
         }
-        // SwiftPM `.process` flattens this resource directory. Processing is
-        // intentional because it dereferences the vendor symlink into portable
-        // product resources instead of preserving a broken relative link.
+        // Compatibility with older bundles that flattened this directory.
         if let resources = Bundle.module.resourceURL,
            FileManager.default.fileExists(
                atPath: resources.appendingPathComponent("flash_attn.metal").path)

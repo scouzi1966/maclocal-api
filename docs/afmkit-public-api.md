@@ -12,6 +12,8 @@ The package exposes dependency-scoped products:
 - `AFMKitFoundationModels`: Apple's Foundation Models service and schema bridge.
 - `AFMKitFoundationModels27`: macOS 27 adapters that expose AFMKit models through
   Apple's `LanguageModel` and `LanguageModelExecutor` protocols.
+- `AFMKitFoundationModels27DwarfStar`: opt-in macOS 27 DwarfStar adapter. Keeping
+  it separate prevents MLX-only consumers from linking the DS4 runtime and resources.
 - `AFMKitServices`: Apple Vision, Speech, synthesis, and NaturalLanguage embeddings.
 
 `AFMKit` remains the compatibility umbrella during migration. It re-exports
@@ -38,7 +40,7 @@ AFMKit includes `MLXLanguageModel` and `DwarfStarLanguageModel` as concrete
 examples. Applications use either one with Apple's API directly:
 
 ```swift
-import AFMKitFoundationModels27
+import AFMKitFoundationModels27DwarfStar
 import FoundationModels
 
 let model = DwarfStarLanguageModel(

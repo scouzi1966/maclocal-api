@@ -3,6 +3,7 @@ import CoreImage
 import FoundationModels
 @testable import AFMKit
 @testable import AFMKitFoundationModels27
+@testable import AFMKitFoundationModels27DwarfStar
 import XCTest
 
 @available(macOS 27.0, *)

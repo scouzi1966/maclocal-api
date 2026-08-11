@@ -51,7 +51,7 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         let availability = await model.availability()
         XCTAssertFalse(availability.isAvailable)
         XCTAssertEqual(model.descriptor.providerID, "dwarfstar")
-        XCTAssertFalse(model.descriptor.capabilities.contains(.reasoning))
+        XCTAssertTrue(model.descriptor.capabilities.contains(.reasoning))
         XCTAssertTrue(model.descriptor.capabilities.contains(.streaming))
         XCTAssertTrue(model.descriptor.capabilities.contains(.toolCalling))
     }
@@ -265,6 +265,46 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         )
     }
 
+    func testToolMarkupInsideReasoningIsNotExecuted() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser(startsInReasoning: true)
+        let fakeCall = "<｜DSML｜tool_calls><｜DSML｜invoke name=\"unsafe\"></｜DSML｜invoke></｜DSML｜tool_calls>"
+
+        XCTAssertEqual(
+            try parser.consume("consider \(fakeCall)</think>answer"),
+            [.reasoning("consider \(fakeCall)"), .text("answer")]
+        )
+    }
+
+    func testCompletedToolCallTerminatesParserAndDiscardsTrailingOutput() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser()
+        let call = "<｜DSML｜tool_calls><｜DSML｜invoke name=\"weather\"></｜DSML｜invoke></｜DSML｜tool_calls>"
+
+        let outputs = try parser.consume(call + "must not become response text")
+        guard case .toolCalls(let calls) = try XCTUnwrap(outputs.first) else {
+            return XCTFail("Expected a completed tool call")
+        }
+        XCTAssertEqual(calls.map(\.name), ["weather"])
+        XCTAssertEqual(outputs.count, 1)
+        XCTAssertEqual(try parser.consume("also ignored"), [])
+        XCTAssertEqual(parser.finish(), [])
+    }
+
+    func testReasoningMarkersCanSpanChunks() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser(startsInReasoning: true)
+
+        XCTAssertEqual(try parser.consume("analysis</thi"), [.reasoning("analysis")])
+        XCTAssertEqual(try parser.consume("nk>final"), [.text("final")])
+    }
+
+    func testResponseCanEnterAndLeaveExplicitReasoning() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser()
+
+        XCTAssertEqual(
+            try parser.consume("before<think>private</think>after"),
+            [.text("before"), .reasoning("private"), .text("after")]
+        )
+    }
+
     func testAssistantToolCallsRoundTripThroughDSML() throws {
         let message = AFMMessage(
             role: .assistant,
@@ -283,6 +323,28 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         XCTAssertTrue(rendered.contains("name=\"weather\""))
         XCTAssertTrue(rendered.contains("name=\"city\" string=\"true\">Montréal"))
         XCTAssertTrue(rendered.contains("name=\"days\" string=\"false\">2"))
+    }
+
+    func testAssistantToolReplayUsesCanonicalSeparatorAndBoundary() throws {
+        let message = AFMMessage(
+            role: .assistant,
+            content: [.text("Checking")],
+            toolCalls: [
+                AFMToolCall(id: "call", name: "weather", arguments: "{\"city\":\"Paris\"}")
+            ]
+        )
+
+        let suffix = try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message)
+        XCTAssertTrue(suffix.hasPrefix("\n\n<｜DSML｜tool_calls>"))
+        XCTAssertTrue(suffix.hasSuffix("<｜end▁of▁sentence｜>"))
+    }
+
+    func testAssistantTextReplayEndsWithConversationBoundary() throws {
+        let message = AFMMessage(role: .assistant, content: [.text("Done")])
+        XCTAssertEqual(
+            try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message),
+            "<｜end▁of▁sentence｜>"
+        )
     }
 
 }

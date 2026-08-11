@@ -142,8 +142,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
         var promptSeconds = 0.0
         var generationStart: ContinuousClock.Instant?
         var generatedText = ""
+        var generatedReasoning = ""
         var toolCalls: [AFMToolCall] = []
-        var toolParser = AFMDwarfStarToolCodec.StreamParser()
+        var toolParser: AFMDwarfStarToolCodec.StreamParser
         var pendingUTF8 = Data()
         var outputTokens = 0
         var randomState: UInt64
@@ -167,6 +168,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
             reasoningMode = .resolve(metadata: request.metadata)
+            toolParser = AFMDwarfStarToolCodec.StreamParser(
+                startsInReasoning: reasoningMode != .chat
+            )
         }
 
         var maximumTokens: Int {
@@ -690,26 +694,14 @@ public actor AFMDwarfStarRuntimeCoordinator {
         if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
             job.pendingUTF8.removeAll(keepingCapacity: true)
             do {
-                for output in try job.toolParser.consume(piece) {
-                    switch output {
-                    case .text(let text):
-                        job.generatedText += text
-                        job.onEvent(
-                            .responseText(action: .append, text: text, tokenCount: 1)
-                        )
-                    case .toolCalls(let calls):
-                        job.toolCalls += calls
-                        for call in calls {
-                            job.onEvent(.toolCall(call: call, stage: .started))
-                            job.onEvent(
-                                .toolCall(
-                                    call: call,
-                                    stage: .argumentsDelta(call.arguments)
-                                )
-                            )
-                            job.onEvent(.toolCall(call: call, stage: .completed))
-                        }
-                    }
+                let completedToolCall = process(
+                    try job.toolParser.consume(piece),
+                    for: job,
+                    tokenCount: 1
+                )
+                if completedToolCall {
+                    finish(slotIndex: slotIndex, reason: .toolCalls)
+                    return
                 }
             } catch {
                 finish(slotIndex: slotIndex, throwing: error)
@@ -729,16 +721,12 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func finish(slotIndex: Int, reason: AFMFinishReason) {
         guard let job = slots[slotIndex].job else { return }
         flushPendingUTF8(job)
-        for output in job.toolParser.finish() {
-            if case .text(let text) = output {
-                job.generatedText += text
-                job.onEvent(.responseText(action: .append, text: text, tokenCount: 0))
-            }
-        }
+        _ = process(job.toolParser.finish(), for: job, tokenCount: 0)
         persistPrefixIfIdle(slotIndex: slotIndex, job: job, reason: "continued")
         let generationSeconds = job.generationStart.map(Self.seconds(since:)) ?? 0
         let result = AFMDwarfStarGenerationResult(
             text: job.generatedText,
+            reasoning: job.generatedReasoning.isEmpty ? nil : job.generatedReasoning,
             usage: AFMUsage(
                 inputTokens: Int(job.prompt.len),
                 cachedInputTokens: job.cachedInputTokens,
@@ -783,11 +771,23 @@ public actor AFMDwarfStarRuntimeCoordinator {
         let piece = String(decoding: job.pendingUTF8, as: UTF8.self)
         job.pendingUTF8.removeAll(keepingCapacity: false)
         guard let outputs = try? job.toolParser.consume(piece) else { return }
+        _ = process(outputs, for: job, tokenCount: 0)
+    }
+
+    @discardableResult
+    private func process(
+        _ outputs: [AFMDwarfStarToolCodec.StreamOutput],
+        for job: GenerationJob,
+        tokenCount: Int
+    ) -> Bool {
         for output in outputs {
             switch output {
             case .text(let text):
                 job.generatedText += text
-                job.onEvent(.responseText(action: .append, text: text, tokenCount: 0))
+                job.onEvent(.responseText(action: .append, text: text, tokenCount: tokenCount))
+            case .reasoning(let text):
+                job.generatedReasoning += text
+                job.onEvent(.reasoningText(action: .append, text: text, tokenCount: tokenCount))
             case .toolCalls(let calls):
                 job.toolCalls += calls
                 for call in calls {
@@ -797,8 +797,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     )
                     job.onEvent(.toolCall(call: call, stage: .completed))
                 }
+                return true
             }
         }
+        return false
     }
 
     private func cancelGeneration(id: UUID) {
@@ -927,11 +929,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
                         ds4_chat_append_message(engine, &prompt, rolePointer, textPointer)
                     }
                 }
-                if message.role == .assistant, !message.toolCalls.isEmpty {
-                    let toolCalls = try AFMDwarfStarToolCodec.renderedToolCalls(
-                        message.toolCalls
-                    )
-                    toolCalls.withCString {
+                if message.role == .assistant {
+                    let suffix = try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message)
+                    suffix.withCString {
                         ds4_tokenize_rendered_chat(engine, $0, &prompt)
                     }
                 }
@@ -981,6 +981,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
 public struct AFMDwarfStarGenerationResult: Sendable {
     public var text: String
+    public var reasoning: String?
     public var usage: AFMUsage
     public var toolCalls: [AFMToolCall]
     public var finishReason: AFMFinishReason
@@ -991,6 +992,7 @@ public struct AFMDwarfStarGenerationResult: Sendable {
         metadata["modelID"] = .string(modelID)
         return AFMModelResponse(
             text: text,
+            reasoning: reasoning,
             toolCalls: toolCalls,
             usage: usage,
             finishReason: finishReason,

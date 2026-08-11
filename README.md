@@ -237,6 +237,8 @@ The repository publishes focused Swift Package Manager products:
 - `AFMOpenAICompat` — OpenAI-compatible request/response types
 - `AFMKitMLX` — MLX model loading and inference
 - `AFMKitFoundationModels` — Apple Foundation Models backend
+- `AFMKitFoundationModels27` — macOS 27 provider protocol adapters
+- `AFMKitFoundationModels27DwarfStar` — opt-in DwarfStar macOS 27 adapter
 - `AFMKitDwarfStar` — DwarfStar runtime integration
 - `AFMKitServices` — vision, speech, and embedding services
 - `AFMKit` — high-level headless inference facade
