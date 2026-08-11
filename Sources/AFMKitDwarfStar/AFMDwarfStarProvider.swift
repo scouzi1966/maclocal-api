@@ -106,7 +106,7 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
             providerID: AFMDwarfStarProviderFactory.providerID,
             modelID: modelID,
             displayName: URL(fileURLWithPath: modelPath).deletingPathExtension().lastPathComponent,
-            capabilities: [.text, .streaming, .prefixCaching],
+            capabilities: [.text, .streaming, .toolCalling, .prefixCaching],
             contextWindow: contextWindow,
             privacyBoundary: .device,
             requiresNetwork: false,
@@ -153,7 +153,7 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
 
     public func respond(to request: AFMRequest) async throws -> AFMModelResponse {
         _ = try await load(progress: nil)
-        let result = try await runtime.generate(request: request) { _, _ in }
+        let result = try await runtime.generate(request: request) { _ in }
         return result.response(modelID: descriptor.modelID.rawValue)
     }
 
@@ -164,10 +164,8 @@ public final class AFMDwarfStarModel: AFMModel, @unchecked Sendable {
             let task = Task {
                 do {
                     _ = try await load(progress: nil)
-                    let result = try await runtime.generate(request: request) { text, count in
-                        continuation.yield(
-                            .responseText(action: .append, text: text, tokenCount: count)
-                        )
+                    let result = try await runtime.generate(request: request) { event in
+                        continuation.yield(event)
                     }
                     continuation.yield(.usage(result.usage))
                     continuation.yield(.metadata(result.metadata))

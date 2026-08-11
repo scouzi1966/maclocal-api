@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Darwin
 import AFMKitCore
 import AFMOpenAICompat
@@ -5037,16 +5038,161 @@ public final class MLXModelService: @unchecked Sendable {
             let cache = HubCache(cacheDirectory: cacheDir)
             print("Download destination: \(cacheDir.path)")
             let client = HuggingFace.HubClient(cache: cache)
-            // No @MainActor progress handler — it deadlocks in single-prompt mode
-            // because MainActor is suspended waiting for downloadSnapshot to return.
-            // The spinner is driven by MLXLoadReporter independently.
-            _ = try await client.downloadSnapshot(
-                of: repoID,
-                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
-            )
+            let patterns = ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
+            let revision = try await client.getModel(repoID).sha
+            let manifest = try await client.listFiles(
+                in: repoID,
+                revision: revision ?? "main").filter { entry in
+                patterns.contains { fnmatch($0, entry.path, 0) == 0 }
+            }
+            if let revision, !manifest.isEmpty {
+                print("Hugging Face transport: automatic (Xet for large files, LFS fallback)")
+                try await downloadManifest(
+                    manifest,
+                    repoID: repoID,
+                    revision: revision,
+                    cache: cache,
+                    client: client,
+                    progressHandler: progress)
+            } else {
+                // Retain the official snapshot fallback for repositories whose
+                // API metadata does not expose a commit SHA.
+                _ = try await client.downloadSnapshot(
+                    of: repoID,
+                    matching: patterns
+                )
+            }
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
         }
+    }
+
+    private func downloadManifest(
+        _ entries: [Git.TreeEntry],
+        repoID: HuggingFace.Repo.ID,
+        revision: String,
+        cache: HubCache,
+        client: HuggingFace.HubClient,
+        progressHandler: (@Sendable (Progress) -> Void)?
+    ) async throws {
+        let total = entries.reduce(Int64(0)) { partial, entry in
+            partial + max(Int64(entry.size ?? 1), 1)
+        }
+        let aggregate = Progress(totalUnitCount: max(total, 1))
+        let files = try entries.map { entry in
+            let weight = max(Int64(entry.size ?? 1), 1)
+            let blobKey = Self.hubBlobKey(
+                repoID: repoID,
+                revision: revision,
+                entry: entry)
+            let destination = try cache.blobPath(
+                repo: repoID,
+                kind: .model,
+                etag: blobKey)
+            return AFMDownloadProgressUserInfo.File(
+                path: entry.path,
+                expectedBytes: weight,
+                destination: destination,
+                progress: Progress(totalUnitCount: weight))
+        }
+
+        let monitor = Task {
+            while !Task.isCancelled {
+                AFMDownloadProgressUserInfo.enrich(aggregate, files: files)
+                progressHandler?(aggregate)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { monitor.cancel() }
+
+        let indexed = Array(zip(entries.indices, entries))
+        let lfsEntries = indexed.filter { ($0.1.size ?? 0) < 16 * 1024 * 1024 }
+        let xetEntries = indexed.filter { ($0.1.size ?? 0) >= 16 * 1024 * 1024 }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var active = 0
+            for (index, entry) in lfsEntries {
+                while active >= 4 {
+                    if try await group.next() != nil { active -= 1 }
+                }
+                group.addTask {
+                    do {
+                        try FileManager.default.createDirectory(
+                            at: files[index].destination!.deletingLastPathComponent(),
+                            withIntermediateDirectories: true)
+                        _ = try await client.downloadFile(
+                            entry,
+                            from: repoID,
+                            to: files[index].destination,
+                            revision: revision,
+                            progress: files[index].progress,
+                            transport: .lfs)
+                        try await cache.storeFile(
+                            at: files[index].destination!,
+                            repo: repoID,
+                            kind: .model,
+                            revision: revision,
+                            filename: entry.path,
+                            etag: Self.hubBlobKey(
+                                repoID: repoID,
+                                revision: revision,
+                                entry: entry),
+                            ref: "main")
+                        files[index].progress.totalUnitCount = files[index].expectedBytes
+                        files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+                    } catch {
+                        throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
+                    }
+                }
+                active += 1
+            }
+            for try await _ in group {}
+        }
+
+        // Match the official snapshot policy: large Xet files are processed
+        // sequentially while each Xet transfer uses its own parallel CAS fetches.
+        for (index, entry) in xetEntries {
+            do {
+                try FileManager.default.createDirectory(
+                    at: files[index].destination!.deletingLastPathComponent(),
+                    withIntermediateDirectories: true)
+                _ = try await client.downloadFile(
+                    entry,
+                    from: repoID,
+                    to: files[index].destination,
+                    revision: revision,
+                    progress: files[index].progress,
+                    transport: .automatic)
+                try await cache.storeFile(
+                    at: files[index].destination!,
+                    repo: repoID,
+                    kind: .model,
+                    revision: revision,
+                    filename: entry.path,
+                    etag: Self.hubBlobKey(
+                        repoID: repoID,
+                        revision: revision,
+                        entry: entry),
+                    ref: "main")
+                files[index].progress.totalUnitCount = files[index].expectedBytes
+                files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+            } catch {
+                throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
+            }
+        }
+        AFMDownloadProgressUserInfo.enrich(aggregate, files: files)
+        progressHandler?(aggregate)
+    }
+
+    private static func hubBlobKey(
+        repoID: HuggingFace.Repo.ID,
+        revision: String,
+        entry: Git.TreeEntry
+    ) -> String {
+        let identity = "\(repoID.description)|\(revision)|\(entry.path)|\(entry.oid ?? "")"
+        return SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func inferToolCallFormat(directory: URL) -> ToolCallFormat? {

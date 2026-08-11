@@ -28,6 +28,23 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         let content: Content
     }
 
+    func testDwarfStarLanguageModelPublishesAppleToolCallingContract() {
+        let model = DwarfStarLanguageModel(
+            modelPath: "/models/deepseek-v4-flash.gguf",
+            contextWindow: 65_536,
+            enablePrefixCaching: true,
+            maxConcurrent: 4,
+            defaultMaximumResponseTokens: 1_024
+        )
+
+        XCTAssertTrue(model.capabilities.contains(.reasoning))
+        XCTAssertTrue(model.capabilities.contains(.toolCalling))
+        XCTAssertEqual(model.defaultMaximumResponseTokens, 1_024)
+        XCTAssertEqual(model.executorConfiguration.contextWindow, 65_536)
+        XCTAssertTrue(model.executorConfiguration.enablePrefixCaching)
+        XCTAssertEqual(model.executorConfiguration.maxConcurrent, 4)
+    }
+
     func testLanguageModelPlanProjectsAFMKitDescriptorCapabilities() {
         let descriptor = AFMModelDescriptor(
             providerID: "afmkit.mlx",

@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 import Foundation
 
@@ -73,7 +73,11 @@ let package = Package(
         // initialized submodules falls back to the pre-patched URL fork and remains portable.
         mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
-        .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
+        .package(
+            url: "https://github.com/huggingface/swift-huggingface.git",
+            from: "0.8.1",
+            traits: ["Xet"]
+        ),
         // Share the official XGrammar product with host applications such as Vesta.
         // Compiling the vendored implementation here as well as in coreai-models
         // produces duplicate native symbols when both libraries are linked.
@@ -108,7 +112,8 @@ let package = Package(
         .target(
             name: "AFMKitFoundationModels27",
             dependencies: [
-                "AFMKit"
+                "AFMKit",
+                "AFMKitDwarfStar"
             ]
         ),
         .target(
@@ -122,6 +127,7 @@ let package = Package(
             path: "Sources/CDwarfStar",
             sources: [
                 "AFMDwarfStarBridge.c",
+                "CDwarfStarKVStore.c",
                 "CDwarfStarEngine.c",
                 "CDwarfStarDistributed.c",
                 "CDwarfStarTensorParallel.c",
@@ -319,6 +325,7 @@ let package = Package(
         .testTarget(
             name: "AFMKitDwarfStarTests",
             dependencies: [
+                "AFMKitCore",
                 "AFMKitDwarfStar",
             ],
             swiftSettings: [

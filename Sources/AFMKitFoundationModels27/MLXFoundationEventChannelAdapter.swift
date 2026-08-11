@@ -4,11 +4,11 @@ import Foundation
 import FoundationModels
 
 @available(macOS 27.0, *)
-struct MLXFoundationEventChannelAdapter {
-    static let textBatchTokenLimit = 16
-    static let textBatchCharacterLimit = 256
+public struct AFMFoundationModelsEventChannelAdapter {
+    public static let textBatchTokenLimit = 16
+    public static let textBatchCharacterLimit = 256
 
-    enum ChannelPlan: Equatable, Sendable {
+    public enum ChannelPlan: Equatable, Sendable {
         case responseText(String, tokenCount: Int)
         case reasoningText(String, tokenCount: Int)
         case usage(AFMUsage)
@@ -22,7 +22,9 @@ struct MLXFoundationEventChannelAdapter {
     private var streamedTokens = 0
     private var pendingText: ChannelPlan?
 
-    mutating func send(
+    public init() {}
+
+    public mutating func send(
         _ event: AFMStreamEvent,
         into channel: LanguageModelExecutorGenerationChannel
     ) async {
@@ -31,12 +33,12 @@ struct MLXFoundationEventChannelAdapter {
         }
     }
 
-    mutating func plans(for event: AFMStreamEvent) -> [ChannelPlan] {
+    public mutating func plans(for event: AFMStreamEvent) -> [ChannelPlan] {
         guard let plan = consume(event) else { return [] }
         return enqueue(plan)
     }
 
-    mutating func consume(_ event: AFMStreamEvent) -> ChannelPlan? {
+    public mutating func consume(_ event: AFMStreamEvent) -> ChannelPlan? {
         switch event {
         case .text(let text, let tokenCount):
             streamedTokens += tokenCount
@@ -75,13 +77,13 @@ struct MLXFoundationEventChannelAdapter {
         }
     }
 
-    mutating func finish(into channel: LanguageModelExecutorGenerationChannel) async {
+    public mutating func finish(into channel: LanguageModelExecutorGenerationChannel) async {
         for plan in completionPlans() {
             await Self.send(plan, into: channel)
         }
     }
 
-    mutating func completionPlans() -> [ChannelPlan] {
+    public mutating func completionPlans() -> [ChannelPlan] {
         var plans = flushPlans()
         if let finishPlan = finishPlan() {
             plans.append(finishPlan)
@@ -89,12 +91,12 @@ struct MLXFoundationEventChannelAdapter {
         return plans
     }
 
-    func finishPlan() -> ChannelPlan? {
+    public func finishPlan() -> ChannelPlan? {
         guard !sentUsage else { return nil }
         return .usage(AFMUsage(outputTokens: streamedTokens))
     }
 
-    mutating func enqueue(_ plan: ChannelPlan) -> [ChannelPlan] {
+    public mutating func enqueue(_ plan: ChannelPlan) -> [ChannelPlan] {
         guard Self.isText(plan) else {
             return flushPlans() + [plan]
         }
@@ -113,7 +115,7 @@ struct MLXFoundationEventChannelAdapter {
         return Self.shouldFlush(combined) ? flushPlans() : []
     }
 
-    mutating func flushPlans() -> [ChannelPlan] {
+    public mutating func flushPlans() -> [ChannelPlan] {
         guard let pendingText else { return [] }
         self.pendingText = nil
         return [pendingText]
@@ -165,7 +167,7 @@ struct MLXFoundationEventChannelAdapter {
         }
     }
 
-    static func send(
+    public static func send(
         _ plan: ChannelPlan,
         into channel: LanguageModelExecutorGenerationChannel
     ) async {
@@ -197,7 +199,7 @@ struct MLXFoundationEventChannelAdapter {
             await channel.send(
                 .response(
                     action: .updateMetadata(
-                        MLXFoundationRequestAdapter.foundationMetadata(values)
+                        AFMFoundationModelsRequestAdapter.foundationMetadata(values)
                     )
                 )
             )
@@ -233,4 +235,7 @@ struct MLXFoundationEventChannelAdapter {
         )
     }
 }
+
+@available(macOS 27.0, *)
+typealias MLXFoundationEventChannelAdapter = AFMFoundationModelsEventChannelAdapter
 #endif

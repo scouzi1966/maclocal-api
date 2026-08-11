@@ -6,7 +6,7 @@ import FoundationModels
 /// An MLX-backed model that participates in the macOS 27 Foundation Models
 /// `LanguageModelSession` API.
 @available(macOS 27.0, *)
-public struct MLXLanguageModel: LanguageModel, Sendable {
+public struct MLXLanguageModel: LanguageModel, AFMFoundationModelsModelConfiguration, Sendable {
     public typealias Executor = MLXLanguageModelExecutor
 
     public let modelID: String
@@ -63,6 +63,14 @@ public struct MLXLanguageModel: LanguageModel, Sendable {
     public var executorConfiguration: MLXLanguageModelExecutor.Configuration {
         engineConfig
     }
+
+    public var defaultMaximumResponseTokens: Int {
+        engineConfig.defaultMaximumResponseTokens
+    }
+
+    public var supportsReasoning: Bool {
+        engineConfig.supportsReasoning
+    }
 }
 
 /// Executes macOS 27 Foundation Models requests through `AFMEngine`.
@@ -70,7 +78,7 @@ public struct MLXLanguageModel: LanguageModel, Sendable {
 public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked Sendable {
     public typealias Model = MLXLanguageModel
 
-    public struct Configuration: Hashable, Sendable {
+    public struct Configuration: Hashable, Sendable, AFMFoundationModelsModelConfiguration {
         public let modelID: String
         public let kvBits: Int?
         public let enablePrefixCaching: Bool
@@ -167,7 +175,7 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
             )
         }
 
-        let messages = try MLXFoundationRequestAdapter.messages(from: request.transcript)
+        let messages = try AFMFoundationModelsRequestAdapter.messages(from: request.transcript)
         guard !messages.isEmpty else {
             throw LanguageModelError.unsupportedTranscriptContent(
                 .init(
@@ -178,36 +186,14 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
         }
 
         let engine = try await runtime.preparedEngine()
-        let options = try MLXFoundationRequestAdapter.generationConfig(from: request, model: model)
-
-        var channelAdapter = MLXFoundationEventChannelAdapter()
-        let (planStream, planContinuation) = AsyncStream.makeStream(
-            of: MLXFoundationEventChannelAdapter.ChannelPlan.self
+        let options = try AFMFoundationModelsRequestAdapter.generationConfig(
+            from: request,
+            model: model.engineConfig
         )
-        let sender = Task.detached(priority: .utility) {
-            for await plan in planStream {
-                await MLXFoundationEventChannelAdapter.send(plan, into: channel)
-            }
-        }
-
-        do {
-            for try await event in engine.streamEvents(to: messages, options) {
-                try Task.checkCancellation()
-                for plan in channelAdapter.plans(for: event) {
-                    planContinuation.yield(plan)
-                }
-            }
-            for plan in channelAdapter.completionPlans() {
-                planContinuation.yield(plan)
-            }
-            planContinuation.finish()
-            await sender.value
-        } catch {
-            planContinuation.finish()
-            sender.cancel()
-            await sender.value
-            throw error
-        }
+        try await AFMFoundationModelsExecutorBridge.respond(
+            events: engine.streamEvents(to: messages, options),
+            streamingInto: channel
+        )
     }
 
 }
