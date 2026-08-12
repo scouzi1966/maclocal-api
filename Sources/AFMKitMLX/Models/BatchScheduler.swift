@@ -44,6 +44,10 @@ actor BatchScheduler {
 
     /// Default maximum concurrent generations.
     static let defaultMaxConcurrent = 8
+    /// Small admission window for concurrent bursts. Without this, the first
+    /// request can start a one-slot prefill/decode before peer requests created
+    /// by the same client batch reach the queue, which looks like serial TTFT.
+    static let defaultAdmissionWindowNanoseconds: UInt64 = 8_000_000
 
     let maxConcurrent: Int
     private let model: any LanguageModel
@@ -52,6 +56,7 @@ actor BatchScheduler {
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
+    private let admissionWindowNanoseconds: UInt64
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -476,7 +481,8 @@ actor BatchScheduler {
         configuration: ModelConfiguration,
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
         enablePrefixCaching: Bool = false,
-        cacheProfilePath: String? = nil
+        cacheProfilePath: String? = nil,
+        admissionWindowNanoseconds: UInt64 = BatchScheduler.defaultAdmissionWindowNanoseconds
     ) {
         self.model = model
         self.tokenizer = tokenizer
@@ -484,6 +490,7 @@ actor BatchScheduler {
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
+        self.admissionWindowNanoseconds = admissionWindowNanoseconds
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -587,12 +594,40 @@ actor BatchScheduler {
 
     /// Drain all pending requests from the nonisolated queue.
     /// Called from within the actor-isolated generationLoop.
-    private func drainPendingQueue() -> [PendingRequest] {
+    private func drainPendingQueue(limit: Int? = nil) -> [PendingRequest] {
         _pendingQueue.withLock { q in
-            let result = q
-            q.removeAll()
+            let result: [PendingRequest]
+            if let limit, q.count > limit {
+                result = Array(q.prefix(limit))
+                q.removeFirst(limit)
+            } else {
+                result = q
+                q.removeAll()
+            }
             return result
         }
+    }
+
+    /// Give same-burst requests a bounded chance to join an empty scheduler.
+    /// This is intentionally tiny and only applies before the first active slot;
+    /// it improves fairness for concurrent/batch clients without adding per-token
+    /// latency once generation is in progress.
+    private func drainAdmissionBatch() async -> [PendingRequest] {
+        var requests = drainPendingQueue(limit: maxConcurrent)
+        guard slots.isEmpty,
+              requests.count == 1,
+              maxConcurrent > 1,
+              admissionWindowNanoseconds > 0
+        else {
+            return requests
+        }
+
+        try? await Task.sleep(nanoseconds: admissionWindowNanoseconds)
+        let remainingCapacity = max(0, maxConcurrent - requests.count)
+        if remainingCapacity > 0 {
+            requests.append(contentsOf: drainPendingQueue(limit: remainingCapacity))
+        }
+        return requests
     }
 
     /// Gracefully shut down.
@@ -664,8 +699,9 @@ actor BatchScheduler {
         while !_isShutdown.withLock({ $0 }) {
             let stepStart = debugTiming ? Date() : Date.distantPast
 
-            // Drain nonisolated queue — no Task.yield() needed for request pickup
-            let newRequests = drainPendingQueue()
+            // Drain nonisolated queue. When idle, wait a bounded admission
+            // window so same-burst concurrent requests start together.
+            let newRequests = await drainAdmissionBatch()
             if !newRequests.isEmpty {
                 // Separate capacity-limited requests from overflow
                 var accepted: [PendingRequest] = []
@@ -722,6 +758,14 @@ actor BatchScheduler {
 
             // --- Batched decode: build graph from lastTokenArray (CPU, ~2.7ms) ---
             let activeB = slots.count
+            if activeB > 1, stepCount == 0 || stepCount % 256 == 0 {
+                let deepseekHybrid = batchCaches.contains {
+                    $0 is BatchDeepseekV4Cache || $0 is DeepseekV4Cache
+                }
+                if deepseekHybrid {
+                    print("[\(batchTs())] [BatchScheduler] DeepSeek V4 hybrid decode: B=\(activeB) row-split attention path")
+                }
+            }
             let tokens: MLXArray
             if activeB == 1 {
                 tokens = slots[0].lastTokenArray.reshaped([1, 1])

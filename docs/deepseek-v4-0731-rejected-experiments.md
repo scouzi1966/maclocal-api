@@ -184,6 +184,15 @@ profiling unless Apple exposes a scriptable shader-profiler export.
 
 - Never benchmark Debug. It has repeatedly produced misleadingly poor and
   irregular throughput.
+- Do not close DeepSeek V4 MLX concurrency regressions solely because the old
+  reshape crash path is gone. A Release live run on 2026-08-11 with four
+  simultaneous `DeepSeek-V4-Flash-0731-AFM-MLX` requests showed the scheduler
+  entering `DeepSeek V4 hybrid decode: B=4 row-split attention path`; per-request
+  decode was still roughly 11-14 tok/s for the concurrent short workload while
+  single-request natural-language decode remained about 27 tok/s. The admission
+  window helps same-burst fairness and makes the behavior visible, but true
+  production parity requires a dense DeepSeek V4 batch cache/attention path,
+  not only scheduler tuning.
 - Do not include model loading in decode throughput. Use one warmed Release
   server and report both server generation time and request wall time.
 - Do not use a counting prompt alone as proof of general DSpARK performance;

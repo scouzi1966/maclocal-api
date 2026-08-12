@@ -134,6 +134,12 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
+    @Test("BatchScheduler admission window is enabled for burst fairness")
+    func defaultAdmissionWindowEnabled() {
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds > 0)
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
+    }
+
     @Test("BatchScheduler supports DeepSeek hybrid cache through its batch container")
     func supportsDeepseekHybridCacheBatching() {
         let cache = DeepseekV4Cache(slidingWindow: 128, compressRatio: 4)
