@@ -228,7 +228,8 @@ struct ConcurrentBatchTests {
             matchedPrefix: 59,
             inputTokenCount: 59,
             hasRecurrentLayers: true,
-            forcedSuffix: nil
+            forcedSuffix: nil,
+            sourceTokenCount: 59
         ) == 0)
         #expect(BatchScheduler.effectiveCachedPrefixLength(
             matchedPrefix: 59,
@@ -254,6 +255,17 @@ struct ConcurrentBatchTests {
             forcedSuffix: nil,
             sourceTokenCount: 60
         ) == 60)
+    }
+
+    @Test("BatchScheduler restores exact DeepSeek prompt-minus-one boundary")
+    func recurrentExactBoundaryRestore() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 58,
+            inputTokenCount: 59,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 58
+        ) == 58)
     }
 
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")

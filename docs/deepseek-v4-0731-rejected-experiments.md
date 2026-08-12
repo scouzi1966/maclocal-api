@@ -184,15 +184,33 @@ profiling unless Apple exposes a scriptable shader-profiler export.
 
 - Never benchmark Debug. It has repeatedly produced misleadingly poor and
   irregular throughput.
-- Do not close DeepSeek V4 MLX concurrency regressions solely because the old
-  reshape crash path is gone. A Release live run on 2026-08-11 with four
-  simultaneous `DeepSeek-V4-Flash-0731-AFM-MLX` requests showed the scheduler
-  entering `DeepSeek V4 hybrid decode: B=4 row-split attention path`; per-request
-  decode was still roughly 11-14 tok/s for the concurrent short workload while
-  single-request natural-language decode remained about 27 tok/s. The admission
-  window helps same-burst fairness and makes the behavior visible, but true
-  production parity requires a dense DeepSeek V4 batch cache/attention path,
-  not only scheduler tuning.
+- The 2026-08-11 DeepSeek V4 concurrency work replaced row-split decode with
+  DwarfStar-style private request cache descriptors plus batched Q/KV,
+  compressor/indexer, attention, and output projections. A controlled Release
+  A/B with four simultaneous requests improved aggregate median throughput from
+  38.40 tok/s to 42.81 tok/s (11.5%). The greedy 128-token parity probe was
+  byte-identical in both modes with SHA-256
+  `fe1fdf5d49caa68c1ef2f8a341413cb2c3826023aef1113c6c289dcd86193b32`.
+  Raw parity responses are under
+  `/Volumes/edata/test-reports/deepseek-cache-batch-ab`. Do not restore the old
+  row-split path as a production default. A subsequent four-request live probe
+  completed uneven 10-, 19-, 256-, and 299-token generations without cache
+  corruption. Terminating a streaming client during generation also left the
+  server healthy and the next request returned the exact `RECOVERED` sentinel.
+  Artifacts are under
+  `/Volumes/edata/test-reports/deepseek-cache-batch-validation-20260811`.
+  Reusable prefix state is now supported by capturing the exact prompt-minus-one
+  recurrent boundary. A repeated 29-token deterministic request restored 28
+  tokens (96.6% reuse), reduced prefill from 0.294 s to 0.051 s, and returned
+  byte-identical output with SHA-256
+  `d8ad0e36d91402c6583faaee184faa66f5f9a82cbcc08fcc78c47c6eb890779e`.
+  The final prompt token is deliberately replayed after restoration to recover
+  the same next-token logits; never trim a longer descendant recurrent state.
+  Artifacts are under
+  `/Volumes/edata/test-reports/deepseek-prefix-live-20260811`. The explicit
+  request-id cancel probe returned 404 when supplied an inbound `X-Request-ID`;
+  investigate the registry/correlation-id contract separately from the
+  validated client-disconnect cancellation path.
 - Do not include model loading in decode throughput. Use one warmed Release
   server and report both server generation time and request wall time.
 - Do not use a counting prompt alone as proof of general DSpARK performance;
