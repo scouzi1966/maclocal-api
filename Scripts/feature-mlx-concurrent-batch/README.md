@@ -81,6 +81,20 @@ python3 validate_mixed_workload.py 1 4          # specific batch sizes
 python3 validate_mixed_workload.py --label "overlap-v2" 1 2 4 8
 ```
 
+For a bounded Release acceptance run, cap generation and assert that the widest
+batch materially improves aggregate throughput without starving short requests:
+
+```bash
+AFM_MIXED_MAX_TOKENS=512 \
+AFM_MIXED_ASSERT=1 \
+AFM_MIXED_MIN_AGGREGATE_SCALE=1.20 \
+AFM_MIXED_MAX_SHORT_TTFT_S=15 \
+python3 validate_mixed_workload.py --label "release-acceptance" 1 8
+```
+
+Aggregate throughput uses total completion tokens divided by complete workload
+wall time. This keeps sequential `B=1` and concurrent results comparable.
+
 ### `validate_multiturn_prefix.py`
 
 Multi-turn prefix cache validation. Simulates concurrent users with shared long system prompts (~350 tok each), 3-turn conversations, and 2 long-decode requests. Measures cached_tokens, pp, tg, TTFT, and prefix cache hit rates.
