@@ -24,6 +24,8 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 
 > [!NOTE]
 > **Stable v0.9.15 is the recommended release.** It includes the AFMKit provider architecture, DeepSeek V4 Flash 0731 and NVIDIA Nemotron 3.5 Lightning support, DwarfStar integration, improved Hugging Face downloads, and the latest runtime and packaging work. Install `afm-next` only to preview changes made after v0.9.15.
+>
+> **The current nightly and v0.9.15 are essentially the same build.** The qualified nightly was promoted to this stable release; the remaining differences are release versioning and distribution packaging, not user-facing functionality. Use the stable release unless a newer nightly explicitly lists post-v0.9.15 changes you need.
 
 |  | Stable (v0.9.15) | Nightly (afm-next) |
 |---|---|---|
