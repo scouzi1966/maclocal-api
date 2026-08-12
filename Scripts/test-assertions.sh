@@ -203,6 +203,9 @@ if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" !=
 
   t0=$(now_ms)
   swift_test_args=(test)
+  if [[ -n "${MACAFM_SWIFT_TEST_CONFIGURATION:-}" ]]; then
+    swift_test_args+=(-c "$MACAFM_SWIFT_TEST_CONFIGURATION")
+  fi
   if [[ -n "${MACAFM_SWIFT_TEST_SCRATCH_PATH:-}" ]]; then
     swift_test_args+=(--scratch-path "$MACAFM_SWIFT_TEST_SCRATCH_PATH")
   fi
@@ -333,6 +336,16 @@ if [ -f "$MODEL/config.json" ]; then
   model_config="$MODEL/config.json"
 elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
   model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
+elif [ -n "${HF_HUB_CACHE:-}" ]; then
+  hf_model_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}/snapshots"
+  if [ -d "$hf_model_dir" ]; then
+    for candidate in "$hf_model_dir"/*/config.json; do
+      if [ -f "$candidate" ]; then
+        model_config="$candidate"
+        break
+      fi
+    done
+  fi
 fi
 if [ -n "$model_config" ]; then
   SAFE_PARTIAL_CACHE_MISS=$(python3 - "$model_config" <<'PY'
@@ -342,7 +355,13 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
     config = json.load(handle)
 
 text_config = config.get("text_config") or {}
-layer_types = text_config.get("layer_types") or config.get("layer_types") or []
+layer_types = (
+    text_config.get("layer_types")
+    or config.get("layer_types")
+    or text_config.get("layers_block_type")
+    or config.get("layers_block_type")
+    or []
+)
 recurrent_markers = ("linear", "mamba", "ssm", "delta", "recurrent")
 has_recurrent_layers = any(
     any(marker in str(layer_type).lower() for marker in recurrent_markers)

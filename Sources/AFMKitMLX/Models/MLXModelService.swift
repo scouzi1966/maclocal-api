@@ -2092,11 +2092,16 @@ public final class MLXModelService: @unchecked Sendable {
             let seqLen = tokens.dim(ndim - 1)
             var generated = ""
             var templateInjectedThink = false
-            if let thinkStart, seqLen >= 2 {
+            if let thinkStart, seqLen > 0 {
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = tokenizer.decode(tokens: lastTwo)
-                if decoded.contains(thinkStart) {
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = tokenizer.decode(tokens: suffix)
+                if Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                ) {
                     generated = thinkStart
                     templateInjectedThink = true
                 }
@@ -2350,11 +2355,16 @@ public final class MLXModelService: @unchecked Sendable {
             let seqLen = tokens.dim(ndim - 1)
             var out = ""
             var templateInjectedThink = false
-            if let thinkStart, seqLen >= 2 {
+            if let thinkStart, seqLen > 0 {
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = context.tokenizer.decode(tokens: lastTwo)
-                if decoded.contains(thinkStart) {
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = context.tokenizer.decode(tokens: suffix)
+                if Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                ) {
                     out = thinkStart
                     templateInjectedThink = true
                 }
@@ -2931,11 +2941,16 @@ public final class MLXModelService: @unchecked Sendable {
                 let tokens = input.text.tokens
                 let ndim = tokens.ndim
                 let seqLen = tokens.dim(ndim - 1)
-                guard seqLen >= 2 else { return false }
+                guard seqLen > 0 else { return false }
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = scheduler.tokenizer.decode(tokens: lastTwo)
-                return decoded.contains(thinkStart)
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = scheduler.tokenizer.decode(tokens: suffix)
+                return Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                )
             }()
 
             let schedulerStream = scheduler.submit(
@@ -3027,8 +3042,13 @@ public final class MLXModelService: @unchecked Sendable {
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
                 var opened = false
-                if let ts = self.thinkStartTag, ids.count >= 2 {
-                    opened = context.tokenizer.decode(tokens: Array(ids.suffix(2))).contains(ts)
+                if let ts = self.thinkStartTag, !ids.isEmpty {
+                    let decoded = context.tokenizer.decode(tokens: Array(ids.suffix(8)))
+                    opened = Self.promptSuffixOpensThink(
+                        decoded,
+                        startTag: ts,
+                        endTag: self.thinkEndTag
+                    )
                 }
                 return (ids, opened)
             }
@@ -3187,11 +3207,16 @@ public final class MLXModelService: @unchecked Sendable {
                         let tokens = input.text.tokens
                         let ndim = tokens.ndim
                         let seqLen = tokens.dim(ndim - 1)
-                        if let thinkStart, seqLen >= 2 {
+                        if let thinkStart, seqLen > 0 {
                             let flat = tokens.reshaped(-1)
-                            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                            let decoded = context.tokenizer.decode(tokens: lastTwo)
-                            if decoded.contains(thinkStart) {
+                            let suffixStart = max(0, seqLen - 8)
+                            let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                            let decoded = context.tokenizer.decode(tokens: suffix)
+                            if Self.promptSuffixOpensThink(
+                                decoded,
+                                startTag: thinkStart,
+                                endTag: self.thinkEndTag
+                            ) {
                                 continuation.yield(StreamChunk(text: thinkStart))
                                 templateInjectedThink = true
                             }
@@ -6976,6 +7001,22 @@ public final class MLXModelService: @unchecked Sendable {
         {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' }}
     {%- endif %}
     """
+
+    static func promptSuffixOpensThink(
+        _ decodedSuffix: String,
+        startTag: String,
+        endTag: String?
+    ) -> Bool {
+        guard let startRange = decodedSuffix.range(of: startTag, options: .backwards) else {
+            return false
+        }
+        guard let endTag,
+              let endRange = decodedSuffix.range(of: endTag, options: .backwards)
+        else {
+            return true
+        }
+        return startRange.lowerBound > endRange.lowerBound
+    }
 
     /// Adapted from vLLM's tool_chat_template_mistral.jinja — Mistral v7 format.
     /// Modifications: wraps tool calls in <tool_call>/<\/tool_call> instead of [TOOL_CALLS],
