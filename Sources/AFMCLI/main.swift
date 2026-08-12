@@ -905,7 +905,13 @@ struct MlxCommand: ParsableCommand {
         let requested = mlxRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard requested != MLXRuntimeBackend.mlx.rawValue else { return model }
         let localPath = localModelPath(model)
-        guard !FileManager.default.fileExists(atPath: localPath), model.contains("/") else {
+        let obviousLocalPrefixes = ["/", "~/", "./", "../"]
+        let looksLocal = obviousLocalPrefixes.contains { model.hasPrefix($0) }
+        let repositoryComponents = model.split(separator: "/", omittingEmptySubsequences: false)
+        let looksLikeRepositoryID = !looksLocal
+            && repositoryComponents.count == 2
+            && repositoryComponents.allSatisfy { !$0.isEmpty }
+        guard !FileManager.default.fileExists(atPath: localPath), looksLikeRepositoryID else {
             if ggufFile != nil {
                 throw ValidationError("--gguf-file requires a Hugging Face repository ID")
             }
