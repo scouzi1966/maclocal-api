@@ -499,9 +499,6 @@ class Gemma4VLAttention: Module {
             keys = keys.transposed(0, 2, 1, 3)
             keys = rope(keys, offset: offset)
 
-            if let cache {
-                (keys, values) = cache.update(keys: keys, values: values)
-            }
         }
 
         if storeFullLengthKV {
@@ -511,11 +508,18 @@ class Gemma4VLAttention: Module {
         queries = queries.transposed(0, 2, 1, 3)
         queries = rope(queries, offset: offset)
 
-        let output = MLXFast.scaledDotProductAttention(
-            queries: queries, keys: keys, values: values,
-            scale: 1.0,  // Gemma4 uses scale=1.0 (scaling is in q/k norms)
-            mask: mask
-        )
+        let output: MLXArray
+        if isKvSharedLayer {
+            output = MLXFast.scaledDotProductAttention(
+                queries: queries, keys: keys, values: values,
+                scale: 1.0,  // Gemma4 uses scale=1.0 (scaling is in q/k norms)
+                mask: mask
+            )
+        } else {
+            output = attentionWithCacheUpdate(
+                queries: queries, keys: keys, values: values,
+                cache: cache, scale: 1.0, mask: mask)
+        }
 
         return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
     }
@@ -1610,6 +1614,9 @@ public class Gemma4VLM: Module, VLMModel, KVCacheDimensionProvider {
         return (0 ..< textConfig.numHiddenLayers).map { i in
             let layerType = textConfig.layerTypes[i]
             if layerType == "full_attention" {
+                if languageModel.model.layers[i].selfAttn.storeFullLengthKV {
+                    return SharedKVCache() as any KVCache
+                }
                 return KVCacheSimple() as any KVCache
             } else {
                 return RotatingKVCache(maxSize: textConfig.slidingWindow, keep: 0) as any KVCache

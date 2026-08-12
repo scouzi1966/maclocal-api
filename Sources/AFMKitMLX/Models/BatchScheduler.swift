@@ -57,6 +57,10 @@ actor BatchScheduler {
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
     private let admissionWindowNanoseconds: UInt64
+    /// Gemma 4 changes SDPA kernels when a later, shorter sequence is left-padded
+    /// into an active batch. Keep each decode cohort fixed so staggered arrivals
+    /// retain the same unmasked attention path as serial generation.
+    private let defersStaggeredAdmissions: Bool
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -534,6 +538,7 @@ actor BatchScheduler {
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
+        self.defersStaggeredAdmissions = model is Gemma4Model
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -750,7 +755,15 @@ actor BatchScheduler {
 
             // Drain nonisolated queue. When idle, wait a bounded admission
             // window so same-burst concurrent requests start together.
-            let newRequests = await drainAdmissionBatch()
+            let newRequests: [PendingRequest]
+            if Self.shouldDeferStaggeredAdmissions(
+                isGemma4: defersStaggeredAdmissions,
+                activeSlotCount: slots.count
+            ) {
+                newRequests = []
+            } else {
+                newRequests = await drainAdmissionBatch()
+            }
             if Task.isCancelled || _isShutdown.withLock({ $0 }) {
                 for req in newRequests {
                     _inFlightCount.withLock { $0 = max(0, $0 - 1) }
@@ -1087,6 +1100,13 @@ actor BatchScheduler {
         let minSuffix = 16
         let effectivePrefix = min(matchedPrefix, max(0, inputTokenCount - minSuffix))
         return effectivePrefix
+    }
+
+    static func shouldDeferStaggeredAdmissions(
+        isGemma4: Bool,
+        activeSlotCount: Int
+    ) -> Bool {
+        isGemma4 && activeSlotCount > 0
     }
 
     /// Probe whether a request must use individual prefill to preserve a reusable

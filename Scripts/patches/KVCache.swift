@@ -413,6 +413,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     /// Set to true when the cache buffer was reallocated (keys/values replaced).
     /// Consumers using compile() should re-capture state when this is set.
     public var didGrow = false
+    public var supportsDynamicQuantization: Bool { true }
 
     public override init() {
         super.init()
@@ -608,6 +609,11 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     public var debugDescription: String {
         "\(String(describing: Self.self)) \(Unmanaged.passUnretained(self).toOpaque()), offset: \(offset), step: \(step), keys: \(keys?.shape.description ?? "-"), values: \(values?.shape.description ?? "-")"
     }
+}
+
+/// A materialized cache whose keys and values are consumed by shared-attention layers.
+public final class SharedKVCache: KVCacheSimple {
+    public override var supportsDynamicQuantization: Bool { false }
 }
 
 /// Rotating KV cache for sliding window attention
@@ -1784,7 +1790,9 @@ public func maybeQuantizeKVCache(
 
     for i in 0 ..< cache.count {
         // Handle cache types that support quantization
-        if let simpleCache = cache[i] as? KVCacheSimple {
+        if let simpleCache = cache[i] as? KVCacheSimple,
+            simpleCache.supportsDynamicQuantization
+        {
             cache[i] = simpleCache.toQuantized(groupSize: kvGroupSize, bits: kvBits)
         }
         // TODO: RotatingKVCache.toQuantized() is not implemented yet, like in Python.

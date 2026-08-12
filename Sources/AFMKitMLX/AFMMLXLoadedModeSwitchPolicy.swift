@@ -45,7 +45,7 @@ public enum AFMMLXModelFactoryPolicy {
         forceVLM: Bool,
         architecture: AFMMLXModelArchitecturePreflight
     ) -> AFMMLXModelFactoryKind {
-        if forceVLM || architecture.isVisionConfiguration || architecture.requiresVisionModelFactory {
+        if forceVLM || architecture.requiresVisionModelFactory {
             return .vlm
         }
         return .llm
