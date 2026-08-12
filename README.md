@@ -23,13 +23,13 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 ## Install
 
 > [!NOTE]
-> **Stable v0.9.14 remains the recommended release.** The v0.9.15-next nightly previews the new AFMKit provider architecture, DeepSeek V4 Flash 0731 support, and the latest runtime and packaging work. Install `afm-next` to test those changes before the next stable release.
+> **Stable v0.9.15 is the recommended release.** It includes the AFMKit provider architecture, DeepSeek V4 Flash 0731 and NVIDIA Nemotron 3.5 Lightning support, DwarfStar integration, improved Hugging Face downloads, and the latest runtime and packaging work. Install `afm-next` only to preview changes made after v0.9.15.
 
-|  | Stable (v0.9.14) | Nightly (afm-next) |
+|  | Stable (v0.9.15) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.14](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.14) | [v0.9.15-next](https://github.com/scouzi1966/maclocal-api/releases/tag/nightly-20260808-e70cc52) |
+| **Release notes** | [v0.9.15](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.15) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
 
 ### Install a previous version
 
