@@ -134,6 +134,12 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
+    @Test("BatchScheduler admission window is enabled for burst fairness")
+    func defaultAdmissionWindowEnabled() {
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds > 0)
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
+    }
+
     @Test("BatchScheduler supports DeepSeek hybrid cache through its batch container")
     func supportsDeepseekHybridCacheBatching() {
         let cache = DeepseekV4Cache(slidingWindow: 128, compressRatio: 4)
@@ -222,7 +228,8 @@ struct ConcurrentBatchTests {
             matchedPrefix: 59,
             inputTokenCount: 59,
             hasRecurrentLayers: true,
-            forcedSuffix: nil
+            forcedSuffix: nil,
+            sourceTokenCount: 59
         ) == 0)
         #expect(BatchScheduler.effectiveCachedPrefixLength(
             matchedPrefix: 59,
@@ -248,6 +255,29 @@ struct ConcurrentBatchTests {
             forcedSuffix: nil,
             sourceTokenCount: 60
         ) == 60)
+    }
+
+    @Test("BatchScheduler restores exact DeepSeek prompt-minus-one boundary")
+    func recurrentExactBoundaryRestore() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 58,
+            inputTokenCount: 59,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 58
+        ) == 58)
+    }
+
+    @Test("BatchScheduler cache snapshot owns independent MLX storage")
+    func cacheSnapshotOwnsIndependentStorage() {
+        let backing = MLXArray([Int32(10), Int32(20), Int32(30), Int32(40)])
+        let snapshot = BatchScheduler.snapshotCacheState([backing])[0]
+        MLX.eval([snapshot])
+
+        backing[..<3] = MLXArray([Int32(90), Int32(91), Int32(92)])
+        MLX.eval([backing])
+
+        #expect(snapshot.asArray(Int32.self) == [10, 20, 30, 40])
     }
 
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")

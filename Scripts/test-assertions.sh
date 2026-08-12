@@ -23,6 +23,7 @@ BIN=".build/release/afm"
 SECTION=""  # empty = run all sections; set to a number to run only that section
 GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --enable-grammar-constraints
 SAFE_PARTIAL_CACHE_MISS=false
+STRICT_TOOL_GRAMMAR_CAPABILITY="${AFM_ASSERTIONS_STRICT_TOOL_GRAMMAR:-auto}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
@@ -203,6 +204,9 @@ if should_run_section U && min_tier unit && [[ "${MACAFM_SWIFT_TEST_SKIP:-0}" !=
 
   t0=$(now_ms)
   swift_test_args=(test)
+  if [[ -n "${MACAFM_SWIFT_TEST_CONFIGURATION:-}" ]]; then
+    swift_test_args+=(-c "$MACAFM_SWIFT_TEST_CONFIGURATION")
+  fi
   if [[ -n "${MACAFM_SWIFT_TEST_SCRATCH_PATH:-}" ]]; then
     swift_test_args+=(--scratch-path "$MACAFM_SWIFT_TEST_SCRATCH_PATH")
   fi
@@ -333,6 +337,16 @@ if [ -f "$MODEL/config.json" ]; then
   model_config="$MODEL/config.json"
 elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
   model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
+elif [ -n "${HF_HUB_CACHE:-}" ]; then
+  hf_repo_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}"
+  hf_main_ref="$hf_repo_dir/refs/main"
+  if [ -f "$hf_main_ref" ]; then
+    hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
+    candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
+    if [ -f "$candidate" ]; then
+      model_config="$candidate"
+    fi
+  fi
 fi
 if [ -n "$model_config" ]; then
   SAFE_PARTIAL_CACHE_MISS=$(python3 - "$model_config" <<'PY'
@@ -342,7 +356,13 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
     config = json.load(handle)
 
 text_config = config.get("text_config") or {}
-layer_types = text_config.get("layer_types") or config.get("layer_types") or []
+layer_types = (
+    text_config.get("layer_types")
+    or config.get("layer_types")
+    or text_config.get("layers_block_type")
+    or config.get("layers_block_type")
+    or []
+)
 recurrent_markers = ("linear", "mamba", "ssm", "delta", "recurrent")
 has_recurrent_layers = any(
     any(marker in str(layer_type).lower() for marker in recurrent_markers)
@@ -359,6 +379,21 @@ has_recurrent_layers = has_recurrent_layers or any(
 print("true" if has_recurrent_layers else "false")
 PY
   )
+  if [ "$STRICT_TOOL_GRAMMAR_CAPABILITY" = "auto" ]; then
+    STRICT_TOOL_GRAMMAR_CAPABILITY=$(python3 - "$model_config" <<'PY'
+import json, sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    config = json.load(handle)
+
+text_config = config.get("text_config") or {}
+model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
+# DeepSeek V4 uses its native DSML parser. It supports tool calls, but the
+# xgrammar strict-tool backend currently supports only XML parser families.
+print("false" if model_type in {"deepseek_v4", "deepseekv4"} else "true")
+PY
+    )
+  fi
 fi
 if [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ]; then
   echo "  Cache policy: recurrent hybrid; safe cold fallback is valid"
@@ -3693,21 +3728,25 @@ if should_run_section 14; then
   # the response should include X-Grammar-Constraints: downgraded.
   # When server DOES have --enable-grammar-constraints, the header should be absent.
   t0=$(now_ms)
-  header_resp=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
-  dur=$(( $(now_ms) - t0 ))
-  if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+  if [ "$STRICT_TOOL_GRAMMAR_CAPABILITY" = "false" ]; then
+    run_test "StrictWiring" "Strict tool grammar header (unsupported parser)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
+  else
+    header_resp=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
     # Grammar enabled: header should be ABSENT
     if echo "$header_resp" | grep -qi 'X-Grammar-Constraints'; then
       run_test "StrictWiring" "Header absent when grammar enabled (tool strict:true)" "no header" "FAIL: header present" "$dur"
     else
       run_test "StrictWiring" "Header absent when grammar enabled (tool strict:true)" "no header" "PASS" "$dur"
     fi
-  else
+    else
     # Grammar not enabled: header should be "downgraded"
     if echo "$header_resp" | grep -qi 'X-Grammar-Constraints: downgraded'; then
       run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (tool strict:true)" "downgraded" "PASS" "$dur"
     else
       run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (tool strict:true)" "downgraded" "FAIL: header missing" "$dur"
+    fi
     fi
   fi
 

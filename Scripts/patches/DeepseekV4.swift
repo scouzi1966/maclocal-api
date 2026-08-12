@@ -138,6 +138,10 @@ private enum DeepseekV4RuntimeOptions {
         return kernels == "native"
             && enabled("VMLX_DSV4_DSPARK_HEAD_GEMV", default: true)
     }
+
+    static var dwarfStarCacheBatchingEnabled: Bool {
+        enabled("VMLX_DSV4_DWARFSTAR_CACHE_BATCH", default: true)
+    }
 }
 
 private enum DeepseekV4NumericTrace {
@@ -528,11 +532,11 @@ class DeepseekV4Attention: Module {
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
-        if let batchCache = cache as? BatchDeepseekV4Cache {
-            precondition(
-                batchCache.count == x.dim(0),
-                "DeepSeek V4 batch cache count must match the hidden-state batch")
-            let rows = (0..<batchCache.count).map { index -> MLXArray in
+        if let batchCache = cache as? BatchDeepseekV4Cache,
+            !DeepseekV4RuntimeOptions.dwarfStarCacheBatchingEnabled
+        {
+            precondition(batchCache.count == x.dim(0))
+            return concatenated((0..<batchCache.count).map { index in
                 let row = x[index ..< index + 1]
                 let rowCache = batchCache.cache(at: index)
                 let rowMask = createAttentionMask(
@@ -540,8 +544,60 @@ class DeepseekV4Attention: Module {
                     cache: rowCache,
                     returnArray: row.dim(1) > 1 && rowCache.offset > 0)
                 return callAsFunction(row, mask: rowMask, cache: rowCache)
+            }, axis: 0)
+        }
+        if let batchCache = cache as? BatchDeepseekV4Cache,
+            DeepseekV4RuntimeOptions.dwarfStarCacheBatchingEnabled
+        {
+            precondition(
+                batchCache.count == x.dim(0),
+                "DeepSeek V4 batch cache count must match the hidden-state batch")
+            precondition(
+                x.dim(1) == 1,
+                "DeepSeek V4 cache batching supports decode-only single-token rows")
+            // DwarfStar keeps one mutable cache timeline per request, but
+            // executes the model projections for all decode-ready sessions as
+            // one GPU batch. Mirror that split here: Q/KV projections and head
+            // normalization are cache-independent, so build them once for B
+            // rows. Only RoPE, compressor/indexer state, cache update, and
+            // attention remain request-specific below.
+            let projected = projectUnrotatedBatch(x)
+            let compressorProjected = compressor?.project(x)
+            let indexerCompressorProjected = indexer?.compressor.project(x)
+            var descriptors: [DeepseekV4DecodeDescriptor] = []
+            descriptors.reserveCapacity(batchCache.count)
+            for index in 0..<batchCache.count {
+                let row = x[index ..< index + 1]
+                let rowCache = batchCache.cache(at: index)
+                let offset = rowCache.offset
+                let (cosT, sinT) = rope.cosSin(offset: offset, length: row.dim(1))
+                let cosExpanded = cosT.expandedDimensions(axes: [0, 1])
+                let sinExpanded = sinT.expandedDimensions(axes: [0, 1])
+                let q = DeepseekV4Math.applyPartialRoPE(
+                    projected.q[index ..< index + 1],
+                    cos: cosExpanded, sin: sinExpanded, ropeDim: ropeDim)
+                var kv = DeepseekV4Math.applyPartialRoPE(
+                    projected.kv[index ..< index + 1],
+                    cos: cosExpanded, sin: sinExpanded, ropeDim: ropeDim)
+                let nopeDim = headDim - ropeDim
+                if config.activationQATEnabled && nopeDim >= 64 {
+                    kv = DeepseekV4Math.e4m3KVActivationRoundTrip(kv, ropeDim: ropeDim)
+                }
+                descriptors.append(prepareDecodeDescriptor(
+                    x: row,
+                    q: q,
+                    kv: kv,
+                    qResidual: projected.qResidual[index ..< index + 1],
+                    compressorKV: compressorProjected?.kv[index ..< index + 1],
+                    compressorGate: compressorProjected?.gate[index ..< index + 1],
+                    indexerCompressorKV: indexerCompressorProjected?.kv[index ..< index + 1],
+                    indexerCompressorGate: indexerCompressorProjected?.gate[index ..< index + 1],
+                    cosT: cosT,
+                    sinT: sinT,
+                    cache: rowCache,
+                    offset: offset))
             }
-            return concatenated(rows, axis: 0)
+            return attendDecodeBatch(descriptors)
         }
 
         let B = x.dim(0)
@@ -646,6 +702,209 @@ class DeepseekV4Attention: Module {
             mask: mask,
             cache: cache,
             offset: offset)
+    }
+
+    private func projectUnrotatedBatch(
+        _ x: MLXArray
+    ) -> (q: MLXArray, kv: MLXArray, qResidual: MLXArray) {
+        let batch = x.dim(0)
+        let length = x.dim(1)
+        let qResidual = qNorm(wqA(x))
+        var q = wqB(qResidual).reshaped(batch, length, numHeads, headDim)
+        let qDType = q.dtype
+        let qFloat = q.asType(.float32)
+        q = (qFloat * rsqrt(
+            (qFloat * qFloat).mean(axis: -1, keepDims: true)
+                + config.rmsNormEps)).asType(qDType)
+        q = q.transposed(0, 2, 1, 3)
+
+        let kv = kvNorm(wkv(x))
+            .reshaped(batch, length, 1, headDim)
+            .transposed(0, 2, 1, 3)
+        return (q, kv, qResidual)
+    }
+
+    /// The MLX equivalent of a DwarfStar decode-session descriptor. Mutable
+    /// cache state stays owned by the request; only its ready attention view
+    /// is gathered into the current GPU execution epoch.
+    private struct DeepseekV4DecodeDescriptor {
+        let q: MLXArray
+        let fullKV: MLXArray
+        let cos: MLXArray
+        let sin: MLXArray
+    }
+
+    private func prepareDecodeDescriptor(
+        x: MLXArray,
+        q: MLXArray,
+        kv: MLXArray,
+        qResidual: MLXArray,
+        compressorKV: MLXArray?,
+        compressorGate: MLXArray?,
+        indexerCompressorKV: MLXArray?,
+        indexerCompressorGate: MLXArray?,
+        cosT: MLXArray,
+        sinT: MLXArray,
+        cache: DeepseekV4Cache,
+        offset: Int
+    ) -> DeepseekV4DecodeDescriptor {
+        precondition(x.dim(0) == 1 && x.dim(1) == 1)
+        var (fullKV, _) = cache.update(keys: kv, values: kv)
+
+        if compressRatio > 0, let comp = compressor {
+            let fallbackProjection = (compressorKV == nil || compressorGate == nil)
+                ? comp.project(x) : nil
+            let projectedKV = compressorKV ?? fallbackProjection!.kv
+            let projectedGate = compressorGate ?? fallbackProjection!.gate
+            var pooled = comp.updateProjected(
+                kv: projectedKV,
+                gate: projectedGate,
+                inputDType: x.dtype,
+                rope: rope,
+                v4Cache: cache,
+                startPos: offset)
+            let pooledCount = pooled.dim(1)
+            var topK: MLXArray? = nil
+            if compressRatio == 4, let idx = indexer {
+                if let indexerCompressorKV, let indexerCompressorGate {
+                    topK = idx.callAsFunctionProjected(
+                        x, qResidual: qResidual,
+                        compressorKV: indexerCompressorKV,
+                        compressorGate: indexerCompressorGate,
+                        rope: rope, positionRope: rope,
+                        v4Cache: cache, startPos: offset)
+                } else {
+                    topK = idx(
+                        x, qResidual: qResidual, rope: rope,
+                        positionRope: rope, v4Cache: cache, startPos: offset)
+                }
+            }
+            if pooledCount > 0 {
+                if let topK {
+                    let selectedCount = topK.dim(-1)
+                    let expanded = pooled.expandedDimensions(axes: [1, 2])
+                    let pooledBroad = broadcast(
+                        expanded, to: [1, 1, 1, pooledCount, headDim])
+                    let indexBroad = broadcast(
+                        topK.expandedDimensions(axes: [1, 4]),
+                        to: [1, 1, 1, selectedCount, headDim])
+                    pooled = takeAlong(pooledBroad, indexBroad, axis: 3)
+                        .reshaped(1, 1, selectedCount, headDim)
+                } else {
+                    pooled = pooled.expandedDimensions(axis: 1)
+                }
+                if pooled.dim(2) > 0 {
+                    fullKV = concatenated([fullKV, pooled], axis: 2)
+                }
+            }
+        }
+
+        return DeepseekV4DecodeDescriptor(
+            q: q, fullKV: fullKV, cos: cosT, sin: sinT)
+    }
+
+    private func attendDecodeBatch(
+        _ descriptors: [DeepseekV4DecodeDescriptor]
+    ) -> MLXArray {
+        precondition(!descriptors.isEmpty)
+        let maximumKeyCount = descriptors.map { $0.fullKV.dim(2) }.max() ?? 0
+        var keyRows: [MLXArray] = []
+        var maskRows: [MLXArray] = []
+        keyRows.reserveCapacity(descriptors.count)
+        maskRows.reserveCapacity(descriptors.count)
+
+        for descriptor in descriptors {
+            let keyCount = descriptor.fullKV.dim(2)
+            let padding = maximumKeyCount - keyCount
+            if padding > 0 {
+                let zeroPadding = MLXArray.zeros(
+                    [1, 1, padding, headDim], dtype: descriptor.fullKV.dtype)
+                keyRows.append(concatenated([zeroPadding, descriptor.fullKV], axis: 2))
+                maskRows.append(concatenated([
+                    MLXArray.zeros([1, 1, 1, padding], dtype: .bool),
+                    MLXArray.ones([1, 1, 1, keyCount], dtype: .bool),
+                ], axis: -1))
+            } else {
+                keyRows.append(descriptor.fullKV)
+                maskRows.append(MLXArray.ones(
+                    [1, 1, 1, keyCount], dtype: .bool))
+            }
+        }
+
+        let output = MLXFast.scaledDotProductAttention(
+            queries: concatenated(descriptors.map(\.q), axis: 0),
+            keys: concatenated(keyRows, axis: 0),
+            values: concatenated(keyRows, axis: 0),
+            scale: scale,
+            mask: .array(concatenated(maskRows, axis: 0)),
+            sinks: config.useAttnSink
+                ? attnSink.asType(descriptors[0].q.dtype) : nil)
+
+        // RoPE offsets remain session-specific. The inverse transform is
+        // lightweight; the expensive grouped wo_a/wo_b projection below is
+        // executed once for the complete batch.
+        let derotated = concatenated(descriptors.indices.map { index in
+            DeepseekV4Math.applyPartialRoPE(
+                output[index ..< index + 1],
+                cos: descriptors[index].cos.expandedDimensions(axes: [0, 1]),
+                sin: descriptors[index].sin.expandedDimensions(axes: [0, 1]),
+                ropeDim: ropeDim,
+                inverse: true)
+        }, axis: 0)
+        return projectDerotatedAttentionOutput(derotated)
+    }
+
+    private func projectDerotatedAttentionOutput(_ derotated: MLXArray) -> MLXArray {
+        let batch = derotated.dim(0)
+        let length = derotated.dim(2)
+        let groupFeatures = (numHeads * headDim) / oGroups
+        var grouped = derotated.transposed(0, 2, 1, 3)
+            .reshaped(batch, length, oGroups, groupFeatures)
+
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? DeepseekV4QuantizedLinear,
+            quantized.usesSymmetricQ8Storage || quantized.usesQ80Storage
+        {
+            let projectedA = quantized.symmetricQ8Grouped(
+                grouped, outputGroups: oGroups)
+                .reshaped(batch, length, oGroups * oLoraRank)
+            return woB(projectedA)
+        }
+
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? QuantizedLinear,
+            quantized.mode == .mxfp8,
+            quantized.groupSize == 32,
+            quantized.bits == 8,
+            quantized.biases == nil
+        {
+            if Self.quantizedGroupedWoAActivationQAT {
+                grouped = DeepseekV4ActivationQuant.e4m3RoundTripIfNeeded(
+                    grouped, mode: .mxfp8)
+            }
+            let packedWeight = quantized.weight.reshaped(
+                oGroups, oLoraRank, quantized.weight.dim(-1))
+            let groupedScales = quantized.scales.reshaped(
+                oGroups, oLoraRank, quantized.scales.dim(-1))
+            let projectedA = quantizedMM(
+                grouped.expandedDimensions(axis: -2),
+                packedWeight,
+                scales: groupedScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 32,
+                bits: 8,
+                mode: .mxfp8
+            ).squeezed(axis: -2)
+                .reshaped(batch, length, oGroups * oLoraRank)
+            return woB(projectedA)
+        }
+
+        let projectedA = einsum(
+            "bsgd,grd->bsgr", grouped,
+            groupedOutputWeight(dtype: derotated.dtype))
+            .reshaped(batch, length, oGroups * oLoraRank)
+        return woB(projectedA)
     }
 
     private func attend(

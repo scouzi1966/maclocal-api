@@ -5046,7 +5046,7 @@ public final class MLXModelService: @unchecked Sendable {
                 patterns.contains { fnmatch($0, entry.path, 0) == 0 }
             }
             if let revision, !manifest.isEmpty {
-                print("Hugging Face transport: automatic (Xet for large files, LFS fallback)")
+                print("Hugging Face transport: explicit (small=LFS, large=Xet-first with LFS fallback)")
                 try await downloadManifest(
                     manifest,
                     repoID: repoID,
@@ -5117,6 +5117,7 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 group.addTask {
                     do {
+                        files[index].setTransport("lfs")
                         try FileManager.default.createDirectory(
                             at: files[index].destination!.deletingLastPathComponent(),
                             withIntermediateDirectories: true)
@@ -5149,20 +5150,40 @@ public final class MLXModelService: @unchecked Sendable {
             for try await _ in group {}
         }
 
-        // Match the official snapshot policy: large Xet files are processed
-        // sequentially while each Xet transfer uses its own parallel CAS fetches.
+        // Large files are processed sequentially while each Xet transfer uses
+        // its own parallel CAS fetches. Try Xet explicitly so logs/progress can
+        // report the transport that actually succeeded; fall back to LFS only
+        // when Xet is unavailable for that file/environment.
         for (index, entry) in xetEntries {
             do {
                 try FileManager.default.createDirectory(
                     at: files[index].destination!.deletingLastPathComponent(),
                     withIntermediateDirectories: true)
-                _ = try await client.downloadFile(
-                    entry,
-                    from: repoID,
-                    to: files[index].destination,
-                    revision: revision,
-                    progress: files[index].progress,
-                    transport: .automatic)
+                do {
+                    files[index].setTransport("xet")
+                    print("Hugging Face transport selected: xet file=\(entry.path)")
+                    _ = try await client.downloadFile(
+                        entry,
+                        from: repoID,
+                        to: files[index].destination,
+                        revision: revision,
+                        progress: files[index].progress,
+                        transport: .xet)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    files[index].setTransport("xet-fallback-lfs")
+                    print("Hugging Face transport fallback: xet failed for \(entry.path): \(error.localizedDescription); retrying with lfs")
+                    try? FileManager.default.removeItem(at: files[index].destination!)
+                    _ = try await client.downloadFile(
+                        entry,
+                        from: repoID,
+                        to: files[index].destination,
+                        revision: revision,
+                        progress: files[index].progress,
+                        transport: .lfs)
+                }
                 try await cache.storeFile(
                     at: files[index].destination!,
                     repo: repoID,
@@ -5176,6 +5197,8 @@ public final class MLXModelService: @unchecked Sendable {
                     ref: "main")
                 files[index].progress.totalUnitCount = files[index].expectedBytes
                 files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
             }

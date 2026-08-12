@@ -907,12 +907,43 @@ public final class DeepseekV4Compressor: Module {
         startPos: Int,
         branch: DeepseekV4Cache.BranchKey = .compressor
     ) -> MLXArray {
-        let B = x.dim(0)
+        let projected = project(x)
+        return updateProjected(
+            kv: projected.kv,
+            gate: projected.gate,
+            inputDType: x.dtype,
+            rope: rope,
+            v4Cache: v4Cache,
+            startPos: startPos,
+            branch: branch)
+    }
+
+    /// Cache-independent compressor projections. Batch decode calls execute
+    /// these two linears once for all ready sessions, then feed each row into
+    /// its private cache timeline with `updateProjected`.
+    func project(_ x: MLXArray) -> (kv: MLXArray, gate: MLXArray) {
         // Official 0731 stages the compressor projections and pooling state
         // in fp32. This must happen before the linears, not merely after them.
         let projectionInput = x.asType(.float32)
-        var kv = wkv(projectionInput)
-        var gate = wgate(projectionInput)
+        return (wkv(projectionInput), wgate(projectionInput))
+    }
+
+    /// Advances one request's compressor state from already-projected rows.
+    /// The tensors must retain a batch dimension of one because pool windows,
+    /// offsets, and incomplete tails are deliberately request-owned.
+    func updateProjected(
+        kv projectedKV: MLXArray,
+        gate projectedGate: MLXArray,
+        inputDType: DType,
+        rope: DeepseekV4RoPE,
+        v4Cache: DeepseekV4Cache?,
+        startPos: Int,
+        branch: DeepseekV4Cache.BranchKey = .compressor
+    ) -> MLXArray {
+        precondition(projectedKV.dim(0) == 1 && projectedGate.dim(0) == 1)
+        let B = projectedKV.dim(0)
+        var kv = projectedKV
+        var gate = projectedGate
 
         var poolBase = startPos
         let alreadyWindowed: Bool
@@ -956,7 +987,7 @@ public final class DeepseekV4Compressor: Module {
         }
 
         if kv.dim(1) == 0 {
-            let empty = MLXArray.zeros([B, 0, headDim], dtype: x.dtype)
+            let empty = MLXArray.zeros([B, 0, headDim], dtype: inputDType)
             if let cache = v4Cache {
                 return cache.getPooled(branch) ?? empty
             }
@@ -989,7 +1020,7 @@ public final class DeepseekV4Compressor: Module {
             softmax(gateWin.asType(.float32), axis: 2, precise: true).asType(
                 kvWin.dtype)
         var pooled = (kvWin * weights).sum(axis: 2)
-        pooled = norm(pooled.asType(x.dtype))
+        pooled = norm(pooled.asType(inputDType))
 
         // Apply RoPE at the chunk centers (position = chunk_idx * ratio
         // + pool_base).
@@ -1241,9 +1272,33 @@ public final class DeepseekV4Indexer: Module {
         v4Cache: DeepseekV4Cache?,
         startPos: Int
     ) -> MLXArray? {
-        let pooled = compressor(
-            x, rope: rope, v4Cache: v4Cache,
-            startPos: startPos, branch: .indexer)
+        let projected = compressor.project(x)
+        return callAsFunctionProjected(
+            x, qResidual: qResidual,
+            compressorKV: projected.kv,
+            compressorGate: projected.gate,
+            rope: rope, positionRope: positionRope,
+            v4Cache: v4Cache, startPos: startPos)
+    }
+
+    func callAsFunctionProjected(
+        _ x: MLXArray,
+        qResidual: MLXArray,
+        compressorKV: MLXArray,
+        compressorGate: MLXArray,
+        rope: DeepseekV4RoPE,
+        positionRope: DeepseekV4RoPE,
+        v4Cache: DeepseekV4Cache?,
+        startPos: Int
+    ) -> MLXArray? {
+        let pooled = compressor.updateProjected(
+            kv: compressorKV,
+            gate: compressorGate,
+            inputDType: x.dtype,
+            rope: rope,
+            v4Cache: v4Cache,
+            startPos: startPos,
+            branch: .indexer)
         let pooledLen = pooled.dim(1)
         if pooledLen == 0 { return nil }
 
