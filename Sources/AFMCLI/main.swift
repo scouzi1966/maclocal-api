@@ -231,6 +231,7 @@ struct MlxCommand: ParsableCommand {
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
+          --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --mtp: Enable MTP self-speculative decoding for compatible Qwen3.6 models
           --mtp-depth: MTP draft depth compatibility setting
@@ -254,7 +255,7 @@ struct MlxCommand: ParsableCommand {
           --openclaw-config: Print OpenClaw provider config JSON and exit
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
-        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, openclaw-integration]
+        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, huggingface-gguf-resolution, openclaw-integration]
         api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
         extra_request_fields:
           top_k: int (not in OpenAI spec)
@@ -407,6 +408,8 @@ struct MlxCommand: ParsableCommand {
     var mlxKernels: String = "native"
     @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects vanilla DwarfStar for compatible DeepSeek V4 GGUF metadata; directory checkpoints use MLX.")
     var mlxRuntime: String = "auto"
+    @Option(name: .customLong("gguf-file"), help: "Exact GGUF path inside a Hugging Face repository. By default AFM selects the largest model GGUF that fits memory and excludes speculative support files.")
+    var ggufFile: String?
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -645,13 +648,14 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        let runtimeBackend = try resolveRuntimeBackend(model: rawModel)
+        let resolvedModel = try resolveRemoteDwarfStarModelIfNeeded(rawModel)
+        let runtimeBackend = try resolveRuntimeBackend(model: resolvedModel)
         if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
             throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
         }
         if runtimeBackend == .dwarfstar {
             try runDwarfStar(
-                checkpointPath: localModelPath(rawModel),
+                checkpointPath: localModelPath(resolvedModel),
                 modelStore: modelStore,
                 chatTemplateKwargs: parsedKwargs,
                 forceDisableThinking: noThink,
@@ -686,7 +690,7 @@ struct MlxCommand: ParsableCommand {
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
         let runtime = AFMMLXRuntime(
-            modelID: rawModel,
+            modelID: resolvedModel,
             configuration: runtimeConfiguration,
             resolver: resolver
         )
@@ -895,6 +899,57 @@ struct MlxCommand: ParsableCommand {
             print("[Runtime] Selected DwarfStar for compatible raw GGUF.")
         }
         return .dwarfstar
+    }
+
+    private func resolveRemoteDwarfStarModelIfNeeded(_ model: String) throws -> String {
+        let requested = mlxRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard requested != MLXRuntimeBackend.mlx.rawValue else { return model }
+        let localPath = localModelPath(model)
+        let obviousLocalPrefixes = ["/", "~/", "./", "../"]
+        let looksLocal = obviousLocalPrefixes.contains { model.hasPrefix($0) }
+        let repositoryComponents = model.split(separator: "/", omittingEmptySubsequences: false)
+        let looksLikeRepositoryID = !looksLocal
+            && repositoryComponents.count == 2
+            && repositoryComponents.allSatisfy { !$0.isEmpty }
+        guard !FileManager.default.fileExists(atPath: localPath), looksLikeRepositoryID else {
+            if ggufFile != nil {
+                throw ValidationError("--gguf-file requires a Hugging Face repository ID")
+            }
+            return model
+        }
+
+        let group = DispatchGroup()
+        let result = SendableBox<Result<URL, Error>?>(nil)
+        group.enter()
+        Task.detached {
+            do {
+                let resolver = AFMDwarfStarHubResolver()
+                result.value = .success(try await resolver.resolve(
+                    repositoryID: model,
+                    requestedPath: ggufFile))
+            } catch {
+                result.value = .failure(error)
+            }
+            group.leave()
+        }
+        group.wait()
+
+        switch result.value {
+        case .success(let url):
+            print("[Runtime] Hugging Face GGUF resolved: \(model) -> \(url.lastPathComponent)")
+            return url.path
+        case .failure(let error as AFMDwarfStarHubSelectionError):
+            if requested == MLXRuntimeBackend.auto.rawValue,
+               case .noModelGGUF = error,
+               ggufFile == nil {
+                return model
+            }
+            throw error
+        case .failure(let error):
+            throw error
+        case .none:
+            throw ValidationError("Hugging Face GGUF resolution ended without a result")
+        }
     }
 
     private func localModelPath(_ model: String) -> String {

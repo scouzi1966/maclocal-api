@@ -15,6 +15,21 @@ The DwarfStar runtime accepts a local native GGUF file whose
 selects DwarfStar for that file without relying on its filename. Directory-based
 MLX or AFM safetensor checkpoints remain on the MLX runtime.
 
+AFM also accepts a Hugging Face repository ID directly. AFMKit lists the
+repository GGUF artifacts, excludes DSpark/speculator support files from target
+model selection, downloads only the selected model, and then performs the same
+metadata-based runtime detection:
+
+```bash
+afm mlx -m scouzi1966/DeepSeek-V4-Flash-0731-DwarfStar-GGUF -w
+```
+
+When a repository contains multiple target checkpoints, AFM selects the largest
+one that fits within 80% of physical memory. Use `--gguf-file <repo/path.gguf>`
+to make the selection explicit. The existing Hugging Face cache environment
+variables (`HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `HF_HOME`) control the
+download location.
+
 AFM does not project safetensor shards into DwarfStar's address space. Supporting
 that representation would require changing DwarfStar's loader internals and is
 outside the dependency boundary. Convert or obtain a DwarfStar-compatible GGUF
