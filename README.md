@@ -93,7 +93,7 @@ afm -w
 |---|---|---|
 | **MLX** | Open models, VLMs, agent controls, performance tuning | `afm mlx -m <model>` |
 | **Apple Foundation Models** | Zero-download system model and `.fmadapter` LoRA adapters | `afm` |
-| **DwarfStar** | Compatible fixed-schedule Metal checkpoints | `afm mlx -m <checkpoint> --mlx-runtime dwarfstar` |
+| **DwarfStar** | Compatible fixed-schedule Metal checkpoints | `afm mlx -m <owner/repo>` (auto-resolved) or `afm mlx -m <checkpoint.gguf> --mlx-runtime dwarfstar` |
 | **Gateway** | One model list for Ollama, LM Studio, Jan, and other local servers | `afm --gateway` |
 
 Model IDs without an organization default to `mlx-community`, so `Qwen3-0.6B-4bit` and `mlx-community/Qwen3-0.6B-4bit` both work.

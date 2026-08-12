@@ -164,7 +164,8 @@ let package = Package(
             name: "AFMKitDwarfStar",
             dependencies: [
                 "AFMKitCore",
-                "CDwarfStar"
+                "CDwarfStar",
+                .product(name: "HuggingFace", package: "swift-huggingface")
             ],
             resources: [
                 // DS4 compiles these include-style fragments at runtime. Keep the
