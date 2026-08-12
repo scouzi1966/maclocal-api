@@ -227,6 +227,13 @@ actor BatchScheduler {
             || (cache as? RotatingKVCache)?.isBatchable == true
     }
 
+    /// Copy cache tensors into independent MLX storage before retaining them
+    /// beyond the current decode step. Views and already-contiguous arrays may
+    /// otherwise alias mutable rotating-cache buffers.
+    nonisolated static func snapshotCacheState(_ state: [MLXArray]) -> [MLXArray] {
+        state.map { $0 * 1 }
+    }
+
     private func unsafeExactReplaySuffix() -> Int? {
         let env = ProcessInfo.processInfo.environment
         guard let rawValue = env["AFM_PREFIX_CACHE_ALLOW_UNSAFE_EXACT_REPLAY"]?
@@ -631,7 +638,13 @@ actor BatchScheduler {
             return requests
         }
 
-        try? await Task.sleep(nanoseconds: admissionWindowNanoseconds)
+        do {
+            try await Task.sleep(nanoseconds: admissionWindowNanoseconds)
+        } catch {
+            // The generation loop is cancelled by shutdown. Return the locally
+            // held requests so the loop can reject them before any GPU work.
+            return requests
+        }
         let remainingCapacity = max(0, maxConcurrent - requests.count)
         if remainingCapacity > 0 {
             requests.append(contentsOf: drainPendingQueue(limit: remainingCapacity))
@@ -711,6 +724,20 @@ actor BatchScheduler {
             // Drain nonisolated queue. When idle, wait a bounded admission
             // window so same-burst concurrent requests start together.
             let newRequests = await drainAdmissionBatch()
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) {
+                for req in newRequests {
+                    _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                    req.continuation.finish(
+                        throwing: MLXServiceError.serviceShuttingDown)
+                    StatsAggregator.shared.requestSucceeded(reason: "abort")
+                    StatsAggregator.shared.requestCompleted()
+                }
+                if !slots.isEmpty {
+                    // Drain in-flight GPU work before shutdown tears down cache.
+                    Stream.gpu.synchronize()
+                }
+                return
+            }
             if !newRequests.isEmpty {
                 // Separate capacity-limited requests from overflow
                 var accepted: [PendingRequest] = []
@@ -1167,7 +1194,11 @@ actor BatchScheduler {
                 recurrentState = model(leading, cache: cache, state: nil).state
             }
             let states = cache.map { layerCache in
-                layerCache.state.map { MLX.contiguous($0) }
+                // `contiguous` may return the original storage when the source
+                // is already contiguous. Rotating caches mutate that storage in
+                // place, so force an independent allocation for the retained
+                // prompt-minus-one snapshot.
+                Self.snapshotCacheState(layerCache.state)
             }
             MLX.eval(states.flatMap { $0 })
             prefixCacheTokens = Array(inputTokens.dropLast())

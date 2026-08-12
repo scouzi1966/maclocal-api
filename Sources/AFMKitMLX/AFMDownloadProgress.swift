@@ -46,10 +46,8 @@ public enum AFMDownloadProgressUserInfo {
         guard !files.isEmpty else { return }
         var completed = 0
         var completedBytes: Int64 = 0
-        var active: [String] = []
-        var activeTransports: [String] = []
-        var firstPending: String?
-        var firstPendingTransport: String?
+        var activePairs: [(path: String, transport: String)] = []
+        var firstPendingPair: (path: String, transport: String)?
         for file in files {
             let path = file.path
             let child = file.progress
@@ -64,21 +62,20 @@ public enum AFMDownloadProgressUserInfo {
                child.completedUnitCount >= child.totalUnitCount {
                 completed += 1
             } else {
-                if firstPending == nil {
-                    firstPending = path
-                    firstPendingTransport = transport
+                if firstPendingPair == nil {
+                    firstPendingPair = (path, transport)
                 }
                 if child.completedUnitCount > 0 {
-                    active.append(path)
-                    activeTransports.append(transport)
+                    activePairs.append((path, transport))
                 }
             }
             completedBytes += min(child.completedUnitCount, file.expectedBytes)
         }
-        if active.isEmpty, let firstPending {
-            active = [firstPending]
-            activeTransports = [firstPendingTransport ?? "pending"]
+        if activePairs.isEmpty, let firstPendingPair {
+            activePairs = [firstPendingPair]
         }
+        let active = activePairs.map(\.path)
+        let activeTransports = activePairs.map(\.transport)
         progress.completedUnitCount = min(completedBytes, progress.totalUnitCount)
         progress.setUserInfoObject(active, forKey: currentFiles)
         progress.setUserInfoObject(activeTransports, forKey: currentTransports)

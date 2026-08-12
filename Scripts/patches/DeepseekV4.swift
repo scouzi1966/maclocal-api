@@ -552,6 +552,9 @@ class DeepseekV4Attention: Module {
             precondition(
                 batchCache.count == x.dim(0),
                 "DeepSeek V4 batch cache count must match the hidden-state batch")
+            precondition(
+                x.dim(1) == 1,
+                "DeepSeek V4 cache batching supports decode-only single-token rows")
             // DwarfStar keeps one mutable cache timeline per request, but
             // executes the model projections for all decode-ready sessions as
             // one GPU batch. Mirror that split here: Q/KV projections and head
@@ -858,7 +861,8 @@ class DeepseekV4Attention: Module {
         var grouped = derotated.transposed(0, 2, 1, 3)
             .reshaped(batch, length, oGroups, groupFeatures)
 
-        if let quantized = woA as? DeepseekV4QuantizedLinear,
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? DeepseekV4QuantizedLinear,
             quantized.usesSymmetricQ8Storage || quantized.usesQ80Storage
         {
             let projectedA = quantized.symmetricQ8Grouped(
@@ -867,7 +871,8 @@ class DeepseekV4Attention: Module {
             return woB(projectedA)
         }
 
-        if let quantized = woA as? QuantizedLinear,
+        if Self.quantizedGroupedWoA,
+            let quantized = woA as? QuantizedLinear,
             quantized.mode == .mxfp8,
             quantized.groupSize == 32,
             quantized.bits == 8,

@@ -5169,7 +5169,10 @@ public final class MLXModelService: @unchecked Sendable {
                         revision: revision,
                         progress: files[index].progress,
                         transport: .xet)
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
+                    guard !Task.isCancelled else { throw CancellationError() }
                     files[index].setTransport("xet-fallback-lfs")
                     print("Hugging Face transport fallback: xet failed for \(entry.path): \(error.localizedDescription); retrying with lfs")
                     try? FileManager.default.removeItem(at: files[index].destination!)
@@ -5194,6 +5197,8 @@ public final class MLXModelService: @unchecked Sendable {
                     ref: "main")
                 files[index].progress.totalUnitCount = files[index].expectedBytes
                 files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
             }

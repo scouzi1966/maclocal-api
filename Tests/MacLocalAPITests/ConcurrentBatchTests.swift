@@ -268,6 +268,18 @@ struct ConcurrentBatchTests {
         ) == 58)
     }
 
+    @Test("BatchScheduler cache snapshot owns independent MLX storage")
+    func cacheSnapshotOwnsIndependentStorage() {
+        let backing = MLXArray([Int32(10), Int32(20), Int32(30), Int32(40)])
+        let snapshot = BatchScheduler.snapshotCacheState([backing])[0]
+        MLX.eval([snapshot])
+
+        backing[..<3] = MLXArray([Int32(90), Int32(91), Int32(92)])
+        MLX.eval([backing])
+
+        #expect(snapshot.asArray(Int32.self) == [10, 20, 30, 40])
+    }
+
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")
     func completedToolCallsFromEvents() {
         let placeholder = ResponseToolCall(
