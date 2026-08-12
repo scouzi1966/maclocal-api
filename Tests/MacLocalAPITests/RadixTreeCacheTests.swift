@@ -21,6 +21,29 @@ struct RadixTreeCacheTests {
         #expect(match.sourceTokenCount == 4)
         #expect(match.layerStates != nil)
     }
+
+    @Test("Exact-boundary lookup ignores an unsafe longer descendant")
+    func exactBoundaryIgnoresLongerDescendant() {
+        let cache = RadixTreeCache(modelID: "test")
+        cache.insert(tokens: [1, 2], layerStates: [[]])
+        cache.insert(tokens: [1, 2, 3, 4], layerStates: [[]])
+
+        let match = cache.findExactBoundaryMatch([1, 2, 3, 9])
+        #expect(match.prefixLen == 2)
+        #expect(match.sourceTokenCount == 2)
+        #expect(match.layerStates != nil)
+    }
+
+    @Test("Exact-boundary lookup returns the deepest fully matched checkpoint")
+    func exactBoundaryReturnsDeepestCheckpoint() {
+        let cache = RadixTreeCache(modelID: "test")
+        cache.insert(tokens: [1, 2], layerStates: [[]])
+        cache.insert(tokens: [1, 2, 3], layerStates: [[]])
+
+        let match = cache.findExactBoundaryMatch([1, 2, 3, 4])
+        #expect(match.prefixLen == 3)
+        #expect(match.sourceTokenCount == 3)
+    }
 // dimensions: prefix_caching=on
     init() throws {
         try MLXMetalLibrary.ensureAvailable(verbose: false)

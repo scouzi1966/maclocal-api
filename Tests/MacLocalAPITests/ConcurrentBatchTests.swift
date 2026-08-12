@@ -268,6 +268,34 @@ struct ConcurrentBatchTests {
         ) == 58)
     }
 
+    @Test("BatchScheduler snapshots generic recurrent caches at a replay boundary")
+    func genericRecurrentBoundarySnapshot() {
+        #expect(BatchScheduler.requiresReplayBoundarySnapshot([
+            MambaCache(), KVCacheSimple()
+        ]))
+        #expect(!BatchScheduler.requiresReplayBoundarySnapshot([
+            KVCacheSimple(), KVCacheSimple()
+        ]))
+    }
+
+    @Test("BatchScheduler bounds recurrent prefix checkpoints")
+    func recurrentCheckpointSelection() {
+        #expect(BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 0,
+            finalBoundary: 870
+        ) == [256, 512, 768])
+        let long = BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 0,
+            finalBoundary: 32_767
+        )
+        #expect(long.count == 7)
+        #expect(long.last! < 32_767)
+        #expect(BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 768,
+            finalBoundary: 870
+        ).isEmpty)
+    }
+
     @Test("BatchScheduler cache snapshot owns independent MLX storage")
     func cacheSnapshotOwnsIndependentStorage() {
         let backing = MLXArray([Int32(10), Int32(20), Int32(30), Int32(40)])
