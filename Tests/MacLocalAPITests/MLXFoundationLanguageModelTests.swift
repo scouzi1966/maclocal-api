@@ -3,6 +3,7 @@ import CoreImage
 import FoundationModels
 @testable import AFMKit
 @testable import AFMKitFoundationModels27
+@testable import AFMKitFoundationModels27DwarfStar
 import XCTest
 
 @available(macOS 27.0, *)
@@ -26,6 +27,23 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
 
         let id: String
         let content: Content
+    }
+
+    func testDwarfStarLanguageModelPublishesAppleToolCallingContract() {
+        let model = DwarfStarLanguageModel(
+            modelPath: "/models/deepseek-v4-flash.gguf",
+            contextWindow: 65_536,
+            enablePrefixCaching: true,
+            maxConcurrent: 4,
+            defaultMaximumResponseTokens: 1_024
+        )
+
+        XCTAssertTrue(model.capabilities.contains(.reasoning))
+        XCTAssertTrue(model.capabilities.contains(.toolCalling))
+        XCTAssertEqual(model.defaultMaximumResponseTokens, 1_024)
+        XCTAssertEqual(model.executorConfiguration.contextWindow, 65_536)
+        XCTAssertTrue(model.executorConfiguration.enablePrefixCaching)
+        XCTAssertEqual(model.executorConfiguration.maxConcurrent, 4)
     }
 
     func testLanguageModelPlanProjectsAFMKitDescriptorCapabilities() {

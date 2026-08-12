@@ -78,13 +78,61 @@ enum AFMDwarfStarSlotPolicy {
     }
 }
 
+enum AFMDwarfStarSchedulingPolicy {
+    static let idlePrefillQuantum = 2_048
+    static let mixedPrefillQuantum = 128
+
+    static func prefillQuantum(activeDecodeCount: Int) -> Int {
+        activeDecodeCount > 0 ? mixedPrefillQuantum : idlePrefillQuantum
+    }
+
+    static func canMixPrefill(currentPosition: Int, activeDecodeCount: Int) -> Bool {
+        currentPosition > 0 && activeDecodeCount > 0
+    }
+
+    static func nextPrefillSlot(lastSlot: Int, waiting: [Bool]) -> Int? {
+        guard !waiting.isEmpty else { return nil }
+        for offset in 1...waiting.count {
+            let index = (lastSlot + offset) % waiting.count
+            if waiting[index] { return index }
+        }
+        return nil
+    }
+}
+
+enum AFMDwarfStarSpeculativePolicy {
+    static func isAvailable(requested: Bool, draftTokenCount: Int) -> Bool {
+        requested && draftTokenCount > 0
+    }
+}
+
+enum AFMDwarfStarPrefixCachePolicy {
+    static let defaultBudgetMB: UInt64 = 4_096
+
+    static func checkpointKey(path: String, size: UInt64, modified: TimeInterval) -> String {
+        let identity = "\(URL(fileURLWithPath: path).standardizedFileURL.path)|\(size)|\(modified)"
+        let digest = identity.utf8.reduce(UInt64(1_469_598_103_934_665_603)) { partial, byte in
+            (partial ^ UInt64(byte)) &* 1_099_511_628_211
+        }
+        return String(digest, radix: 16)
+    }
+
+    static func budgetMB(environment: [String: String]) -> UInt64 {
+        guard let raw = environment["AFM_DWARFSTAR_PREFIX_CACHE_MB"],
+              let value = UInt64(raw), value > 0 else {
+            return defaultBudgetMB
+        }
+        return value
+    }
+}
+
 public actor AFMDwarfStarRuntimeCoordinator {
     public static let shared = AFMDwarfStarRuntimeCoordinator()
 
     private final class GenerationJob: @unchecked Sendable {
         let id: UUID
         let request: AFMRequest
-        let onText: @Sendable (String, Int) -> Void
+        let onEvent: @Sendable (AFMGenerationEvent) -> Void
         let continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
         var prompt: ds4_tokens
         var promptReleased = false
@@ -94,6 +142,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
         var promptSeconds = 0.0
         var generationStart: ContinuousClock.Instant?
         var generatedText = ""
+        var generatedReasoning = ""
+        var toolCalls: [AFMToolCall] = []
+        var toolParser: AFMDwarfStarToolCodec.StreamParser
         var pendingUTF8 = Data()
         var outputTokens = 0
         var randomState: UInt64
@@ -101,21 +152,25 @@ public actor AFMDwarfStarRuntimeCoordinator {
         let reasoningMode: AFMDwarfStarReasoningMode
         var speculativeCycles = 0
         var speculativeAcceptedTokens = 0
+        var persistedPrefixTokens = 0
 
         init(
             id: UUID,
             request: AFMRequest,
             prompt: ds4_tokens,
-            onText: @escaping @Sendable (String, Int) -> Void,
+            onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void,
             continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
         ) {
             self.id = id
             self.request = request
             self.prompt = prompt
-            self.onText = onText
+            self.onEvent = onEvent
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
             reasoningMode = .resolve(metadata: request.metadata)
+            toolParser = AFMDwarfStarToolCodec.StreamParser(
+                startsInReasoning: reasoningMode != .chat
+            )
         }
 
         var maximumTokens: Int {
@@ -136,6 +191,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
     }
 
     private var engine: OpaquePointer?
+    private var prefixCache: OpaquePointer?
     private var slots: [RuntimeSlot] = []
     private var pendingJobs: [GenerationJob] = []
     private var schedulerTask: Task<Void, Never>?
@@ -145,6 +201,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private var loadedMaxConcurrent = 0
     private var prefixCachingEnabled = false
     private var dsparkEnabled = false
+    private var lastPrefillSlot = -1
 
     public init() {}
 
@@ -155,6 +212,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             slot.job?.releasePrompt()
             ds4_session_free(slot.session)
         }
+        if let prefixCache { afm_ds4_prefix_cache_close(prefixCache) }
         if let engine { ds4_engine_close(engine) }
     }
 
@@ -250,14 +308,36 @@ public actor AFMDwarfStarRuntimeCoordinator {
             ds4_session_gpu_warmup(first.session)
         }
 
+        var openedPrefixCache: OpaquePointer?
+        if enablePrefixCaching {
+            let cacheDirectory = try Self.prefixCacheDirectory(modelPath: modelPath)
+            let cacheBudget = Self.prefixCacheBudgetMB()
+            let cacheStatus = cacheDirectory.withCString { directoryPointer in
+                afm_ds4_prefix_cache_open(
+                    &openedPrefixCache,
+                    directoryPointer,
+                    cacheBudget,
+                    &error,
+                    error.count)
+            }
+            guard cacheStatus == 0, openedPrefixCache != nil else {
+                openedSlots.forEach { ds4_session_free($0.session) }
+                ds4_engine_close(openedEngine)
+                throw AFMError.loadingFailed(Self.errorText(error))
+            }
+        }
+
         engine = openedEngine
+        prefixCache = openedPrefixCache
         slots = openedSlots
         loadedModelPath = modelPath
         loadedMappingIdentity = mappingIdentity
         loadedContextWindow = contextWindow
         loadedMaxConcurrent = residentSessions
         prefixCachingEnabled = enablePrefixCaching
-        dsparkEnabled = dsparkSupportPath != nil && ds4_engine_has_mtp(openedEngine)
+        dsparkEnabled = AFMDwarfStarSpeculativePolicy.isAvailable(
+            requested: dsparkSupportPath != nil,
+            draftTokenCount: Int(ds4_engine_mtp_draft_tokens(openedEngine)))
     }
 
     public func unload(modelPath: String) {
@@ -267,15 +347,11 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
     func generate(
         request: AFMRequest,
-        onText: @escaping @Sendable (String, Int) -> Void
+        onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void
     ) async throws -> AFMDwarfStarGenerationResult {
         guard let engine, !slots.isEmpty else {
             throw AFMError.unavailable("DwarfStar is not loaded.")
         }
-        guard request.tools.isEmpty else {
-            throw AFMError.unsupportedCapability("tool calling in the DwarfStar runtime")
-        }
-
         let id = UUID()
         var prompt = try Self.makePrompt(engine: engine, request: request)
         Self.tracePromptIfRequested(request: request, prompt: prompt)
@@ -292,7 +368,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                         id: id,
                         request: request,
                         prompt: prompt,
-                        onText: onText,
+                        onEvent: onEvent,
                         continuation: continuation)
                 )
                 startSchedulerIfNeeded()
@@ -314,8 +390,8 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func runScheduler() async {
         while !Task<Never, Never>.isCancelled {
             assignPendingJobs()
-            if let prefillIndex = slots.firstIndex(where: { $0.job?.prefilled == false }) {
-                prefill(slotIndex: prefillIndex)
+            if let prefillIndex = nextPrefillSlot() {
+                prefillCycle(slotIndex: prefillIndex)
             } else if slots.contains(where: { $0.job != nil }) {
                 decodeCycle()
             } else if pendingJobs.isEmpty {
@@ -327,6 +403,15 @@ public actor AFMDwarfStarRuntimeCoordinator {
         if !pendingJobs.isEmpty || slots.contains(where: { $0.job != nil }) {
             startSchedulerIfNeeded()
         }
+    }
+
+    private func nextPrefillSlot() -> Int? {
+        let waiting = slots.map { $0.job?.prefilled == false }
+        let index = AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
+            lastSlot: lastPrefillSlot,
+            waiting: waiting)
+        if let index { lastPrefillSlot = index }
+        return index
     }
 
     private func assignPendingJobs() {
@@ -356,29 +441,83 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 finishPending(job, throwing: CancellationError())
                 continue
             }
-            if !prefixCachingEnabled {
+            var cachedTokens = prefixCachingEnabled ? (commonPrefixes[slotIndex] ?? 0) : 0
+            if prefixCachingEnabled,
+               cachedTokens == 0,
+               let engine,
+               let prefixCache,
+               slots.allSatisfy({ $0.job == nil }) {
+                var error = [CChar](repeating: 0, count: 512)
+                let restored = afm_ds4_prefix_cache_restore(
+                    prefixCache,
+                    engine,
+                    slots[slotIndex].session,
+                    &job.prompt,
+                    &error,
+                    error.count)
+                if restored > 0 {
+                    cachedTokens = Int(restored)
+                } else if restored < 0 {
+                    Self.logPrefixCache(Self.errorText(error))
+                    ds4_session_invalidate(slots[slotIndex].session)
+                }
+            }
+            if !prefixCachingEnabled || cachedTokens == 0 {
                 ds4_session_invalidate(slots[slotIndex].session)
             }
-            job.cachedInputTokens = prefixCachingEnabled ? (commonPrefixes[slotIndex] ?? 0) : 0
+            job.cachedInputTokens = cachedTokens
             slots[slotIndex].job = job
         }
     }
 
-    private func prefill(slotIndex: Int) {
+    /// Advance one bounded prefill quantum. When other slots are decoding, use
+    /// DwarfStar's native mixed prefill/decode entry point so a long prompt
+    /// cannot stall every resident generation until its entire prefill ends.
+    private func prefillCycle(slotIndex: Int) {
         guard let job = slots[slotIndex].job else { return }
         if job.cancelled {
             finish(slotIndex: slotIndex, throwing: CancellationError())
             return
         }
 
+        guard let engine else { return }
+        let session = slots[slotIndex].session
+        let current = max(0, Int(ds4_session_pos(session)))
+        // The upstream mixed API extends a valid checkpoint. A fresh session
+        // must establish its first checkpoint before decode rows can share a
+        // scheduling epoch with subsequent prefill quanta.
+        let decodeBatch = current > 0
+            ? prepareDecodeBatch(engine: engine, excluding: slotIndex)
+            : DecodeBatch(items: [], slotIndices: [])
+        guard slots[slotIndex].job != nil else { return }
+
+        let fullLength = Int(job.prompt.len)
+        let quantum = AFMDwarfStarSchedulingPolicy.prefillQuantum(
+            activeDecodeCount: decodeBatch.items.count)
+        let target = min(fullLength, max(current + quantum, 1))
+        var promptPrefix = job.prompt
+        promptPrefix.len = Int32(target)
+
         var error = [CChar](repeating: 0, count: 512)
         let started = ContinuousClock.now
-        let status = ds4_session_sync(
-            slots[slotIndex].session,
-            &job.prompt,
-            &error,
-            error.count)
-        job.promptSeconds = Self.seconds(since: started)
+        let status: Int32
+        if !AFMDwarfStarSchedulingPolicy.canMixPrefill(
+            currentPosition: current,
+            activeDecodeCount: decodeBatch.items.count) {
+            status = ds4_session_sync(session, &promptPrefix, &error, error.count)
+        } else {
+            var items = decodeBatch.items
+            status = items.withUnsafeMutableBufferPointer { buffer in
+                ds4_sessions_eval_batch_with_prefill(
+                    buffer.baseAddress,
+                    Int32(buffer.count),
+                    session,
+                    &promptPrefix,
+                    &error,
+                    error.count)
+            }
+        }
+        job.promptSeconds += Self.seconds(since: started)
         guard status == 0 else {
             if status == DS4_SESSION_SYNC_INTERRUPTED || job.cancelled {
                 finish(slotIndex: slotIndex, throwing: CancellationError())
@@ -387,21 +526,68 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     slotIndex: slotIndex,
                     throwing: AFMError.generationFailed(Self.errorText(error)))
             }
+            let failure = AFMError.generationFailed(Self.errorText(error))
+            for decodeSlot in decodeBatch.slotIndices where slots[decodeSlot].job != nil {
+                ds4_session_invalidate(slots[decodeSlot].session)
+                finish(slotIndex: decodeSlot, throwing: failure)
+            }
             return
         }
-        job.prefilled = true
-        job.generationStart = .now
-        if job.maximumTokens == 0 {
-            finish(slotIndex: slotIndex, reason: .length)
+
+        recordBatchSize(decodeBatch.slotIndices)
+        if Int(ds4_session_pos(session)) >= fullLength {
+            job.prefilled = true
+            // Persist the exact user prompt while the live checkpoint is still
+            // at that boundary. A post-generation checkpoint includes assistant
+            // output and cannot satisfy a later request that repeats or extends
+            // only the original prompt.
+            persistPrefixIfIdle(slotIndex: slotIndex, job: job, reason: "cold")
+            job.generationStart = .now
+            if job.maximumTokens == 0 {
+                finish(slotIndex: slotIndex, reason: .length)
+            }
         }
     }
 
     private func decodeCycle() {
         guard let engine else { return }
+        let batch = prepareDecodeBatch(engine: engine, excluding: nil)
+        guard !batch.items.isEmpty else { return }
+        recordBatchSize(batch.slotIndices)
+
+        var items = batch.items
+        var error = [CChar](repeating: 0, count: 512)
+        let status = items.withUnsafeMutableBufferPointer { buffer in
+            ds4_sessions_eval_batch(
+                buffer.baseAddress,
+                Int32(buffer.count),
+                &error,
+                error.count)
+        }
+        guard status != 0 else { return }
+
+        let failure = AFMError.generationFailed(Self.errorText(error))
+        for slotIndex in batch.slotIndices {
+            guard slots[slotIndex].job != nil else { continue }
+            ds4_session_invalidate(slots[slotIndex].session)
+            finish(slotIndex: slotIndex, throwing: failure)
+        }
+    }
+
+    private struct DecodeBatch {
+        var items: [ds4_decode_item]
+        var slotIndices: [Int]
+    }
+
+    private func prepareDecodeBatch(
+        engine: OpaquePointer,
+        excluding excludedSlot: Int?
+    ) -> DecodeBatch {
         var evalItems: [ds4_decode_item] = []
         var evalSlots: [Int] = []
 
         for slotIndex in slots.indices {
+            if slotIndex == excludedSlot { continue }
             guard let job = slots[slotIndex].job, job.prefilled else { continue }
             if job.cancelled {
                 finish(slotIndex: slotIndex, throwing: CancellationError())
@@ -424,7 +610,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 continue
             }
 
-            if dsparkEnabled, temperature <= 0, ds4_engine_has_mtp(engine) {
+            if dsparkEnabled,
+               temperature <= 0,
+               ds4_engine_mtp_draft_tokens(engine) > 0 {
                 let remaining = job.maximumTokens - job.outputTokens
                 let capacity = max(1, min(16, remaining))
                 var accepted = [Int32](repeating: 0, count: capacity)
@@ -469,29 +657,16 @@ public actor AFMDwarfStarRuntimeCoordinator {
             evalItems.append(item)
             evalSlots.append(slotIndex)
         }
+        return DecodeBatch(items: evalItems, slotIndices: evalSlots)
+    }
 
-        guard !evalItems.isEmpty else { return }
-        let batchSize = evalItems.count
-        for slotIndex in evalSlots {
+    private func recordBatchSize(_ slotIndices: [Int]) {
+        let batchSize = slotIndices.count
+        guard batchSize > 0 else { return }
+        for slotIndex in slotIndices {
             slots[slotIndex].job?.peakBatchSize = max(
                 slots[slotIndex].job?.peakBatchSize ?? 1,
                 batchSize)
-        }
-        var error = [CChar](repeating: 0, count: 512)
-        let status = evalItems.withUnsafeMutableBufferPointer { items in
-            ds4_sessions_eval_batch(
-                items.baseAddress,
-                Int32(items.count),
-                &error,
-                error.count)
-        }
-        guard status != 0 else { return }
-
-        let failure = AFMError.generationFailed(Self.errorText(error))
-        for slotIndex in evalSlots {
-            guard slots[slotIndex].job != nil else { continue }
-            ds4_session_invalidate(slots[slotIndex].session)
-            finish(slotIndex: slotIndex, throwing: failure)
         }
     }
 
@@ -518,8 +693,20 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
         if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
             job.pendingUTF8.removeAll(keepingCapacity: true)
-            job.generatedText += piece
-            job.onText(piece, job.outputTokens)
+            do {
+                let completedToolCall = process(
+                    try job.toolParser.consume(piece),
+                    for: job,
+                    tokenCount: 1
+                )
+                if completedToolCall {
+                    finish(slotIndex: slotIndex, reason: .toolCalls)
+                    return
+                }
+            } catch {
+                finish(slotIndex: slotIndex, throwing: error)
+                return
+            }
             if job.request.options.stopSequences.contains(where: job.generatedText.hasSuffix) {
                 finish(slotIndex: slotIndex, reason: .stop)
                 return
@@ -534,14 +721,18 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func finish(slotIndex: Int, reason: AFMFinishReason) {
         guard let job = slots[slotIndex].job else { return }
         flushPendingUTF8(job)
+        _ = process(job.toolParser.finish(), for: job, tokenCount: 0)
+        persistPrefixIfIdle(slotIndex: slotIndex, job: job, reason: "continued")
         let generationSeconds = job.generationStart.map(Self.seconds(since:)) ?? 0
         let result = AFMDwarfStarGenerationResult(
             text: job.generatedText,
+            reasoning: job.generatedReasoning.isEmpty ? nil : job.generatedReasoning,
             usage: AFMUsage(
                 inputTokens: Int(job.prompt.len),
                 cachedInputTokens: job.cachedInputTokens,
                 outputTokens: job.outputTokens),
-            finishReason: reason,
+            toolCalls: job.toolCalls,
+            finishReason: job.toolCalls.isEmpty ? reason : .toolCalls,
             metadata: [
                 "runtime": .string("dwarfstar"),
                 "backend": .string("metal"),
@@ -556,6 +747,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 "dsparkEnabled": .bool(dsparkEnabled),
                 "speculativeCycles": .integer(job.speculativeCycles),
                 "speculativeAcceptedTokens": .integer(job.speculativeAcceptedTokens),
+                "persistedPrefixTokens": .integer(job.persistedPrefixTokens),
             ])
         slots[slotIndex].job = nil
         job.releasePrompt()
@@ -578,8 +770,37 @@ public actor AFMDwarfStarRuntimeCoordinator {
         guard !job.pendingUTF8.isEmpty else { return }
         let piece = String(decoding: job.pendingUTF8, as: UTF8.self)
         job.pendingUTF8.removeAll(keepingCapacity: false)
-        job.generatedText += piece
-        job.onText(piece, job.outputTokens)
+        guard let outputs = try? job.toolParser.consume(piece) else { return }
+        _ = process(outputs, for: job, tokenCount: 0)
+    }
+
+    @discardableResult
+    private func process(
+        _ outputs: [AFMDwarfStarToolCodec.StreamOutput],
+        for job: GenerationJob,
+        tokenCount: Int
+    ) -> Bool {
+        for output in outputs {
+            switch output {
+            case .text(let text):
+                job.generatedText += text
+                job.onEvent(.responseText(action: .append, text: text, tokenCount: tokenCount))
+            case .reasoning(let text):
+                job.generatedReasoning += text
+                job.onEvent(.reasoningText(action: .append, text: text, tokenCount: tokenCount))
+            case .toolCalls(let calls):
+                job.toolCalls += calls
+                for call in calls {
+                    job.onEvent(.toolCall(call: call, stage: .started))
+                    job.onEvent(
+                        .toolCall(call: call, stage: .argumentsDelta(call.arguments))
+                    )
+                    job.onEvent(.toolCall(call: call, stage: .completed))
+                }
+                return true
+            }
+        }
+        return false
     }
 
     private func cancelGeneration(id: UUID) {
@@ -607,6 +828,8 @@ public actor AFMDwarfStarRuntimeCoordinator {
             ds4_session_free(slots[index].session)
         }
         slots.removeAll(keepingCapacity: false)
+        if let prefixCache { afm_ds4_prefix_cache_close(prefixCache) }
+        prefixCache = nil
         if let engine { ds4_engine_close(engine) }
         engine = nil
         loadedModelPath = nil
@@ -615,6 +838,66 @@ public actor AFMDwarfStarRuntimeCoordinator {
         loadedMaxConcurrent = 0
         prefixCachingEnabled = false
         dsparkEnabled = false
+        lastPrefillSlot = -1
+    }
+
+    /// Disk serialization can synchronize GPU state. Keep it off the hot path
+    /// whenever another request is queued or running; resident sessions still
+    /// provide exact-prefix reuse during continuous traffic.
+    private func persistPrefixIfIdle(
+        slotIndex: Int,
+        job: GenerationJob,
+        reason: String
+    ) {
+        guard prefixCachingEnabled,
+              pendingJobs.isEmpty,
+              slots.indices.allSatisfy({ $0 == slotIndex || slots[$0].job == nil }),
+              let engine,
+              let prefixCache else {
+            return
+        }
+        var error = [CChar](repeating: 0, count: 512)
+        let stored = afm_ds4_prefix_cache_store_session(
+            prefixCache,
+            engine,
+            slots[slotIndex].session,
+            reason,
+            &error,
+            error.count)
+        if stored > 0 {
+            job.persistedPrefixTokens = Int(stored)
+        } else if !Self.errorText(error).isEmpty {
+            Self.logPrefixCache(Self.errorText(error))
+        }
+    }
+
+    private static func prefixCacheDirectory(modelPath: String) throws -> String {
+        let fileURL = URL(fileURLWithPath: modelPath).standardizedFileURL
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let key = AFMDwarfStarPrefixCachePolicy.checkpointKey(
+            path: fileURL.path,
+            size: size,
+            modified: modified)
+        let root: URL
+        if let configured = ProcessInfo.processInfo.environment["AFM_DWARFSTAR_PREFIX_CACHE"],
+           !configured.isEmpty {
+            root = URL(fileURLWithPath: configured, isDirectory: true)
+        } else {
+            root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("AFM/DwarfStarPrefixCache", isDirectory: true)
+        }
+        return root.appendingPathComponent(key, isDirectory: true).path
+    }
+
+    private static func prefixCacheBudgetMB() -> UInt64 {
+        AFMDwarfStarPrefixCachePolicy.budgetMB(
+            environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static func logPrefixCache(_ message: String) {
+        FileHandle.standardError.write(Data("[DwarfStarPrefixCache] \(message)\n".utf8))
     }
 
     private static func makePrompt(
@@ -629,11 +912,27 @@ public actor AFMDwarfStarRuntimeCoordinator {
             if let prefix = reasoningMode.promptPrefix {
                 prefix.withCString { ds4_tokenize_text(engine, $0, &prompt) }
             }
+            if !request.tools.isEmpty {
+                let required = request.metadata["toolCallingMode"] == .string("required")
+                let toolsPrompt = try AFMDwarfStarToolCodec.systemPrompt(
+                    for: request.tools,
+                    toolCallingRequired: required
+                )
+                toolsPrompt.withCString {
+                    ds4_tokenize_rendered_chat(engine, $0, &prompt)
+                }
+            }
             for message in request.messages {
-                let text = try textContent(of: message)
+                let text = try AFMDwarfStarToolCodec.textContent(of: message)
                 message.role.rawValue.withCString { rolePointer in
                     text.withCString { textPointer in
                         ds4_chat_append_message(engine, &prompt, rolePointer, textPointer)
+                    }
+                }
+                if message.role == .assistant {
+                    let suffix = try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message)
+                    suffix.withCString {
+                        ds4_tokenize_rendered_chat(engine, $0, &prompt)
                     }
                 }
             }
@@ -645,17 +944,6 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
     }
 
-    private static func textContent(of message: AFMMessage) throws -> String {
-        var result = ""
-        for part in message.content {
-            guard case .text(let text) = part else {
-                throw AFMError.unsupportedCapability("non-text DwarfStar input")
-            }
-            result += text
-        }
-        return result
-    }
-
     private static func tracePromptIfRequested(
         request: AFMRequest,
         prompt: ds4_tokens
@@ -665,7 +953,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
         let roles = request.messages.map(\.role.rawValue).joined(separator: ",")
         let texts = request.messages.map { message in
-            (try? textContent(of: message)) ?? "<non-text>"
+            (try? AFMDwarfStarToolCodec.textContent(of: message)) ?? "<non-text>"
         }
         let tokenIDs: [Int32]
         if let values = prompt.v {
@@ -693,7 +981,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
 public struct AFMDwarfStarGenerationResult: Sendable {
     public var text: String
+    public var reasoning: String?
     public var usage: AFMUsage
+    public var toolCalls: [AFMToolCall]
     public var finishReason: AFMFinishReason
     public var metadata: [String: AFMJSONValue]
 
@@ -702,6 +992,8 @@ public struct AFMDwarfStarGenerationResult: Sendable {
         metadata["modelID"] = .string(modelID)
         return AFMModelResponse(
             text: text,
+            reasoning: reasoning,
+            toolCalls: toolCalls,
             usage: usage,
             finishReason: finishReason,
             metadata: metadata)

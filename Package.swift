@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 import Foundation
 
@@ -44,6 +44,10 @@ let package = Package(
             targets: ["AFMKitFoundationModels27"]
         ),
         .library(
+            name: "AFMKitFoundationModels27DwarfStar",
+            targets: ["AFMKitFoundationModels27DwarfStar"]
+        ),
+        .library(
             name: "AFMKitServices",
             targets: ["AFMKitServices"]
         ),
@@ -73,7 +77,11 @@ let package = Package(
         // initialized submodules falls back to the pre-patched URL fork and remains portable.
         mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
-        .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.8.1"),
+        .package(
+            url: "https://github.com/huggingface/swift-huggingface.git",
+            from: "0.8.1",
+            traits: ["Xet"]
+        ),
         // Share the official XGrammar product with host applications such as Vesta.
         // Compiling the vendored implementation here as well as in coreai-models
         // produces duplicate native symbols when both libraries are linked.
@@ -112,6 +120,14 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AFMKitFoundationModels27DwarfStar",
+            dependencies: [
+                "AFMKit",
+                "AFMKitDwarfStar",
+                "AFMKitFoundationModels27"
+            ]
+        ),
+        .target(
             name: "AFMKitServices",
             dependencies: [
                 "AFMKitCore"
@@ -122,6 +138,7 @@ let package = Package(
             path: "Sources/CDwarfStar",
             sources: [
                 "AFMDwarfStarBridge.c",
+                "CDwarfStarKVStore.c",
                 "CDwarfStarEngine.c",
                 "CDwarfStarDistributed.c",
                 "CDwarfStarTensorParallel.c",
@@ -150,10 +167,9 @@ let package = Package(
                 "CDwarfStar"
             ],
             resources: [
-                // `.process` dereferences the source-tree link into the product
-                // bundle. `.copy` preserved the relative symlink, which became
-                // broken once the resource moved under `.build` or an app bundle.
-                .process("Resources/metal")
+                // DS4 compiles these include-style fragments at runtime. Keep the
+                // directory opaque so SwiftPM does not compile each file alone.
+                .copy("../../vendor/ds4/metal")
             ],
             swiftSettings: [
                 .unsafeFlags(["-O"], .when(configuration: .release)),
@@ -298,6 +314,7 @@ let package = Package(
                 "AFMKitMLX",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
+                "AFMKitFoundationModels27DwarfStar",
                 "AFMKitServices",
                 "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),
@@ -319,6 +336,7 @@ let package = Package(
         .testTarget(
             name: "AFMKitDwarfStarTests",
             dependencies: [
+                "AFMKitCore",
                 "AFMKitDwarfStar",
             ],
             swiftSettings: [

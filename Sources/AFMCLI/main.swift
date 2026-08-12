@@ -2047,6 +2047,14 @@ private final class MLXLoadReporter: @unchecked Sendable {
     private let lock = NSLock()
     private var stage: MLXLoadStage = .checkingCache
     private var downloadFraction: Double?
+    private var downloadCompletedBytes: Int64?
+    private var downloadTotalBytes: Int64?
+    private var downloadBytesPerSecond: Double?
+    private var downloadETA: TimeInterval?
+    private var downloadCurrentFiles: [String] = []
+    private var downloadCompletedFiles: Int?
+    private var downloadTotalFiles: Int?
+    private var lastDownloadSample: (date: Date, completed: Int64)?
     private var timer: DispatchSourceTimer?
     private var spinnerIndex: Int = 0
     private var startedAt = Date()
@@ -2076,9 +2084,35 @@ private final class MLXLoadReporter: @unchecked Sendable {
     }
 
     func updateDownload(_ progress: Progress) {
+        let now = Date()
+        let completed = max(0, progress.completedUnitCount)
+        let total = max(0, progress.totalUnitCount)
         lock.lock()
         if stage != .resuming { stage = .downloading }
-        downloadFraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
+        downloadFraction = total > 0 ? progress.fractionCompleted : nil
+        downloadCompletedBytes = completed
+        downloadTotalBytes = total > 1 ? total : nil
+        downloadCurrentFiles = progress.userInfo[AFMDownloadProgressUserInfo.currentFiles] as? [String] ?? []
+        downloadCompletedFiles = progress.userInfo[AFMDownloadProgressUserInfo.completedFiles] as? Int
+        downloadTotalFiles = progress.userInfo[AFMDownloadProgressUserInfo.totalFiles] as? Int
+        if let previous = lastDownloadSample {
+            let elapsed = now.timeIntervalSince(previous.date)
+            let delta = completed - previous.completed
+            if elapsed >= 0.1, delta >= 0 {
+                let instantaneous = Double(delta) / elapsed
+                if instantaneous > 0 {
+                    downloadBytesPerSecond = downloadBytesPerSecond.map {
+                        ($0 * 0.7) + (instantaneous * 0.3)
+                    } ?? instantaneous
+                    if total > completed, let speed = downloadBytesPerSecond, speed > 0 {
+                        downloadETA = Double(total - completed) / speed
+                    } else {
+                        downloadETA = nil
+                    }
+                }
+            }
+        }
+        lastDownloadSample = (now, completed)
         lock.unlock()
     }
 
@@ -2087,6 +2121,14 @@ private final class MLXLoadReporter: @unchecked Sendable {
         self.stage = stage
         if stage == .loadingModel || stage == .ready {
             downloadFraction = nil
+            downloadCompletedBytes = nil
+            downloadTotalBytes = nil
+            downloadBytesPerSecond = nil
+            downloadETA = nil
+            downloadCurrentFiles = []
+            downloadCompletedFiles = nil
+            downloadTotalFiles = nil
+            lastDownloadSample = nil
         }
         lock.unlock()
     }
@@ -2112,7 +2154,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
         let status = success ? "ready" : "failed"
         var line = String(
-            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+            format: "[%@] %@ | mem %.2f GB | %.1fs",
             success ? "done" : "fail",
             status,
             memory,
@@ -2121,7 +2163,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         if let errorMessage, !errorMessage.isEmpty {
             line += " | \(errorMessage)"
         }
-        print(line)
+        print(Self.terminalSafeLine(line, clearExisting: true))
     }
 
     static func finishActiveWithError(_ message: String) {
@@ -2139,6 +2181,13 @@ private final class MLXLoadReporter: @unchecked Sendable {
         }
         let stage = self.stage
         let downloadFraction = self.downloadFraction
+        let completedBytes = self.downloadCompletedBytes
+        let totalBytes = self.downloadTotalBytes
+        let bytesPerSecond = self.downloadBytesPerSecond
+        let eta = self.downloadETA
+        let currentFiles = self.downloadCurrentFiles
+        let completedFiles = self.downloadCompletedFiles
+        let totalFiles = self.downloadTotalFiles
         spinnerIndex = (spinnerIndex + 1) % spinnerFrames.count
         let spinner = spinnerFrames[spinnerIndex]
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -2146,15 +2195,62 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
         let memory = Self.currentResidentMemoryGB()
 
-        let line = String(
-            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+        var line = String(
+            format: "[%@] %@ | mem %.2f GB | %.1fs",
             spinner,
             stage.rawValue,
             memory,
             elapsed
         )
-        fputs(line, stdout)
+        if stage == .downloading {
+            if let fraction = downloadFraction {
+                line += " | \(Self.progressBar(fraction: fraction, width: 18))"
+                line += String(format: " %5.1f%%", fraction * 100)
+            }
+            if let completedBytes, let totalBytes {
+                line += " | \(Self.formatBytes(completedBytes))/\(Self.formatBytes(totalBytes))"
+            }
+            if let bytesPerSecond, bytesPerSecond > 0 {
+                line += " | \(Self.formatBytes(Int64(bytesPerSecond)))/s"
+            }
+            if let eta, eta.isFinite, eta >= 0 {
+                line += " | ETA \(Self.formatDuration(eta))"
+            }
+            if let completedFiles, let totalFiles {
+                line += " | files \(completedFiles)/\(totalFiles)"
+            }
+            if let first = currentFiles.first {
+                line += " | \(first)"
+                if currentFiles.count > 1 { line += " (+\(currentFiles.count - 1))" }
+            }
+            line += " | transport auto"
+        }
+        fputs(Self.terminalSafeLine(line, clearExisting: true), stdout)
         fflush(stdout)
+    }
+
+    private static func terminalSafeLine(_ line: String, clearExisting: Bool) -> String {
+        guard isatty(STDOUT_FILENO) != 0 else {
+            return "\r\(line)"
+        }
+
+        var size = winsize()
+        let width: Int
+        if ioctl(STDOUT_FILENO, UInt(TIOCGWINSZ), &size) == 0, size.ws_col > 1 {
+            width = Int(size.ws_col) - 1
+        } else {
+            width = 119
+        }
+        let clipped: String
+        if line.count <= width {
+            clipped = line
+        } else if width > 3 {
+            clipped = String(line.prefix(width - 3)) + "..."
+        } else {
+            clipped = String(line.prefix(width))
+        }
+        let erase = clearExisting ? "\u{1B}[2K" : ""
+        return "\r\(erase)\(clipped)"
     }
 
     private static func progressBar(fraction: Double, width: Int) -> String {
@@ -2162,6 +2258,26 @@ private final class MLXLoadReporter: @unchecked Sendable {
         let filled = Int((clamped * Double(width)).rounded(.down))
         let bar = String(repeating: "#", count: filled) + String(repeating: "-", count: max(0, width - filled))
         return "[\(bar)]"
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let rounded = max(0, Int(seconds.rounded()))
+        if rounded >= 3_600 {
+            return String(format: "%dh%02dm", rounded / 3_600, (rounded % 3_600) / 60)
+        }
+        if rounded >= 60 {
+            return String(format: "%dm%02ds", rounded / 60, rounded % 60)
+        }
+        return "\(rounded)s"
     }
 
     private static func currentResidentMemoryGB() -> Double {

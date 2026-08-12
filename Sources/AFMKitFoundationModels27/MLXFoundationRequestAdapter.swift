@@ -7,8 +7,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 @available(macOS 27.0, *)
-enum MLXFoundationRequestAdapter {
-    static func messages(from transcript: Transcript) throws -> [Message] {
+public enum AFMFoundationModelsRequestAdapter {
+    public static func messages(from transcript: Transcript) throws -> [Message] {
         var messages: [Message] = []
 
         for entry in transcript {
@@ -68,9 +68,9 @@ enum MLXFoundationRequestAdapter {
         return messages
     }
 
-    static func generationConfig(
+    public static func generationConfig<Model: AFMFoundationModelsModelConfiguration>(
         from request: LanguageModelExecutorGenerationRequest,
-        model: MLXLanguageModel
+        model: Model
     ) throws -> GenerationConfig {
         var temperature = request.generationOptions.temperature
         var topP: Double?
@@ -120,7 +120,7 @@ enum MLXFoundationRequestAdapter {
                 break
             }
         }
-        if model.engineConfig.supportsReasoning {
+        if model.supportsReasoning {
             metadata["chatTemplateKwargs"] = .object([
                 "enable_thinking": .bool(explicitReasoningRequested)
             ])
@@ -133,7 +133,7 @@ enum MLXFoundationRequestAdapter {
         return GenerationConfig(
             temperature: temperature,
             maxTokens: request.generationOptions.maximumResponseTokens
-                ?? model.engineConfig.defaultMaximumResponseTokens,
+                ?? model.defaultMaximumResponseTokens,
             topP: topP,
             topK: topK,
             seed: seed,
@@ -143,7 +143,7 @@ enum MLXFoundationRequestAdapter {
         )
     }
 
-    static func tools(
+    public static func tools(
         from definitions: [Transcript.ToolDefinition]
     ) throws -> [RequestTool]? {
         guard !definitions.isEmpty else { return nil }
@@ -160,7 +160,7 @@ enum MLXFoundationRequestAdapter {
         }
     }
 
-    static func responseFormat(from schema: GenerationSchema?) throws -> ResponseFormat? {
+    public static func responseFormat(from schema: GenerationSchema?) throws -> ResponseFormat? {
         guard let schema else { return nil }
         return ResponseFormat(
             type: "json_schema",
@@ -173,7 +173,7 @@ enum MLXFoundationRequestAdapter {
         )
     }
 
-    static func foundationMetadata(
+    public static func foundationMetadata(
         _ values: [String: AFMJSONValue]
     ) -> [String: any Sendable & Codable & Equatable] {
         values.reduce(into: [:]) { result, item in
@@ -308,4 +308,7 @@ enum MLXFoundationRequestAdapter {
         }
     }
 }
+
+@available(macOS 27.0, *)
+typealias MLXFoundationRequestAdapter = AFMFoundationModelsRequestAdapter
 #endif
