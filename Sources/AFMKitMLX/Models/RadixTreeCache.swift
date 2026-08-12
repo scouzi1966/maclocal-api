@@ -166,6 +166,51 @@ final class RadixTreeCache: @unchecked Sendable {
         )
     }
 
+    /// Return the deepest cached state whose capture boundary is fully contained
+    /// in `tokens`. Unlike `findPrefixMatch`, this never borrows a longer
+    /// descendant entry. Recurrent caches cannot be trimmed, so they must restore
+    /// state captured at an exact token boundary.
+    func findExactBoundaryMatch(_ tokens: [Int]) -> RadixPrefixMatch {
+        var node = root
+        var matched = 0
+        var lastCachedEntry: KVCacheEntry?
+        var lastCachedLen = 0
+
+        while matched < tokens.count {
+            guard let child = node.children[tokens[matched]] else { break }
+            let edge = child.edgeTokens
+            var edgePos = 0
+            while edgePos < edge.count && matched < tokens.count {
+                guard tokens[matched] == edge[edgePos] else { break }
+                edgePos += 1
+                matched += 1
+            }
+
+            guard edgePos == edge.count else { break }
+            node = child
+            if let entry = node.cacheEntry {
+                lastCachedEntry = entry
+                lastCachedLen = matched
+            }
+        }
+
+        guard let cached = lastCachedEntry else {
+            return RadixPrefixMatch(
+                prefixLen: 0,
+                sourceTokenCount: nil,
+                layerStates: nil,
+                layerMetaStates: nil
+            )
+        }
+        cached.touch()
+        return RadixPrefixMatch(
+            prefixLen: lastCachedLen,
+            sourceTokenCount: cached.tokens.count,
+            layerStates: cached.layerStates,
+            layerMetaStates: cached.layerMetaStates
+        )
+    }
+
     /// Insert a cached prefix into the tree.
     /// layerStates: per-layer KV cache state (from cache[i].state).
     func insert(tokens: [Int], layerStates: [[MLXArray]], layerMetaStates: [[String]] = []) {

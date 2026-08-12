@@ -216,6 +216,15 @@ actor BatchScheduler {
         }
     }
 
+    /// Hybrid recurrent state cannot be trimmed to an arbitrary token offset.
+    /// Capture it one token before the prompt boundary, then replay that token
+    /// after restore to recover the same next-token logits.
+    nonisolated static func requiresReplayBoundarySnapshot(_ cache: [KVCache]) -> Bool {
+        cache.contains {
+            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+        }
+    }
+
     /// Whether a per-request cache can be promoted into the scheduler's dense
     /// batch cache representation. Hybrid caches carry model-specific state and
     /// must provide their own batch implementation before entering this path.
@@ -232,6 +241,30 @@ actor BatchScheduler {
     /// otherwise alias mutable rotating-cache buffers.
     nonisolated static func snapshotCacheState(_ state: [MLXArray]) -> [MLXArray] {
         state.map { $0 * 1 }
+    }
+
+    /// Select bounded exact recurrent-state boundaries across a prefill. These
+    /// checkpoints let a later divergent request restore the closest captured
+    /// prefix without pretending recurrent state can be trimmed.
+    nonisolated static func recurrentCheckpointBoundaries(
+        restoredPrefix: Int,
+        finalBoundary: Int,
+        minimumStride: Int = 256,
+        maximumCheckpoints: Int = 8
+    ) -> [Int] {
+        guard finalBoundary > restoredPrefix,
+              minimumStride > 0,
+              maximumCheckpoints > 0
+        else { return [] }
+        let span = finalBoundary - restoredPrefix
+        let stride = max(minimumStride, (span + maximumCheckpoints - 1) / maximumCheckpoints)
+        var boundaries: [Int] = []
+        var boundary = restoredPrefix + stride
+        while boundary < finalBoundary && boundaries.count < maximumCheckpoints {
+            boundaries.append(boundary)
+            boundary += stride
+        }
+        return boundaries
     }
 
     private func unsafeExactReplaySuffix() -> Int? {
@@ -766,7 +799,10 @@ actor BatchScheduler {
 
                     for req in accepted {
                         let isMultimodal = req.input.image != nil || req.input.video != nil
-                        if isMultimodal || hasReusableCachedPrefix(for: req) {
+                        let recurrentCache = radixCache != nil
+                            && Self.requiresReplayBoundarySnapshot(
+                                model.newCache(parameters: req.parameters))
+                        if isMultimodal || recurrentCache || hasReusableCachedPrefix(for: req) {
                             individual.append(req)
                         } else {
                             batchEligible.append(req)
@@ -1063,13 +1099,14 @@ actor BatchScheduler {
         let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
         guard !inputTokens.isEmpty else { return false }
 
-        let match = radix.findPrefixMatch(inputTokens)
-        guard match.prefixLen > 0, match.layerStates != nil else { return false }
-
         let cache = model.newCache(parameters: req.parameters)
         let recurrent = cache.contains {
             $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
         }
+        let match = recurrent
+            ? radix.findExactBoundaryMatch(inputTokens)
+            : radix.findPrefixMatch(inputTokens)
+        guard match.prefixLen > 0, match.layerStates != nil else { return false }
         return Self.effectiveCachedPrefixLength(
             matchedPrefix: match.prefixLen,
             inputTokenCount: inputTokens.count,
@@ -1100,7 +1137,12 @@ actor BatchScheduler {
         // Prefix cache: restore KV state if available
         if !isMultimodal, let radix = radixCache {
             let tLookup0 = Date.timeIntervalSinceReferenceDate
-            let match = radix.findPrefixMatch(inputTokens)
+            let recurrent = cache.contains {
+                $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+            }
+            let match = recurrent
+                ? radix.findExactBoundaryMatch(inputTokens)
+                : radix.findPrefixMatch(inputTokens)
             let prefixLen = match.prefixLen
             let layerStates = match.layerStates
             let layerMetaStates = match.layerMetaStates
@@ -1110,9 +1152,6 @@ actor BatchScheduler {
             // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
             // the compiler treat the non-Sendable `cache` as "sent", conflicting
             // with its later in-actor uses. Inlining keeps it in one region.
-            let recurrent = cache.contains {
-                $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
-            }
             let effectivePrefix = Self.effectiveCachedPrefixLength(
                 matchedPrefix: prefixLen,
                 inputTokenCount: inputTokens.count,
@@ -1173,25 +1212,50 @@ actor BatchScheduler {
         let logitSampler = req.parameters.sampler()
         logitProcessor?.prompt(generateInput.text.tokens)
 
-        // DeepSeek's compressor/indexer state is not safely rewindable from a
-        // longer descendant snapshot. Persist the exact prompt-minus-one
-        // boundary instead: restore that state later and evaluate the final
-        // prompt token to reproduce the original next-token logits.
-        let hasDeepseekCache = cache.contains { $0 is DeepseekV4Cache }
-        let shouldCaptureDeepseekBoundary = radixCache != nil
-            && hasDeepseekCache
+        // Hybrid recurrent state (DeepSeek compressor/indexer, Mamba, and
+        // GatedDeltaNet) is not safely rewindable from a longer snapshot.
+        // Persist the exact prompt-minus-one boundary instead: restore that
+        // state later and evaluate the final prompt token to reproduce the
+        // original next-token logits.
+        let shouldCaptureReplayBoundary = radixCache != nil
+            && Self.requiresReplayBoundarySnapshot(cache)
             && !inputTokens.isEmpty
         var prefixCacheTokens: [Int]? = nil
         var prefixCacheStates: [[MLXArray]]? = nil
         var prefixCacheMetaStates: [[String]]? = nil
         let suffixTokens = generateInput.text.tokens.reshaped(-1).asArray(Int.self)
         let result: LMOutput
-        if shouldCaptureDeepseekBoundary, let finalToken = suffixTokens.last {
+        if shouldCaptureReplayBoundary, let finalToken = suffixTokens.last {
             var recurrentState: LMOutput.State? = nil
-            if suffixTokens.count > 1 {
-                let leading = LMInput.Text(
-                    tokens: MLXArray(Array(suffixTokens.dropLast()))[.newAxis])
-                recurrentState = model(leading, cache: cache, state: nil).state
+            let leadingTokens = Array(suffixTokens.dropLast())
+            let finalBoundary = inputTokens.count - 1
+            let checkpoints = Self.recurrentCheckpointBoundaries(
+                restoredPrefix: cachedTokens,
+                finalBoundary: finalBoundary
+            )
+            var consumed = 0
+            for boundary in checkpoints + [finalBoundary] {
+                let targetConsumed = boundary - cachedTokens
+                guard targetConsumed > consumed else { continue }
+                let chunk = Array(leadingTokens[consumed..<targetConsumed])
+                recurrentState = model(
+                    LMInput.Text(tokens: MLXArray(chunk)[.newAxis]),
+                    cache: cache,
+                    state: recurrentState
+                ).state
+                consumed = targetConsumed
+
+                if boundary < finalBoundary, let radix = radixCache {
+                    let states = cache.map { Self.snapshotCacheState($0.state) }
+                    MLX.eval(states.flatMap { $0 })
+                    radix.insert(
+                        tokens: Array(inputTokens.prefix(boundary)),
+                        layerStates: states,
+                        layerMetaStates: cache.map { $0.metaState }
+                    )
+                    DebugLogger.log(
+                        "[BatchScheduler] Recurrent prefix checkpoint: \(boundary) tokens")
+                }
             }
             let states = cache.map { layerCache in
                 // `contiguous` may return the original storage when the source
