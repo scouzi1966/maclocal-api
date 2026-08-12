@@ -210,12 +210,6 @@ actor BatchScheduler {
     /// Total tokens generated across all slots (for periodic cache clearing).
     private var totalTokensGenerated = 0
 
-    private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
-        cache.contains {
-            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
-        }
-    }
-
     /// Hybrid recurrent state cannot be trimmed to an arbitrary token offset.
     /// Capture it one token before the prompt boundary, then replay that token
     /// after restore to recover the same next-token logits.
@@ -799,10 +793,13 @@ actor BatchScheduler {
 
                     for req in accepted {
                         let isMultimodal = req.input.image != nil || req.input.video != nil
+                        let requestCache = model.newCache(parameters: req.parameters)
                         let recurrentCache = radixCache != nil
-                            && Self.requiresReplayBoundarySnapshot(
-                                model.newCache(parameters: req.parameters))
-                        if isMultimodal || recurrentCache || hasReusableCachedPrefix(for: req) {
+                            && Self.requiresReplayBoundarySnapshot(requestCache)
+                        if isMultimodal
+                            || recurrentCache
+                            || hasReusableCachedPrefix(for: req, cache: requestCache)
+                        {
                             individual.append(req)
                         } else {
                             batchEligible.append(req)
@@ -1094,15 +1091,15 @@ actor BatchScheduler {
 
     /// Probe whether a request must use individual prefill to preserve a reusable
     /// radix entry. This is called only from the actor's serialized generation loop.
-    private func hasReusableCachedPrefix(for req: PendingRequest) -> Bool {
+    private func hasReusableCachedPrefix(
+        for req: PendingRequest,
+        cache: [KVCache]
+    ) -> Bool {
         guard let radix = radixCache else { return false }
         let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
         guard !inputTokens.isEmpty else { return false }
 
-        let cache = model.newCache(parameters: req.parameters)
-        let recurrent = cache.contains {
-            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
-        }
+        let recurrent = Self.requiresReplayBoundarySnapshot(cache)
         let match = recurrent
             ? radix.findExactBoundaryMatch(inputTokens)
             : radix.findPrefixMatch(inputTokens)
@@ -1137,9 +1134,7 @@ actor BatchScheduler {
         // Prefix cache: restore KV state if available
         if !isMultimodal, let radix = radixCache {
             let tLookup0 = Date.timeIntervalSinceReferenceDate
-            let recurrent = cache.contains {
-                $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
-            }
+            let recurrent = Self.requiresReplayBoundarySnapshot(cache)
             let match = recurrent
                 ? radix.findExactBoundaryMatch(inputTokens)
                 : radix.findPrefixMatch(inputTokens)
@@ -1227,7 +1222,10 @@ actor BatchScheduler {
         let result: LMOutput
         if shouldCaptureReplayBoundary, let finalToken = suffixTokens.last {
             var recurrentState: LMOutput.State? = nil
-            let leadingTokens = Array(suffixTokens.dropLast())
+            // `generateInput` was sliced at `cachedTokens` on restore, so this
+            // array contains only the uncached suffix before the final replay
+            // token. The consumed offsets below are relative to that suffix.
+            let uncachedLeadingTokens = Array(suffixTokens.dropLast())
             let finalBoundary = inputTokens.count - 1
             let checkpoints = Self.recurrentCheckpointBoundaries(
                 restoredPrefix: cachedTokens,
@@ -1237,7 +1235,7 @@ actor BatchScheduler {
             for boundary in checkpoints + [finalBoundary] {
                 let targetConsumed = boundary - cachedTokens
                 guard targetConsumed > consumed else { continue }
-                let chunk = Array(leadingTokens[consumed..<targetConsumed])
+                let chunk = Array(uncachedLeadingTokens[consumed..<targetConsumed])
                 recurrentState = model(
                     LMInput.Text(tokens: MLXArray(chunk)[.newAxis]),
                     cache: cache,
