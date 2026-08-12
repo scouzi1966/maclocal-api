@@ -337,14 +337,14 @@ if [ -f "$MODEL/config.json" ]; then
 elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
   model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
 elif [ -n "${HF_HUB_CACHE:-}" ]; then
-  hf_model_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}/snapshots"
-  if [ -d "$hf_model_dir" ]; then
-    for candidate in "$hf_model_dir"/*/config.json; do
-      if [ -f "$candidate" ]; then
-        model_config="$candidate"
-        break
-      fi
-    done
+  hf_repo_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}"
+  hf_main_ref="$hf_repo_dir/refs/main"
+  if [ -f "$hf_main_ref" ]; then
+    hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
+    candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
+    if [ -f "$candidate" ]; then
+      model_config="$candidate"
+    fi
   fi
 fi
 if [ -n "$model_config" ]; then

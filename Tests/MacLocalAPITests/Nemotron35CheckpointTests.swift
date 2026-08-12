@@ -39,6 +39,38 @@ final class Nemotron35CheckpointTests: XCTestCase {
         XCTAssertEqual(config.routedScalingFactor, 2.5)
     }
 
+    func testProductionCheckpointNormalizesAll52Layers() throws {
+        let productionLayout = [
+            "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe",
+            "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe",
+            "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe",
+            "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe",
+            "mamba", "moe", "mamba", "moe", "mamba", "attention", "moe",
+            "mamba", "moe", "mamba", "moe", "mamba", "moe", "mamba",
+            "attention", "moe", "mamba", "moe", "mamba", "moe", "mamba",
+            "moe", "mamba", "moe",
+        ]
+        var productionConfiguration = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(checkpointConfigurationJSON.utf8))
+                as? [String: Any]
+        )
+        productionConfiguration["layers_block_type"] = productionLayout
+        let data = try JSONSerialization.data(withJSONObject: productionConfiguration)
+
+        let config = try JSONDecoder().decode(NemotronHConfiguration.self, from: data)
+
+        XCTAssertEqual(config.numHiddenLayers, 52)
+        XCTAssertEqual(config.hybridOverridePattern.count, 52)
+        XCTAssertEqual(config.hybridOverridePattern, productionLayout.map {
+            switch $0 {
+            case "mamba": return "M"
+            case "attention": return "*"
+            case "moe": return "E"
+            default: XCTFail("Unexpected production block type: \($0)"); return "?"
+            }
+        }.joined())
+    }
+
     func testCheckpointRejectsUnknownNamedBlockType() {
         let invalid = checkpointConfigurationJSON.replacingOccurrences(
             of: "\"attention\"",
