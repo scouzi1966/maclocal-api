@@ -223,7 +223,8 @@ public enum AFMMLXModelArchitecture {
         "pixtral",
         "mistral3",
         "lfm2_vl",
-        "lfm2-vl"
+        "lfm2-vl",
+        "muse_glimmer"
     ]
 
     public static let metalCrashModelTypes: Set<String> = [
@@ -302,12 +303,17 @@ public enum AFMMLXModelArchitecture {
             )
         }
 
+        let canonicalModelType = canonicalModelType(modelType)
+        let isVisionOnly = visionModelTypes.contains(canonicalModelType)
+            && !languageModelTypes.contains(canonicalModelType)
+
         return AFMMLXModelArchitecturePreflight(
             modelID: modelID,
             modelType: modelType,
-            canonicalModelType: canonicalModelType(modelType),
+            canonicalModelType: canonicalModelType,
             isVisionConfiguration: AFMMLXModelDescriptor.isVisionModelConfiguration(config),
-            requiresVisionModelFactory: AFMMLXModelDescriptor.requiresVisionModelFactory(config)
+            requiresVisionModelFactory: isVisionOnly
+                || AFMMLXModelDescriptor.requiresVisionModelFactory(config)
         )
     }
 
