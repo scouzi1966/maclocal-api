@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import AFMKitCore
 import HuggingFace
 
 public struct AFMDwarfStarHubArtifact: Equatable, Sendable {
@@ -108,13 +110,15 @@ public struct AFMDwarfStarHubResolver: Sendable {
     public func resolve(
         repositoryID: String,
         requestedPath: String? = nil,
-        progress: (@MainActor @Sendable (Progress) -> Void)? = nil
+        progress: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> URL {
         guard let repo = HuggingFace.Repo.ID(rawValue: repositoryID) else {
             throw AFMDwarfStarHubSelectionError.invalidRepositoryID(repositoryID)
         }
-        let client = HuggingFace.HubClient(cache: HubCache(cacheDirectory: cacheDirectory))
-        let entries = try await client.listFiles(in: repo).filter {
+        let cache = HubCache(cacheDirectory: cacheDirectory)
+        let client = HuggingFace.HubClient(cache: cache)
+        let revision = try await client.getModel(repo).sha ?? "main"
+        let entries = try await client.listFiles(in: repo, revision: revision).filter {
             $0.type == .file && $0.path.lowercased().hasSuffix(".gguf")
         }
         let artifact = try AFMDwarfStarHubSelector.selectModel(
@@ -123,12 +127,81 @@ public struct AFMDwarfStarHubResolver: Sendable {
             },
             repositoryID: repositoryID,
             requestedPath: requestedPath)
-        let snapshot = try await client.downloadSnapshot(
-            of: repo,
-            matching: [artifact.path],
-            maxConcurrentDownloads: 1,
-            progressHandler: progress)
-        return snapshot.appendingPathComponent(artifact.path)
+        guard let entry = entries.first(where: { $0.path == artifact.path }) else {
+            throw AFMDwarfStarHubSelectionError.requestedFileNotFound(artifact.path)
+        }
+
+        let expectedBytes = max(Int64(entry.size ?? 1), 1)
+        let blobKey = Self.hubBlobKey(repo: repo, revision: revision, entry: entry)
+        let destination = try cache.blobPath(repo: repo, kind: .model, etag: blobKey)
+        let aggregate = Progress(totalUnitCount: expectedBytes)
+        let file = AFMDownloadProgressUserInfo.File(
+            path: entry.path,
+            expectedBytes: expectedBytes,
+            destination: destination,
+            progress: Progress(totalUnitCount: expectedBytes),
+            transport: "xet")
+        let monitor = Task {
+            while !Task.isCancelled {
+                AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
+                progress?(aggregate)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { monitor.cancel() }
+
+        print("Download destination: \(cacheDirectory.path)")
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        do {
+            print("Hugging Face transport selected: xet file=\(entry.path)")
+            _ = try await client.downloadFile(
+                entry,
+                from: repo,
+                to: destination,
+                revision: revision,
+                progress: file.progress,
+                transport: .xet)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard !Task.isCancelled else { throw CancellationError() }
+            file.setTransport("xet-fallback-lfs")
+            print("Hugging Face transport fallback: xet failed for \(entry.path): \(error.localizedDescription); retrying with lfs")
+            try? FileManager.default.removeItem(at: destination)
+            _ = try await client.downloadFile(
+                entry,
+                from: repo,
+                to: destination,
+                revision: revision,
+                progress: file.progress,
+                transport: .lfs)
+        }
+        try await cache.storeFile(
+            at: destination,
+            repo: repo,
+            kind: .model,
+            revision: revision,
+            filename: entry.path,
+            etag: blobKey,
+            ref: "main")
+        file.progress.completedUnitCount = expectedBytes
+        AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
+        progress?(aggregate)
+        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: revision)
+        return snapshot.appendingPathComponent(entry.path)
+    }
+
+    private static func hubBlobKey(
+        repo: HuggingFace.Repo.ID,
+        revision: String,
+        entry: Git.TreeEntry
+    ) -> String {
+        let identity = "\(repo.description)|\(revision)|\(entry.path)|\(entry.oid ?? "")"
+        return SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     public static func defaultCacheDirectory() -> URL {

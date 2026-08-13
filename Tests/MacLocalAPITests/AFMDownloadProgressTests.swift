@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import AFMKitMLX
+@testable import AFMKitCore
 
 final class AFMDownloadProgressTests: XCTestCase {
     func testEnrichmentReportsActiveAndCompletedFiles() {

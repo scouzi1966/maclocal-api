@@ -920,13 +920,18 @@ struct MlxCommand: ParsableCommand {
 
         let group = DispatchGroup()
         let result = SendableBox<Result<URL, Error>?>(nil)
+        let loadReporter = MLXLoadReporter(
+            modelID: model,
+            loadingLabel: "Resolving remote DwarfStar model")
+        loadReporter.start()
         group.enter()
         Task.detached {
             do {
                 let resolver = AFMDwarfStarHubResolver()
                 result.value = .success(try await resolver.resolve(
                     repositoryID: model,
-                    requestedPath: ggufFile))
+                    requestedPath: ggufFile,
+                    progress: { loadReporter.updateDownload($0) }))
             } catch {
                 result.value = .failure(error)
             }
@@ -936,18 +941,23 @@ struct MlxCommand: ParsableCommand {
 
         switch result.value {
         case .success(let url):
+            loadReporter.finish(success: true)
             print("[Runtime] Hugging Face GGUF resolved: \(model) -> \(url.lastPathComponent)")
             return url.path
         case .failure(let error as AFMDwarfStarHubSelectionError):
             if requested == MLXRuntimeBackend.auto.rawValue,
                case .noModelGGUF = error,
                ggufFile == nil {
+                loadReporter.finish(success: true)
                 return model
             }
+            loadReporter.finish(success: false, errorMessage: error.localizedDescription)
             throw error
         case .failure(let error):
+            loadReporter.finish(success: false, errorMessage: error.localizedDescription)
             throw error
         case .none:
+            loadReporter.finish(success: false, errorMessage: "resolver returned no result")
             throw ValidationError("Hugging Face GGUF resolution ended without a result")
         }
     }
@@ -2099,6 +2109,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
     nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
 
     private let modelID: String
+    private let loadingLabel: String
     private let lock = NSLock()
     private var stage: MLXLoadStage = .checkingCache
     private var downloadFraction: Double?
@@ -2109,6 +2120,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
     private var downloadCurrentFiles: [String] = []
     private var downloadCompletedFiles: Int?
     private var downloadTotalFiles: Int?
+    private var downloadCurrentTransports: [String] = []
     private var lastDownloadSample: (date: Date, completed: Int64)?
     private var timer: DispatchSourceTimer?
     private var spinnerIndex: Int = 0
@@ -2117,8 +2129,9 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
     private let spinnerFrames = ["|", "/", "-", "\\"]
 
-    init(modelID: String) {
+    init(modelID: String, loadingLabel: String = "Loading MLX model") {
         self.modelID = modelID
+        self.loadingLabel = loadingLabel
     }
 
     func start() {
@@ -2127,7 +2140,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         Self.reporterLock.unlock()
 
         startedAt = Date()
-        print("Loading MLX model: \(modelID)")
+        print("\(loadingLabel): \(modelID)")
 
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now(), repeating: .milliseconds(200))
@@ -2150,6 +2163,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         downloadCurrentFiles = progress.userInfo[AFMDownloadProgressUserInfo.currentFiles] as? [String] ?? []
         downloadCompletedFiles = progress.userInfo[AFMDownloadProgressUserInfo.completedFiles] as? Int
         downloadTotalFiles = progress.userInfo[AFMDownloadProgressUserInfo.totalFiles] as? Int
+        downloadCurrentTransports = progress.userInfo[AFMDownloadProgressUserInfo.currentTransports] as? [String] ?? []
         if let previous = lastDownloadSample {
             let elapsed = now.timeIntervalSince(previous.date)
             let delta = completed - previous.completed
@@ -2183,6 +2197,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
             downloadCurrentFiles = []
             downloadCompletedFiles = nil
             downloadTotalFiles = nil
+            downloadCurrentTransports = []
             lastDownloadSample = nil
         }
         lock.unlock()
@@ -2243,6 +2258,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         let currentFiles = self.downloadCurrentFiles
         let completedFiles = self.downloadCompletedFiles
         let totalFiles = self.downloadTotalFiles
+        let currentTransports = self.downloadCurrentTransports
         spinnerIndex = (spinnerIndex + 1) % spinnerFrames.count
         let spinner = spinnerFrames[spinnerIndex]
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -2278,7 +2294,8 @@ private final class MLXLoadReporter: @unchecked Sendable {
                 line += " | \(first)"
                 if currentFiles.count > 1 { line += " (+\(currentFiles.count - 1))" }
             }
-            line += " | transport auto"
+            let transports = Array(Set(currentTransports)).sorted()
+            line += " | transport \(transports.isEmpty ? "auto" : transports.joined(separator: "+"))"
         }
         fputs(Self.terminalSafeLine(line, clearExisting: true), stdout)
         fflush(stdout)
