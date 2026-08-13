@@ -77,10 +77,8 @@ private class NemotronHRMSNormGated: Module {
         let unflattened = states.reshaped(newShape)
 
         // Python: x = mx.fast.rms_norm(x, weight=None, eps=self.eps)
-        // Apply RMS norm per group WITHOUT scaling (pass ones as weight)
-        // Swift rmsNorm doesn't accept nil, so we use identity weight
-        let identityWeight = MLXArray.ones([groupSize])
-        let normed = MLXFast.rmsNorm(unflattened, weight: identityWeight, eps: eps)
+        // MLXArray.mlxNone maps to the optional weight path without an identity multiply.
+        let normed = MLXFast.rmsNorm(unflattened, weight: .mlxNone, eps: eps)
 
         // Python: return self.weight * x.flatten(-2)
         // Flatten back to [..., hidden] and apply learned weight
