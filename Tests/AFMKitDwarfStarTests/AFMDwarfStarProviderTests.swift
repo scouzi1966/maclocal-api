@@ -1,5 +1,6 @@
 import XCTest
 import AFMKitCore
+import CDwarfStar
 @testable import AFMKitDwarfStar
 
 final class AFMDwarfStarProviderTests: XCTestCase {
@@ -107,6 +108,13 @@ final class AFMDwarfStarProviderTests: XCTestCase {
                 ])
             ]),
             .chat)
+    }
+
+    func testReasoningModesMapToNativeDwarfStarModes() {
+        XCTAssertEqual(AFMDwarfStarReasoningMode.chat.thinkMode, DS4_THINK_NONE)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.low.thinkMode, DS4_THINK_HIGH)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.high.thinkMode, DS4_THINK_HIGH)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.max.thinkMode, DS4_THINK_MAX)
     }
 
     func testSlotPolicyUsesFirstAvailableSlotWithoutPrefixCaching() {
