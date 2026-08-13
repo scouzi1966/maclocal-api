@@ -51,7 +51,7 @@ final class AFMMLXLoadedModeSwitchPolicyTests: XCTestCase {
         XCTAssertEqual(plan?.targetVLM, false)
     }
 
-    func testVisionConfigurationLoadsVLMInitially() {
+    func testDualModeVisionConfigurationLoadsLLMInitially() {
         let architecture = AFMMLXModelArchitecturePreflight(
             modelID: "gemma4-vision",
             modelType: "gemma4",
@@ -59,7 +59,8 @@ final class AFMMLXLoadedModeSwitchPolicyTests: XCTestCase {
             isVisionConfiguration: true,
             requiresVisionModelFactory: false
         )
-        XCTAssertEqual(AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: architecture), .vlm)
+        XCTAssertEqual(AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: architecture), .llm)
+        XCTAssertEqual(AFMMLXModelFactoryPolicy.initialFactory(forceVLM: true, architecture: architecture), .vlm)
     }
 
     func testTextOnlyDualModeConfigurationLoadsLLM() {

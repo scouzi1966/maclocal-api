@@ -2,6 +2,8 @@ import Foundation
 import Testing
 import MLX
 import MLXLLM
+import MLXLMCommon
+import MLXVLM
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -138,6 +140,31 @@ struct ConcurrentBatchTests {
     func defaultAdmissionWindowEnabled() {
         #expect(BatchScheduler.defaultAdmissionWindowNanoseconds > 0)
         #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
+    }
+
+    @Test("Gemma 4 defers staggered arrivals until the active cohort drains")
+    func gemma4DefersStaggeredAdmissions() {
+        #expect(BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 1))
+        #expect(BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 8))
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 0))
+    }
+
+    @Test("Other models continue admitting requests into active batches")
+    func nonGemmaModelsAdmitStaggeredRequests() {
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: false, activeSlotCount: 4))
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: false, activeSlotCount: 0))
+    }
+
+    @Test("Gemma text and vision models advertise fixed decode cohorts")
+    func gemmaVariantsAdvertiseFixedDecodeCohorts() {
+        #expect(BatchScheduler.requiresFixedDecodeCohorts(for: Gemma4Model.self))
+        #expect(BatchScheduler.requiresFixedDecodeCohorts(for: Gemma4VLM.self))
+        #expect(!BatchScheduler.requiresFixedDecodeCohorts(for: Qwen3Model.self))
     }
 
     @Test("BatchScheduler supports DeepSeek hybrid cache through its batch container")

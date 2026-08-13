@@ -5,6 +5,7 @@ import MLX
 // See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
 // concurrency; downgrade their Sendable diagnostics to warnings.
 @preconcurrency import MLXLMCommon
+@preconcurrency import MLXVLM
 import Tokenizers
 import os
 
@@ -16,6 +17,18 @@ private let _batchTsFormatter: DateFormatter = {
 }()
 
 private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
+
+private protocol FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { get }
+}
+
+extension Gemma4Model: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
+
+extension Gemma4VLM: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
 
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
@@ -57,6 +70,10 @@ actor BatchScheduler {
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
     private let admissionWindowNanoseconds: UInt64
+    /// Some models change attention behavior when a later, shorter sequence is
+    /// left-padded into an active batch. Keep their decode cohorts fixed so
+    /// staggered arrivals retain the same path as serial generation.
+    private let requiresFixedDecodeCohorts: Bool
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -228,6 +245,10 @@ actor BatchScheduler {
             || cache is CacheList
             || cache is DeepseekV4Cache
             || (cache as? RotatingKVCache)?.isBatchable == true
+    }
+
+    nonisolated static func requiresFixedDecodeCohorts(for modelType: Any.Type) -> Bool {
+        modelType is any FixedDecodeCohortModel.Type
     }
 
     /// Copy cache tensors into independent MLX storage before retaining them
@@ -534,6 +555,8 @@ actor BatchScheduler {
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
+        self.requiresFixedDecodeCohorts = Self.requiresFixedDecodeCohorts(
+            for: type(of: model))
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -750,7 +773,15 @@ actor BatchScheduler {
 
             // Drain nonisolated queue. When idle, wait a bounded admission
             // window so same-burst concurrent requests start together.
-            let newRequests = await drainAdmissionBatch()
+            let newRequests: [PendingRequest]
+            if Self.shouldDeferStaggeredAdmissions(
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts,
+                activeSlotCount: slots.count
+            ) {
+                newRequests = []
+            } else {
+                newRequests = await drainAdmissionBatch()
+            }
             if Task.isCancelled || _isShutdown.withLock({ $0 }) {
                 for req in newRequests {
                     _inFlightCount.withLock { $0 = max(0, $0 - 1) }
@@ -1087,6 +1118,13 @@ actor BatchScheduler {
         let minSuffix = 16
         let effectivePrefix = min(matchedPrefix, max(0, inputTokenCount - minSuffix))
         return effectivePrefix
+    }
+
+    static func shouldDeferStaggeredAdmissions(
+        requiresFixedDecodeCohorts: Bool,
+        activeSlotCount: Int
+    ) -> Bool {
+        requiresFixedDecodeCohorts && activeSlotCount > 0
     }
 
     /// Probe whether a request must use individual prefill to preserve a reusable

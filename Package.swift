@@ -9,7 +9,7 @@ let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
     atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
 ) ? .package(path: vendoredMLXSwiftLMPath) : .package(
     url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-    revision: "d283c11e190fc463746f6f4fbee0523e6a2a5c1b"
+    revision: "6bab4f5ac55e81903dd74090244c25feb3233338"
 )
 
 let package = Package(
