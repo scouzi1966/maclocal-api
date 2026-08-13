@@ -31,7 +31,14 @@ enum AFMDwarfStarReasoningMode: String, Equatable, Sendable {
     }
 
     var thinkMode: ds4_think_mode {
-        self == .chat ? DS4_THINK_NONE : DS4_THINK_HIGH
+        switch self {
+        case .chat:
+            return DS4_THINK_NONE
+        case .low, .high:
+            return DS4_THINK_HIGH
+        case .max:
+            return DS4_THINK_MAX
+        }
     }
 
     var promptPrefix: String? {
@@ -955,13 +962,15 @@ public actor AFMDwarfStarRuntimeCoordinator {
         let texts = request.messages.map { message in
             (try? AFMDwarfStarToolCodec.textContent(of: message)) ?? "<non-text>"
         }
+        let reasoningMode = AFMDwarfStarReasoningMode.resolve(metadata: request.metadata)
         let tokenIDs: [Int32]
         if let values = prompt.v {
             tokenIDs = (0..<Int(prompt.len)).map { Int32(values[$0]) }
         } else {
             tokenIDs = []
         }
-        let line = "[DwarfStarPrompt] roles=\(roles) texts=\(texts.debugDescription) "
+        let line = "[DwarfStarPrompt] reasoning=\(reasoningMode.rawValue) "
+            + "roles=\(roles) texts=\(texts.debugDescription) "
             + "tokens=\(tokenIDs)\n"
         FileHandle.standardError.write(Data(line.utf8))
     }

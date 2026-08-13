@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import AFMKitCore
 import HuggingFace
 
 public struct AFMDwarfStarHubArtifact: Equatable, Sendable {
@@ -108,13 +110,15 @@ public struct AFMDwarfStarHubResolver: Sendable {
     public func resolve(
         repositoryID: String,
         requestedPath: String? = nil,
-        progress: (@MainActor @Sendable (Progress) -> Void)? = nil
+        progress: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> URL {
         guard let repo = HuggingFace.Repo.ID(rawValue: repositoryID) else {
             throw AFMDwarfStarHubSelectionError.invalidRepositoryID(repositoryID)
         }
-        let client = HuggingFace.HubClient(cache: HubCache(cacheDirectory: cacheDirectory))
-        let entries = try await client.listFiles(in: repo).filter {
+        let cache = HubCache(cacheDirectory: cacheDirectory)
+        let client = HuggingFace.HubClient(cache: cache)
+        let revision = try await client.getModel(repo).sha ?? "main"
+        let entries = try await client.listFiles(in: repo, revision: revision).filter {
             $0.type == .file && $0.path.lowercased().hasSuffix(".gguf")
         }
         let artifact = try AFMDwarfStarHubSelector.selectModel(
@@ -123,12 +127,173 @@ public struct AFMDwarfStarHubResolver: Sendable {
             },
             repositoryID: repositoryID,
             requestedPath: requestedPath)
-        let snapshot = try await client.downloadSnapshot(
-            of: repo,
-            matching: [artifact.path],
-            maxConcurrentDownloads: 1,
-            progressHandler: progress)
-        return snapshot.appendingPathComponent(artifact.path)
+        guard let entry = entries.first(where: { $0.path == artifact.path }) else {
+            throw AFMDwarfStarHubSelectionError.requestedFileNotFound(artifact.path)
+        }
+
+        let expectedBytes = max(Int64(entry.size ?? 1), 1)
+        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: revision)
+        let cachedArtifact = snapshot.appendingPathComponent(entry.path)
+        let cachedTarget = cachedArtifact.resolvingSymlinksInPath()
+        if AFMDwarfStarResumableDownload.fileSize(cachedTarget) == expectedBytes {
+            print("Using cached DwarfStar model: \(cachedArtifact.path)")
+            return cachedArtifact
+        }
+        let blobKey = Self.hubBlobKey(repo: repo, revision: revision, entry: entry)
+        let destination = try cache.blobPath(repo: repo, kind: .model, etag: blobKey)
+        let partial = try cache.incompleteBlobPath(repo: repo, kind: .model, etag: blobKey)
+        let segment = partial.appendingPathExtension("xet-segment")
+        print("Download destination: \(cacheDirectory.path)")
+        try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let token = try await TokenProvider.environment.getToken()
+        let listedSHA256 = entry.oid.flatMap(Self.normalizedSHA256)
+        let xetMetadata: AFMDwarfStarXetMetadata
+        do {
+            xetMetadata = try await AFMDwarfStarResumableDownload.fetchXetMetadata(
+                repositoryID: repositoryID,
+                revision: revision,
+                path: entry.path,
+                expectedBytes: expectedBytes,
+                token: token)
+        } catch {
+            print("Hugging Face Xet metadata unavailable: \(AFMDwarfStarResumableDownload.detailedError(error)); using cache-local LFS")
+            xetMetadata = AFMDwarfStarXetMetadata(
+                fileID: nil,
+                expectedBytes: expectedBytes,
+                expectedSHA256: listedSHA256)
+        }
+        let aggregate = Progress(totalUnitCount: xetMetadata.expectedBytes)
+        let file = AFMDownloadProgressUserInfo.File(
+            path: entry.path,
+            expectedBytes: xetMetadata.expectedBytes,
+            destination: nil,
+            progress: Progress(totalUnitCount: xetMetadata.expectedBytes),
+            transport: "xet")
+        let monitor = Task {
+            while !Task.isCancelled {
+                let persisted = AFMDwarfStarResumableDownload.fileSize(partial)
+                let activeSegment = AFMDwarfStarResumableDownload.fileSize(segment)
+                file.progress.completedUnitCount = min(
+                    persisted + activeSegment,
+                    xetMetadata.expectedBytes)
+                AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
+                progress?(aggregate)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { monitor.cancel() }
+        try AFMDwarfStarResumableDownload.adoptSegment(
+            segment,
+            as: partial,
+            expectedBytes: xetMetadata.expectedBytes)
+        var offset = min(
+            AFMDwarfStarResumableDownload.fileSize(partial),
+            xetMetadata.expectedBytes)
+        file.progress.completedUnitCount = offset
+        if offset > 0 {
+            print("Resuming cached partial: \(ByteCountFormatter.string(fromByteCount: offset, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: xetMetadata.expectedBytes, countStyle: .file))")
+        }
+
+        let maximumXetAttempts = 4
+        var lastXetError: Error?
+        if xetMetadata.fileID != nil {
+            for attempt in 1 ... maximumXetAttempts where offset < xetMetadata.expectedBytes {
+                try? FileManager.default.removeItem(at: segment)
+                file.setTransport(attempt == 1 ? "xet" : "xet-retry-\(attempt)")
+                print("Hugging Face transport selected: xet file=\(entry.path) offset=\(offset) attempt=\(attempt)/\(maximumXetAttempts)")
+                do {
+                    try await AFMDwarfStarResumableDownload.downloadXetRange(
+                        metadata: xetMetadata,
+                        repositoryID: repositoryID,
+                        revision: revision,
+                        offset: offset,
+                        segmentURL: segment,
+                        token: token)
+                    try AFMDwarfStarResumableDownload.adoptSegment(
+                        segment,
+                        as: partial,
+                        expectedBytes: xetMetadata.expectedBytes)
+                    offset = AFMDwarfStarResumableDownload.fileSize(partial)
+                    file.progress.completedUnitCount = offset
+                    lastXetError = nil
+                } catch is CancellationError {
+                    try? AFMDwarfStarResumableDownload.adoptSegment(
+                        segment,
+                        as: partial,
+                        expectedBytes: xetMetadata.expectedBytes)
+                    throw CancellationError()
+                } catch {
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    try? AFMDwarfStarResumableDownload.adoptSegment(
+                        segment,
+                        as: partial,
+                        expectedBytes: xetMetadata.expectedBytes)
+                    offset = AFMDwarfStarResumableDownload.fileSize(partial)
+                    file.progress.completedUnitCount = offset
+                    lastXetError = error
+                    let detail = AFMDwarfStarResumableDownload.detailedError(error)
+                    if attempt < maximumXetAttempts {
+                        let delay = min(1 << (attempt - 1), 8)
+                        print("Xet interrupted at \(offset)/\(xetMetadata.expectedBytes) bytes: \(detail); retrying in \(delay)s")
+                        try await Task.sleep(for: .seconds(delay))
+                    }
+                }
+            }
+        } else {
+            lastXetError = AFMDwarfStarDownloadError.missingXetMetadata(entry.path)
+        }
+
+        if offset < xetMetadata.expectedBytes {
+            file.setTransport("xet-fallback-lfs")
+            let detail = lastXetError.map(AFMDwarfStarResumableDownload.detailedError) ?? "unknown Xet failure"
+            print("Hugging Face transport fallback: Xet exhausted at \(offset)/\(xetMetadata.expectedBytes) bytes: \(detail); continuing with cache-local LFS")
+            try await AFMDwarfStarResumableDownload.downloadLFSRange(
+                repositoryID: repositoryID,
+                revision: revision,
+                path: entry.path,
+                destination: partial,
+                offset: offset,
+                expectedBytes: xetMetadata.expectedBytes,
+                token: token,
+                progress: { completed in file.progress.completedUnitCount = completed })
+        }
+
+        file.setTransport("verifying-sha256")
+        print("Verifying downloaded file size and SHA-256 before publication")
+        try AFMDwarfStarResumableDownload.publish(
+            partial: partial,
+            blob: destination,
+            expectedBytes: xetMetadata.expectedBytes,
+            expectedSHA256: xetMetadata.expectedSHA256)
+        try await cache.storeFile(
+            at: destination,
+            repo: repo,
+            kind: .model,
+            revision: revision,
+            filename: entry.path,
+            etag: blobKey,
+            ref: "main")
+        file.progress.completedUnitCount = xetMetadata.expectedBytes
+        AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
+        progress?(aggregate)
+        return snapshot.appendingPathComponent(entry.path)
+    }
+
+    private static func hubBlobKey(
+        repo: HuggingFace.Repo.ID,
+        revision: String,
+        entry: Git.TreeEntry
+    ) -> String {
+        let identity = "\(repo.description)|\(revision)|\(entry.path)|\(entry.oid ?? "")"
+        return SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func normalizedSHA256(_ value: String) -> String? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard value.count == 64, value.allSatisfy(\.isHexDigit) else { return nil }
+        return value
     }
 
     public static func defaultCacheDirectory() -> URL {

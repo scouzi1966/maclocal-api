@@ -77,7 +77,7 @@ public struct AFMDwarfStarCheckpointCatalog: Sendable {
     /// Reads the model architecture from GGUF metadata without loading tensor
     /// data. This is the runtime auto-selection signal; filenames are ignored.
     public static func ggufArchitecture(at url: URL) -> String? {
-        try? GGUFMetadataReader(url: url).architecture()
+        try? GGUFMetadataReader(url: url.resolvingSymlinksInPath()).architecture()
     }
 
     public static func isDwarfStarCompatibleGGUF(at url: URL) -> Bool {
