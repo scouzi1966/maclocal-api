@@ -1398,6 +1398,8 @@ public func savePromptCache(
     // Use Python-compatible class names for cross-platform compatibility
     let cacheClasses = cache.map { cache -> String in
         switch cache {
+        case is SharedKVCache:
+            return "SharedKVCache"
         case is KVCacheSimple:
             return "KVCache"  // Python uses "KVCache" for the basic cache
         case is RotatingKVCache:
@@ -1468,9 +1470,16 @@ public func loadPromptCache(
         throw KVCacheError(message: "Invalid cache metadata format")
     }
 
-    let cacheInfo = unflattenedMetadata[0] as? [[String]] ?? []
+    var cacheInfo = unflattenedMetadata[0] as? [[String]] ?? []
     let userMetadata = unflattenedMetadata[1] as? [String: String] ?? [:]
     let cacheClasses = unflattenedMetadata[2] as? [String] ?? []
+
+    // Basic and shared KV caches intentionally have no metaState. Their empty
+    // entries are absent from the flattened metadata dictionary, so restore
+    // trailing placeholders from the authoritative class list.
+    while cacheInfo.count < cacheClasses.count {
+        cacheInfo.append([])
+    }
 
     guard cacheData.count == cacheInfo.count && cacheData.count == cacheClasses.count else {
         throw KVCacheError(message: "Mismatch in cache counts")
@@ -1483,6 +1492,8 @@ public func loadPromptCache(
 
         var cache: KVCache
         switch className {
+        case "SharedKVCache":
+            cache = SharedKVCache()
         case "KVCache", "KVCacheSimple":  // Handle both Python and Swift names
             cache = KVCacheSimple()
         case "RotatingKVCache":

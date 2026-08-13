@@ -20,6 +20,35 @@ import MLXLMCommon
 import MLXNN
 import Tokenizers
 
+func gemma4VLRopeOffsets(
+    cache: KVCache?, batchSize: Int
+) -> (scalar: Int, batched: MLXArray?) {
+    let scalar = cache?.offset ?? 0
+    guard let offsets = cache?.offsetArray, offsets.dim(0) == batchSize else {
+        return (scalar, nil)
+    }
+    if (cache as? BaseKVCache)?.allOffsetsEqual == true {
+        return (scalar, nil)
+    }
+    return (scalar, offsets)
+}
+
+/// Synchronize a KV-shared layer with the reference layer that produced its
+/// keys and values. Shared layers skip `cache.update`, so both the scalar and
+/// per-sequence offsets must be copied for unequal-length batches.
+func gemma4VLSyncSharedCache(
+    _ cache: KVCache?,
+    scalarOffset: Int,
+    offsets: MLXArray?,
+    allOffsetsEqual: Bool?
+) {
+    guard let baseCache = cache as? BaseKVCache else { return }
+    baseCache.offset = scalarOffset
+    if let offsets {
+        baseCache.syncPerSeqOffsets(offsets, allEqual: allOffsetsEqual)
+    }
+}
+
 // ============================================================================
 // MARK: - Text Configuration (duplicated from Gemma4Text.swift)
 // ============================================================================
@@ -469,8 +498,11 @@ class Gemma4VLAttention: Module {
         let B = shape[0]
         let L = shape[1]
 
-        // Read offset BEFORE cache update -- keys and queries must use the same offset
-        let offset = cache?.offset ?? 0
+        // Read offsets before cache update so keys and queries use the same
+        // positions. Batched caches can contain unequal per-sequence offsets.
+        let ropeOffsets = gemma4VLRopeOffsets(cache: cache, batchSize: B)
+        let scalarOffset = ropeOffsets.scalar
+        let batchedOffset = ropeOffsets.batched
 
         var queries = qProj(x).reshaped(B, L, nHeads, headDim)
         queries = qNorm(queries)
@@ -497,22 +529,40 @@ class Gemma4VLAttention: Module {
             values = values.transposed(0, 2, 1, 3)
 
             keys = keys.transposed(0, 2, 1, 3)
-            keys = rope(keys, offset: offset)
+            if let batchedOffset {
+                keys = rope(keys, offset: batchedOffset)
+            } else {
+                keys = rope(keys, offset: scalarOffset)
+            }
 
-        }
-
-        if storeFullLengthKV {
-            lastKV = (keys, values)
         }
 
         queries = queries.transposed(0, 2, 1, 3)
-        queries = rope(queries, offset: offset)
+        if let batchedOffset {
+            queries = rope(queries, offset: batchedOffset)
+        } else {
+            queries = rope(queries, offset: scalarOffset)
+        }
 
         let output: MLXArray
         if isKvSharedLayer {
             output = MLXFast.scaledDotProductAttention(
                 queries: queries, keys: keys, values: values,
                 scale: 1.0,  // Gemma4 uses scale=1.0 (scaling is in q/k norms)
+                mask: mask
+            )
+        } else if storeFullLengthKV {
+            // Shared layers need the complete materialized history, not only the
+            // K/V tensors produced for this invocation. SharedKVCache is never
+            // dynamically quantized, so update it explicitly before publishing
+            // the reference tensors to later layers.
+            if let cache {
+                (keys, values) = cache.update(keys: keys, values: values)
+            }
+            lastKV = (keys, values)
+            output = MLXFast.scaledDotProductAttention(
+                queries: queries, keys: keys, values: values,
+                scale: 1.0,
                 mask: mask
             )
         } else {
@@ -785,8 +835,9 @@ class Gemma4VLTextModelInner: Module {
         let slidingMask = createAttentionMask(
             h: h, cache: slidingCacheIdx.flatMap { cache[$0] }, windowSize: windowSize)
 
-        // KV sharing store: layer_idx -> (keys, values, offset)
-        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int)] = [:]
+        // KV sharing store: layer_idx ->
+        // (keys, values, scalarOffset, perSequenceOffsets, allOffsetsEqual)
+        var sharedKVStore: [Int: ((MLXArray, MLXArray), Int, MLXArray?, Bool?)] = [:]
 
         for (i, (layer, c)) in zip(layers, cache).enumerated() {
             let isGlobal = layer.layerType == "full_attention"
@@ -804,22 +855,25 @@ class Gemma4VLTextModelInner: Module {
             var layerSharedKV: (MLXArray, MLXArray)?
             let attn = layer.selfAttn
             if attn.isKvSharedLayer, let refIdx = attn.kvSharedLayerIndex,
-                let (kv, refOffset) = sharedKVStore[refIdx]
+                let (kv, refOffset, refOffsetArray, refAllEqual) = sharedKVStore[refIdx]
             {
                 layerSharedKV = kv
-                // Sync offset so RoPE positions match the shared KV
-                if let baseCache = c as? BaseKVCache {
-                    baseCache.offset = refOffset
-                }
+                gemma4VLSyncSharedCache(
+                    c,
+                    scalarOffset: refOffset,
+                    offsets: refOffsetArray,
+                    allOffsetsEqual: refAllEqual)
             }
 
             let preOffset = c?.offset ?? 0
+            let preOffsetArray = c?.offsetArray
+            let preAllEqual = (c as? BaseKVCache)?.allOffsetsEqual
 
             h = layer(h, mask: mask, cache: c, perLayerInput: plInput, sharedKV: layerSharedKV)
 
             // Store KV for sharing if needed
             if attn.storeFullLengthKV, let kv = attn.lastKV {
-                sharedKVStore[i] = (kv, preOffset)
+                sharedKVStore[i] = (kv, preOffset, preOffsetArray, preAllEqual)
             }
         }
 

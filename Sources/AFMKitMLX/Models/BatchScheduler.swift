@@ -5,6 +5,7 @@ import MLX
 // See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
 // concurrency; downgrade their Sendable diagnostics to warnings.
 @preconcurrency import MLXLMCommon
+@preconcurrency import MLXVLM
 import Tokenizers
 import os
 
@@ -16,6 +17,18 @@ private let _batchTsFormatter: DateFormatter = {
 }()
 
 private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
+
+private protocol FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { get }
+}
+
+extension Gemma4Model: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
+
+extension Gemma4VLM: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
 
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
@@ -57,10 +70,10 @@ actor BatchScheduler {
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
     private let admissionWindowNanoseconds: UInt64
-    /// Gemma 4 changes SDPA kernels when a later, shorter sequence is left-padded
-    /// into an active batch. Keep each decode cohort fixed so staggered arrivals
-    /// retain the same unmasked attention path as serial generation.
-    private let defersStaggeredAdmissions: Bool
+    /// Some models change attention behavior when a later, shorter sequence is
+    /// left-padded into an active batch. Keep their decode cohorts fixed so
+    /// staggered arrivals retain the same path as serial generation.
+    private let requiresFixedDecodeCohorts: Bool
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -232,6 +245,10 @@ actor BatchScheduler {
             || cache is CacheList
             || cache is DeepseekV4Cache
             || (cache as? RotatingKVCache)?.isBatchable == true
+    }
+
+    nonisolated static func requiresFixedDecodeCohorts(for modelType: Any.Type) -> Bool {
+        modelType is any FixedDecodeCohortModel.Type
     }
 
     /// Copy cache tensors into independent MLX storage before retaining them
@@ -538,7 +555,8 @@ actor BatchScheduler {
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
-        self.defersStaggeredAdmissions = model is Gemma4Model
+        self.requiresFixedDecodeCohorts = Self.requiresFixedDecodeCohorts(
+            for: type(of: model))
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -757,7 +775,7 @@ actor BatchScheduler {
             // window so same-burst concurrent requests start together.
             let newRequests: [PendingRequest]
             if Self.shouldDeferStaggeredAdmissions(
-                isGemma4: defersStaggeredAdmissions,
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts,
                 activeSlotCount: slots.count
             ) {
                 newRequests = []
@@ -1103,10 +1121,10 @@ actor BatchScheduler {
     }
 
     static func shouldDeferStaggeredAdmissions(
-        isGemma4: Bool,
+        requiresFixedDecodeCohorts: Bool,
         activeSlotCount: Int
     ) -> Bool {
-        isGemma4 && activeSlotCount > 0
+        requiresFixedDecodeCohorts && activeSlotCount > 0
     }
 
     /// Probe whether a request must use individual prefill to preserve a reusable

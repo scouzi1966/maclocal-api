@@ -616,10 +616,6 @@ class Gemma4Attention: Module {
 
         }
 
-        if storeFullLengthKV {
-            lastKV = (keys, values)
-        }
-
         queries = queries.transposed(0, 2, 1, 3)
         if let batchedOffset {
             queries = rope(queries, offset: batchedOffset)
@@ -629,6 +625,18 @@ class Gemma4Attention: Module {
 
         let output: MLXArray
         if isKvSharedLayer {
+            output = MLXFast.scaledDotProductAttention(
+                queries: queries, keys: keys, values: values,
+                scale: 1.0, mask: mask)
+        } else if storeFullLengthKV {
+            // Shared layers need the complete materialized history, not only the
+            // K/V tensors produced for this invocation. SharedKVCache is never
+            // dynamically quantized, so update it explicitly before publishing
+            // the reference tensors to later layers.
+            if let cache {
+                (keys, values) = cache.update(keys: keys, values: values)
+            }
+            lastKV = (keys, values)
             output = MLXFast.scaledDotProductAttention(
                 queries: queries, keys: keys, values: values,
                 scale: 1.0, mask: mask)
