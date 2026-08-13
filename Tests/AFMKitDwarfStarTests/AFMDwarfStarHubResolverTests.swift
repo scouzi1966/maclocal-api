@@ -159,4 +159,43 @@ final class AFMDwarfStarHubResolverTests: XCTestCase {
         XCTAssertTrue(detail.contains("download.wrapper"))
         XCTAssertTrue(detail.contains("download.transport"))
     }
+
+    func testDwarfStarDetectionFollowsHuggingFaceSnapshotSymlink() throws {
+        let directory = try temporaryDirectory()
+        let blobs = directory.appendingPathComponent("blobs", isDirectory: true)
+        let snapshot = directory.appendingPathComponent("snapshots/commit", isDirectory: true)
+        try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+        let blob = blobs.appendingPathComponent("model-blob")
+        try minimalGGUF(architecture: "deepseek4").write(to: blob)
+        let link = snapshot.appendingPathComponent("model.gguf")
+        try FileManager.default.createSymbolicLink(
+            atPath: link.path,
+            withDestinationPath: "../../blobs/model-blob")
+
+        XCTAssertTrue(AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: link))
+        XCTAssertEqual(AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: link), "deepseek4")
+    }
+
+    private func minimalGGUF(architecture: String) -> Data {
+        var data = Data("GGUF".utf8)
+        append(UInt32(3), to: &data)
+        append(UInt64(0), to: &data) // tensor count
+        append(UInt64(1), to: &data) // metadata count
+        appendString("general.architecture", to: &data)
+        append(UInt32(8), to: &data) // GGUF string value
+        appendString(architecture, to: &data)
+        return data
+    }
+
+    private func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+        var value = value.littleEndian
+        withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+    }
+
+    private func appendString(_ value: String, to data: inout Data) {
+        let bytes = Data(value.utf8)
+        append(UInt64(bytes.count), to: &data)
+        data.append(bytes)
+    }
 }

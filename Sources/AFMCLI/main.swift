@@ -864,7 +864,9 @@ struct MlxCommand: ParsableCommand {
         guard requested != .mlx else { return .mlx }
 
         let path = localModelPath(model)
-        let modelURL = URL(fileURLWithPath: path)
+        // Hugging Face snapshots expose model files as symlinks into blobs.
+        // Classify the resolved target so a cached GGUF is not mistaken for MLX.
+        let modelURL = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         let resourceValues = try? modelURL.resourceValues(
             forKeys: [.isDirectoryKey, .isRegularFileKey])
         guard resourceValues?.isDirectory != true else {

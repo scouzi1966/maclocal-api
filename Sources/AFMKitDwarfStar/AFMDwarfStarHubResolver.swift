@@ -132,6 +132,13 @@ public struct AFMDwarfStarHubResolver: Sendable {
         }
 
         let expectedBytes = max(Int64(entry.size ?? 1), 1)
+        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: revision)
+        let cachedArtifact = snapshot.appendingPathComponent(entry.path)
+        let cachedTarget = cachedArtifact.resolvingSymlinksInPath()
+        if AFMDwarfStarResumableDownload.fileSize(cachedTarget) == expectedBytes {
+            print("Using cached DwarfStar model: \(cachedArtifact.path)")
+            return cachedArtifact
+        }
         let blobKey = Self.hubBlobKey(repo: repo, revision: revision, entry: entry)
         let destination = try cache.blobPath(repo: repo, kind: .model, etag: blobKey)
         let partial = try cache.incompleteBlobPath(repo: repo, kind: .model, etag: blobKey)
@@ -269,7 +276,6 @@ public struct AFMDwarfStarHubResolver: Sendable {
         file.progress.completedUnitCount = xetMetadata.expectedBytes
         AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
         progress?(aggregate)
-        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: revision)
         return snapshot.appendingPathComponent(entry.path)
     }
 
