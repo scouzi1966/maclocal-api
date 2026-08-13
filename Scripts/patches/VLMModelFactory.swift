@@ -99,6 +99,7 @@ public enum VLMTypeRegistry {
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "qwen3_5": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
         "qwen3_5_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
+        "muse_glimmer": create(MuseGlimmerConfiguration.self, MuseGlimmer.init),
     ])
 }
 
@@ -130,6 +131,8 @@ public enum VLMProcessorTypeRegistry {
             Mistral3VLMProcessorConfiguration.self, Mistral3VLMProcessor.init),
         "Lfm2VlProcessor": create(
             LFM2VLProcessorConfiguration.self, LFM2VLProcessor.init),
+        "MuseGlimmerProcessor": create(
+            MuseGlimmerProcessorConfiguration.self, MuseGlimmerProcessor.init),
     ])
 }
 
