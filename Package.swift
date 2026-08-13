@@ -82,6 +82,9 @@ let package = Package(
             from: "0.8.1",
             traits: ["Xet"]
         ),
+        // AFMKitDwarfStar uses the public byte-range API directly so very large
+        // GGUF downloads can resume without discarding completed Xet ranges.
+        .package(url: "https://github.com/huggingface/swift-xet.git", exact: "0.2.3"),
         // Share the official XGrammar product with host applications such as Vesta.
         // Compiling the vendored implementation here as well as in coreai-models
         // produces duplicate native symbols when both libraries are linked.
@@ -165,7 +168,8 @@ let package = Package(
             dependencies: [
                 "AFMKitCore",
                 "CDwarfStar",
-                .product(name: "HuggingFace", package: "swift-huggingface")
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+                .product(name: "Xet", package: "swift-xet")
             ],
             resources: [
                 // DS4 compiles these include-style fragments at runtime. Keep the
