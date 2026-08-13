@@ -1105,10 +1105,9 @@ public class MuseGlimmer: Module, VLMModel, KVCacheDimensionProvider {
         let imageFeatures = encodeImage(pixelValues, grid: grid).asType(embeddings.dtype)
 
         let imageTokenId = config.imageTokenId
-        let videoTokenId = config.videoTokenId
         var positions = [Int32]()
         for (index, id) in ids.asArray(Int.self).enumerated()
-        where id == imageTokenId || id == videoTokenId {
+        where id == imageTokenId {
             positions.append(Int32(index))
         }
 
@@ -1387,10 +1386,11 @@ public struct MuseGlimmerProcessor: UserInputProcessor {
     }
 
     public func prepare(input: UserInput) async throws -> LMInput {
-        // The released processor has no video patchification path. Reject it
-        // explicitly so a rendered `<|video|>` placeholder cannot reach the
-        // model without corresponding features.
-        guard input.videos.isEmpty else { throw VLMError.singleMediaTypeAllowed }
+        // Muse Glimmer's published processor and reference MLX implementation
+        // only define image patchification. Keep the checkpoint's video token
+        // decodable for configuration fidelity, but do not advertise or accept
+        // a video execution path that cannot produce corresponding features.
+        guard input.videos.isEmpty else { throw VLMError.videoNotSupported("Muse Glimmer") }
 
         let messages = Qwen2VLMessageGenerator().generate(from: input)
         var promptTokens = try tokenizer.applyChatTemplate(

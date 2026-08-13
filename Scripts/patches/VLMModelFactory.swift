@@ -16,6 +16,7 @@ public enum VLMError: LocalizedError, Equatable {
     case processing(String)
     case noVideoTrackFound
     case videoNotDecodable
+    case videoNotSupported(String)
 
     public var errorDescription: String? {
         switch self {
@@ -39,6 +40,8 @@ public enum VLMError: LocalizedError, Equatable {
             return String(localized: "Video file has no video tracks.")
         case .videoNotDecodable:
             return String(localized: "Video file not decodable.")
+        case .videoNotSupported(let model):
+            return String(localized: "\(model) supports images but not video input.")
         }
     }
 }

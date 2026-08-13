@@ -1,8 +1,58 @@
+import AVFoundation
+import CoreImage
 import Foundation
 import MLX
 import MLXLMCommon
 @testable import MLXVLM
+import Tokenizers
 import XCTest
+
+private struct MuseGlimmerTestTokenizer: Tokenizer {
+    let templateTokens: [Int]
+    let tokenIDs: [String: Int]
+
+    var bosToken: String? { nil }
+    var bosTokenId: Int? { nil }
+    var eosToken: String? { nil }
+    var eosTokenId: Int? { nil }
+    var unknownToken: String? { nil }
+    var unknownTokenId: Int? { nil }
+    var hasChatTemplate: Bool { true }
+
+    func tokenize(text: String) -> [String] { [text] }
+    func encode(text: String) -> [Int] { templateTokens }
+    func encode(text: String, addSpecialTokens: Bool) -> [Int] { templateTokens }
+    func decode(tokens: [Int], skipSpecialTokens: Bool) -> String { "" }
+    func convertTokenToId(_ token: String) -> Int? { tokenIDs[token] }
+    func convertIdToToken(_ id: Int) -> String? {
+        tokenIDs.first(where: { $0.value == id })?.key
+    }
+
+    func applyChatTemplate(messages: [Tokenizers.Message]) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], tools: [Tokenizers.ToolSpec]?
+    ) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], tools: [Tokenizers.ToolSpec]?,
+        additionalContext: [String: any Sendable]?
+    ) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], chatTemplate: Tokenizers.ChatTemplateArgument
+    ) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], chatTemplate: String
+    ) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], chatTemplate: Tokenizers.ChatTemplateArgument?,
+        addGenerationPrompt: Bool, truncation: Bool, maxLength: Int?,
+        tools: [Tokenizers.ToolSpec]?
+    ) throws -> [Int] { templateTokens }
+    func applyChatTemplate(
+        messages: [Tokenizers.Message], chatTemplate: Tokenizers.ChatTemplateArgument?,
+        addGenerationPrompt: Bool, truncation: Bool, maxLength: Int?,
+        tools: [Tokenizers.ToolSpec]?, additionalContext: [String: any Sendable]?
+    ) throws -> [Int] { templateTokens }
+}
 
 final class MuseGlimmerModelTests: XCTestCase {
     private func configurationJSON() throws -> Data {
@@ -78,6 +128,57 @@ final class MuseGlimmerModelTests: XCTestCase {
         XCTAssertEqual(config.imageProcessor.maxImageTokens, 4096)
     }
 
+    func testProcessorExpandsPublishedChatTemplatePatchTokenForImageGrid() async throws {
+        let tokenizer = MuseGlimmerTestTokenizer(
+            templateTokens: [7, 14, 8],
+            tokenIDs: [
+                "<|patch|>": 14,
+                "<|image_start|>": 12,
+                "<|image_end|>": 13,
+            ]
+        )
+        let processor = MuseGlimmerProcessor(
+            .init(imageProcessor: .init(
+                patchSize: 1,
+                temporalPatchSize: 1,
+                mergeSize: 1,
+                maxImageTokens: 4
+            )),
+            tokenizer: tokenizer
+        )
+        let image = MLXArray(Array(repeating: Float(0.5), count: 12)).reshaped(3, 2, 2)
+
+        let prepared = try await processor.prepare(input: UserInput(chat: [
+            .user("Describe this image.", images: [.array(image)])
+        ]))
+        MLX.eval(prepared.text.tokens, prepared.image!.pixels)
+
+        XCTAssertEqual(prepared.text.tokens.asArray(Int.self), [7, 12, 14, 14, 14, 14, 13, 8])
+        XCTAssertEqual(prepared.image?.frames?.map(\.product), [4])
+        XCTAssertEqual(prepared.image?.pixels.shape, [4, 3])
+    }
+
+    func testProcessorRejectsVideoAsUnsupportedCapability() async throws {
+        let processor = MuseGlimmerProcessor(
+            .init(),
+            tokenizer: MuseGlimmerTestTokenizer(
+                templateTokens: [7], tokenIDs: ["<|patch|>": 14])
+        )
+        let frame = UserInput.VideoFrame(
+            frame: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 2, height: 2)),
+            timeStamp: .zero
+        )
+
+        do {
+            _ = try await processor.prepare(input: UserInput(chat: [
+                .user("Describe this video.", videos: [.frames([frame])])
+            ]))
+            XCTFail("Muse Glimmer must not advertise an unimplemented video path")
+        } catch let error as VLMError {
+            XCTAssertEqual(error, .videoNotSupported("Muse Glimmer"))
+        }
+    }
+
     func testPatchifyUsesRasterTokenAndTemporalChannelPatchLayout() {
         let pixels = MLXArray([Float(0), 1, 2, 3]).reshaped(1, 1, 2, 2)
         let patches = museGlimmerPatchify(
@@ -116,6 +217,59 @@ final class MuseGlimmerModelTests: XCTestCase {
         XCTAssertNotNil(sanitized["vision_tower.patch_embedder.weight"])
         XCTAssertNotNil(sanitized["language_model.lm_head.weight"])
         XCTAssertNil(sanitized["language_model.model.layers.0.rotary_emb.inv_freq"])
+    }
+
+    func testPublishedCheckpointIndexKeysMatchModelSanitizationLayout() throws {
+        let model = try makeModel()
+        let value = MLXArray(1.0)
+        let publishedKeys = [
+            "language_model.lm_head.weight",
+            "language_model.model.embed_tokens.weight",
+            "language_model.model.layers.0.self_attn.gate_proj.weight",
+            "vision_tower.patch_embedder.patch_embedding.weight",
+            "vision_adapter.fc1.weight",
+        ]
+        let sanitized = model.sanitize(weights: Dictionary(
+            uniqueKeysWithValues: publishedKeys.map { ($0, value) }))
+
+        XCTAssertEqual(Set(sanitized.keys), Set(publishedKeys))
+    }
+
+    func testFullPublishedCheckpointLoadsWhenExplicitlyConfigured() async throws {
+        guard let path = ProcessInfo.processInfo.environment["AFM_MUSE_GLIMMER_MODEL_DIR"] else {
+            throw XCTSkip("Set AFM_MUSE_GLIMMER_MODEL_DIR to run the 19.4 GB checkpoint smoke test")
+        }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        guard FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("model.safetensors.index.json").path)
+        else {
+            throw XCTSkip("Muse Glimmer checkpoint is not complete at \(path)")
+        }
+
+        let context = try await loadModel(directory: directory)
+        XCTAssertTrue(context.model is MuseGlimmer)
+
+        let textInput = try await context.processor.prepare(input: UserInput(prompt: "Hello"))
+        let textCache = context.model.newCache(parameters: nil)
+        let textResult = try context.model.prepare(textInput, cache: textCache, windowSize: nil)
+        guard case .logits(let textOutput) = textResult else {
+            return XCTFail("Published checkpoint should produce text logits")
+        }
+        MLX.eval(textOutput.logits)
+        XCTAssertTrue(textOutput.logits.asArray(Float.self).allSatisfy(\.isFinite))
+
+        let image = MLXArray(Array(repeating: Float(0.5), count: 3 * 28 * 28))
+            .reshaped(3, 28, 28)
+        let imageInput = try await context.processor.prepare(input: UserInput(chat: [
+            .user("Describe this image.", images: [.array(image)])
+        ]))
+        let imageCache = context.model.newCache(parameters: nil)
+        let imageResult = try context.model.prepare(imageInput, cache: imageCache, windowSize: nil)
+        guard case .logits(let imageOutput) = imageResult else {
+            return XCTFail("Published checkpoint should produce image-conditioned logits")
+        }
+        MLX.eval(imageOutput.logits)
+        XCTAssertTrue(imageOutput.logits.asArray(Float.self).allSatisfy(\.isFinite))
     }
 
     func testVLMRegistrySelectsMuseImplementationFromArchitecture() async throws {
