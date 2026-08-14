@@ -355,6 +355,16 @@ if [ -f "$MODEL/config.json" ]; then
   model_config="$MODEL/config.json"
 elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
   model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
+elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ]; then
+  hf_repo_dir="${MACAFM_MLX_MODEL_CACHE%/}/models--${MODEL//\//--}"
+  hf_main_ref="$hf_repo_dir/refs/main"
+  if [ -f "$hf_main_ref" ]; then
+    hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
+    candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
+    if [ -f "$candidate" ]; then
+      model_config="$candidate"
+    fi
+  fi
 elif [ -n "${HF_HUB_CACHE:-}" ]; then
   hf_repo_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}"
   hf_main_ref="$hf_repo_dir/refs/main"
@@ -398,8 +408,10 @@ for candidate in ("tokenizer_config.json", "chat_template.jinja"):
 template_lower = template_text.lower()
 
 is_muse = model_type in {"muse_glimmer", "muse_glimmer_text"}
-supports_tools = (not is_muse) and ("tool_call" in template_lower or "tools" in template_lower or "xmlfunction" in model_type or "deepseek_v4" in model_type)
-supports_thinking_toggle = "enable_thinking" in template_lower
+supports_tools = is_muse or ("tool_call" in template_lower or "tools" in template_lower or "xmlfunction" in model_type or "deepseek_v4" in model_type)
+# Muse exposes reasoning strength, but its low setting is not a true
+# enable_thinking=false mode and still may emit reasoning-only turns.
+supports_thinking_toggle = (not is_muse) and "enable_thinking" in template_lower
 # The OpenAI response_format assertions are grammar/format contract tests. Muse
 # currently has a custom channel protocol but no published schema-guidance
 # contract in its template/config, so keep it out of strict JSON expectations.
@@ -456,9 +468,9 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
 
 text_config = config.get("text_config") or {}
 model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
-# DeepSeek V4 uses its native DSML parser. It supports tool calls, but the
-# xgrammar strict-tool backend currently supports only XML parser families.
-print("false" if model_type in {"deepseek_v4", "deepseekv4"} else "true")
+# DeepSeek V4 uses native DSML and Muse uses ATEM. Both support tool calls,
+# but neither protocol is currently backed by the strict xgrammar tool path.
+print("false" if model_type in {"deepseek_v4", "deepseekv4", "muse_glimmer", "muse_glimmer_text"} else "true")
 PY
     )
   fi

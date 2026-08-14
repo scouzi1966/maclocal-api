@@ -323,6 +323,35 @@ struct ToolCallStreamingRuntimeTests {
         #expect(delta(from: end.events)?.function?.arguments == #"{"location":"Toronto"}"#)
     }
 
+    @Test("Muse ATEM streaming coerces scalar array arguments to schema arrays")
+    func coercesATEMStreamingArrayArguments() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<atem:function_calls>",
+            toolCallEndTag: "</atem:function_calls>",
+            toolCallParser: nil,
+            tools: [makeTool(
+                name: "todowrite",
+                properties: ["todos": ["type": "array", "items": ["type": "string"]]],
+                required: ["todos"]
+            )],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<atem:function_calls>")
+        _ = runtime.process(piece: "<atem:invoke name=\"todowrite\">")
+        _ = runtime.process(piece: "<atem:parameter name=\"todos\">Walk dog, Read book, Cook dinner</atem:parameter>")
+        let end = runtime.process(piece: "</atem:invoke></atem:function_calls>")
+
+        let arguments = try #require(appended(from: end.events)?.function.arguments)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any]
+        )
+        let todos = try #require(object["todos"] as? [String])
+        #expect(todos == ["Walk dog", "Read book", "Cook dinner"])
+        #expect(delta(from: end.events)?.function?.arguments == arguments)
+    }
+
     private func makeTool(name: String, properties: [String: [String: Any]], required: [String]? = nil) -> RequestTool {
         var schemaDict: [String: Any] = [
             "type": "object",

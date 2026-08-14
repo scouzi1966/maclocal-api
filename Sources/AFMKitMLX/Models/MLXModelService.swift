@@ -4270,6 +4270,18 @@ public final class MLXModelService: @unchecked Sendable {
                let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
                 return parsed
             }
+            if schemaType == "array" {
+                // ATEM and XML models occasionally emit a plain scalar or a
+                // comma/newline-delimited list despite an array schema. Keep
+                // the OpenAI tool contract type-safe at the serving boundary.
+                let elements = normalized
+                    .split(whereSeparator: { $0 == "," || $0 == "\n" })
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !elements.isEmpty {
+                    return elements
+                }
+            }
             return nil
         default:
             return nil
