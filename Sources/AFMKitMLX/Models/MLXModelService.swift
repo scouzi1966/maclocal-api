@@ -5854,6 +5854,41 @@ public final class MLXModelService: @unchecked Sendable {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
     }
 
+    static func normalizeReasoningKwargs(
+        _ kwargs: [String: any Sendable],
+        canonicalModelType: String?,
+        forceDisableThinking: Bool
+    ) -> (kwargs: [String: any Sendable], note: String?) {
+        guard canonicalModelType == "muse_glimmer" else {
+            return (kwargs, nil)
+        }
+
+        var normalized = kwargs
+        let explicitNoThinking = forceDisableThinking
+            || (normalized["enable_thinking"] as? Bool) == false
+        let effort = (normalized["reasoning_effort"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if explicitNoThinking {
+            normalized["reasoning_strength"] = "low"
+            normalized.removeValue(forKey: "reasoning_effort")
+            normalized.removeValue(forKey: "enable_thinking")
+            return (
+                normalized,
+                "Muse Glimmer does not expose an off switch in its template; using reasoning_strength=low"
+            )
+        }
+
+        if normalized["reasoning_strength"] == nil, let effort {
+            normalized["reasoning_strength"] = effort
+        }
+
+        normalized.removeValue(forKey: "reasoning_effort")
+        normalized.removeValue(forKey: "enable_thinking")
+        return (normalized, nil)
+    }
+
     private func buildUserInput(
         from messages: [AFMOpenAICompat.Message],
         tools: [ToolSpec]? = nil,
@@ -6094,6 +6129,15 @@ public final class MLXModelService: @unchecked Sendable {
 
         let promptArchitecture = withStateLock {
             currentModelArchitecture?.canonicalModelType
+        }
+        let reasoningNormalization = Self.normalizeReasoningKwargs(
+            resolvedKwargs,
+            canonicalModelType: promptArchitecture,
+            forceDisableThinking: forceDisableThinking
+        )
+        resolvedKwargs = reasoningNormalization.kwargs
+        if let note = reasoningNormalization.note {
+            print("[\(ts())] [Think] \(note)")
         }
         let usesDeepseekV4Encoder = promptArchitecture == "deepseek_v4"
         print(

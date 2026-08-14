@@ -70,6 +70,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<invoke name="f"><parameter name="k">v</parameter></invoke>`
     case minimaxM2 = "minimax_m2"
 
+    /// Onyx ATEM format used by Muse Glimmer.
+    /// Example: `<atem:function_calls><atem:invoke name="f"><atem:parameter name="k">v</atem:parameter></atem:invoke></atem:function_calls>`
+    case atem
+
     /// Raw mode: tool-call extraction disabled. Generated tool markup passes
     /// through as ordinary text and no `ToolCall` values are ever produced.
     case none
@@ -96,6 +100,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return KimiK2ToolCallParser()
         case .minimaxM2:
             return MiniMaxM2ToolCallParser()
+        case .atem:
+            return ATEMToolCallParser()
         case .none:
             return NoneToolCallParser()
         }
@@ -127,6 +133,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return .json
         case "mistral3":
             return .json  // [TOOL_CALLS] JSON format
+        case "muse_glimmer", "muse_glimmer_text":
+            return .atem
         default:
             return nil
         }

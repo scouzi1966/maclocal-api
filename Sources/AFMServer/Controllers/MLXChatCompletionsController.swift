@@ -318,6 +318,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     let looksLikeToolCall =
                         fullText.contains("<function=") ||
                         fullText.contains("<tool_call>") ||
+                        fullText.contains("<atem:function_calls>") ||
                         fullText.contains("DSML｜tool_calls>") ||
                         fullText.contains("DSML|tool_calls>") ||
                         fullText.contains("[TOOL_CALLS]") ||
@@ -1214,6 +1215,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let parserName = self.service.toolCallParser ?? "auto"
                 if !hasToolCalls && !service.isToolCallParserDisabled(service.toolCallParser) && (
                     (effectiveToolCallStartTag != nil && fullContent.contains(effectiveToolCallStartTag!)) ||
+                    fullContent.contains("<atem:function_calls>") ||
                     fullContent.contains("DSML｜tool_calls>") ||
                     fullContent.contains("DSML|tool_calls>") ||
                     fullContent.contains("[TOOL_CALLS]") ||

@@ -268,6 +268,61 @@ struct ToolCallStreamingRuntimeTests {
         #expect(delta(from: end.events)?.function?.arguments == #"{"location":"Toronto"}"#)
     }
 
+    @Test("completed parser extracts parallel Muse ATEM calls by syntax")
+    func parsesParallelATEMToolCalls() throws {
+        let text = """
+        I will check both cities.
+        <atem:function_calls>
+        <atem:invoke name="get_weather"><atem:parameter name="location">Toronto</atem:parameter></atem:invoke>
+        <atem:invoke name='get_weather'><atem:parameter name='location'>New York</atem:parameter></atem:invoke>
+        </atem:function_calls>
+        """
+        let tools = [makeTool(
+            name: "get_weather",
+            properties: ["location": ["type": "string"]],
+            required: ["location"]
+        )]
+
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: text,
+            toolCallParser: nil,
+            tools: tools
+        )
+
+        #expect(calls.count == 2)
+        #expect(calls[0].function.name == "get_weather")
+        #expect(calls[0].function.arguments["location"]?.anyValue as? String == "Toronto")
+        #expect(calls[1].function.arguments["location"]?.anyValue as? String == "New York")
+        #expect(remaining == "I will check both cities.")
+    }
+
+    @Test("streaming runtime buffers split Muse ATEM start tags")
+    func buffersSplitATEMStartTags() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<atem:function_calls>",
+            toolCallEndTag: "</atem:function_calls>",
+            toolCallParser: nil,
+            tools: [makeTool(
+                name: "get_weather",
+                properties: ["location": ["type": "string"]],
+                required: ["location"]
+            )],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        #expect(runtime.process(piece: "<atem:fun").handled)
+        #expect(runtime.process(piece: "ction_calls>").handled)
+        _ = runtime.process(piece: "<atem:invoke name=\"get_weather\">")
+        _ = runtime.process(piece: "<atem:parameter name=\"location\">Toronto</atem:parameter>")
+        let end = runtime.process(piece: "</atem:invoke></atem:function_calls>")
+
+        #expect(end.handled)
+        #expect(appended(from: end.events)?.function.name == "get_weather")
+        #expect(appended(from: end.events)?.function.arguments == #"{"location":"Toronto"}"#)
+        #expect(delta(from: end.events)?.function?.arguments == #"{"location":"Toronto"}"#)
+    }
+
     private func makeTool(name: String, properties: [String: [String: Any]], required: [String]? = nil) -> RequestTool {
         var schemaDict: [String: Any] = [
             "type": "object",

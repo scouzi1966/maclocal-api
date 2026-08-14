@@ -1056,7 +1056,7 @@ public class MuseGlimmer: Module, VLMModel, KVCacheDimensionProvider {
 
     public var vocabularySize: Int { config.vocabularySize }
     public var kvHeads: [Int] { languageModel.kvHeads }
-    public var toolCallFormat: ToolCallFormat? { ToolCallFormat.none }
+    public var toolCallFormat: ToolCallFormat? { ToolCallFormat.atem }
 
     public init(_ config: MuseGlimmerConfiguration) {
         self.config = config

@@ -585,6 +585,9 @@ public final class ToolCallStreamingRuntime {
         toolCallParser: String?,
         tools: [RequestTool]?
     ) -> ([ToolCall], String) {
+        if let atem = parseATEMToolCalls(from: text, tools: tools) {
+            return atem
+        }
         if let dsml = parseDeepseekDSMLToolCalls(from: text, tools: tools) {
             return dsml
         }
@@ -597,6 +600,61 @@ public final class ToolCallStreamingRuntime {
             allowMalformedRepair: toolCallParser == "afm_adaptive_xml")
         guard !parsed.isEmpty else { return (parsed, remaining) }
         return (normalizeParsedToolCalls(parsed, toolCallParser: toolCallParser, tools: tools), remaining)
+    }
+
+    /// Parse Muse Glimmer's ATEM envelope. Detection is syntax-based so the
+    /// runtime continues to work for converted or renamed checkpoints.
+    private static func parseATEMToolCalls(
+        from text: String,
+        tools: [RequestTool]?
+    ) -> ([ToolCall], String)? {
+        guard let envelopeRegex = try? NSRegularExpression(
+            pattern: #"<atem:function_calls>\s*(.*?)\s*</atem:function_calls>"#,
+            options: [.dotMatchesLineSeparators, .caseInsensitive]
+        ),
+        let invokeRegex = try? NSRegularExpression(
+            pattern: #"<atem:invoke\s+name\s*=\s*[\"'][^\"']+[\"']\s*>.*?</atem:invoke>"#,
+            options: [.dotMatchesLineSeparators, .caseInsensitive]
+        ) else { return nil }
+
+        let source = text as NSString
+        let envelopes = envelopeRegex.matches(
+            in: text,
+            range: NSRange(location: 0, length: source.length)
+        )
+        guard !envelopes.isEmpty else { return nil }
+
+        let toolSpecs: [[String: any Sendable]]? = tools?.map { tool in
+            var function: [String: any Sendable] = ["name": tool.function.name]
+            if let parameters = tool.function.parameters {
+                function["parameters"] = parameters.toSendable()
+            }
+            return ["type": tool.type, "function": function]
+        }
+
+        let parser = ATEMToolCallParser()
+        var calls: [ToolCall] = []
+        for envelope in envelopes {
+            guard let bodyRange = Range(envelope.range(at: 1), in: text) else { continue }
+            let body = String(text[bodyRange])
+            let bodySource = body as NSString
+            for invoke in invokeRegex.matches(
+                in: body,
+                range: NSRange(location: 0, length: bodySource.length)
+            ) {
+                let invokeText = bodySource.substring(with: invoke.range)
+                if let call = parser.parse(content: invokeText, tools: toolSpecs) {
+                    calls.append(call)
+                }
+            }
+        }
+        guard !calls.isEmpty else { return nil }
+
+        let remaining = NSMutableString(string: text)
+        for envelope in envelopes.reversed() {
+            remaining.replaceCharacters(in: envelope.range, with: "")
+        }
+        return (calls, remaining.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func normalizeParsedToolCalls(
