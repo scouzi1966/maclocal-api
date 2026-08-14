@@ -256,11 +256,7 @@ final class AFMMLXSpeculativeDecodingTests: XCTestCase {
 
     func testSpeculativeModelCompatibilityAcceptsQwen38PublishedQwen35Config() {
         let compatibility = AFMMLXSpeculativeModelCompatibility.evaluate(
-            config: [
-                "model_type": "qwen3_5",
-                "architectures": ["Qwen3_5ForConditionalGeneration"],
-                "text_config": ["model_type": "qwen3_5_text"],
-            ],
+            config: Qwen38PublishedConfigFixture.mxfp8,
             hasMTPSidecar: true
         )
 

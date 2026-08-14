@@ -1,8 +1,8 @@
-# Qwen3.8-27B-FP8 Implementation Log
+# Qwen3.8-27B-mxfp8 Implementation Log
 
 Date: 2026-08-14
 Branch: `codex/qwen3.8-27b-fp8`
-Lock status: source-only edits completed under active test lock; no build, test, model load, download, conversion, or upload executed.
+Validation status: focused Release contract tests passed; runtime model validation remains part of the Qwen3.8 nightly qualification run.
 
 ## Scope handled
 
@@ -94,7 +94,7 @@ Lock status: source-only edits completed under active test lock; no build, test,
 - `Sources/AFMKitMLX/AFMMLXModelCatalog.swift`
   - Added `mlx-community/Qwen3.8-27B-4bit` as the primary curated text+vision checkpoint.
   - Added `mlx-community/Qwen3.8-27B-mxfp8` as the closer FP8-format comparison checkpoint.
-  - Uses the published generation defaults (`temperature: 1.0`, `top_p: 0.95`) and a conservative 32768-token catalog limit pending long-context Release validation.
+  - Uses the published generation defaults (`temperature: 1.0`, `top_k: 20`, `top_p: 0.95`) and a conservative 32768-token catalog limit pending long-context Release validation.
 
 ### Deterministic tests
 
@@ -135,9 +135,18 @@ If a VLM-preserving MLX conversion is produced and kept public:
 4. Preserve source provenance in the destination model card and commit notes.
 5. Re-run AFM preflight and release validation against the converted MLX snapshot, not the raw FP8 repo.
 
-### Release-only validation commands to run after unlock
+### Release validation
 
-These are intentionally not executed under the lock.
+The focused architecture, catalog, and speculative-decoding contract suites were run in Release configuration:
+
+```bash
+Scripts/swiftpm-reliable.sh test -c release --filter \
+  'AFMMLXModelArchitectureTests|AFMMLXModelCatalogTests|AFMMLXSpeculativeDecodingTests'
+```
+
+The suite covers the published Qwen3.8 configuration fixture, dual-mode factory policy, curated generation defaults, and MTP compatibility. Runtime model loading and generation are intentionally deferred to the full nightly qualification because they require downloading and loading the public checkpoint.
+
+Additional runtime validation commands:
 
 ```bash
 git branch --show-current
@@ -175,8 +184,7 @@ MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
 ./.build/release/afm mlx -m mlx-community/Qwen3.8-27B-mxfp8 --port 9999
 ```
 
-## Outstanding blockers
+## Outstanding runtime validation
 
-- The active lock prohibits the Release build/test/model-load steps needed to confirm runtime compatibility.
 - The authoritative MLX repos were published on 2026-08-14; they still require actual AFM text, vision, streaming, tool-call, structured-output, concurrency, and prefix-cache validation.
 - The `mlx-community` conversions do not publish `mtp.safetensors`, so MTP must be treated as unavailable unless a separately compatible sidecar is produced and validated later.
