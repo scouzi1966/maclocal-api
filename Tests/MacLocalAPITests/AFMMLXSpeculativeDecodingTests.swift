@@ -254,6 +254,20 @@ final class AFMMLXSpeculativeDecodingTests: XCTestCase {
         XCTAssertFalse(missingSidecar.mtpCompatible)
     }
 
+    func testSpeculativeModelCompatibilityAcceptsQwen38PublishedQwen35Config() {
+        let compatibility = AFMMLXSpeculativeModelCompatibility.evaluate(
+            config: [
+                "model_type": "qwen3_5",
+                "architectures": ["Qwen3_5ForConditionalGeneration"],
+                "text_config": ["model_type": "qwen3_5_text"],
+            ],
+            hasMTPSidecar: true
+        )
+
+        XCTAssertTrue(compatibility.mtpCompatible)
+        XCTAssertFalse(compatibility.denseGemma4Verifier)
+    }
+
     func testSpeculativeModelCompatibilityDetectsDenseGemma4Verifier() {
         let dense = AFMMLXSpeculativeModelCompatibility.evaluate(
             config: [

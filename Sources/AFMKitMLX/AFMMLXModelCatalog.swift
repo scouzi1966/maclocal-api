@@ -351,6 +351,20 @@ public enum AFMMLXModelCatalog {
             maxTokens: 32768
         ),
         visionModel(
+            displayName: "Qwen3.8-27B-4bit",
+            repoID: "mlx-community/Qwen3.8-27B-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Qwen3.8-27B-MXFP8",
+            repoID: "mlx-community/Qwen3.8-27B-mxfp8",
+            temperature: 1.0,
+            topP: 0.95,
+            maxTokens: 32768
+        ),
+        visionModel(
             displayName: "Gemma-4-26B-A4B-it-4bit",
             repoID: "mlx-community/gemma-4-26b-a4b-it-4bit",
             temperature: 1.0,
@@ -419,6 +433,7 @@ public enum AFMMLXModelCatalog {
              "mlx-community/gemma-4-e2b-it-4bit",
              "mlx-community/gemma-4-e4b-it-4bit",
              "mlx-community/Qwen3.6-27B-4bit",
+             "mlx-community/Qwen3.8-27B-4bit",
              "mlx-community/gemma-4-26b-a4b-it-4bit",
              "mlx-community/gemma-4-31b-it-4bit":
             return VLMRegistry.qwen3VL4BInstruct4Bit
@@ -426,7 +441,8 @@ public enum AFMMLXModelCatalog {
              "mlx-community/Qwen3-VL-8B-Instruct-8bit",
              "mlx-community/Qwen3-VL-8B-Instruct-bf16",
              "mlx-community/gemma-4-31b-it-8bit",
-             "mlx-community/Qwen3.6-35B-A3B-8bit":
+             "mlx-community/Qwen3.6-35B-A3B-8bit",
+             "mlx-community/Qwen3.8-27B-mxfp8":
             return VLMRegistry.qwen3VL4BInstruct8Bit
         default:
             return nil

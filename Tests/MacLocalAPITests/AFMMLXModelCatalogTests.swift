@@ -24,6 +24,8 @@ final class AFMMLXModelCatalogTests: XCTestCase {
                 "mlx-community/Qwen3-VL-8B-Instruct-8bit",
                 "mlx-community/Qwen3-VL-8B-Instruct-bf16",
                 "mlx-community/Qwen3.6-27B-4bit",
+                "mlx-community/Qwen3.8-27B-4bit",
+                "mlx-community/Qwen3.8-27B-mxfp8",
                 "mlx-community/gemma-4-26b-a4b-it-4bit",
                 "mlx-community/gemma-4-31b-it-4bit",
                 "mlx-community/gemma-4-31b-it-8bit",
@@ -67,6 +69,22 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(vision.generationPreset.temperature, 0.7)
         XCTAssertEqual(vision.generationPreset.topP, 0.8)
         XCTAssertEqual(vision.generationPreset.maxTokens, 32768)
+
+        let qwen38 = try XCTUnwrap(
+            AFMMLXModelCatalog.model(for: "mlx-community/Qwen3.8-27B-4bit")
+        )
+        XCTAssertTrue(qwen38.isVisionModel)
+        XCTAssertEqual(qwen38.generationPreset.temperature, 1.0)
+        XCTAssertEqual(qwen38.generationPreset.topP, 0.95)
+        XCTAssertEqual(qwen38.generationPreset.maxTokens, 32768)
+
+        let qwen38MXFP8 = try XCTUnwrap(
+            AFMMLXModelCatalog.model(for: "mlx-community/Qwen3.8-27B-mxfp8")
+        )
+        XCTAssertTrue(qwen38MXFP8.isVisionModel)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.temperature, 1.0)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.topP, 0.95)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.maxTokens, 32768)
     }
 
     func testGenerationConfigPresetReadsKnownSamplingKeys() throws {
