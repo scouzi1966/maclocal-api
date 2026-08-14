@@ -6,6 +6,56 @@ import MLXLMCommon
 import XCTest
 
 final class AFMMLXProviderTests: XCTestCase {
+    func testTranslatorCoercesCompleteVendorToolDeltaUsingSchema() throws {
+        let tools = [
+            RequestTool(
+                type: "function",
+                function: RequestToolFunction(
+                    name: "create_todos",
+                    description: nil,
+                    parameters: AnyCodable([
+                        "type": "object",
+                        "properties": ["todos": ["type": "array"]],
+                        "required": ["todos"]
+                    ]),
+                    strict: true
+                )
+            )
+        ]
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 64,
+            tools: tools
+        )
+        let chunk = StreamChunk(
+            text: "",
+            toolCallDeltas: [
+                StreamDeltaToolCall(
+                    index: 0,
+                    id: "call_0",
+                    type: "function",
+                    function: StreamDeltaFunction(
+                        name: "create_todos",
+                        arguments: #"{"todos":"[\"Walk dog\", \"Read book\"]"}"#
+                    )
+                )
+            ]
+        )
+
+        let argumentDeltas = translator.consume(chunk).compactMap { event -> String? in
+            guard case .toolCall(_, .argumentsDelta(let arguments)) = event else {
+                return nil
+            }
+            return arguments
+        }
+
+        XCTAssertEqual(
+            argumentDeltas,
+            [#"{"todos":["Walk dog","Read book"]}"#]
+        )
+    }
+
     func testToolNameSanitizerRemovesClosingXMLTagRemnant() {
         XCTAssertEqual(
             AFMMLXModel.sanitizedToolName("todoread</function"),

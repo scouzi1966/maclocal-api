@@ -243,8 +243,8 @@ struct MlxCommand: ParsableCommand {
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
-          --no-think: Disable thinking/reasoning (sets enable_thinking=false)
-          --reasoning-effort: Default DeepSeek reasoning effort: low, high, or max
+          --no-think: Disable thinking/reasoning when supported; for Muse, requests the lowest reasoning strength
+          --reasoning-effort: Default reasoning effort for compatible models: low, high, or max
           --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
           --cache-profile-path: Write cache timing profile records as JSONL
@@ -261,7 +261,7 @@ struct MlxCommand: ParsableCommand {
           top_k: int (not in OpenAI spec)
           min_p: float (not in OpenAI spec)
           repetition_penalty: float (also accepts repeat_penalty, not in OpenAI spec)
-          reasoning_effort: DeepSeek reasoning level: low, high, or max
+          reasoning_effort: Reasoning effort for compatible models: low, high, or max
           chat_template_kwargs: object e.g. {"enable_thinking": false} (AFM-specific)
         extra_response_fields:
           choices[].message.reasoning_content: Extracted <think> reasoning (AFM-specific)
@@ -487,12 +487,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
-    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort and chat-template kwargs.")
+    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning when supported. Overrides --reasoning-effort and chat-template kwargs; for Muse, requests the lowest reasoning strength.")
     var noThink: Bool = false
 
     @Option(
         name: .customLong("reasoning-effort"),
-        help: "DeepSeek thinking effort: low, high, or max."
+        help: "Reasoning effort for compatible models: low, high, or max."
     )
     var reasoningEffort: String?
 
@@ -609,7 +609,7 @@ struct MlxCommand: ParsableCommand {
                 || parsedKwargs["reasoning_effort"] != nil
                 || (parsedKwargs["enable_thinking"] as? Bool) == true
             if configuredEffort {
-                fputs("Note: --no-thinking overrides the configured DeepSeek reasoning effort.\n", stderr)
+                fputs("Note: --no-thinking overrides the configured reasoning effort.\n", stderr)
             }
             parsedKwargs["enable_thinking"] = false
             parsedKwargs.removeValue(forKey: "reasoning_effort")

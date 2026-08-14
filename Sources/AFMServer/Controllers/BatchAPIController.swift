@@ -309,7 +309,8 @@ struct BatchAPIController: RouteCollection {
                 extractThinking: extractThinking,
                 thinkStartTag: streamResult.thinkStartTag ?? "<think>",
                 thinkEndTag: streamResult.thinkEndTag ?? "</think>",
-                maxTokens: effectiveMaxTokens
+                maxTokens: effectiveMaxTokens,
+                responseChannelFormat: service.responseChannelFormat
             )
 
             let choiceLogprobs = StreamCollector.buildChoiceLogprobs(collected.logprobs)

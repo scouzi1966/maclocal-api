@@ -28,9 +28,20 @@ fi
 
 cleanup() {
   if [[ -n "$server_pid" ]]; then
-    kill "$server_pid" >/dev/null 2>&1 || true
-    wait "$server_pid" 2>/dev/null || true
+    local pid="$server_pid"
     server_pid=""
+    kill "$pid" >/dev/null 2>&1 || true
+    local i
+    for (( i = 1; i <= 100; i++ )); do
+      if ! kill -0 "$pid" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+    wait "$pid" 2>/dev/null || true
   fi
 }
 
@@ -42,6 +53,10 @@ wait_for_health() {
   local i
 
   for (( i = 1; i <= attempts; i++ )); do
+    if [[ -n "$server_pid" ]] && ! kill -0 "$server_pid" >/dev/null 2>&1; then
+      echo "AFM server exited before becoming healthy on :${port}" >&2
+      return 1
+    fi
     if curl -sf "$health_url" >/dev/null 2>&1; then
       return 0
     fi
@@ -49,6 +64,22 @@ wait_for_health() {
   done
 
   echo "AFM server did not become healthy on :${port}" >&2
+  return 1
+}
+
+wait_for_port_free() {
+  local attempts=100
+  local i
+
+  for (( i = 1; i <= attempts; i++ )); do
+    if ! /usr/sbin/lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "AFM port :${port} is still occupied after stopping the prior server:" >&2
+  /usr/sbin/lsof -nP -iTCP:"${port}" -sTCP:LISTEN >&2 || true
   return 1
 }
 
@@ -88,11 +119,16 @@ start_server() {
   esac
 
   cleanup
+  wait_for_port_free || exit 1
   : > "$log_file"
   MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
     "$afm_binary" mlx -m "$model" --port "$port" "${extra_args[@]}" >"$log_file" 2>&1 &
   server_pid="$!"
-  wait_for_health
+  if ! wait_for_health; then
+    tail -n 80 "$log_file" >&2 || true
+    cleanup
+    exit 1
+  fi
 }
 
 run_structured() {

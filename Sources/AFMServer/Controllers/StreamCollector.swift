@@ -70,7 +70,8 @@ enum StreamCollector {
         extractThinking: Bool,
         thinkStartTag: String = "<think>",
         thinkEndTag: String = "</think>",
-        maxTokens: Int = Int.max
+        maxTokens: Int = Int.max,
+        responseChannelFormat: AFMMLXResponseChannelFormat = .none
     ) async throws -> CollectedResult {
         var fullText = ""
         var allLogprobs: [ResolvedLogprob] = []
@@ -114,17 +115,16 @@ enum StreamCollector {
             // Tool call response: no content, no reasoning extraction needed
             content = nil
             reasoningContent = nil
-        } else if extractThinking {
-            let (extracted, reasoning) = extractThinkContent(
-                from: fullText,
-                startTag: thinkStartTag,
-                endTag: thinkEndTag
-            )
-            content = extracted.isEmpty ? nil : extracted
-            reasoningContent = reasoning
         } else {
-            content = fullText.isEmpty ? nil : fullText
-            reasoningContent = nil
+            let parsed = extractResponseChannels(
+                from: fullText,
+                responseChannelFormat: responseChannelFormat,
+                extractThinking: extractThinking,
+                thinkStartTag: thinkStartTag,
+                thinkEndTag: thinkEndTag
+            )
+            content = parsed.content?.isEmpty == true ? nil : parsed.content
+            reasoningContent = parsed.reasoning
         }
 
         return CollectedResult(
@@ -140,5 +140,43 @@ enum StreamCollector {
             stoppedBySequence: stoppedBySequence,
             finishReason: finishReason
         )
+    }
+
+    static func extractResponseChannels(
+        from fullText: String,
+        responseChannelFormat: AFMMLXResponseChannelFormat,
+        extractThinking: Bool,
+        thinkStartTag: String = "<think>",
+        thinkEndTag: String = "</think>"
+    ) -> (content: String?, reasoning: String?) {
+        switch responseChannelFormat {
+        case .harmony:
+            let extracted = MLXChatCompletionsController.extractHarmonyContent(from: fullText)
+            return (
+                content: extracted.content.isEmpty ? nil : extracted.content,
+                reasoning: extracted.reasoning
+            )
+        case .muse:
+            let extracted = MLXChatCompletionsController.extractMuseResponseContent(from: fullText)
+            return (
+                content: extracted.content.isEmpty ? nil : extracted.content,
+                reasoning: extracted.reasoning
+            )
+        case .none:
+            break
+        }
+
+        if extractThinking {
+            let (extracted, reasoning) = extractThinkContent(
+                from: fullText,
+                startTag: thinkStartTag,
+                endTag: thinkEndTag
+            )
+            return (
+                content: extracted.isEmpty ? nil : extracted,
+                reasoning: reasoning
+            )
+        }
+        return (content: fullText.isEmpty ? nil : fullText, reasoning: nil)
     }
 }

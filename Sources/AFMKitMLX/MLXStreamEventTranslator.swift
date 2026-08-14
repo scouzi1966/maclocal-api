@@ -1,5 +1,6 @@
 import AFMKitCore
 import AFMOpenAICompat
+import Foundation
 
 public struct MLXStreamEventTranslator {
     private struct ToolState {
@@ -16,6 +17,7 @@ public struct MLXStreamEventTranslator {
     private let thinkStartTag: String?
     private let thinkEndTag: String?
     private let maximumResponseTokens: Int?
+    private let requestTools: [RequestTool]?
     private var textBuffer = ""
     private var bufferedTokenCount = 0
     private var insideReasoning = false
@@ -27,11 +29,13 @@ public struct MLXStreamEventTranslator {
     public init(
         thinkStartTag: String?,
         thinkEndTag: String?,
-        maximumResponseTokens: Int?
+        maximumResponseTokens: Int?,
+        tools: [RequestTool]? = nil
     ) {
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.maximumResponseTokens = maximumResponseTokens
+        self.requestTools = tools
     }
 
     public mutating func consume(_ chunk: StreamChunk) -> [AFMGenerationEvent] {
@@ -201,9 +205,23 @@ public struct MLXStreamEventTranslator {
                 events.append(.toolCall(call: state.call, stage: .started))
             }
             if let arguments = delta.function?.arguments, !arguments.isEmpty {
-                state.arguments += arguments
+                let combinedArguments = state.arguments + arguments
+                let normalizedArguments = normalizedCompleteArguments(
+                    combinedArguments,
+                    toolName: state.name,
+                    index: delta.index,
+                    id: state.id
+                )
+                let emittedArguments: String
+                if state.arguments.isEmpty, let normalizedArguments {
+                    state.arguments = normalizedArguments
+                    emittedArguments = normalizedArguments
+                } else {
+                    state.arguments = combinedArguments
+                    emittedArguments = arguments
+                }
                 events.append(
-                    .toolCall(call: state.call, stage: .argumentsDelta(arguments))
+                    .toolCall(call: state.call, stage: .argumentsDelta(emittedArguments))
                 )
             }
             tools[delta.index] = state
@@ -215,7 +233,11 @@ public struct MLXStreamEventTranslator {
         from completedCalls: [ResponseToolCall]
     ) -> [AFMGenerationEvent] {
         var events: [AFMGenerationEvent] = []
-        for (fallbackIndex, completedCall) in completedCalls.enumerated() {
+        for (fallbackIndex, rawCompletedCall) in completedCalls.enumerated() {
+            let completedCall = MLXModelService.coerceArgumentTypes(
+                rawCompletedCall,
+                tools: requestTools
+            )
             let index = completedCall.index ?? fallbackIndex
             let existing = tools[index]
             var state = existing ?? ToolState(
@@ -262,5 +284,29 @@ public struct MLXStreamEventTranslator {
             tools[index] = state
         }
         return events
+    }
+
+    private func normalizedCompleteArguments(
+        _ arguments: String,
+        toolName: String,
+        index: Int,
+        id: String
+    ) -> String? {
+        guard !toolName.isEmpty,
+              let data = arguments.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
+            return nil
+        }
+        let call = ResponseToolCall(
+            index: index,
+            id: id,
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: toolName,
+                arguments: arguments
+            )
+        )
+        return MLXModelService.coerceArgumentTypes(call, tools: requestTools)
+            .function.arguments
     }
 }

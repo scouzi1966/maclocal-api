@@ -82,6 +82,40 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         XCTAssertEqual(completionReason(from: events), .toolCalls)
     }
 
+    func testSchedulerDeltaAndCompletionProduceCompletedAFMToolCall() {
+        let completed = ResponseToolCall(
+            index: 0,
+            id: "call_weather",
+            type: "function",
+            function: .init(
+                name: "weather",
+                arguments: #"{"city":"Toronto"}"#
+            )
+        )
+        let chunks = BatchScheduler.streamChunksToEmit(from: [
+            .delta(.init(
+                index: 0,
+                id: "call_weather",
+                type: "function",
+                function: .init(name: "weather", arguments: #"{"city":"Toronto"}"#)
+            )),
+            .replaceCollected(index: 0, toolCall: completed),
+        ])
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 100
+        )
+
+        var events = chunks.flatMap { translator.consume($0) }
+        events += translator.finish()
+
+        XCTAssertEqual(completedToolCall(from: events)?.id, "call_weather")
+        XCTAssertEqual(completedToolCall(from: events)?.name, "weather")
+        XCTAssertEqual(completedToolCall(from: events)?.arguments, #"{"city":"Toronto"}"#)
+        XCTAssertEqual(completionReason(from: events), .toolCalls)
+    }
+
     func testMaximumTokenUsageProducesLengthCompletion() {
         var translator = MLXStreamEventTranslator(
             thinkStartTag: nil,

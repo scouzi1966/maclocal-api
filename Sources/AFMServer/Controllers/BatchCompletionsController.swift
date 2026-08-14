@@ -215,6 +215,7 @@ struct BatchCompletionsController: RouteCollection {
             let extractThinking = streamResult.thinkStartTag != nil
             let thinkStart = streamResult.thinkStartTag ?? "<think>"
             let thinkEnd = streamResult.thinkEndTag ?? "</think>"
+            let responseChannelFormat = service.responseChannelFormat
 
             if isStreaming {
                 // Emit streaming chunks tagged with custom_id
@@ -230,6 +231,10 @@ struct BatchCompletionsController: RouteCollection {
                 // Think extraction state
                 var thinkBuffer = ""
                 var insideThinkBlock = false
+                var harmonyBuffer = ""
+                var harmonyState = MLXChatCompletionsController.HarmonyState()
+                var museBuffer = ""
+                var museState = MLXChatCompletionsController.MuseResponseChannelState()
 
                 for try await chunk in streamResult.stream {
                     tokenCount += 1
@@ -246,8 +251,35 @@ struct BatchCompletionsController: RouteCollection {
                     var delta: [String: Any] = [:]
                     if tokenCount == 1 { delta["role"] = "assistant" }
 
-                    // Think extraction on each chunk
-                    if extractThinking && !chunk.text.isEmpty {
+                    // Response-channel extraction on each chunk. Some model templates
+                    // carry reasoning/content channels outside `<think>` tags.
+                    if responseChannelFormat == .harmony && !chunk.text.isEmpty {
+                        harmonyBuffer += chunk.text
+                        let extracted = MLXChatCompletionsController.extractHarmonyChannels(
+                            buffer: &harmonyBuffer,
+                            state: &harmonyState
+                        )
+                        if let reasoning = extracted.reasoning {
+                            delta["reasoning_content"] = reasoning
+                        }
+                        if !deferStructuredOutputContent,
+                           let content = extracted.content, !content.isEmpty {
+                            delta["content"] = content
+                        }
+                    } else if responseChannelFormat == .muse && !chunk.text.isEmpty {
+                        museBuffer += chunk.text
+                        let extracted = MLXChatCompletionsController.extractMuseResponseChannels(
+                            buffer: &museBuffer,
+                            state: &museState
+                        )
+                        if let reasoning = extracted.reasoning {
+                            delta["reasoning_content"] = reasoning
+                        }
+                        if !deferStructuredOutputContent,
+                           let content = extracted.content, !content.isEmpty {
+                            delta["content"] = content
+                        }
+                    } else if extractThinking && !chunk.text.isEmpty {
                         thinkBuffer += chunk.text
                         let extracted = MLXChatCompletionsController.extractThinkTags(
                             buffer: &thinkBuffer,
@@ -299,8 +331,51 @@ struct BatchCompletionsController: RouteCollection {
 
                     if let ct = chunk.completionTokens {
                         // Final chunk with usage
+                        if !deferStructuredOutputContent && responseChannelFormat == .harmony && !harmonyBuffer.isEmpty {
+                            let remaining = MLXChatCompletionsController.extractHarmonyChannels(
+                                buffer: &harmonyBuffer,
+                                state: &harmonyState
+                            )
+                            if let r = remaining.reasoning {
+                                let existing = delta["reasoning_content"] as? String ?? ""
+                                delta["reasoning_content"] = existing + r
+                            }
+                            if let c = remaining.content, !c.isEmpty {
+                                let existing = delta["content"] as? String ?? ""
+                                delta["content"] = existing + c
+                            }
+                            if !harmonyBuffer.isEmpty {
+                                switch harmonyState.channel {
+                                case .analysis:
+                                    let existing = delta["reasoning_content"] as? String ?? ""
+                                    delta["reasoning_content"] = existing + harmonyBuffer
+                                case .final:
+                                    let existing = delta["content"] as? String ?? ""
+                                    delta["content"] = existing + harmonyBuffer
+                                default:
+                                    break
+                                }
+                                harmonyBuffer = ""
+                            }
+                            choiceDict["delta"] = delta
+                        }
+                        if !deferStructuredOutputContent && responseChannelFormat == .muse && !museBuffer.isEmpty {
+                            let remaining = MLXChatCompletionsController.flushMuseResponseChannelRemainder(
+                                buffer: &museBuffer,
+                                state: &museState
+                            )
+                            if let r = remaining.reasoning {
+                                let existing = delta["reasoning_content"] as? String ?? ""
+                                delta["reasoning_content"] = existing + r
+                            }
+                            if let c = remaining.content, !c.isEmpty {
+                                let existing = delta["content"] as? String ?? ""
+                                delta["content"] = existing + c
+                            }
+                            choiceDict["delta"] = delta
+                        }
                         // Flush remaining think buffer
-                        if extractThinking && !thinkBuffer.isEmpty {
+                        if extractThinking && responseChannelFormat == .none && !thinkBuffer.isEmpty {
                             insideThinkBlock = false
                             let flushed = MLXChatCompletionsController.extractThinkTags(
                                 buffer: &thinkBuffer,
@@ -354,7 +429,8 @@ struct BatchCompletionsController: RouteCollection {
                     extractThinking: extractThinking,
                     thinkStartTag: thinkStart,
                     thinkEndTag: thinkEnd,
-                    maxTokens: effectiveMaxTokens
+                    maxTokens: effectiveMaxTokens,
+                    responseChannelFormat: responseChannelFormat
                 )
 
                 let choiceLogprobs = MLXChatCompletionsController.buildChoiceLogprobs(collected.logprobs)
