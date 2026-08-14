@@ -453,8 +453,8 @@ struct ConcurrentBatchTests {
         #expect(readCompleted[0].function.name == "read_file")
     }
 
-    @Test("BatchScheduler does not stream completed aggregate after argument deltas")
-    func streamChunksSuppressCompletedAggregateAfterDeltas() {
+    @Test("BatchScheduler preserves completed aggregate after argument deltas")
+    func streamChunksPreserveCompletedAggregateAfterDeltas() {
         let events: [ToolCallStreamingEvent] = [
             .started,
             .appendCollected(ResponseToolCall(
@@ -479,9 +479,13 @@ struct ConcurrentBatchTests {
 
         let chunks = BatchScheduler.streamChunksToEmit(from: events)
 
-        #expect(chunks.count == 1)
+        #expect(chunks.count == 2)
         #expect(chunks[0].toolCallDeltas?.count == 1)
         #expect(chunks[0].toolCalls == nil)
+        #expect(chunks[1].toolCallDeltas == nil)
+        #expect(chunks[1].toolCalls?.count == 1)
+        #expect(chunks[1].toolCalls?.first?.function.name == "get_weather")
+        #expect(chunks[1].toolCalls?.first?.function.arguments == #"{"location":"Berlin"}"#)
     }
 
     @Test("BatchScheduler stop helper emits stopped chunk on exact stop match")

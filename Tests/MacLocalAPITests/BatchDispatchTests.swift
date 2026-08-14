@@ -1527,6 +1527,43 @@ struct StreamCollectorTests {
         #expect(collected.finishReason == "tool_calls")
     }
 
+    @Test("collects completed tool call when scheduler also emits argument deltas")
+    func toolCallCompletionAfterDeltas() async throws {
+        let completed = ResponseToolCall(
+            index: 0,
+            id: "call_weather",
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: "get_weather",
+                arguments: #"{"location":"Berlin"}"#
+            )
+        )
+        let chunks = BatchScheduler.streamChunksToEmit(from: [
+            .delta(StreamDeltaToolCall(
+                index: 0,
+                id: "call_weather",
+                type: "function",
+                function: StreamDeltaFunction(
+                    name: "get_weather",
+                    arguments: #"{"location":"Berlin"}"#
+                )
+            )),
+            .replaceCollected(index: 0, toolCall: completed),
+        ])
+        let result = Self.makeStreamingResult(chunks: chunks)
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: false
+        )
+
+        #expect(collected.toolCalls?.count == 1)
+        #expect(collected.toolCalls?.first?.id == "call_weather")
+        #expect(collected.toolCalls?.first?.function.arguments == #"{"location":"Berlin"}"#)
+        #expect(collected.content == nil)
+        #expect(collected.finishReason == "tool_calls")
+    }
+
     @Test("Muse response channels are separated during batch collection")
     func museResponseChannelCollection() async throws {
         let result = Self.makeStreamingResult(
