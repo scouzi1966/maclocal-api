@@ -353,28 +353,33 @@ echo "  Model: $MODEL"
 model_config=""
 if [ -f "$MODEL/config.json" ]; then
   model_config="$MODEL/config.json"
-elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && [ -f "${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json" ]; then
-  model_config="${MACAFM_MLX_MODEL_CACHE%/}/$MODEL/config.json"
-elif [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ]; then
-  hf_repo_dir="${MACAFM_MLX_MODEL_CACHE%/}/models--${MODEL//\//--}"
-  hf_main_ref="$hf_repo_dir/refs/main"
-  if [ -f "$hf_main_ref" ]; then
-    hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
-    candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
+else
+  cache_roots=()
+  [ -n "${MACAFM_MLX_MODEL_CACHE:-}" ] && cache_roots+=("${MACAFM_MLX_MODEL_CACHE%/}")
+  [ -n "${HF_HUB_CACHE:-}" ] && cache_roots+=("${HF_HUB_CACHE%/}")
+  if [ -n "${HF_HOME:-}" ]; then
+    cache_roots+=("${HF_HOME%/}/hub")
+  fi
+  cache_roots+=("${HOME}/.cache/huggingface/hub")
+
+  for cache_root in "${cache_roots[@]}"; do
+    candidate="$cache_root/$MODEL/config.json"
     if [ -f "$candidate" ]; then
       model_config="$candidate"
+      break
     fi
-  fi
-elif [ -n "${HF_HUB_CACHE:-}" ]; then
-  hf_repo_dir="${HF_HUB_CACHE%/}/models--${MODEL//\//--}"
-  hf_main_ref="$hf_repo_dir/refs/main"
-  if [ -f "$hf_main_ref" ]; then
-    hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
-    candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
-    if [ -f "$candidate" ]; then
-      model_config="$candidate"
+
+    hf_repo_dir="$cache_root/models--${MODEL//\//--}"
+    hf_main_ref="$hf_repo_dir/refs/main"
+    if [ -f "$hf_main_ref" ]; then
+      hf_revision=$(tr -d '\r\n' < "$hf_main_ref")
+      candidate="$hf_repo_dir/snapshots/$hf_revision/config.json"
+      if [ -f "$candidate" ]; then
+        model_config="$candidate"
+        break
+      fi
     fi
-  fi
+  done
 fi
 if [ -n "$model_config" ]; then
   capability_lines=$(python3 - "$model_config" <<'PY'
