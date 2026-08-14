@@ -21,12 +21,14 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
     let thinkEndTag: String? = nil
     let fixToolArgs: Bool = false
     let enableGrammarConstraints: Bool = false
+    var responseChannelFormat: AFMMLXResponseChannelFormat = .none
     var servingConfiguration: AFMMLXServingConfiguration {
         AFMMLXServingConfiguration(
             toolCallParser: toolCallParser,
             supportsStrictToolGrammar: supportsStrictToolGrammar,
             thinkStartTag: thinkStartTag,
             thinkEndTag: thinkEndTag,
+            responseChannelFormat: responseChannelFormat,
             fixToolArguments: fixToolArgs,
             grammarConstraintsEnabled: enableGrammarConstraints
         )
@@ -1193,6 +1195,36 @@ final class BatchCompletionsControllerTests: XCTestCase {
         }
     }
 
+    func testStreamingMuseResponseChannelsDoNotLeakControls() async throws {
+        service.responseChannelFormat = .muse
+        service.streamingResultFactory = { _ in
+            FakeBatchService.makeStreamingResult(chunks: [
+                StreamChunk(text: "to=self<|message|>private reasoning<|eom|>"),
+                StreamChunk(text: "to=user<|message|>visible answer<|return|>"),
+                StreamChunk(text: "", promptTokens: 10, completionTokens: 8, cachedTokens: 0, promptTime: 0.01, generateTime: 0.02),
+            ])
+        }
+
+        let json = """
+        {"requests":[{"custom_id":"stream-muse","body":{"model":"m","stream":true,"messages":[{"role":"user","content":"hi"}]}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/batch/completions", headers: headers, body: ByteBuffer(string: json)
+        ) { res async in
+            let body = res.body.string
+            XCTAssertContains(body, "stream-muse")
+            XCTAssertContains(body, "visible answer")
+            XCTAssertContains(body, "private reasoning")
+            XCTAssertFalse(body.contains("to=self"))
+            XCTAssertFalse(body.contains("to=user"))
+            XCTAssertFalse(body.contains("<|message|>"))
+            XCTAssertFalse(body.contains("<|return|>"))
+        }
+    }
+
     func testMultipleRequestsAllGetResponses() async throws {
         let json = """
         {"requests":[{"custom_id":"a","body":{"model":"m","messages":[{"role":"user","content":"hi"}]}},{"custom_id":"b","body":{"model":"m","messages":[{"role":"user","content":"bye"}]}},{"custom_id":"c","body":{"model":"m","messages":[{"role":"user","content":"ok"}]}}]}
@@ -1493,6 +1525,49 @@ struct StreamCollectorTests {
         #expect(collected.content == nil)
         #expect(collected.reasoningContent == nil)
         #expect(collected.finishReason == "tool_calls")
+    }
+
+    @Test("Muse response channels are separated during batch collection")
+    func museResponseChannelCollection() async throws {
+        let result = Self.makeStreamingResult(
+            chunks: [
+                StreamChunk(text: "to=self<|message|>Need exact output.<|eom|>"),
+                StreamChunk(text: "to=user<|message|>request batch ok<|return|>"),
+                StreamChunk(text: "", completionTokens: 12),
+            ]
+        )
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: false,
+            responseChannelFormat: .muse
+        )
+
+        #expect(collected.content == "request batch ok")
+        #expect(collected.reasoningContent == "Need exact output.")
+        #expect(collected.content?.contains("to=self") == false)
+        #expect(collected.content?.contains("<|message|>") == false)
+    }
+
+    @Test("Harmony response channels are separated during batch collection")
+    func harmonyResponseChannelCollection() async throws {
+        let result = Self.makeStreamingResult(
+            chunks: [
+                StreamChunk(text: "<|channel|>analysis<|message|>Reason it out.<|end|>"),
+                StreamChunk(text: "<|channel|>final<|message|>Done.<|return|>"),
+                StreamChunk(text: "", completionTokens: 9),
+            ]
+        )
+
+        let collected = try await StreamCollector.collect(
+            from: result,
+            extractThinking: false,
+            responseChannelFormat: .harmony
+        )
+
+        #expect(collected.content == "Done.")
+        #expect(collected.reasoningContent == "Reason it out.")
+        #expect(collected.content?.contains("<|channel|>") == false)
     }
 
     // MARK: - Logprobs

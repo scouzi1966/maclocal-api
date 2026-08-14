@@ -2152,6 +2152,7 @@ actor BatchScheduler {
         let deltas = deltaToolCallsToEmit(from: events)
         if !deltas.isEmpty {
             chunks.append(StreamChunk(text: "", toolCallDeltas: deltas))
+            return chunks
         }
         for toolCall in completedToolCallsToEmit(from: events) {
             chunks.append(StreamChunk(text: "", toolCalls: [toolCall]))

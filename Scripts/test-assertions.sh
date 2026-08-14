@@ -24,6 +24,9 @@ SECTION=""  # empty = run all sections; set to a number to run only that section
 GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --enable-grammar-constraints
 SAFE_PARTIAL_CACHE_MISS=false
 STRICT_TOOL_GRAMMAR_CAPABILITY="${AFM_ASSERTIONS_STRICT_TOOL_GRAMMAR:-auto}"
+MODEL_SUPPORTS_TOOL_CALLING=true
+MODEL_SUPPORTS_STRUCTURED_OUTPUT=true
+MODEL_SUPPORTS_THINKING_TOGGLE=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
@@ -132,6 +135,21 @@ api_stream() {
 # For thinking models, content may be empty while reasoning_content has text.
 # Returns content if non-empty, otherwise returns reasoning_content.
 extract_content() {
+  python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read(), strict=False)
+    msg = d['choices'][0]['message']
+    c = msg.get('content') or msg.get('reasoning_content') or ''
+    print(c if c else '')
+except Exception as e:
+    print(f'__ERROR__: {e}')
+"
+}
+
+# Helper: extract only user-visible content from API response.
+# Stop-sequence assertions must not treat hidden reasoning text as visible output.
+extract_visible_content() {
   python3 -c "
 import sys, json
 try:
@@ -349,6 +367,56 @@ elif [ -n "${HF_HUB_CACHE:-}" ]; then
   fi
 fi
 if [ -n "$model_config" ]; then
+  capability_lines=$(python3 - "$model_config" <<'PY'
+import json
+import pathlib
+import sys
+
+config_path = pathlib.Path(sys.argv[1])
+with config_path.open("r", encoding="utf-8") as handle:
+    config = json.load(handle)
+
+text_config = config.get("text_config") or {}
+model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
+template_text = ""
+for candidate in ("tokenizer_config.json", "chat_template.jinja"):
+    path = config_path.with_name(candidate)
+    if not path.exists():
+        continue
+    try:
+        if path.suffix == ".json":
+            data = json.loads(path.read_text(encoding="utf-8"))
+            template = data.get("chat_template", "")
+            if isinstance(template, list):
+                template_text += "\n".join(str(item.get("template", "")) for item in template if isinstance(item, dict))
+            else:
+                template_text += str(template)
+        else:
+            template_text += path.read_text(encoding="utf-8")
+    except Exception:
+        pass
+template_lower = template_text.lower()
+
+is_muse = model_type in {"muse_glimmer", "muse_glimmer_text"}
+supports_tools = (not is_muse) and ("tool_call" in template_lower or "tools" in template_lower or "xmlfunction" in model_type or "deepseek_v4" in model_type)
+supports_thinking_toggle = "enable_thinking" in template_lower
+# The OpenAI response_format assertions are grammar/format contract tests. Muse
+# currently has a custom channel protocol but no published schema-guidance
+# contract in its template/config, so keep it out of strict JSON expectations.
+supports_structured = not is_muse
+
+print(f"MODEL_SUPPORTS_TOOL_CALLING={'true' if supports_tools else 'false'}")
+print(f"MODEL_SUPPORTS_THINKING_TOGGLE={'true' if supports_thinking_toggle else 'false'}")
+print(f"MODEL_SUPPORTS_STRUCTURED_OUTPUT={'true' if supports_structured else 'false'}")
+PY
+  )
+  while IFS='=' read -r cap_name cap_value; do
+    case "$cap_name" in
+      MODEL_SUPPORTS_TOOL_CALLING) MODEL_SUPPORTS_TOOL_CALLING="$cap_value" ;;
+      MODEL_SUPPORTS_THINKING_TOGGLE) MODEL_SUPPORTS_THINKING_TOGGLE="$cap_value" ;;
+      MODEL_SUPPORTS_STRUCTURED_OUTPUT) MODEL_SUPPORTS_STRUCTURED_OUTPUT="$cap_value" ;;
+    esac
+  done <<< "$capability_lines"
   SAFE_PARTIAL_CACHE_MISS=$(python3 - "$model_config" <<'PY'
 import json, sys
 
@@ -398,6 +466,10 @@ fi
 if [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ]; then
   echo "  Cache policy: recurrent hybrid; safe cold fallback is valid"
 fi
+THINKING_OFF_JSON_FRAGMENT=""
+if [ "$MODEL_SUPPORTS_THINKING_TOGGLE" = "true" ]; then
+  THINKING_OFF_JSON_FRAGMENT=',"chat_template_kwargs":{"enable_thinking":false}'
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 1: Server lifecycle
@@ -434,7 +506,7 @@ echo "🛑 Section 2: Stop Sequences"
 # Test: stop string absent from output
 t0=$(now_ms)
 resp=$(api_call '{"messages":[{"role":"user","content":"Count from 1 to 20, one number per line."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["5"]}')
-content=$(echo "$resp" | extract_content)
+content=$(echo "$resp" | extract_visible_content)
 finish=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0].get('finish_reason',''))" 2>/dev/null || echo "error")
 dur=$(( $(now_ms) - t0 ))
 if ! echo "$content" | grep -q "5"; then
@@ -466,7 +538,7 @@ fi
 # Test: multi-word stop
 t0=$(now_ms)
 resp=$(api_call '{"messages":[{"role":"user","content":"Write a short paragraph about cats."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["and"]}')
-content=$(echo "$resp" | extract_content)
+content=$(echo "$resp" | extract_visible_content)
 dur=$(( $(now_ms) - t0 ))
 # "and" should not appear in output (case sensitive)
 if ! echo "$content" | grep -qw "and"; then
@@ -506,7 +578,7 @@ fi
 # Test: multiple stop sequences
 t0=$(now_ms)
 resp=$(api_call '{"messages":[{"role":"user","content":"Count from 1 to 20."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["7","12"]}')
-content=$(echo "$resp" | extract_content)
+content=$(echo "$resp" | extract_visible_content)
 dur=$(( $(now_ms) - t0 ))
 if ! echo "$content" | grep -q "7" && ! echo "$content" | grep -q "12"; then
   run_test "Stop" "Multiple stop sequences [7, 12]" "neither found" "PASS" "$dur"
@@ -559,7 +631,7 @@ if min_tier standard; then
   # Test: stop sequence with JSON array format
   t0=$(now_ms)
   resp=$(api_call '{"messages":[{"role":"user","content":"List 5 fruits, one per line."}],"max_tokens":100,"stream":false,"temperature":0,"stop":["3."]}')
-  content=$(echo "$resp" | extract_content)
+  content=$(echo "$resp" | extract_visible_content)
   dur=$(( $(now_ms) - t0 ))
   if ! echo "$content" | grep -q "3\."; then
     run_test "Stop" "Stop sequence '3.' truncates list" "no '3.' in output" "PASS" "$dur"
@@ -581,7 +653,7 @@ if min_tier standard; then
   # Test: stop fires mid-word
   t0=$(now_ms)
   resp=$(api_call '{"messages":[{"role":"user","content":"Say the word hello"}],"max_tokens":500,"stream":false,"temperature":0,"stop":["llo"]}')
-  content=$(echo "$resp" | extract_content)
+  content=$(echo "$resp" | extract_visible_content)
   dur=$(( $(now_ms) - t0 ))
   if ! echo "$content" | grep -q "llo"; then
     run_test "Stop" "Stop 'llo' fires mid-word in 'hello'" "no 'llo'" "PASS" "$dur"
@@ -865,6 +937,11 @@ TOOL_DEF='[{"type":"function","function":{"name":"get_weather","description":"Ge
 if should_run_section 5; then
 echo ""
 echo "🔧 Section 5: Tool Calls"
+
+if [ "$MODEL_SUPPORTS_TOOL_CALLING" != "true" ]; then
+  echo "  (Model template does not advertise tool calling — skipping tool-call assertions)"
+  run_test "Tools" "Tool call contract (model lacks tool template support)" "skip" "SKIP" "0"
+else
 
 # Test: basic tool call
 t0=$(now_ms)
@@ -1174,6 +1251,8 @@ except Exception as e:
     fi
   fi
 
+fi
+
   # Test: no tools provided = normal response
   t0=$(now_ms)
   resp=$(api_call '{"messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":20,"stream":false,"temperature":0}')
@@ -1241,8 +1320,8 @@ except Exception as e:
   partial_prompt1="Prefix cache partial reuse probe $partial_prefix_nonce: answer with one word only. alpha"
   partial_prompt2="Prefix cache partial reuse probe $partial_prefix_nonce: answer with one word only. beta"
   t0=$(now_ms)
-  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt1\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
-  resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt2\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt1\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" >/dev/null
+  resp2=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$partial_prompt2\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}")
   dur=$(( $(now_ms) - t0 ))
   cached2=$(echo "$resp2" | python3 -c "
 import sys, json
@@ -1266,7 +1345,7 @@ except Exception as e:
 
   # Test: deterministic exact replay should not change content on cache hit
   replay_token="BASELINE-ALBATROSS"
-  replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a cache baseline test, reply with exactly $replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
+  replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a cache baseline test, reply with exactly $replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}"
   t0=$(now_ms)
   replay_resp1=$(api_call "$replay_body")
   replay_resp2=$(api_call "$replay_body")
@@ -1326,9 +1405,9 @@ except Exception as e:
   stream_cache_prompt1="Prefix cache streaming reuse probe $stream_partial_nonce: answer with one word only. alpha"
   stream_cache_prompt2="Prefix cache streaming reuse probe $stream_partial_nonce: answer with one word only. beta"
   t0=$(now_ms)
-  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt1\"}],\"max_tokens\":10,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt1\"}],\"max_tokens\":10,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" >/dev/null
   sleep 0.5
-  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt2\"}],\"max_tokens\":10,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
+  stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"$stream_cache_prompt2\"}],\"max_tokens\":10,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}")
   dur=$(( $(now_ms) - t0 ))
   stream_cached=$(echo "$stream_resp" | python3 -c "
 import sys, json
@@ -1359,8 +1438,8 @@ print(max(cached_values) if cached_values else 'MISSING')
 
   # Test: non-streaming warmup and streaming replay should produce identical content
   stream_replay_token="STREAM-ECHO-OMEGA"
-  stream_warm_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
-  stream_replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":true,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}"
+  stream_warm_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}"
+  stream_replay_body="{\"messages\":[{\"role\":\"user\",\"content\":\"For a streaming crossover test, reply with exactly $stream_replay_token and nothing else.\"}],\"max_tokens\":20,\"stream\":true,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}"
   t0=$(now_ms)
   stream_warm_resp=$(api_call "$stream_warm_body")
   sleep 0.5
@@ -1380,7 +1459,7 @@ for raw in sys.stdin:
         continue
     for choice in d.get('choices', []):
         delta = choice.get('delta', {})
-        text = delta.get('content')
+        text = delta.get('content') or delta.get('reasoning_content')
         if text:
             parts.append(text)
 print(''.join(parts))
@@ -1396,7 +1475,7 @@ print(''.join(parts))
   concurrent_nonce="CONCURRENT-CACHE-$(date +%s%N)"
   concurrent_prefix="Shared cache branch probe $concurrent_nonce."
   concurrent_warmup="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is 0."
-  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" >/dev/null
+  api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" >/dev/null
 
   t0=$(now_ms)
   concurrent_tmpdir=$(mktemp -d "$WORK_ROOT/afm-concurrent.XXXXXX")
@@ -1407,7 +1486,7 @@ print(''.join(parts))
     prompt="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is $token."
     curl -s --max-time 60 "$BASE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
-      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":64,\"stream\":false,\"temperature\":0,\"seed\":42,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
+      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":64,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" \
       -o "$concurrent_tmpdir/resp_$i.json" \
       -w "%{http_code}" > "$concurrent_tmpdir/code_$i.txt" 2>/dev/null &
   done
@@ -1461,6 +1540,11 @@ PY
     run_test "Cache" "Concurrent x8 shared-prefix: cache hit or safe fallback on every branch" "valid partial hit or recurrent cold fallback for all 8" "$concurrent_cache_state" "$dur"
   fi
 
+  if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
+    run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "model supports strict JSON marker output" "SKIP" "$dur"
+    rm -rf "$concurrent_tmpdir"
+  else
+
   concurrent_content_state=$(python3 - "$concurrent_tmpdir" "${concurrent_tokens[@]}" <<'PY'
 import json, os, re, sys
 
@@ -1492,6 +1576,7 @@ PY
     run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "each of 8 responses keeps only its own marker" "$concurrent_content_state" "$dur"
   fi
   rm -rf "$concurrent_tmpdir"
+  fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1596,9 +1681,12 @@ fi
 
 # Test: response_format json_object works
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"system","content":"Respond in JSON."},{"role":"user","content":"Give me a JSON object with key name and value Alice"}],"max_tokens":500,"stream":false,"temperature":0,"response_format":{"type":"json_object"},"chat_template_kwargs":{"enable_thinking":false}}')
-dur=$(( $(now_ms) - t0 ))
-json_valid=$(echo "$resp" | python3 -c "
+if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
+  run_test "Error" "response_format json_object returns valid JSON" "model supports structured output" "SKIP" "$(( $(now_ms) - t0 ))"
+else
+  resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"Respond in JSON.\"},{\"role\":\"user\",\"content\":\"Give me a JSON object with key name and value Alice\"}],\"max_tokens\":500,\"stream\":false,\"temperature\":0,\"response_format\":{\"type\":\"json_object\"}${THINKING_OFF_JSON_FRAGMENT}}")
+  dur=$(( $(now_ms) - t0 ))
+  json_valid=$(echo "$resp" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -1611,10 +1699,11 @@ except json.JSONDecodeError:
 except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
-if [ "$json_valid" = "PASS" ]; then
-  run_test "Error" "response_format json_object returns valid JSON" "valid JSON" "PASS" "$dur"
-else
-  run_test "Error" "response_format json_object returns valid JSON" "valid JSON" "$json_valid" "$dur"
+  if [ "$json_valid" = "PASS" ]; then
+    run_test "Error" "response_format json_object returns valid JSON" "valid JSON" "PASS" "$dur"
+  else
+    run_test "Error" "response_format json_object returns valid JSON" "valid JSON" "$json_valid" "$dur"
+  fi
 fi
 
 # Test: max_tokens is respected
@@ -1686,8 +1775,8 @@ except:
 " 2>/dev/null || echo "no")
   fi
 
-  if [ "$has_reasoning" = "yes" ]; then
-    echo "  (Model supports thinking — running chat_template_kwargs tests)"
+  if [ "$has_reasoning" = "yes" ] && [ "$MODEL_SUPPORTS_THINKING_TOGGLE" = "true" ]; then
+    echo "  (Model supports thinking toggle — running chat_template_kwargs tests)"
 
     # Helper: classify response thinking state
     # Returns: "no_think" | "thinking" | "empty" | "error"
@@ -1806,8 +1895,8 @@ except:
     fi
 
   else
-    echo "  (Model does not support thinking — skipping chat_template_kwargs tests)"
-    run_test "Kwargs" "chat_template_kwargs (model lacks thinking)" "skip" "SKIP" "0"
+    echo "  (Model does not advertise enable_thinking — skipping chat_template_kwargs toggle tests)"
+    run_test "Kwargs" "chat_template_kwargs (model lacks enable_thinking support)" "skip" "SKIP" "0"
   fi
 fi
 
@@ -1905,12 +1994,15 @@ except Exception as e:
   fi
 
   # ── Sequential: 3 tool calls with nullable schemas (cache reuse stress) ────
-  t0=$(now_ms)
-  seq_pass=0
-  seq_fail_msg=""
-  for i in 1 2 3; do
-    seq_resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Update record $i, set name to Planet$i\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"update_record\"}},\"max_tokens\":300,\"temperature\":0}")
-    seq_check=$(echo "$seq_resp" | python3 -c "
+  if [ "$MODEL_SUPPORTS_TOOL_CALLING" != "true" ]; then
+    run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "model supports forced tool_choice" "SKIP" "0"
+  else
+    t0=$(now_ms)
+    seq_pass=0
+    seq_fail_msg=""
+    for i in 1 2 3; do
+      seq_resp=$(api_call "{\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Update record $i, set name to Planet$i\"}],\"tools\":$NULLABLE_SCHEMA_TOOL,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"update_record\"}},\"max_tokens\":300,\"temperature\":0}")
+      seq_check=$(echo "$seq_resp" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -1927,17 +2019,18 @@ try:
 except Exception as e:
     print(f'FAIL:{e}')
 " 2>/dev/null || echo "FAIL:parse")
-    if [ "$seq_check" = "OK" ]; then
-      seq_pass=$((seq_pass + 1))
+      if [ "$seq_check" = "OK" ]; then
+        seq_pass=$((seq_pass + 1))
+      else
+        seq_fail_msg="req$i=$seq_check"
+      fi
+    done
+    dur=$(( $(now_ms) - t0 ))
+    if [ "$seq_pass" -eq 3 ]; then
+      run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "PASS" "$dur"
     else
-      seq_fail_msg="req$i=$seq_check"
+      run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "FAIL: $seq_pass/3 $seq_fail_msg" "$dur"
     fi
-  done
-  dur=$(( $(now_ms) - t0 ))
-  if [ "$seq_pass" -eq 3 ]; then
-    run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "PASS" "$dur"
-  else
-    run_test "Cache" "Sequential: 3 nullable tool calls (cache reuse)" "3/3 succeed" "FAIL: $seq_pass/3 $seq_fail_msg" "$dur"
   fi
 
   # ── Multi-turn tool conversation with shared prefix (5 messages) ───────────
@@ -2331,6 +2424,11 @@ if should_run_section 8c && min_tier standard; then
   echo ""
   echo "📋 Section 8c: Structured Output"
 
+  if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
+    echo "  (Model does not advertise structured-output guidance — skipping schema-conformance assertion)"
+    run_test "Structured" "json_schema contract (model lacks structured-output support)" "skip" "SKIP" "0"
+  else
+
   # Test: response_format json_schema produces valid schema-matching JSON
   t0=$(now_ms)
   schema_resp=$(api_call '{"messages":[{"role":"user","content":"Give me a person named Alice who is 30 years old"}],"max_tokens":100,"temperature":0,"response_format":{"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}}}}')
@@ -2355,6 +2453,8 @@ except Exception as e:
     run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "PASS" "$dur"
   else
     run_test "Structured" "json_schema produces valid schema-matching JSON" "valid JSON" "$schema_valid" "$dur"
+  fi
+
   fi
 fi
 
@@ -3728,7 +3828,9 @@ if should_run_section 14; then
   # the response should include X-Grammar-Constraints: downgraded.
   # When server DOES have --enable-grammar-constraints, the header should be absent.
   t0=$(now_ms)
-  if [ "$STRICT_TOOL_GRAMMAR_CAPABILITY" = "false" ]; then
+  if [ "$MODEL_SUPPORTS_TOOL_CALLING" != "true" ]; then
+    run_test "StrictWiring" "Strict tool grammar header (model lacks tool support)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
+  elif [ "$STRICT_TOOL_GRAMMAR_CAPABILITY" = "false" ]; then
     run_test "StrictWiring" "Strict tool grammar header (unsupported parser)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
   else
     header_resp=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Paris?\"}],\"tools\":$STRICT_TOOL_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
@@ -3752,19 +3854,23 @@ if should_run_section 14; then
 
   # ── Test 14.2: X-Grammar-Constraints header — json_schema strict:true ──
   t0=$(now_ms)
-  header_resp2=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Ada Lovelace age 36\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
-  dur=$(( $(now_ms) - t0 ))
-  if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
-    if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints'; then
-      run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "FAIL: header present" "$dur"
-    else
-      run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "PASS" "$dur"
-    fi
+  if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
+    run_test "StrictWiring" "Strict schema grammar header (model lacks structured-output support)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
   else
-    if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints: downgraded'; then
-      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "PASS" "$dur"
+    header_resp2=$(api_call_headers "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Ada Lovelace age 36\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+    dur=$(( $(now_ms) - t0 ))
+    if [ "$GRAMMAR_CONSTRAINTS" = true ]; then
+      if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints'; then
+        run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "FAIL: header present" "$dur"
+      else
+        run_test "StrictWiring" "Header absent when grammar enabled (schema strict:true)" "no header" "PASS" "$dur"
+      fi
     else
-      run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "FAIL: header missing" "$dur"
+      if echo "$header_resp2" | grep -qi 'X-Grammar-Constraints: downgraded'; then
+        run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "PASS" "$dur"
+      else
+        run_test "StrictWiring" "X-Grammar-Constraints: downgraded header (schema strict:true)" "downgraded" "FAIL: header missing" "$dur"
+      fi
     fi
   fi
 
@@ -3781,7 +3887,10 @@ if should_run_section 14; then
 
   # ── Test 14.4: Streaming json_schema strict:true returns valid JSON ────
   t0=$(now_ms)
-  stream_schema_content=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Alan Turing age 41\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":300,\"stream\":true,\"temperature\":0}" | python3 -c "
+  if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
+    run_test "StrictWiring" "Streaming json_schema strict:true (model lacks structured-output support)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
+  else
+    stream_schema_content=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Return a person record for Alan Turing age 41\"}],\"response_format\":$STRICT_SCHEMA_14,\"max_tokens\":300,\"stream\":true,\"temperature\":0}" | python3 -c "
 import sys, json
 lines = sys.stdin.read().strip().split('\n')
 parts = []
@@ -3825,13 +3934,19 @@ except Exception as e:
   else
     run_test "StrictWiring" "Streaming json_schema strict:true returns valid JSON" "valid JSON with name+age" "$schema_stream_ok" "$dur"
   fi
+  fi
 
   # ── Test 14.5: Streaming tool strict:true returns valid tool call ──────
   t0=$(now_ms)
-  # strict:true constrains arguments but does not itself require a tool call.
-  # Select the function explicitly so this assertion tests strict streaming
-  # grammar wiring instead of the model's tool-selection behavior.
-  stream_tool_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Call get_weather with location Tokyo.\"}],\"tools\":$STRICT_TOOL_14,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"get_weather\"}},\"max_tokens\":300,\"stream\":true,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false}}")
+  if [ "$MODEL_SUPPORTS_TOOL_CALLING" != "true" ]; then
+    run_test "StrictWiring" "Streaming tool strict:true (model lacks tool support)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
+  else
+    # strict:true constrains arguments but does not itself require a tool call.
+    # Select the function explicitly so this assertion tests strict streaming
+    # grammar wiring instead of the model's tool-selection behavior.
+    tool_toggle=',"chat_template_kwargs":{"enable_thinking":false}'
+    [ "$MODEL_SUPPORTS_THINKING_TOGGLE" = "true" ] || tool_toggle=''
+    stream_tool_raw=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Call get_weather with location Tokyo.\"}],\"tools\":$STRICT_TOOL_14,\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"get_weather\"}},\"max_tokens\":300,\"stream\":true,\"temperature\":0${tool_toggle}}")
   dur=$(( $(now_ms) - t0 ))
   stream_tool_ok=$(echo "$stream_tool_raw" | python3 -c "
 import sys, json
@@ -3875,11 +3990,15 @@ else:
   else
     run_test "StrictWiring" "Streaming tool strict:true returns valid tool call" "get_weather(location)" "$stream_tool_ok" "$dur"
   fi
+  fi
 
   # ── Test 14.6: strict:false does NOT activate grammar (non-streaming) ──
   t0=$(now_ms)
-  STRICTFALSE_TOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","strict":false,"parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]'
-  nostrict_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$STRICTFALSE_TOOL,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
+  if [ "$MODEL_SUPPORTS_TOOL_CALLING" != "true" ]; then
+    run_test "StrictWiring" "strict:false tool request (model lacks tool support)" "capability-aware skip" "SKIP" "$(( $(now_ms) - t0 ))"
+  else
+    STRICTFALSE_TOOL='[{"type":"function","function":{"name":"get_weather","description":"Get weather","strict":false,"parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]'
+    nostrict_resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Berlin?\"}],\"tools\":$STRICTFALSE_TOOL,\"max_tokens\":200,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   nostrict_ok=$(echo "$nostrict_resp" | python3 -c "
 import sys, json
@@ -3899,6 +4018,7 @@ except Exception as e:
     run_test "StrictWiring" "strict:false does not error (best-effort)" "valid response" "PASS" "$dur"
   else
     run_test "StrictWiring" "strict:false does not error (best-effort)" "valid response" "$nostrict_ok" "$dur"
+  fi
   fi
 
 fi
@@ -4211,13 +4331,16 @@ if should_run_section 16 && min_tier standard; then
 
   # Test 16.5: streaming parity — same seed must produce same content
   t0=$(now_ms)
-  NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Reply with exactly yes in lowercase and nothing else."}],"max_tokens":3,"temperature":0,"seed":42,"stream":false,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
-  S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Reply with exactly yes in lowercase and nothing else."}],"max_tokens":3,"temperature":0,"seed":42,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}' 2>&1)
-  dur=$(($(now_ms) - t0))
-  NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
-  S_C=$(echo "$S" | python3 -c "
+  if [ "$MODEL_SUPPORTS_THINKING_TOGGLE" != "true" ]; then
+    run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "model supports deterministic no-thinking exact output" "SKIP" "$(( $(now_ms) - t0 ))"
+  else
+    NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":false${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":true${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    dur=$(($(now_ms) - t0))
+    NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+    S_C=$(echo "$S" | python3 -c "
 import sys
 content=''
 for line in sys.stdin:
@@ -4231,26 +4354,31 @@ for line in sys.stdin:
         except: pass
 print(content.strip())
 " 2>/dev/null)
-  if [ -n "$NS_C" ] && [ "$NS_C" = "$S_C" ]; then
-    run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "match" "PASS" "$dur"
-  else
-    run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "ns='$NS_C' vs s='$S_C'" "FAIL: mismatch" "$dur"
+    if [ -n "$NS_C" ] && [ "$NS_C" = "$S_C" ]; then
+      run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "match" "PASS" "$dur"
+    else
+      run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "ns='$NS_C' vs s='$S_C'" "FAIL: mismatch" "$dur"
+    fi
   fi
 
   # Test 16.6: cache idempotency — same request twice must match
   t0=$(now_ms)
-  pairwise_cache_token="PAIRWISE-CACHE-CERULEAN"
-  R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>&1)
-  R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>&1)
-  dur=$(($(now_ms) - t0))
-  C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
-  C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
-  if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
-    run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "match" "PASS" "$dur"
+  if [ "$MODEL_SUPPORTS_THINKING_TOGGLE" != "true" ]; then
+    run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "model supports deterministic no-thinking exact output" "SKIP" "$(( $(now_ms) - t0 ))"
   else
-    run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "r1='$C1' vs r2='$C2'" "FAIL: mismatch" "$dur"
+    pairwise_cache_token="PAIRWISE-CACHE-CERULEAN"
+    R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    dur=$(($(now_ms) - t0))
+    C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+    C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+    if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
+      run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "match" "PASS" "$dur"
+    else
+      run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "r1='$C1' vs r2='$C2'" "FAIL: mismatch" "$dur"
+    fi
   fi
 fi
 

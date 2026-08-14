@@ -377,6 +377,15 @@ public final class MLXModelService: @unchecked Sendable {
         AFMMLXToolCallPolicy.isToolCallParserDisabled(parser)
     }
 
+    static func requiresSerialGeneration(canonicalModelType: String) -> Bool {
+        switch canonicalModelType {
+        case "cohere2_moe", "muse_glimmer":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Raw mode (`--tool-call-parser none`): every extraction path — streaming
     /// runtime, scheduler runtime, and post-generation fallback — must be gated
     /// on this so tool markup reaches the client as plain content.
@@ -460,6 +469,10 @@ public final class MLXModelService: @unchecked Sendable {
     /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
     /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
     public private(set) var harmonyChannels: Bool = false
+    /// Response-template channel dialect used by the generated text. Some models
+    /// use non-Harmony channels such as Muse's `to=self<|message|>` reasoning
+    /// and `to=user<|message|>` visible content.
+    public private(set) var responseChannelFormat: AFMMLXResponseChannelFormat = .none
     /// Built-in chat template applied as an override when the model's own
     /// chat_template.jinja cannot be parsed by swift-jinja (e.g. Cohere's
     /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
@@ -1590,6 +1603,7 @@ public final class MLXModelService: @unchecked Sendable {
             // routes <|channel|>analysis|message|> ... <|end|> to reasoning_content
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
+            self.responseChannelFormat = .none
             self.builtinChatTemplate = nil
             self.nativeToolJSONChatTemplate = Self.nativeToolJSONChatTemplate(directory: directory)
             self.forceSerialGeneration = false
@@ -1605,8 +1619,21 @@ public final class MLXModelService: @unchecked Sendable {
                    let modelType = (json["model_type"] as? String)?.lowercased() {
                     if modelType == "gpt_oss" {
                         self.harmonyChannels = true
+                        self.responseChannelFormat = .harmony
                         if debugLogging {
                             print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                        }
+                    }
+                    if modelType == "muse_glimmer" {
+                        self.responseChannelFormat = .muse
+                        if debugLogging {
+                            print("[\(ts())] [ResponseTemplate] Detected Muse response channels — routing to=self to reasoning_content and to=user to content")
+                        }
+                    }
+                    if Self.requiresSerialGeneration(canonicalModelType: modelArchitecture.canonicalModelType) {
+                        self.forceSerialGeneration = true
+                        if debugLogging {
+                            print("[\(ts())] [BatchScheduler] \(modelArchitecture.canonicalModelType) — forcing serial generation (batch decode unvalidated)")
                         }
                     }
                     // Cohere's cohere2_moe ships a chat template swift-jinja can't parse
@@ -1643,7 +1670,6 @@ public final class MLXModelService: @unchecked Sendable {
                         // (Prefix caching IS correct here — KVCacheSimple full layers + sub-window
                         // RotatingKVCache reuse verified producing cache hits with correct output —
                         // so it is left enabled.)
-                        self.forceSerialGeneration = true
                         if debugLogging {
                             print("[\(ts())] [ChatTemplate] cohere2_moe — built-in template; forcing serial generation (batch decode unvalidated)")
                         }
@@ -7128,6 +7154,7 @@ extension MLXModelService: AFMMLXServingConfigurationProviding {
             thinkStartTag: thinkStartTag,
             thinkEndTag: thinkEndTag,
             harmonyChannels: harmonyChannels,
+            responseChannelFormat: responseChannelFormat,
             structuralStripTags: structuralStripTags,
             fixToolArguments: fixToolArgs,
             grammarConstraintsEnabled: enableGrammarConstraints

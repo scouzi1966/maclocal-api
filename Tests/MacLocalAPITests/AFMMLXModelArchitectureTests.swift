@@ -145,6 +145,13 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertTrue(plan.forceLLMOnlyApplied == false)
     }
 
+    func testUnsafeHybridArchitecturesForceSerialGeneration() {
+        XCTAssertTrue(MLXModelService.requiresSerialGeneration(canonicalModelType: "cohere2_moe"))
+        XCTAssertTrue(MLXModelService.requiresSerialGeneration(canonicalModelType: "muse_glimmer"))
+        XCTAssertFalse(MLXModelService.requiresSerialGeneration(canonicalModelType: "qwen3"))
+        XCTAssertFalse(MLXModelService.requiresSerialGeneration(canonicalModelType: "nemotron_h"))
+    }
+
     func testDualModeConfigurationRequiresVisionConfig() {
         XCTAssertTrue(
             AFMMLXModelArchitecture.isDualModeConfiguration([

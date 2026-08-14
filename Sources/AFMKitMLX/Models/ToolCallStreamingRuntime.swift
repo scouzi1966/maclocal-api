@@ -44,9 +44,11 @@ public final class ToolCallStreamingRuntime {
     private var incrementalFunctionName = ""
     private var incrementalToolIndex = 0
     private var incrementalParamCount = 0
+    private var incrementalArgumentPrefix = ""
     private var incrementalEmittedKeys = Set<String>()
     private var collectedCount = 0
     private var pendingStartProbe = ""
+    private var finalizedCurrentToolCall = false
 
     public init(
         toolCallStartTag: String,
@@ -130,7 +132,7 @@ public final class ToolCallStreamingRuntime {
     }
 
     public func finishIncompleteToolCall() -> [ToolCallStreamingEvent] {
-        guard inToolCall, !currentToolText.isEmpty else { return [] }
+        guard inToolCall, !currentToolText.isEmpty, !finalizedCurrentToolCall else { return [] }
 
         defer { resetState() }
 
@@ -140,13 +142,15 @@ public final class ToolCallStreamingRuntime {
                 events.append(.delta(salvaged))
             }
 
-            let closeArgs = incrementalParamCount == 0 ? "{}" : "}"
-            events.append(.delta(StreamDeltaToolCall(
-                index: incrementalToolIndex,
-                id: nil,
-                type: nil,
-                function: StreamDeltaFunction(name: nil, arguments: closeArgs)
-            )))
+            let closeArgs = incrementalParamCount == 0 ? "{}" : (needsIncrementalArgumentClose ? "}" : nil)
+            if let closeArgs {
+                events.append(.delta(StreamDeltaToolCall(
+                    index: incrementalToolIndex,
+                    id: nil,
+                    type: nil,
+                    function: StreamDeltaFunction(name: nil, arguments: closeArgs)
+                )))
+            }
 
             let parsed = parseIncrementalToolCalls(includeTrailingPartial: true)
             for tc in parsed {
@@ -170,6 +174,7 @@ public final class ToolCallStreamingRuntime {
         if let endRange = currentToolText.range(of: toolCallEndTag) {
             let beforeEnd = String(currentToolText[..<endRange.lowerBound])
             currentToolText = beforeEnd
+            finalizedCurrentToolCall = true
             events.append(contentsOf: finalizeCurrentToolCall())
             return ToolCallStreamingOutput(handled: true, events: events)
         }
@@ -184,6 +189,14 @@ public final class ToolCallStreamingRuntime {
         if incrementalEmittedFirst {
             let parsed = parseIncrementalToolCalls(includeTrailingPartial: false)
             var events = [ToolCallStreamingEvent]()
+            if needsIncrementalArgumentClose {
+                events.append(.delta(StreamDeltaToolCall(
+                    index: incrementalToolIndex,
+                    id: nil,
+                    type: nil,
+                    function: StreamDeltaFunction(name: nil, arguments: "}")
+                )))
+            }
             for tc in parsed {
                 hasToolCalls = true
                 let responseToolCall = normalizedToolCall(
@@ -191,12 +204,6 @@ public final class ToolCallStreamingRuntime {
                     index: incrementalToolIndex
                 )
                 events.append(.replaceCollected(index: incrementalToolIndex, toolCall: responseToolCall))
-                events.append(.delta(StreamDeltaToolCall(
-                    index: incrementalToolIndex,
-                    id: nil,
-                    type: nil,
-                    function: StreamDeltaFunction(name: nil, arguments: responseToolCall.function.arguments)
-                )))
             }
             return events
         }
@@ -310,12 +317,47 @@ public final class ToolCallStreamingRuntime {
                           let keyRange = Range(match.range(at: 1), in: currentToolText) else {
                         continue
                     }
-                    incrementalEmittedKeys.insert(String(currentToolText[keyRange]))
+                    let rawKey = String(currentToolText[keyRange])
+                    guard !incrementalEmittedKeys.contains(rawKey),
+                          let valueRange = Range(match.range(at: 2), in: currentToolText) else {
+                        continue
+                    }
+                    if let delta = buildParameterDelta(
+                        rawKey: rawKey,
+                        rawValue: String(currentToolText[valueRange])
+                    ) {
+                        events.append(.delta(delta))
+                    }
                 }
             }
         }
 
         return events
+    }
+
+    private func buildParameterDelta(rawKey: String, rawValue: String) -> StreamDeltaToolCall? {
+        var emittedKey = paramNameMapping[rawKey] ?? rawKey
+        if emittedKey == rawKey {
+            emittedKey = remapSingleKey(rawKey, incrementalFunctionName)
+        }
+
+        let jsonValue = Self.jsonEncodeValue(Self.decodeParameterValue(Self.normalizeParameterBody(rawValue)))
+        let fragment: String
+        if incrementalParamCount == 0 {
+            fragment = "{\"\(Self.jsonEscapeKey(emittedKey))\":\(jsonValue)"
+        } else {
+            fragment = ",\"\(Self.jsonEscapeKey(emittedKey))\":\(jsonValue)"
+        }
+        incrementalParamCount += 1
+        incrementalArgumentPrefix += fragment
+        incrementalEmittedKeys.insert(rawKey)
+
+        return StreamDeltaToolCall(
+            index: incrementalToolIndex,
+            id: nil,
+            type: nil,
+            function: StreamDeltaFunction(name: nil, arguments: fragment)
+        )
     }
 
     private func salvageUnclosedParameterFragment() -> StreamDeltaToolCall? {
@@ -330,33 +372,9 @@ public final class ToolCallStreamingRuntime {
         let rawKey = String(currentToolText[keyRange])
         guard !incrementalEmittedKeys.contains(rawKey) else { return nil }
 
-        var value = String(currentToolText[valueRange])
-        if value.hasPrefix("\n") { value = String(value.dropFirst()) }
-        if value.hasSuffix("\n") { value = String(value.dropLast()) }
-        value = MLXModelService.decodeJSONEscapes(MLXModelService.decodeXMLEntities(value))
-        guard !value.isEmpty else { return nil }
-
-        incrementalEmittedKeys.insert(rawKey)
-        var emittedKey = paramNameMapping[rawKey] ?? rawKey
-        if emittedKey == rawKey {
-            emittedKey = remapSingleKey(rawKey, incrementalFunctionName)
-        }
-
-        let jsonValue = Self.jsonEncodeString(value)
-        let fragment: String
-        if incrementalParamCount == 0 {
-            fragment = "{\"\(Self.jsonEscapeKey(emittedKey))\":\(jsonValue)"
-        } else {
-            fragment = ",\"\(Self.jsonEscapeKey(emittedKey))\":\(jsonValue)"
-        }
-        incrementalParamCount += 1
-
-        return StreamDeltaToolCall(
-            index: incrementalToolIndex,
-            id: nil,
-            type: nil,
-            function: StreamDeltaFunction(name: nil, arguments: fragment)
-        )
+        let value = String(currentToolText[valueRange])
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return buildParameterDelta(rawKey: rawKey, rawValue: value)
     }
 
     private func resolveToolName(_ name: String) -> String {
@@ -381,7 +399,7 @@ public final class ToolCallStreamingRuntime {
                 }
                 let key = String(currentToolText[keyRange])
                 if arguments[key] == nil {
-                    arguments[key] = Self.decodeParameterValue(String(currentToolText[valueRange]))
+                    arguments[key] = Self.decodeParameterValue(Self.normalizeParameterBody(String(currentToolText[valueRange])))
                 }
             }
         }
@@ -389,7 +407,7 @@ public final class ToolCallStreamingRuntime {
         if includeTrailingPartial,
            let partial = trailingPartialParameter(),
            arguments[partial.key] == nil {
-            arguments[partial.key] = Self.decodeParameterValue(partial.value)
+            arguments[partial.key] = Self.decodeParameterValue(Self.normalizeParameterBody(partial.value))
         }
 
         return ToolCall(function: .init(
@@ -422,7 +440,41 @@ public final class ToolCallStreamingRuntime {
         incrementalCallId = ""
         incrementalFunctionName = ""
         incrementalParamCount = 0
+        incrementalArgumentPrefix = ""
         incrementalEmittedKeys = Set<String>()
+        finalizedCurrentToolCall = false
+    }
+
+    private var needsIncrementalArgumentClose: Bool {
+        guard incrementalParamCount > 0 else { return false }
+        return Self.jsonBraceBalance(in: incrementalArgumentPrefix) > 0
+    }
+
+    private static func jsonBraceBalance(in text: String) -> Int {
+        var balance = 0
+        var inString = false
+        var escaped = false
+        for char in text {
+            if escaped {
+                escaped = false
+                continue
+            }
+            if char == "\\" {
+                escaped = inString
+                continue
+            }
+            if char == "\"" {
+                inString.toggle()
+                continue
+            }
+            guard !inString else { continue }
+            if char == "{" {
+                balance += 1
+            } else if char == "}" {
+                balance -= 1
+            }
+        }
+        return balance
     }
 
     private static func partialSuffixLength(in text: String, matching boundary: String) -> Int {
@@ -467,6 +519,44 @@ public final class ToolCallStreamingRuntime {
             previous = current
         }
         return previous[rhs.count]
+    }
+
+    private static func jsonEncodeValue(_ value: any Sendable) -> String {
+        switch value {
+        case let string as String:
+            return jsonEncodeString(string)
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            guard double.isFinite else { return "null" }
+            return String(double)
+        case _ as NSNull:
+            return "null"
+        case let dict as [String: any Sendable]:
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+               let encoded = String(data: data, encoding: .utf8) {
+                return encoded
+            }
+        case let array as [any Sendable]:
+            if let data = try? JSONSerialization.data(withJSONObject: array, options: [.sortedKeys]),
+               let encoded = String(data: data, encoding: .utf8) {
+                return encoded
+            }
+        default:
+            break
+        }
+        return jsonEncodeString(String(describing: value))
+    }
+
+    private static func normalizeParameterBody(_ value: String) -> String {
+        let decoded = MLXModelService.decodeXMLEntities(value)
+        let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+            return trimmed
+        }
+        return trimmed.isEmpty ? decoded : trimmed
     }
 
     private static func jsonEncodeString(_ value: String) -> String {

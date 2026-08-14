@@ -1129,6 +1129,13 @@ public class MuseGlimmer: Module, VLMModel, KVCacheDimensionProvider {
         var tokens = input.text.tokens
         if tokens.ndim == 1 { tokens = tokens.expandedDimensions(axis: 0) }
 
+        // Keep text-only generation on the ordinary token path. Reusing the
+        // multimodal embedding graph for the first prompt leaves its sequence
+        // dimension attached to the next one-token decode on some MLX builds.
+        guard input.image?.pixels != nil else {
+            return .logits(languageModel(tokens, cache: cache))
+        }
+
         let embeddings = try inputEmbeddings(
             inputIds: tokens,
             pixelValues: input.image?.pixels,

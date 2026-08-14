@@ -36,7 +36,81 @@ struct ToolCallStreamingRuntimeTests {
         #expect(end.handled)
         #expect(replacement(from: end.events)?.function.name == "get_weather")
         #expect(replacement(from: end.events)?.function.arguments == #"{"location":"Berlin"}"#)
-        #expect(delta(from: end.events)?.function?.arguments == #"{"location":"Berlin"}"#)
+        #expect(emittedArgumentDeltas(parameter.events + end.events).joined() == #"{"location":"Berlin"}"#)
+    }
+
+    @Test("runtime does not resend full arguments after incremental XML deltas")
+    func doesNotResendFinalArgumentsAfterIncrementalDeltas() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [makeTool(name: "get_weather", properties: [
+                "location": ["type": "string"],
+                "unit": ["type": "string"],
+            ], required: ["location"])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<tool_call>")
+        _ = runtime.process(piece: "<function=get_weather>")
+        let location = runtime.process(piece: "<parameter=location>Sydney</parameter>")
+        let unit = runtime.process(piece: "<parameter=unit>fahrenheit</parameter>")
+        let end = runtime.process(piece: "</tool_call>")
+
+        #expect(replacement(from: end.events)?.function.arguments == #"{"location":"Sydney","unit":"fahrenheit"}"#)
+        let deltas = emittedArgumentDeltas(location.events + unit.events + end.events)
+        #expect(deltas.joined() == #"{"location":"Sydney","unit":"fahrenheit"}"#)
+        #expect(!deltas.contains(#"{"location":"Sydney","unit":"fahrenheit"}"#))
+    }
+
+    @Test("runtime ignores duplicate JSON fallback after XML parameter deltas")
+    func ignoresDuplicateJSONFallbackAfterXMLParameterDeltas() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [makeTool(name: "get_weather", properties: [
+                "location": ["type": "string"],
+                "unit": ["type": "string"],
+            ], required: ["location"])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<tool_call>")
+        _ = runtime.process(piece: "<function=get_weather>")
+        let location = runtime.process(piece: "<parameter=location>\nSydney\n</parameter>")
+        let unit = runtime.process(piece: "<parameter=unit>\nfahrenheit\n</parameter>")
+        _ = runtime.process(piece: #"{"location":"Sydney","unit":"fahrenheit"}"#)
+        let end = runtime.process(piece: "</tool_call>")
+
+        let deltas = emittedArgumentDeltas(location.events + unit.events + end.events)
+        #expect(deltas.joined() == #"{"location":"Sydney","unit":"fahrenheit"}"#)
+    }
+
+    @Test("runtime does not append an extra brace when a parameter delta is already a full JSON object")
+    func doesNotAppendExtraBraceForFullObjectParameterDelta() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [makeTool(name: "get_weather", properties: [
+                "location": ["type": "string"],
+                "unit": ["type": "string"],
+            ], required: ["location"])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<tool_call>")
+        _ = runtime.process(piece: "<function=get_weather>")
+        let arguments = runtime.process(piece: #"<parameter=arguments>{"location":"Sydney","unit":"fahrenheit"}</parameter>"#)
+        let end = runtime.process(piece: "</tool_call>")
+
+        let deltas = emittedArgumentDeltas(arguments.events + end.events)
+        #expect(deltas.joined() == #"{"arguments":{"location":"Sydney","unit":"fahrenheit"}}"#)
     }
 
     @Test("runtime parses adaptive xml JSON fallback")
@@ -244,5 +318,12 @@ struct ToolCallStreamingRuntimeTests {
             }
         }
         return nil
+    }
+
+    private func emittedArgumentDeltas(_ events: [ToolCallStreamingEvent]) -> [String] {
+        events.compactMap { event -> String? in
+            guard case .delta(let delta) = event else { return nil }
+            return delta.function?.arguments
+        }
     }
 }

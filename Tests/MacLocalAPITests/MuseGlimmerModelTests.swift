@@ -258,6 +258,12 @@ final class MuseGlimmerModelTests: XCTestCase {
         MLX.eval(textOutput.logits)
         XCTAssertTrue(textOutput.logits.asArray(Float.self).allSatisfy(\.isFinite))
 
+        let nextToken = MLXArray([1])[.newAxis, .ellipsis]
+        let nextLogits = context.model.callAsFunction(nextToken, cache: textCache)
+        MLX.eval(nextLogits)
+        XCTAssertEqual(nextLogits.dim(1), 1)
+        XCTAssertTrue(nextLogits.asArray(Float.self).allSatisfy(\.isFinite))
+
         let image = MLXArray(Array(repeating: Float(0.5), count: 3 * 28 * 28))
             .reshaped(3, 28, 28)
         let imageInput = try await context.processor.prepare(input: UserInput(chat: [

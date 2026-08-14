@@ -119,6 +119,18 @@ has_scanner_failure() {
         "$log_file"
 }
 
+has_generated_dependency_failure() {
+    local log_file="$1"
+    grep -Eq \
+        "unable to open dependencies file .*\.d\)|SwiftDriver\\\\ Compilation\\\\ Requirements .* failed with a nonzero exit code" \
+        "$log_file"
+}
+
+has_recoverable_xcode_failure() {
+    local log_file="$1"
+    has_scanner_failure "$log_file" || has_generated_dependency_failure "$log_file"
+}
+
 run_native() {
     local log_file="$1"
     shift
@@ -261,8 +273,8 @@ if [[ "$DRIVER" == "native" ]] ||
     else
         STATUS=$?
     fi
-    if has_scanner_failure "$PRIMARY_LOG"; then
-        echo "[swiftpm-reliable] Native incremental module state is invalid; cleaning products and retrying once." >&2
+    if has_recoverable_xcode_failure "$PRIMARY_LOG"; then
+        echo "[swiftpm-reliable] Native generated build state is invalid; cleaning products and retrying once." >&2
         swift package clean
         if run_native "$RETRY_LOG" "$@"; then
             exit 0
@@ -295,11 +307,11 @@ if [[ $STATUS -eq 0 ]]; then
     exit 0
 fi
 
-if ! has_scanner_failure "$PRIMARY_LOG"; then
+if ! has_recoverable_xcode_failure "$PRIMARY_LOG"; then
     exit "$STATUS"
 fi
 
-echo "[swiftpm-reliable] Xcode module-scanner cache failure detected." >&2
+echo "[swiftpm-reliable] Recoverable Xcode generated-build-state failure detected." >&2
 echo "[swiftpm-reliable] Cleaning build products and retrying with the native driver." >&2
 swift package clean
 
