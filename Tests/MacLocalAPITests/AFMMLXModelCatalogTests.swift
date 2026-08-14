@@ -24,6 +24,8 @@ final class AFMMLXModelCatalogTests: XCTestCase {
                 "mlx-community/Qwen3-VL-8B-Instruct-8bit",
                 "mlx-community/Qwen3-VL-8B-Instruct-bf16",
                 "mlx-community/Qwen3.6-27B-4bit",
+                "mlx-community/Qwen3.8-27B-4bit",
+                "mlx-community/Qwen3.8-27B-mxfp8",
                 "mlx-community/gemma-4-26b-a4b-it-4bit",
                 "mlx-community/gemma-4-31b-it-4bit",
                 "mlx-community/gemma-4-31b-it-8bit",
@@ -67,12 +69,31 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(vision.generationPreset.temperature, 0.7)
         XCTAssertEqual(vision.generationPreset.topP, 0.8)
         XCTAssertEqual(vision.generationPreset.maxTokens, 32768)
+
+        let qwen38 = try XCTUnwrap(
+            AFMMLXModelCatalog.model(for: "mlx-community/Qwen3.8-27B-4bit")
+        )
+        XCTAssertTrue(qwen38.isVisionModel)
+        XCTAssertEqual(qwen38.generationPreset.temperature, 1.0)
+        XCTAssertEqual(qwen38.generationPreset.topP, 0.95)
+        XCTAssertEqual(qwen38.generationPreset.topK, 20)
+        XCTAssertEqual(qwen38.generationPreset.maxTokens, 32768)
+
+        let qwen38MXFP8 = try XCTUnwrap(
+            AFMMLXModelCatalog.model(for: "mlx-community/Qwen3.8-27B-mxfp8")
+        )
+        XCTAssertTrue(qwen38MXFP8.isVisionModel)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.temperature, 1.0)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.topP, 0.95)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.topK, 20)
+        XCTAssertEqual(qwen38MXFP8.generationPreset.maxTokens, 32768)
     }
 
     func testGenerationConfigPresetReadsKnownSamplingKeys() throws {
         let preset = try XCTUnwrap(AFMMLXGenerationPreset.generationConfigPreset([
             "temperature": 0.2,
             "top_p": 1,
+            "top_k": 20,
             "repetition_penalty": 1.05,
             "max_new_tokens": 4096,
             "ignored": "value",
@@ -80,6 +101,7 @@ final class AFMMLXModelCatalogTests: XCTestCase {
 
         XCTAssertEqual(preset.temperature, 0.2)
         XCTAssertEqual(preset.topP, 1.0)
+        XCTAssertEqual(preset.topK, 20)
         XCTAssertEqual(preset.repetitionPenalty, 1.05)
         XCTAssertEqual(preset.maxTokens, 4096)
     }
@@ -100,6 +122,7 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [
             "temperature": 0.4,
             "top_p": 0.9,
+            "top_k": 17,
             "max_new_tokens": 128,
         ])
         try data.write(to: directory.appendingPathComponent("generation_config.json"))
@@ -107,6 +130,7 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         let preset = try XCTUnwrap(AFMMLXGenerationPreset.generationConfigPreset(in: directory))
         XCTAssertEqual(preset.temperature, 0.4)
         XCTAssertEqual(preset.topP, 0.9)
+        XCTAssertEqual(preset.topK, 17)
         XCTAssertNil(preset.repetitionPenalty)
         XCTAssertEqual(preset.maxTokens, 128)
     }
@@ -124,6 +148,7 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: [
             "temperature": 0.25,
             "top_p": 0.9,
+            "top_k": 20,
             "enable_thinking": true,
         ]).write(to: directory.appendingPathComponent("generation_config.json"))
         try JSONSerialization.data(withJSONObject: [
@@ -139,6 +164,7 @@ final class AFMMLXModelCatalogTests: XCTestCase {
         XCTAssertEqual(metadata.contextWindow, 65_536)
         XCTAssertEqual(metadata.generationPreset?.temperature, 0.25)
         XCTAssertEqual(metadata.generationPreset?.topP, 0.9)
+        XCTAssertEqual(metadata.generationPreset?.topK, 20)
         XCTAssertTrue(metadata.hasImplicitReasoning)
         XCTAssertTrue(metadata.supportsThinkingToggle)
     }

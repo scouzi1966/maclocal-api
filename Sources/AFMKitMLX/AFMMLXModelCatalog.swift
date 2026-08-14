@@ -7,17 +7,20 @@ import MLXVLM
 public struct AFMMLXGenerationPreset: Hashable, Sendable {
     public var temperature: Double?
     public var topP: Double?
+    public var topK: Int?
     public var repetitionPenalty: Double?
     public var maxTokens: Int?
 
     public init(
         temperature: Double? = nil,
         topP: Double? = nil,
+        topK: Int? = nil,
         repetitionPenalty: Double? = nil,
         maxTokens: Int? = nil
     ) {
         self.temperature = temperature
         self.topP = topP
+        self.topK = topK
         self.repetitionPenalty = repetitionPenalty
         self.maxTokens = maxTokens
     }
@@ -25,16 +28,19 @@ public struct AFMMLXGenerationPreset: Hashable, Sendable {
     public static func generationConfigPreset(_ json: [String: Any]) -> AFMMLXGenerationPreset? {
         let temperature = doubleValue(json["temperature"])
         let topP = doubleValue(json["top_p"])
+        let topK = intValue(json["top_k"])
         let repetitionPenalty = doubleValue(json["repetition_penalty"])
         let maxTokens = intValue(json["max_new_tokens"])
 
-        guard temperature != nil || topP != nil || repetitionPenalty != nil || maxTokens != nil else {
+        guard temperature != nil || topP != nil || topK != nil
+            || repetitionPenalty != nil || maxTokens != nil else {
             return nil
         }
 
         return AFMMLXGenerationPreset(
             temperature: temperature,
             topP: topP,
+            topK: topK,
             repetitionPenalty: repetitionPenalty,
             maxTokens: maxTokens
         )
@@ -211,6 +217,7 @@ public struct AFMMLXCuratedModel: Hashable, Identifiable, Sendable {
         ]
         metadata["temperature"] = generationPreset.temperature.map { .number($0) }
         metadata["topP"] = generationPreset.topP.map { .number($0) }
+        metadata["topK"] = generationPreset.topK.map { .integer($0) }
         metadata["repetitionPenalty"] = generationPreset.repetitionPenalty.map { .number($0) }
         metadata["maxTokens"] = generationPreset.maxTokens.map { .integer($0) }
 
@@ -351,6 +358,22 @@ public enum AFMMLXModelCatalog {
             maxTokens: 32768
         ),
         visionModel(
+            displayName: "Qwen3.8-27B-4bit",
+            repoID: "mlx-community/Qwen3.8-27B-4bit",
+            temperature: 1.0,
+            topP: 0.95,
+            topK: 20,
+            maxTokens: 32768
+        ),
+        visionModel(
+            displayName: "Qwen3.8-27B-mxfp8",
+            repoID: "mlx-community/Qwen3.8-27B-mxfp8",
+            temperature: 1.0,
+            topP: 0.95,
+            topK: 20,
+            maxTokens: 32768
+        ),
+        visionModel(
             displayName: "Gemma-4-26B-A4B-it-4bit",
             repoID: "mlx-community/gemma-4-26b-a4b-it-4bit",
             temperature: 1.0,
@@ -419,6 +442,7 @@ public enum AFMMLXModelCatalog {
              "mlx-community/gemma-4-e2b-it-4bit",
              "mlx-community/gemma-4-e4b-it-4bit",
              "mlx-community/Qwen3.6-27B-4bit",
+             "mlx-community/Qwen3.8-27B-4bit",
              "mlx-community/gemma-4-26b-a4b-it-4bit",
              "mlx-community/gemma-4-31b-it-4bit":
             return VLMRegistry.qwen3VL4BInstruct4Bit
@@ -426,7 +450,8 @@ public enum AFMMLXModelCatalog {
              "mlx-community/Qwen3-VL-8B-Instruct-8bit",
              "mlx-community/Qwen3-VL-8B-Instruct-bf16",
              "mlx-community/gemma-4-31b-it-8bit",
-             "mlx-community/Qwen3.6-35B-A3B-8bit":
+             "mlx-community/Qwen3.6-35B-A3B-8bit",
+             "mlx-community/Qwen3.8-27B-mxfp8":
             return VLMRegistry.qwen3VL4BInstruct8Bit
         default:
             return nil
@@ -459,6 +484,7 @@ public enum AFMMLXModelCatalog {
         repoID: String,
         temperature: Double = 0.7,
         topP: Double = 0.8,
+        topK: Int? = nil,
         maxTokens: Int
     ) -> AFMMLXCuratedModel {
         AFMMLXCuratedModel(
@@ -469,6 +495,7 @@ public enum AFMMLXModelCatalog {
             generationPreset: AFMMLXGenerationPreset(
                 temperature: temperature,
                 topP: topP,
+                topK: topK,
                 repetitionPenalty: nil,
                 maxTokens: maxTokens
             )

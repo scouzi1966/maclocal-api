@@ -1,4 +1,6 @@
+import Foundation
 import XCTest
+import MLXVLM
 @testable import AFMKitMLX
 
 final class AFMMLXModelArchitectureTests: XCTestCase {
@@ -202,6 +204,32 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertTrue(preflight.requiresVisionModelFactory)
     }
 
+    func testQwen38PublishedConfigurationUsesExistingQwen35MultimodalArchitecture() throws {
+        let config = Qwen38PublishedConfigFixture.mxfp8
+
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            config,
+            modelID: "mlx-community/Qwen3.8-27B-mxfp8"
+        )
+
+        XCTAssertEqual(preflight.modelType, "qwen3_5")
+        XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertFalse(preflight.requiresVisionModelFactory)
+        XCTAssertEqual(
+            AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: preflight),
+            .llm
+        )
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.image, architecture: preflight))
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.video, architecture: preflight))
+        XCTAssertTrue(AFMMLXModelArchitecture.isDualModeConfiguration(config))
+    }
+
+    func testQwen38PublishedConfigurationDecodesWithQwen35VLMFactoryConfiguration() throws {
+        let data = try JSONSerialization.data(withJSONObject: Qwen38PublishedConfigFixture.mxfp8)
+        XCTAssertNoThrow(try JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: data))
+    }
+
     func testDeepseekV40731PreflightUsesLanguageModelFactory() throws {
         let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
             [
@@ -382,6 +410,7 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertFalse(AFMMLXModelArchitecture.matchesSupportedNamePattern("example/random-model"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.looksLikeDualMode("mlx-community/Qwen3.5-35B-A3B-4bit"))
+        XCTAssertTrue(AFMMLXModelArchitecture.looksLikeDualMode("Qwen/Qwen3.8-27B-FP8"))
         XCTAssertFalse(AFMMLXModelArchitecture.looksLikeDualMode("mlx-community/Qwen3-VL-4B-Instruct"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.looksLikeVisionModel("mlx-community/paligemma-3b"))

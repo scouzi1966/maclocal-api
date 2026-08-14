@@ -371,7 +371,9 @@ public enum AFMMLXModelArchitecture {
         "qwen3.5-",
         "qwen3.5_",
         "qwen3.6-",
-        "qwen3.6_"
+        "qwen3.6_",
+        "qwen3.8-",
+        "qwen3.8_"
     ]
 
     public static let visionNamePatterns: [String] = [
