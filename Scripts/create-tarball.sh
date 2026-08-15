@@ -77,6 +77,7 @@ if [ ! -f "$WEBUI" ]; then
   log_error "Missing webui: $WEBUI"
   exit 1
 fi
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
 
 # Stage tarball contents
 PACKAGE_WORK_ROOT="${AFM_PACKAGE_WORK_ROOT:-$ROOT_DIR/.build/package-work}"
@@ -107,6 +108,10 @@ cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"
+ARCHIVE_WEBUI="$PACKAGE_WORK_ROOT/archive-webui.html.gz"
+tar -xOzf "$OUTPUT" "$DIRNAME/Resources/webui/index.html.gz" > "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+rm -f "$ARCHIVE_WEBUI"
 cleanup_staging
 trap - EXIT
 

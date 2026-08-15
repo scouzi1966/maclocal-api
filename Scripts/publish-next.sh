@@ -149,6 +149,7 @@ if [ ! -f "$WEBUI" ]; then
   log_error "Required WebUI artifact missing after build: $WEBUI"
   exit 1
 fi
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
 
 cp "$BIN" "$STAGING/"
 
@@ -182,6 +183,12 @@ shasum -a 256 "$TARBALL" > "$TARBALL.sha256"
 "$STAGING/afm" --version
 "$STAGING/afm" --help | grep -q 'mlx'
 test -s "$STAGING/Resources/webui/index.html.gz"
+"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
+
+ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-next-archive-webui.html.gz"
+tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+rm -f "$ARCHIVE_WEBUI"
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."
@@ -272,6 +279,11 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/afm-ne
 sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
 sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
 sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
+
+if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
+  log_error "Homebrew nightly formula does not install the required WebUI"
+  exit 1
+fi
 
 # Also emit a pinned versioned formula (afm-next@YYYYMMDD.rb) and prune older nightlies
 # beyond the last 10. This lets users do `brew install scouzi1966/afm/afm-next@20260408`

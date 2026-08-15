@@ -67,11 +67,10 @@ if [ -f "$METALLIB" ]; then
     cp "$METALLIB" macafm_next/bin/
     echo "[INFO] Included metallib"
 fi
-if [ -f Resources/webui/index.html.gz ]; then
-    mkdir -p macafm_next/share/webui
-    cp Resources/webui/index.html.gz macafm_next/share/webui/
-    echo "[INFO] Included webui"
-fi
+"$REPO_ROOT/Scripts/verify-webui.sh" Resources/webui/index.html.gz
+mkdir -p macafm_next/share/webui
+cp Resources/webui/index.html.gz macafm_next/share/webui/
+echo "[INFO] Included webui"
 
 # ---------- build wheel ----------
 # Use pyproject-next.toml by temporarily swapping it in
@@ -101,5 +100,10 @@ if [ "$WHL_SIZE" -lt 1 ]; then
     echo "[ERROR] Wheel is too small — assets were not staged correctly"
     exit 1
 fi
+
+WHEEL_WEBUI="$REPO_ROOT/.build/afm-next-wheel-webui.html.gz"
+unzip -p "$WHL" macafm_next/share/webui/index.html.gz > "$WHEEL_WEBUI"
+"$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI"
+rm -f "$WHEEL_WEBUI"
 
 echo "[INFO] Done. Wheel ready: $WHL"

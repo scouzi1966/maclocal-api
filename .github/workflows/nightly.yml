@@ -21,7 +21,9 @@ jobs:
       run: ./Scripts/build-from-scratch.sh
 
     - name: Build required WebUI artifact
-      run: make webui
+      run: |
+        make webui
+        Scripts/verify-webui.sh Resources/webui/index.html.gz
 
     - name: Create release package
       run: |
@@ -53,6 +55,8 @@ jobs:
         cp README.md LICENSE release-package/ 2>/dev/null || true
 
         tar -czf afm-next-arm64.tar.gz -C release-package .
+        tar -xOzf afm-next-arm64.tar.gz ./Resources/webui/index.html.gz > archive-webui.html.gz
+        Scripts/verify-webui.sh archive-webui.html.gz
 
         echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
         echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"

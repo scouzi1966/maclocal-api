@@ -16,6 +16,11 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Set up Node.js for WebUI
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
     # Use the runner's default Xcode toolchain (Swift 6.x on macos-latest),
     # which is required both for the macOS 26 SDK / Foundation Models APIs and
     # for Package.swift's `swift-tools-version: 6.0` (Swift 6 language mode).
@@ -28,6 +33,11 @@ jobs:
         xcodebuild -version
         swift --version
         ./build.sh --stable --yes
+
+    - name: Build and verify required WebUI artifact
+      run: |
+        make webui
+        Scripts/verify-webui.sh Resources/webui/index.html.gz
     
     - name: Create Release Package
       run: |
@@ -38,6 +48,10 @@ jobs:
         
         # Copy binary with new name
         cp .build/arm64-apple-macosx/release/afm release-package/
+
+        mkdir -p release-package/Resources/webui
+        cp Resources/webui/index.html.gz release-package/Resources/webui/
+        Scripts/verify-webui.sh release-package/Resources/webui/index.html.gz
 
         for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
@@ -68,6 +82,8 @@ jobs:
         
         # Create archive
         tar -czf afm-v$VERSION-arm64.tar.gz -C release-package .
+        tar -xOzf afm-v$VERSION-arm64.tar.gz ./Resources/webui/index.html.gz > archive-webui.html.gz
+        Scripts/verify-webui.sh archive-webui.html.gz
     
     - name: Upload to Release
       uses: softprops/action-gh-release@v1

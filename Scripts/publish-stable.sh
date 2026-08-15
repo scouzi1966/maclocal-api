@@ -158,6 +158,7 @@ if [ ! -f "$WEBUI" ]; then
   log_error "Required WebUI artifact missing after build: $WEBUI"
   exit 1
 fi
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
 mkdir -p "$STAGING/Resources/webui"
 cp "$WEBUI" "$STAGING/Resources/webui/"
 log_info "Included webui"
@@ -168,6 +169,12 @@ cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
 TARBALL="$ROOT_DIR/afm-${TAG}-arm64.tar.gz"
 tar -czf "$TARBALL" -C "$STAGING" .
 log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
+
+"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
+ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-stable-archive-webui.html.gz"
+tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+rm -f "$ARCHIVE_WEBUI"
 
 # Step 4: Generate changelog (since last stable tag)
 log_info "Generating changelog..."
@@ -239,6 +246,11 @@ sed -i '' "s/assert_match \"v[0-9][^\"]*\"/assert_match \"v${VERSION}\"/" afm.rb
 # Update caveats version references
 sed -i '' "s/MLX Local Models (v[0-9][^)]*)/MLX Local Models (v${VERSION}+)/" afm.rb
 
+if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.rb; then
+  log_error "Homebrew stable formula does not install the required WebUI"
+  exit 1
+fi
+
 git add afm.rb
 git commit -m "afm ${VERSION}"
 git push
@@ -274,16 +286,25 @@ if [ -f "$METALLIB" ]; then
   log_info "  Staged default.metallib"
 fi
 
-# WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$ROOT_DIR/macafm/share/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$ROOT_DIR/macafm/share/webui/"
-  log_info "  Staged webui"
-fi
+# WebUI is required for the published wheel.
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
+mkdir -p "$ROOT_DIR/macafm/share/webui"
+cp "$WEBUI" "$ROOT_DIR/macafm/share/webui/"
+log_info "  Staged webui"
 
 log_info "Building Python package..."
 uv build
 log_info "Python package built"
+
+STABLE_WHEEL=$(ls -t "$ROOT_DIR"/dist/macafm-*.whl 2>/dev/null | head -1)
+if [ -z "$STABLE_WHEEL" ]; then
+  log_error "Stable wheel was not produced"
+  exit 1
+fi
+WHEEL_WEBUI="$ROOT_DIR/.build/afm-stable-wheel-webui.html.gz"
+unzip -p "$STABLE_WHEEL" macafm/share/webui/index.html.gz > "$WHEEL_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$WHEEL_WEBUI"
+rm -f "$WHEEL_WEBUI"
 
 # Cleanup staged assets (don't commit binaries to git)
 rm -rf "$ROOT_DIR/macafm/bin" "$ROOT_DIR/macafm/share"

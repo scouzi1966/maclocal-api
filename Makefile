@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check
 
 PATCH_SH := Scripts/apply-mlx-patches.sh
 PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
@@ -58,7 +58,11 @@ webui: submodules
 	@cd vendor/llama.cpp/tools/server/webui && npm install && npm run build
 	@mkdir -p Resources/webui
 	@cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
+	@Scripts/verify-webui.sh Resources/webui/index.html.gz
 	@echo "✅ WebUI built: Resources/webui/index.html.gz"
+
+verify-webui:
+	@Scripts/verify-webui.sh Resources/webui/index.html.gz
 
 # Build with webui included
 build-with-webui: webui build
@@ -131,6 +135,7 @@ help:
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"
 	@echo "  webui           - Build webui from llama.cpp (requires Node.js)"
+	@echo "  verify-webui    - Validate the packaged WebUI gzip and HTML payload"
 	@echo "  build-with-webui - Build with webui included"
 	@echo "  help            - Show this help"
 	@echo ""
