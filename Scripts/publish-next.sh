@@ -137,6 +137,19 @@ STAGING="$ROOT_DIR/.build/release-package"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
 
+# The server only opens the browser when the bundled WebUI can be resolved.
+# Build it on demand and treat it as a required release artifact so a nightly
+# cannot silently ship with a non-functional -w/--webui flag.
+WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
+if [ ! -f "$WEBUI" ]; then
+  log_info "WebUI artifact missing; building it..."
+  make webui
+fi
+if [ ! -f "$WEBUI" ]; then
+  log_error "Required WebUI artifact missing after build: $WEBUI"
+  exit 1
+fi
+
 cp "$BIN" "$STAGING/"
 
 # Runtime resource bundles. Both must remain beside the relocated executable:
@@ -152,11 +165,9 @@ for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bund
 done
 
 # WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$STAGING/Resources/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
-  log_info "Included webui"
-fi
+mkdir -p "$STAGING/Resources/webui"
+cp "$WEBUI" "$STAGING/Resources/webui/"
+log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
 cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
@@ -170,6 +181,7 @@ shasum -a 256 "$TARBALL" > "$TARBALL.sha256"
 # SwiftPM resource bundles while the candidate is still local.
 "$STAGING/afm" --version
 "$STAGING/afm" --help | grep -q 'mlx'
+test -s "$STAGING/Resources/webui/index.html.gz"
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."

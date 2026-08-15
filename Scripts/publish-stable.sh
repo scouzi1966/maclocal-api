@@ -147,12 +147,20 @@ for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bund
   log_info "Included runtime bundle: $BUNDLE_NAME"
 done
 
-# WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$STAGING/Resources/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
-  log_info "Included webui"
+# The server only opens the browser when the bundled WebUI can be resolved.
+# Build it on demand and require it in every stable package.
+WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
+if [ ! -f "$WEBUI" ]; then
+  log_info "WebUI artifact missing; building it..."
+  make webui
 fi
+if [ ! -f "$WEBUI" ]; then
+  log_error "Required WebUI artifact missing after build: $WEBUI"
+  exit 1
+fi
+mkdir -p "$STAGING/Resources/webui"
+cp "$WEBUI" "$STAGING/Resources/webui/"
+log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
 cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true

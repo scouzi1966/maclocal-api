@@ -20,6 +20,9 @@ jobs:
     - name: Build from scratch
       run: ./Scripts/build-from-scratch.sh
 
+    - name: Build required WebUI artifact
+      run: make webui
+
     - name: Create release package
       run: |
         SHORT_SHA=$(git rev-parse --short HEAD)
@@ -34,11 +37,11 @@ jobs:
         Scripts/check-macos26-compatibility.sh "$BIN"
         cp "$BIN" release-package/
 
-        # Copy webui resources
-        if [ -f "Resources/webui/index.html.gz" ]; then
-          mkdir -p release-package/Resources/webui
-          cp Resources/webui/index.html.gz release-package/Resources/webui/
-        fi
+        # Copy required webui resources. The -w/--webui startup behavior
+        # depends on this file being present in the relocated package.
+        test -s Resources/webui/index.html.gz
+        mkdir -p release-package/Resources/webui
+        cp Resources/webui/index.html.gz release-package/Resources/webui/
 
         # Copy required runtime resource bundles beside the executable.
         for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
