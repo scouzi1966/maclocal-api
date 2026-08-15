@@ -2142,7 +2142,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         Self.reporterLock.unlock()
 
         startedAt = Date()
-        print("\(loadingLabel): \(modelID)")
+        Self.writeDiagnostic("\(loadingLabel): \(modelID)\n")
 
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now(), repeating: .milliseconds(200))
@@ -2235,7 +2235,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         if let errorMessage, !errorMessage.isEmpty {
             line += " | \(errorMessage)"
         }
-        print(Self.terminalSafeLine(line, clearExisting: true))
+        Self.writeDiagnostic(Self.terminalSafeLine(line, clearExisting: true) + "\n")
     }
 
     static func finishActiveWithError(_ message: String) {
@@ -2299,18 +2299,17 @@ private final class MLXLoadReporter: @unchecked Sendable {
             let transports = Array(Set(currentTransports)).sorted()
             line += " | transport \(transports.isEmpty ? "auto" : transports.joined(separator: "+"))"
         }
-        fputs(Self.terminalSafeLine(line, clearExisting: true), stdout)
-        fflush(stdout)
+        Self.writeDiagnostic(Self.terminalSafeLine(line, clearExisting: true))
     }
 
     private static func terminalSafeLine(_ line: String, clearExisting: Bool) -> String {
-        guard isatty(STDOUT_FILENO) != 0 else {
+        guard isatty(STDERR_FILENO) != 0 else {
             return "\r\(line)"
         }
 
         var size = winsize()
         let width: Int
-        if ioctl(STDOUT_FILENO, UInt(TIOCGWINSZ), &size) == 0, size.ws_col > 1 {
+        if ioctl(STDERR_FILENO, UInt(TIOCGWINSZ), &size) == 0, size.ws_col > 1 {
             width = Int(size.ws_col) - 1
         } else {
             width = 119
@@ -2325,6 +2324,11 @@ private final class MLXLoadReporter: @unchecked Sendable {
         }
         let erase = clearExisting ? "\u{1B}[2K" : ""
         return "\r\(erase)\(clipped)"
+    }
+
+    private static func writeDiagnostic(_ text: String) {
+        fputs(text, stderr)
+        fflush(stderr)
     }
 
     private static func progressBar(fraction: Double, width: Int) -> String {
