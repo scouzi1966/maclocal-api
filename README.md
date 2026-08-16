@@ -15,7 +15,7 @@ Release infographics are collected here newest first. Select an infographic to o
 
 ### [AFM v0.9.16](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
 
-[![AFM v0.9.16 — four new models and platform changes since v0.9.14](assets/afm-0.9.16-models-deep-dive-social-v3.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
+[![AFM v0.9.16 — four new models, official developer logos, and two installation paths](assets/afm-0.9.16-models-deep-dive-social-v6.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
 
 AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run Hugging Face MLX models or Apple’s on-device Foundation Model, then connect the clients and SDKs you already use.
 
