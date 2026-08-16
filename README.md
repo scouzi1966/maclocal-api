@@ -220,6 +220,23 @@ Supported checkpoints can also use speculative decoding:
 
 Read [decode optimizations](docs/decode-optimizations.md) before choosing a checkpoint or interpreting benchmark results.
 
+### Benchmark context scaling
+
+AFM pins `llm_context_benchmarks` and includes a launcher for reproducible
+cold-prefill, warm-prefix, and concurrent-batch sweeps through the
+OpenAI-compatible API:
+
+```bash
+Scripts/benchmark-context.sh \
+  --model mlx-community/Qwen3.8-27B-4bit \
+  --contexts 0.5,1,2,4,8,16 \
+  --max-tokens 256
+```
+
+See [LLM Context Benchmarks](docs/llm-context-benchmarks.md) for managed AFM
+startup, existing endpoints, Apple Foundation Models, MTP, prefix caching, and
+artifact interpretation.
+
 ## Sampling and response controls
 
 The MLX backend supports `temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`, `presence_penalty`, `seed`, `stop`, `logprobs`, and `top_logprobs`.
@@ -294,6 +311,7 @@ Small 0.6B–4B quantized models are the easiest way to confirm a setup. Large 3
 - [Apple-native endpoints](docs/apple-native-endpoints.md)
 - [Model path resolution](docs/model-path-resolution.md)
 - [Decode optimizations](docs/decode-optimizations.md)
+- [LLM Context Benchmarks](docs/llm-context-benchmarks.md)
 - [AFMKit public API](docs/afmkit-public-api.md)
 - [Parameter combinations and use cases](https://maclocal.ai/docs/configuration-recipes)
 - [Supported model architecture catalog](https://maclocal.ai/docs/model-architectures)

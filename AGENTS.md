@@ -31,6 +31,10 @@ do not replace the wrapper with raw `swift test` or a one-off environment fix.
 - `Scripts/swiftpm-reliable.sh build -c release --product afm` builds AFM directly.
 - `Scripts/swiftpm-reliable.sh test -c release` runs the Swift unit test suite directly.
 - `./Scripts/test-assertions.sh --tier smoke --model <model>` runs the broader assertion and integration harness.
+- `Scripts/benchmark-context.sh --model <model>` runs the pinned
+  `llm_context_benchmarks` context, batch, and prefix-cache harness through
+  AFM's OpenAI-compatible API. Generated artifacts belong under ignored
+  `test-reports/llm-context-benchmarks/`; do not write them into the submodule.
 
 ## Coding Style & Naming Conventions
 Follow existing Swift conventions: 4-space indentation, `UpperCamelCase` for types, `lowerCamelCase` for methods and properties, and descriptive filenames that match the primary type (`MLXModelService.swift`). Keep shell scripts executable, POSIX-friendly where practical, and named with hyphenated verbs such as `build-from-scratch.sh`.

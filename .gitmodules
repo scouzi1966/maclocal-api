@@ -10,3 +10,6 @@
 [submodule "vendor/ds4"]
 	path = vendor/ds4
 	url = https://github.com/antirez/ds4.git
+[submodule "vendor/llm-context-benchmarks"]
+	path = vendor/llm-context-benchmarks
+	url = https://github.com/ivanfioravanti/llm_context_benchmarks.git

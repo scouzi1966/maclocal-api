@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check benchmark-context test-benchmark-context
 
 PATCH_SH := Scripts/apply-mlx-patches.sh
 PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
@@ -105,6 +105,14 @@ test: build
 		echo "✅ Portability test passed" || echo "⚠️  Portability test failed"; \
 		rm -f "$$TEST_BIN"
 
+# Run the pinned end-to-end context benchmark. Supply options through ARGS.
+benchmark-context:
+	@Scripts/benchmark-context.sh $(ARGS)
+
+# Validate launcher option forwarding without loading a model.
+test-benchmark-context:
+	@Scripts/tests/test-context-benchmark-integration.sh
+
 # Development build (debug)
 debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
@@ -131,6 +139,8 @@ help:
 	@echo "  uninstall       - Remove from /usr/local/bin"
 	@echo "  dist            - Create distribution package"
 	@echo "  test            - Test the binary and portability"
+	@echo "  benchmark-context - Run llm_context_benchmarks (pass options with ARGS='...')"
+	@echo "  test-benchmark-context - Validate the context benchmark integration"
 	@echo "  debug           - Build debug version"
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"
