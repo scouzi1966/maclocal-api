@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import __build_version__
+
 
 def get_binary_path() -> Path:
     """Return the path to the afm binary (bundled, Homebrew, or PATH)."""
@@ -46,7 +48,9 @@ def main():
         os.chmod(binary, 0o755)
 
     try:
-        result = subprocess.run([str(binary)] + sys.argv[1:])
+        environment = os.environ.copy()
+        environment["AFM_BUILD_VERSION"] = f"v{__build_version__.removeprefix('v')}"
+        result = subprocess.run([str(binary)] + sys.argv[1:], env=environment)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         sys.exit(130)

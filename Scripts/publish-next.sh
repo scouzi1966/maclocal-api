@@ -96,7 +96,12 @@ else
   fi
   BASE_VERSION="${BASE_VERSION:-0.0.0}"
 fi
-VERSION="${BASE_VERSION}-next.${DATE}.${SHORT_SHA}"
+VERSION=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field canonical)
+PYTHON_VERSION=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field python)
+RELEASE_TAG=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field tag)
 
 log_info "Building afm-next"
 log_info "  Commit: ${SHORT_SHA}"
@@ -190,6 +195,24 @@ tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
 "$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
 rm -f "$ARCHIVE_WEBUI"
 
+# Build and verify the pip payload before any GitHub or Homebrew publication.
+# The wheel smoke test asserts that its bundled `afm --version` exactly matches
+# the canonical version written to the Homebrew formula.
+if [ ! -x "$SCRIPT_DIR/build-nightly-wheel.sh" ]; then
+  log_error "Required build-nightly-wheel.sh not found"
+  exit 1
+fi
+log_info "Building and validating nightly wheel..."
+"$SCRIPT_DIR/build-nightly-wheel.sh" \
+  --version "$BASE_VERSION" \
+  --build-version "$VERSION" \
+  --python-version "$PYTHON_VERSION"
+NIGHTLY_WHEEL=$(find "$ROOT_DIR/dist" -maxdepth 1 -name 'macafm_next-*.whl' -print -quit)
+if [ -z "$NIGHTLY_WHEEL" ]; then
+  log_error "Validated nightly wheel was not found"
+  exit 1
+fi
+
 # Step 4: Generate changelog
 log_info "Generating changelog..."
 if [ -n "$SINCE_SHA" ]; then
@@ -211,7 +234,6 @@ else
 fi
 
 # Step 5: Upload to GitHub release (unique tag per build, keep history)
-RELEASE_TAG="nightly-${DATE}-${SHORT_SHA}"
 log_info "Creating release: $RELEASE_TAG"
 gh release create "$RELEASE_TAG" \
   --prerelease \
@@ -304,19 +326,14 @@ git push
 
 log_info "Tap updated"
 
-# Step 7: Build nightly wheel and update PEP 503 index
+# Step 7: Upload the already-validated wheel and update the PEP 503 index
 cd "$ROOT_DIR"
-if [ -x "$SCRIPT_DIR/build-nightly-wheel.sh" ]; then
-  log_info "Building nightly wheel..."
-  "$SCRIPT_DIR/build-nightly-wheel.sh" --version "$BASE_VERSION"
-  WHL=$(ls dist/macafm_next-*.whl 2>/dev/null | head -1)
-  if [ -n "$WHL" ] && [ -x "$SCRIPT_DIR/update-wheel-index.sh" ]; then
-    log_info "Uploading wheel and updating index..."
-    "$SCRIPT_DIR/update-wheel-index.sh" "$WHL" "$RELEASE_TAG"
-  fi
-else
-  log_warn "build-nightly-wheel.sh not found, skipping wheel"
+if [ ! -x "$SCRIPT_DIR/update-wheel-index.sh" ]; then
+  log_error "Required update-wheel-index.sh not found"
+  exit 1
 fi
+log_info "Uploading validated wheel and updating index..."
+"$SCRIPT_DIR/update-wheel-index.sh" "$NIGHTLY_WHEEL" "$RELEASE_TAG"
 
 # Cleanup
 rm -rf "$STAGING"

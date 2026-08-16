@@ -10,9 +10,10 @@ Requirements:
 - Apple Intelligence enabled in System Settings
 """
 
-__version__ = "0.9.14.dev0"
+__version__ = "0.9.17.dev0"
+__build_version__ = "0.9.17-next.dev"
 __author__ = "Sylvain Cousineau"
 
 from .cli import main, get_binary_path
 
-__all__ = ["main", "get_binary_path", "__version__"]
+__all__ = ["main", "get_binary_path", "__version__", "__build_version__"]
