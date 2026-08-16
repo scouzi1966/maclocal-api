@@ -1,0 +1,17 @@
+Reusing 5 completed BFCL result files for mtp-off__reasoning-no-thinking
+Number of models evaluated:   0%|          | 0/1 [00:00<?, ?it/s]Number of models evaluated: 100%|██████████| 1/1 [00:00<00:00, 11.88it/s]
+🦍 Model: AFM-Qwen3.8-27B-FC
+🔍 Running test: parallel_multiple
+✅ Test completed: parallel_multiple. 🎯 Accuracy: 100.00%
+🔍 Running test: irrelevance
+✅ Test completed: irrelevance. 🎯 Accuracy: 100.00%
+🔍 Running test: parallel
+✅ Test completed: parallel. 🎯 Accuracy: 80.00%
+🔍 Running test: multiple
+✅ Test completed: multiple. 🎯 Accuracy: 100.00%
+🔍 Running test: simple_python
+✅ Test completed: simple_python. 🎯 Accuracy: 100.00%
+📈 Aggregating data to generate leaderboard score table...
+🏁 Evaluation completed. See /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_overall.csv for overall evaluation results on BFCL V4.
+⚠️  Partial evaluation for a single category is enabled (--partial-run flag is set). Accuracy scores are computed only on the subset of entries present in the model result files, which may differ from a full evaluation and from the official leaderboard score.
+See /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_live.csv, /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_non_live.csv, /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_multi_turn.csv, /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_agentic.csv and /Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142/mtp-off__reasoning-no-thinking/scores/data_format_sensitivity.csv for detailed evaluation results on each sub-section categories respectively.
