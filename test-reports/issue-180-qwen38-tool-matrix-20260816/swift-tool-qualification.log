@@ -1,0 +1,565 @@
+[swiftpm-reliable] XCTest MLX metallib: /Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Resources/default.metallib
+[mlx-deepseek-v4] mlx-swift patch is applied.
+[mlx-deepseek-v4] MLX core patch is applied.
+[mlx-deepseek-v4] MLX C API patch is applied.
+[mlx-deepseek-v4] mlx-swift patch is applied.
+[mlx-deepseek-v4] MLX core patch is applied.
+[mlx-deepseek-v4] MLX C API patch is applied.
+[mlx-fp8-loader] Official FP8 loader support is already applied.
+[0;32m[INFO][0m Found 39 file patch(es)
+[0;32m[INFO][0m Target mlx-swift-lm: /Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/vendor/mlx-swift-lm
+[0;32m[INFO][0m Already patched: Qwen3VL.swift
+[0;32m[INFO][0m Already patched: Qwen3Next.swift
+[0;32m[INFO][0m Already patched: GatedDelta.swift
+[0;32m[INFO][0m Already patched: Qwen3_5MoE.swift
+[0;32m[INFO][0m Already patched: DeepseekV3.swift
+[0;32m[INFO][0m Already patched: DeepseekV4.swift
+[0;32m[INFO][0m Already patched: DeepseekV4Compressor.swift
+[0;32m[INFO][0m Already patched: DeepseekV4Configuration.swift
+[0;32m[INFO][0m Already patched: DeepseekV4MathHelpers.swift
+[0;32m[INFO][0m Already patched: DeepseekV4ActivationQuant.swift
+[0;32m[INFO][0m Already patched: DeepseekV4ChatEncoder.swift
+[0;32m[INFO][0m Already patched: Cohere2Moe.swift
+[0;32m[INFO][0m Already patched: MiniMaxM2.swift
+[0;32m[INFO][0m Already patched: NemotronH.swift
+[0;32m[INFO][0m Already patched: GLM4MoeLite.swift
+[0;32m[INFO][0m Already patched: GLM5MoeDsa.swift
+[0;32m[INFO][0m Already patched: KimiK25.swift
+[0;32m[INFO][0m Already patched: Gemma4Text.swift
+[0;32m[INFO][0m Already patched: Gemma4VLM.swift
+[0;32m[INFO][0m Already patched: Gemma4Eagle3.swift
+[0;32m[INFO][0m Already patched: LLMModelFactory.swift
+[0;32m[INFO][0m Already patched: BaseConfiguration.swift
+[0;32m[INFO][0m Already patched: Load.swift
+[0;32m[INFO][0m Already patched: Evaluate.swift
+[0;32m[INFO][0m Already patched: Tokenizer.swift
+[0;32m[INFO][0m Already patched: Qwen3_5MoEVL.swift
+[0;32m[INFO][0m Already patched: VLMModelFactory.swift
+[0;32m[INFO][0m Already patched: SamplerTests.swift
+[0;32m[INFO][0m Already patched: ToolCallFormat.swift
+[0;32m[INFO][0m Already patched: ATEMToolCallParser.swift
+[0;32m[INFO][0m Already patched: KVCache.swift
+[0;32m[INFO][0m Already patched: SwitchLayers.swift
+[0;32m[INFO][0m Already patched: HardwareInfo.swift
+[0;32m[INFO][0m Already patched: CompiledDecodeTrace.swift
+[0;32m[INFO][0m Already patched: BatchKVCache.swift
+[0;32m[INFO][0m Already patched: SSM.swift
+[0;32m[INFO][0m Already patched: Chat.swift
+[0;32m[INFO][0m Already patched: Gemma4FunctionParser.swift
+[0;32m[INFO][0m Already patched: MuseGlimmer.swift
+[0;32m[INFO][0m Already pinned: exact: "0.31.6"
+[0;32m[INFO][0m Already pinned: from: "1.3.0"
+[0;32m[INFO][0m MLXFast dependency already present
+[0;32m[INFO][0m Integration test handles Generation.tokenLogprobs
+[0;32m[INFO][0m
+[0;32m[INFO][0m Patches applied to vendor/mlx-swift-lm. Clean build required.
+[0;32m[INFO][0m Found 39 file patch(es)
+[0;32m[INFO][0m Target mlx-swift-lm: /Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/vendor/mlx-swift-lm
+[0;32m[INFO][0m Applied: Qwen3VL.swift
+[0;32m[INFO][0m Applied: Qwen3Next.swift
+[0;32m[INFO][0m Applied: GatedDelta.swift
+[0;32m[INFO][0m Applied: Qwen3_5MoE.swift
+[0;32m[INFO][0m Applied: DeepseekV3.swift
+[0;32m[INFO][0m Applied: DeepseekV4.swift
+[0;32m[INFO][0m Applied: DeepseekV4Compressor.swift
+[0;32m[INFO][0m Applied: DeepseekV4Configuration.swift
+[0;32m[INFO][0m Applied: DeepseekV4MathHelpers.swift
+[0;32m[INFO][0m Applied: DeepseekV4ActivationQuant.swift
+[0;32m[INFO][0m Applied: DeepseekV4ChatEncoder.swift
+[0;32m[INFO][0m Applied: Cohere2Moe.swift
+[0;32m[INFO][0m Applied: MiniMaxM2.swift
+[0;32m[INFO][0m Applied: NemotronH.swift
+[0;32m[INFO][0m Applied: GLM4MoeLite.swift
+[0;32m[INFO][0m Applied: GLM5MoeDsa.swift
+[0;32m[INFO][0m Applied: KimiK25.swift
+[0;32m[INFO][0m Applied: Gemma4Text.swift
+[0;32m[INFO][0m Applied: Gemma4VLM.swift
+[0;32m[INFO][0m Applied: Gemma4Eagle3.swift
+[0;32m[INFO][0m Applied: LLMModelFactory.swift
+[0;32m[INFO][0m Applied: BaseConfiguration.swift
+[0;32m[INFO][0m Applied: Load.swift
+[0;32m[INFO][0m Applied: Evaluate.swift
+[0;32m[INFO][0m Applied: Tokenizer.swift
+[0;32m[INFO][0m Applied: Qwen3_5MoEVL.swift
+[0;32m[INFO][0m Applied: VLMModelFactory.swift
+[0;32m[INFO][0m Applied: SamplerTests.swift
+[0;32m[INFO][0m Applied: ToolCallFormat.swift
+[0;32m[INFO][0m Applied: ATEMToolCallParser.swift
+[0;32m[INFO][0m Applied: KVCache.swift
+[0;32m[INFO][0m Applied: SwitchLayers.swift
+[0;32m[INFO][0m Applied: HardwareInfo.swift
+[0;32m[INFO][0m Applied: CompiledDecodeTrace.swift
+[0;32m[INFO][0m Applied: BatchKVCache.swift
+[0;32m[INFO][0m Applied: SSM.swift
+[0;32m[INFO][0m Applied: Chat.swift
+[0;32m[INFO][0m Applied: Gemma4FunctionParser.swift
+[0;32m[INFO][0m Applied: MuseGlimmer.swift
+[0;32m[INFO][0m Pinned: exact: "0.31.6"
+[0;32m[INFO][0m Pinned: from: "1.3.0"
+[0;32m[INFO][0m Exclude present for MLXLLM: Models/DeepseekV3.swift.original
+[0;32m[INFO][0m Exclude present for MLXLLM: Models/SSM.swift.original
+[0;32m[INFO][0m Exclude present for MLXLLM: LLMModelFactory.swift.original
+[0;32m[INFO][0m Exclude present for MLXVLM: Models/Qwen3VL.swift.original
+[0;32m[INFO][0m Exclude present for MLXVLM: VLMModelFactory.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: Evaluate.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: Tool/ToolCallFormat.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: SwitchLayers.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: Chat.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: KVCache.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: Load.swift.original
+[0;32m[INFO][0m Exclude present for MLXLMCommon: Tokenizer.swift.original
+[0;32m[INFO][0m Integration test handles Generation.tokenLogprobs
+[0;32m[INFO][0m All patches are applied
+[swiftpm-reliable] Using native driver for Xcode 27 Beta 3.
+[swiftpm-reliable] Staged MLX metallib for XCTest: /Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/.build/arm64-apple-macosx/release/MacLocalAPIPackageTests.xctest/Contents/MacOS/mlx.metallib
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for production...
+[3/7] Write sources
+[4/7] Write swift-version-4D4AE97949BC327E.txt
+[6/8] Compiling AFMKitMLX AFMMLXAPIProfiling.swift
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:1729:41: warning: 'activeMemory' is deprecated: renamed to 'Memory.activeMemory' [#DeprecatedDeclaration]
+1727 |             StatsAggregator.shared.registerGpuCacheUsageReader {
+1728 |                 guard maxWorkingSetBytes > 0 else { return 0 }
+1729 |                 let active = Double(GPU.activeMemory)
+     |                                         |- warning: 'activeMemory' is deprecated: renamed to 'Memory.activeMemory' [#DeprecatedDeclaration]
+     |                                         `- note: use 'Memory.activeMemory' instead
+1730 |                 return min(1.0, active / Double(maxWorkingSetBytes))
+1731 |             }
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:1539:40: warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+1537 |                     do {
+1538 |                         let drafter = try Gemma4Eagle3Drafter.load(directory: drafterPath)
+1539 |                         let isGemma4 = try await loaded.perform { context in
+     |                                        `- warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+1540 |                             context.model is Gemma4Model
+1541 |                         }
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:1558:13: warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+1556 |             // Run the tokenizer-vocabulary inspection inside `perform` so the
+1557 |             // non-Sendable ModelContext never crosses the isolation boundary.
+1558 |             try await loaded.perform { context in
+     |             `- warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+1559 |                 let knownThinkPairs: [(start: String, end: String)] = [
+1560 |                     ("<|channel>", "<channel|>"),  // Gemma 4 channel-based thinking
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:3098:44: warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+3096 |                         let t0 = Date.timeIntervalSinceReferenceDate
+3097 |                         do {
+3098 |                             let outCount = try await container.perform { context -> Int in
+     |                                            `- warning: no calls to throwing functions occur within 'try' expression [#UnnecessaryEffectMarker]
+3099 |                                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+3100 |                                 var allTokens: [Int] = []
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:3145:27: warning: 'catch' block is unreachable because no errors are thrown in 'do' block
+3143 |                             StatsAggregator.shared.requestCompleted()
+3144 |                             continuation.finish()
+3145 |                         } catch {
+     |                           `- warning: 'catch' block is unreachable because no errors are thrown in 'do' block
+3146 |                             // Surface model/tokenizer/generator failures instead of masking them as
+3147 |                             // an empty success (don't emit a final usage chunk; fail the stream).
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:5959:25: warning: variable 'msg' was never mutated; consider changing to 'let' constant
+5957 |                         textParts.append("<tool_call>\n{\"name\": \"\(tc.function.name)\", \"arguments\": \(tc.function.arguments)}\n</tool_call>")
+5958 |                     }
+5959 |                     var msg = Chat.Message(
+     |                         `- warning: variable 'msg' was never mutated; consider changing to 'let' constant
+5960 |                         role: .assistant,
+5961 |                         content: textParts.joined(separator: "\n"),
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Models/MLXModelService.swift:6000:21: warning: variable 'msg' was never mutated; consider changing to 'let' constant
+5998 |                     toolContent = text
+5999 |                 }
+6000 |                 var msg = Chat.Message(role: .tool, content: toolContent, name: resolvedName, toolResponses: toolResponses)
+     |                     `- warning: variable 'msg' was never mutated; consider changing to 'let' constant
+6001 |                 chatMessages.append(msg)
+6002 |             default:
+
+/Volumes/edata/dev/git/CODEX/vesta-mac/Worktrees/maclocal-api-issue180/Sources/AFMKitMLX/Utils/MLXMetalLibrary.swift:79:28: warning: 'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+ 77 |             var buffer = [CChar](repeating: 0, count: Int(size))
+ 78 |             if _NSGetExecutablePath(&buffer, &size) == 0 {
+ 79 |                 let path = String(cString: buffer)
+    |                            `- warning: 'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+ 80 |                 if !path.isEmpty {
+ 81 |                     return URL(fileURLWithPath: path).resolvingSymlinksInPath()
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[6/10] Write Objects.LinkFileList
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Foundation-34OLHK13DVUSC.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Foundation-34OLHK13DVUSC.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Darwin-5WI6RLMOMD7N.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Darwin-5WI6RLMOMD7N.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Dispatch-NQV39ZO5EHDY.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/Dispatch-NQV39ZO5EHDY.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/CoreFoundation-1IX11626ICBFG.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/CoreFoundation-1IX11626ICBFG.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/_DarwinFoundation2-282XGI2HA79QD.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/2H9Y56V6ONMHL/_DarwinFoundation2-282XGI2HA79QD.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Foundation-34OLHK13DVUSC.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Foundation-34OLHK13DVUSC.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm
+warning: .build/arm64-apple-macosx/release/CDwarfStar.build/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CDwarfStar-BJHI6C0M2RTB.pcm: No such file or directory
+note: while processing .build/arm64-apple-macosx/release/CDwarfStar.build/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CDwarfStar-BJHI6C0M2RTB.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Darwin-5WI6RLMOMD7N.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Darwin-5WI6RLMOMD7N.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreFoundation-1IX11626ICBFG.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreFoundation-1IX11626ICBFG.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Dispatch-NQV39ZO5EHDY.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Dispatch-NQV39ZO5EHDY.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Metal.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Metal-3B9RN4GTF0IC7.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Metal.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Metal-3B9RN4GTF0IC7.pcm
+warning: .build/checkouts/mlx-swift/Source/Cmlx/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Cmlx-1GHDLSA21NP4.pcm: No such file or directory
+note: while processing .build/checkouts/mlx-swift/Source/Cmlx/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Cmlx-1GHDLSA21NP4.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/os-1RF3BEVX1SAGC.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/os-1RF3BEVX1SAGC.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreImage.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreImage-1VSSZ42YN3TYI.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreImage.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreImage-1VSSZ42YN3TYI.pcm
+warning: Sources/CXGrammar/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AFMXGrammar-1GG5VYIJFU235.pcm: No such file or directory
+note: while processing Sources/CXGrammar/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AFMXGrammar-1GG5VYIJFU235.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_Builtin_stddef-2Y88ZTMN9I4SG.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_Builtin_stddef-2Y88ZTMN9I4SG.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Compression-2RSFS60JKF5UQ.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Compression-2RSFS60JKF5UQ.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/AppKit.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AppKit-37VY6AHAQEWPD.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/AppKit.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AppKit-37VY6AHAQEWPD.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Network.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Network-367EYSX94SKCW.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Network.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Network-367EYSX94SKCW.pcm
+[8/10] Linking afm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Foundation-34OLHK13DVUSC.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Foundation-34OLHK13DVUSC.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/lib/swift/shims/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_SwiftConcurrencyShims-1NA8AN1J151D2.pcm
+warning: .build/arm64-apple-macosx/release/CDwarfStar.build/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CDwarfStar-BJHI6C0M2RTB.pcm: No such file or directory
+note: while processing .build/arm64-apple-macosx/release/CDwarfStar.build/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CDwarfStar-BJHI6C0M2RTB.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Darwin-5WI6RLMOMD7N.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Darwin-5WI6RLMOMD7N.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreFoundation-1IX11626ICBFG.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreFoundation.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreFoundation-1IX11626ICBFG.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Dispatch-NQV39ZO5EHDY.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Dispatch-NQV39ZO5EHDY.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Metal.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Metal-3B9RN4GTF0IC7.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Metal.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Metal-3B9RN4GTF0IC7.pcm
+warning: .build/checkouts/mlx-swift/Source/Cmlx/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Cmlx-1GHDLSA21NP4.pcm: No such file or directory
+note: while processing .build/checkouts/mlx-swift/Source/Cmlx/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Cmlx-1GHDLSA21NP4.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/os-1RF3BEVX1SAGC.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/os-1RF3BEVX1SAGC.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreImage.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreImage-1VSSZ42YN3TYI.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/CoreImage.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/CoreImage-1VSSZ42YN3TYI.pcm
+warning: Sources/CXGrammar/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AFMXGrammar-1GG5VYIJFU235.pcm: No such file or directory
+note: while processing Sources/CXGrammar/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AFMXGrammar-1GG5VYIJFU235.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_Builtin_stddef-2Y88ZTMN9I4SG.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/_Builtin_stddef-2Y88ZTMN9I4SG.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Compression-2RSFS60JKF5UQ.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Compression-2RSFS60JKF5UQ.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/AppKit.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AppKit-37VY6AHAQEWPD.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/AppKit.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/AppKit-37VY6AHAQEWPD.pcm
+warning: /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Network.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Network-367EYSX94SKCW.pcm: No such file or directory
+note: while processing /Applications/Xcode-27.0.0-Beta.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Network.framework/.build/arm64-apple-macosx/release/ModuleCache/QQFV3U7BQO2T/Network-367EYSX94SKCW.pcm
+[9/10] Linking MacLocalAPIPackageTests
+Build complete! (35.09s)
+􀟈  Test run started.
+􀄵  Testing Library Version: 2073
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite Qwen38ToolCallingQualificationTests started.
+􀟈  Suite ToolCallStreamingRuntimeTests started.
+􀟈  Suite XMLToolCallParsingTests started.
+􀟈  Test "Qwen 3.8 native JSON-in-XML preserves nested Unicode arguments" started.
+􀟈  Test "parallel_tool_calls false returns exactly one structured call" started.
+􀟈  Test "Qwen 3.8 incomplete stream is salvaged as one valid call" started.
+􀟈  Test "Qwen 3.8 completed parser preserves valid parallel calls" started.
+􀟈  Test "ordinary text containing escaped tool syntax remains text" started.
+􀟈  Test "Qwen 3.8 adaptive mode repairs malformed name-equals output without leaking syntax" started.
+􀟈  Test "Qwen 3.8 streaming assembles a JSON tool call split at arbitrary boundaries" started.
+􀟈  Test "streaming runtime buffers split Muse ATEM start tags" started.
+􀟈  Test "completed parser supports ASCII DeepSeek DSML markers and parallel calls" started.
+􀟈  Test "Muse ATEM streaming coerces scalar array arguments to schema arrays" started.
+􀟈  Test "streaming runtime buffers split DeepSeek DSML start tags" started.
+􀟈  Test "completed parser extracts parallel Muse ATEM calls by syntax" started.
+􀟈  Test "named tool_choice exposes and accepts only the requested function" started.
+􀟈  Test "completed parser extracts DeepSeek DSML calls by syntax" started.
+􀟈  Test "parses Qwen malformed nested arguments equals tool call" started.
+􀟈  Test "runtime preserves nulls in adaptive xml JSON fallback" started.
+􀟈  Test "tool_choice none suppresses otherwise valid Qwen 3.8 calls" started.
+􀟈  Test "runtime does not append an extra brace when a parameter delta is already a full JSON object" started.
+􀟈  Test "malformed equals fields: nested arguments payload keeps embedded command intact" started.
+􀟈  Test "runtime does not resend full arguments after incremental XML deltas" started.
+􀟈  Test "decodeJSONEscapes handles \t escapes" started.
+􀟈  Test "runtime parses adaptive xml JSON fallback" started.
+􀟈  Test "decodeXMLEntities passes through bare & without entity suffix" started.
+􀟈  Test "returns empty array and original text when no tool calls found" started.
+􀟈  Test "runtime ignores duplicate JSON fallback after XML parameter deltas" started.
+􀟈  Test "runtime emits placeholder then final replacement for XML tool call" started.
+􀟈  Test "coerceStringValue handles empty string for all types" started.
+􀟈  Test "malformed equals fields: quoted values keep legitimate braces exactly" started.
+􀟈  Test "bare structured JSON is not parsed as an unavailable tool" started.
+􀟈  Test "coerceStringValue returns nil for non-numeric string with number type" started.
+􀟈  Test "handles multiple tool calls" started.
+􀟈  Test "coerces string to object" started.
+􀟈  Test "runtime salvages incomplete tool call at stream end" started.
+􀟈  Test "none parser string is recognized case and whitespace insensitively" started.
+􀟈  Test "returns unchanged when arguments JSON is invalid" started.
+􀟈  Test "parses Qwen malformed function element opener" started.
+􀟈  Test "handles parameter values with special characters in Python code" started.
+􀟈  Test "fills missing required boolean param with false" started.
+􀟈  Test "JSON format switch mid-conversation (Qwen3-Coder-Next common error)" started.
+􀟈  Test "question tool: array of objects with typed fields (OpenCode pattern)" started.
+􀟈  Test "parses JSON-in-XML format with 'parameters' key" started.
+􀟈  Test "decodeXMLEntities decodes all 5 standard entities" started.
+􀟈  Test "bare JSON with 'parameters' key instead of 'arguments'" started.
+􀟈  Test "write tool with real newlines is NOT affected by decodeJSONEscapes" started.
+􀟈  Test "preserves content outside tool calls" started.
+􀟈  Test "preserves JSON array parameter values" started.
+􀟈  Test "EBNF grammar handles tool with no required params" started.
+􀟈  Test "write file with Python containing comparison operators (OpenCode pattern)" started.
+􀟈  Test "regex fallback handles bare < in parameter value" started.
+􀟈  Test "coerces string to number (float)" started.
+􀟈  Test "handles mixed XML and JSON in separate <tool_call> blocks" started.
+􀟈  Test "text content before and after tool call is preserved" started.
+􀟈  Test "explicit parser override takes precedence over auto-detected XML format" started.
+􀟈  Test "XML+embedded-JSON tool call with scalar arg values does not crash (regression)" started.
+􀟈  Test "JSON-in-XML with no arguments key still parses name" started.
+􀟈  Test "EBNF grammar allows extra optional params after required ones" started.
+􀟈  Test "decodeJSONEscapes handles only \" without \n" started.
+􀟈  Test "normalizeToolCall remaps keys before coercing values" started.
+􀟈  Test "does not fill non-required missing params" started.
+􀟈  Test "parses Mistral [TOOL_CALLS] JSON array format" started.
+􀟈  Test "JSON-in-XML with missing name returns no tool calls" started.
+􀟈  Test "EBNF grammar generates named required param rules for edit tool" started.
+􀟈  Test "normalizeToolCall splits malformed parameter payload into schema arguments" started.
+􀟈  Test "parses JSON-in-XML format with 'arguments' key" started.
+􀟈  Test "empty <tool_call></tool_call> block returns no calls" started.
+􀟈  Test "decodes XML entities in parameter values via XMLParser" started.
+􀟈  Test "returns unchanged when tools is empty" started.
+􀟈  Test "decodeXMLEntities passes through strings without entities" started.
+􀟈  Test "XML function parser rejects malformed function names" started.
+􀟈  Test "coerceStringValue handles negative numbers" started.
+􀟈  Test "handles duplicate parameters (keeps first non-empty)" started.
+􀟈  Test "completed tool call parsing resolves adaptive XML tool names against offered tools" started.
+􀟈  Test "coerces whole-number string to Int for 'number' type" started.
+􀟈  Test "XML+embedded-JSON tool call preserves nested object/array values" started.
+􀟈  Test "multiple parameters with same non-empty value keeps first" started.
+􀟈  Test "XMLParser path drops unclosed parameter (no bare < to trigger fallback)" started.
+􀟈  Test "malformed equals fields: quoted values containing assignments are not split" started.
+􀟈  Test "parses Qwen malformed flat function equals tool call" started.
+􀟈  Test "requiredParamNames preserves client schema order (not alphabetical)" started.
+􀟈  Test "coerceStringValue returns nil for non-numeric string with integer type" started.
+􀟈  Test "handles multiline parameter values" started.
+􀟈  Test "explicit none parser disables auto-detected adaptive XML parser" started.
+􀟈  Test "coerces boolean case-insensitively (TRUE, True, FALSE)" started.
+􀟈  Test "decodeJSONEscapes unescapes literal \n and \" when no real newlines present" started.
+􀟈  Test "coerceStringValue returns nil for invalid JSON with object type" started.
+􀟈  Test "normalizeToolCalls assigns sequential indices from startIndex" started.
+􀟈  Test "requiredParamNames returns empty for tool with no required array" started.
+􀟈  Test "preserves JSON object parameter values" started.
+􀟈  Test "decodeJSONEscapes full edit oldString from real Qwen3-Coder output" started.
+􀟈  Test "decodeXMLEntities handles double-encoded entities: &amp;lt; → &lt;" started.
+􀟈  Test "leaves already-correct types alone (string stays string)" started.
+􀟈  Test "explicit none parser disables chat template override" started.
+􀟈  Test "does NOT fill missing required string param (let client report missing)" started.
+􀟈  Test "coerceStringValue returns nil for unknown schema type" started.
+􀟈  Test "parses Qwen malformed JSON name equals tool call" started.
+􀟈  Test "handles multiple parameters with mixed string and JSON types" started.
+􀟈  Test "strips <think></think> tags from remaining text" started.
+􀟈  Test "coerceStringValue coerces '0.0' to Int 0 for number type (whole number)" started.
+􀟈  Test "parses Mistral [TOOL_CALLS] func_name[ARGS]{...} format" started.
+􀟈  Test "returns nil for content without <function=...> tag" started.
+􀟈  Test "does not coerce when property not in schema" started.
+􀟈  Test "decodeXMLEntities handles entities at string boundaries" started.
+􀟈  Test "explicit parser override still controls chat template override" started.
+􀟈  Test "malformed repair is gated on repair mode" started.
+􀟈  Test "parses Mistral [TOOL_CALLS] with multiple items in array" started.
+􀟈  Test "bare JSON that's not a tool call doesn't match" started.
+􀟈  Test "coerces string to array" started.
+􀟈  Test "coerces string to boolean true and false" started.
+􀟈  Test "decodeJSONEscapes preserves real backslashes (\\n stays as \n literal)" started.
+􀟈  Test "Gemma 4 bypass still suppresses adaptive parser override" started.
+􀟈  Test "mixed coercion: some params coerced, some left alone" started.
+􀟈  Test "does NOT coerce 'yes'/'no'/'1'/'0' to boolean" started.
+􀟈  Test "auto-detected XML format uses adaptive compatibility parser" started.
+􀟈  Test "JSON-in-XML with invalid JSON falls through" started.
+􀟈  Test "coerces string to integer" started.
+􀟈  Test "edit tool with JSON-escaped oldString gets decoded (model pre-escaping bug)" started.
+􀟈  Test "EBNF grammar param_value uses permissive pv_char rule" started.
+􀟈  Test "producer-side tool stop remains a service-level decision" started.
+􀟈  Test "parses basic XML tool call" started.
+􀟈  Test "does not coerce non-string values" started.
+􀟈  Test "completed tool call parsing preserves remaining non-tool text" started.
+􀟈  Test "returns unchanged when tools is nil" started.
+􀟈  Test "skips empty parameter values" started.
+􀟈  Test "decodeJSONEscapes passes through plain text without escapes" started.
+􀟈  Test "coerceStringValue wraps a scalar in an array for array schemas" started.
+􀟈  Test "returns unchanged when tool name not found in tools list" started.
+􀟈  Test "decodeXMLEntities handles consecutive entities" started.
+􀟈  Test "coerceStringValue returns nil for float string with integer type" started.
+􀟈  Test "producer stops after structured tool call only when parallel calls are disabled" started.
+􀟈  Test "bash tool with special characters" started.
+􀟈  Test "decodeXMLEntities handles empty string" started.
+􀟈  Test "regex fallback salvages unclosed parameter (max_tokens truncation)" started.
+􀟈  Test "bash tool with JSON-escaped command gets decoded" started.
+􀟈  Test "decodeXMLEntities handles multiple &lt; in Python code" started.
+􀟈  Test "decodeJSONEscapes handles empty string" started.
+􀟈  Test "coerceStringValue coerces '0' to Int 0 for integer type" started.
+􁁛  Test "parallel_tool_calls false returns exactly one structured call" passed after 0.003 seconds.
+􀟈  Test "coerces string to negative integer" started.
+􀟈  Test "mixed: write content has real newlines, edit oldString has escaped — both decoded correctly" started.
+􀟈  Test "fills missing required integer param with 0" started.
+􀟈  Test "auto-detected XML format uses adaptive compatibility chat template" started.
+􀟈  Test "EBNF grammar generates named required param rules for bash tool" started.
+􀟈  Test "decodeJSONEscapes preserves values that already have real newlines" started.
+􀟈  Test "parses bare JSON tool call without wrapper tags" started.
+􁁛  Test "tool_choice none suppresses otherwise valid Qwen 3.8 calls" passed after 0.004 seconds.
+􁁛  Test "decodeXMLEntities passes through bare & without entity suffix" passed after 0.005 seconds.
+􁁛  Test "returns empty array and original text when no tool calls found" passed after 0.005 seconds.
+􁁛  Test "ordinary text containing escaped tool syntax remains text" passed after 0.005 seconds.
+􁁛  Test "decodeJSONEscapes handles \t escapes" passed after 0.005 seconds.
+􁁛  Test "coerceStringValue returns nil for non-numeric string with number type" passed after 0.005 seconds.
+􁁛  Test "Qwen 3.8 completed parser preserves valid parallel calls" passed after 0.005 seconds.
+􁁛  Test "completed parser supports ASCII DeepSeek DSML markers and parallel calls" passed after 0.005 seconds.
+􁁛  Test "runtime parses adaptive xml JSON fallback" passed after 0.005 seconds.
+􁁛  Test "completed parser extracts DeepSeek DSML calls by syntax" passed after 0.005 seconds.
+􁁛  Test "malformed equals fields: nested arguments payload keeps embedded command intact" passed after 0.005 seconds.
+􁁛  Test "streaming runtime buffers split DeepSeek DSML start tags" passed after 0.005 seconds.
+􁁛  Test "parses Qwen malformed nested arguments equals tool call" passed after 0.005 seconds.
+􁁛  Test "malformed equals fields: quoted values keep legitimate braces exactly" passed after 0.005 seconds.
+􁁛  Test "runtime emits placeholder then final replacement for XML tool call" passed after 0.005 seconds.
+􁁛  Test "coerceStringValue handles empty string for all types" passed after 0.005 seconds.
+􁁛  Test "Qwen 3.8 native JSON-in-XML preserves nested Unicode arguments" passed after 0.006 seconds.
+􁁛  Test "named tool_choice exposes and accepts only the requested function" passed after 0.006 seconds.
+􁁛  Test "JSON format switch mid-conversation (Qwen3-Coder-Next common error)" passed after 0.004 seconds.
+􁁛  Test "parses JSON-in-XML format with 'parameters' key" passed after 0.004 seconds.
+􁁛  Test "none parser string is recognized case and whitespace insensitively" passed after 0.005 seconds.
+􁁛  Test "streaming runtime buffers split Muse ATEM start tags" passed after 0.006 seconds.
+􁁛  Test "bare JSON with 'parameters' key instead of 'arguments'" passed after 0.004 seconds.
+􁁛  Test "handles multiple tool calls" passed after 0.005 seconds.
+􁁛  Test "Qwen 3.8 adaptive mode repairs malformed name-equals output without leaking syntax" passed after 0.006 seconds.
+􁁛  Test "completed parser extracts parallel Muse ATEM calls by syntax" passed after 0.006 seconds.
+􁁛  Test "decodeXMLEntities decodes all 5 standard entities" passed after 0.004 seconds.
+􁁛  Test "preserves JSON array parameter values" passed after 0.004 seconds.
+􁁛  Test "preserves content outside tool calls" passed after 0.004 seconds.
+􁁛  Test "text content before and after tool call is preserved" passed after 0.004 seconds.
+􁁛  Test "regex fallback handles bare < in parameter value" passed after 0.004 seconds.
+􁁛  Test "question tool: array of objects with typed fields (OpenCode pattern)" passed after 0.005 seconds.
+􁁛  Test "write file with Python containing comparison operators (OpenCode pattern)" passed after 0.005 seconds.
+􁁛  Test "JSON-in-XML with missing name returns no tool calls" passed after 0.004 seconds.
+􁁛  Test "write tool with real newlines is NOT affected by decodeJSONEscapes" passed after 0.004 seconds.
+􁁛  Test "handles parameter values with special characters in Python code" passed after 0.005 seconds.
+􁁛  Test "coerces string to object" passed after 0.005 seconds.
+􁁛  Test "JSON-in-XML with no arguments key still parses name" passed after 0.004 seconds.
+􁁛  Test "decodeJSONEscapes handles only \" without \n" passed after 0.004 seconds.
+􁁛  Test "parses JSON-in-XML format with 'arguments' key" passed after 0.004 seconds.
+􁁛  Test "empty <tool_call></tool_call> block returns no calls" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue handles negative numbers" passed after 0.004 seconds.
+􁁛  Test "handles duplicate parameters (keeps first non-empty)" passed after 0.004 seconds.
+􁁛  Test "parses Qwen malformed function element opener" passed after 0.005 seconds.
+􁁛  Test "handles mixed XML and JSON in separate <tool_call> blocks" passed after 0.004 seconds.
+􁁛  Test "XML function parser rejects malformed function names" passed after 0.004 seconds.
+􁁛  Test "XMLParser path drops unclosed parameter (no bare < to trigger fallback)" passed after 0.004 seconds.
+􁁛  Test "explicit parser override takes precedence over auto-detected XML format" passed after 0.004 seconds.
+􁁛  Test "coerces string to number (float)" passed after 0.004 seconds.
+􁁛  Test "parses Mistral [TOOL_CALLS] JSON arrawarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+y format" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue returns nil for non-numeric string with integer type" passed after 0.004 seconds.
+􁁛  Test "explicit none parser disables auto-detected adaptive XML parser" passed after 0.004 seconds.
+􁁛  Test "multiple parameters with same non-empty value keeps first" passed after 0.004 seconds.
+􁁛  Test "XML+embedded-JSON tool call preserves nested object/array values" passed after 0.004 seconds.
+􁁛  Test "parses Qwen malformed flat function equals tool call" passed after 0.004 seconds.
+􁁛  Test "malformed equals fields: quoted values containing assignments are not split" passed after 0.004 seconds.
+􁁛  Test "handles multiline parameter values" passed after 0.004 seconds.
+􁁛  Test "Muse ATEM streaming coerces scalar array arguments to schema arrays" passed after 0.006 seconds.
+􁁛  Test "decodeXMLEntities handles double-encoded entities: &amp;lt; → &lt;" passed after 0.004 seconds.
+􁁛  Test "explicit none parser disables chat template override" passed after 0.003 seconds.
+􁁛  Test "decodeJSONEscapes unescapes literal \n and \" when no real newlines present" passed after 0.004 seconds.
+􁁛  Test "preserves JSON object parameter values" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue returns nil for unknown schema type" passed after 0.004 seconds.
+􁁛  Test "XML+embedded-JSON tool call with scalar arg values does not crash (regression)" passed after 0.004 seconds.
+􁁛  Test "EBNF grammar handles tool with no required params" passed after 0.005 seconds.
+􁁛  Test "decodeJSONEscapes full edit oldString from real Qwen3-Coder output" passed after 0.004 seconds.
+􁁛  Test "parses Mistral [TOOL_CALLS] func_name[ARGS]{...} format" passed after 0.004 seconds.
+􁁛  Test "strips <think></think> tags from remaining text" passed after 0.004 seconds.
+􁁛  Test "handles multiple parameters with mixed string and JSON types" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue returns nil for invalid JSON with object type" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue coerces '0.0' to Int 0 for number type (whole number)" passed after 0.003 seconds.
+􁁛  Test "explicit parser override still controls chat template override" passed after 0.003 seconds.
+􁁛  Test "returns nil for content without <function=...> tag" passed after 0.004 seconds.
+􁁛  Test "parses Mistral [TOOL_CALLS] with multiple items in array" passed after 0.003 seconds.
+􁁛  Test "bare JSON that's not a tool call doesn't match" passed after 0.003 seconds.
+􁁛  Test "decodeXMLEntities passes through strings without entities" passed after 0.004 seconds.
+􁁛  Test "returns unchanged when tools is empty" passed after 0.004 seconds.
+􁁛  Test "decodes XML entities in parameter values via XMLParser" passed after 0.004 seconds.
+􁁛  Test "Gemma 4 bypass still suppresses adaptive parser override" passed after 0.003 seconds.
+􁁛  Test "decodeXMLEntities handles entities at string boundaries" passed after 0.003 seconds.
+􁁛  Test "returns unchanged when arguments JSON is invalid" passed after 0.005 seconds.
+􁁛  Test "normalizeToolCalls assigns sequential indices from startIndex" passed after 0.004 seconds.
+􁁛  Test "auto-detected XML format uses adaptive compatibility parser" passed after 0.004 seconds.
+􁁛  Test "JSON-in-XML with invalid JSON falls through" passed after 0.003 seconds.
+􁁛  Test "decodeJSONEscapes preserves real backslashes (\\n stays as \n literal)" passed after 0.003 seconds.
+􁁛  Test "parses Qwen malformed JSON name equals tool call" passed after 0.004 seconds.
+􁁛  Test "does not fill non-required missing params" passed after 0.005 seconds.
+􁁛  Test "producer-side tool stop remains a service-level decision" passed after 0.003 seconds.
+􁁛  Test "runtime salvages incomplete tool call at stream end" passed after 0.006 seconds.
+􁁛  Test "leaves already-correct types alone (string stays string)" passed after 0.004 seconds.
+􁁛  Test "decodeJSONEscapes passes through plain text without escapes" passed after 0.003 seconds.
+􁁛  Test "parses basic XML tool call" passed after 0.003 seconds.
+􁁛  Test "edit tool with JSON-escaped oldString gets decoded (model pre-escaping bug)" passed after 0.003 seconds.
+􁁛  Test "skips empty parameter values" passed after 0.003 seconds.
+􁁛  Test "does not coerce when property not in schema" passed after 0.004 seconds.
+􁁛  Test "decodeXMLEntities handles consecutive entities" passed after 0.003 seconds.
+􁁛  Test "producer stops after structured tool call only when parallel calls are disabled" passed after 0.003 seconds.
+􁁛  Test "coerceStringValue returns nil for float string with integer type" passed after 0.003 seconds.
+􁁛  Test "malformed repair is gated on repair mode" passed after 0.004 seconds.
+􁁛  Test "decodeXMLEntities handles empty string" passed after 0.003 seconds.
+􁁛  Test "coerces boolean case-insensitively (TRUE, True, FALSE)" passed after 0.004 seconds.
+􁁛  Test "decodeXMLEntities handles multiple &lt; in Python code" passed after 0.003 seconds.
+􁁛  Test "bare structured JSON is not parsed as an unavailable tool" passed after 0.006 seconds.
+􁁛  Test "coerces whole-number string to Int for 'number' type" passed after 0.004 seconds.
+􁁛  Test "coerceStringValue wraps a scalar in an array for array schemas" passed after 0.003 seconds.
+􁁛  Test "bash tool with JSON-escaped command gets decoded" passed after 0.003 seconds.
+􁁛  Test "bash tool with special characters" passed after 0.003 seconds.
+􁁛  Test "auto-detected XML format uses adaptive compatibility chat template" passed after 0.003 seconds.
+􁁛  Test "coerceStringValue coerces '0' to Int 0 for integer type" passed after 0.003 seconds.
+􁁛  Test "regex fallback salvages unclosed parameter (max_tokens truncation)" passed after 0.003 seconds.
+􁁛  Test "decodeJSONEscapes handles empty string" passed after 0.003 seconds.
+􁁛  Test "decodeJSONEscapes preserves values that already have real newlines" passed after 0.003 seconds.
+􁁛  Test "mixed: write content has real newlines, edit oldString has escaped — both decoded correctly" passed after 0.003 seconds.
+􁁛  Test "completed tool call parsing preserves remaining non-tool text" passed after 0.003 seconds.
+􁁛  Test "coerces string to array" passed after 0.004 seconds.
+􁁛  Test "EBNF grammar param_value uses permissive pv_char rule" passed after 0.003 seconds.
+􁁛  Test "parses bare JSON tool call without wrapper tags" passed after 0.003 seconds.
+􁁛  Test "coerces string to integer" passed after 0.004 seconds.
+􁁛  Test "returns unchanged when tools is nil" passed after 0.003 seconds.
+􁁛  Test "completed tool call parsing resolves adaptive XML tool names against offered tools" passed after 0.004 seconds.
+􁁛  Test "does NOT coerce 'yes'/'no'/'1'/'0' to boolean" passed after 0.004 seconds.
+􁁛  Test "requiredParamNames returns empty for tool with no required array" passed after 0.004 seconds.
+􁁛  Test "returns unchanged when tool name not found in tools list" passed after 0.003 seconds.
+􁁛  Test "runtime ignores duplicate JSON fallback after XML parameter deltas" passed after 0.007 seconds.
+􁁛  Test "EBNF grammar generates named required param rules for edit tool" passed after 0.005 seconds.
+􁁛  Test "coerces string to negative integer" passed after 0.003 seconds.
+􁁛  Test "normalizeToolCall splits malformed parameter payload into schema arguments" passed after 0.005 seconds.
+􁁛  Test "runtime preserves nulls in adaptive xml JSON fallback" passed after 0.007 seconds.
+􁁛  Test "normalizeToolCall remaps keys before coercing values" passed after 0.005 seconds.
+􁁛  Test "runtime does not resend full arguments after incremental XML deltas" passed after 0.007 seconds.
+􁁛  Test "Qwen 3.8 streaming assembles a JSON tool call split at arbitrary boundaries" passed after 0.007 seconds.
+􁁛  Test "coerces string to boolean true and false" passed after 0.004 seconds.
+􁁛  Test "mixed coercion: some params coerced, some left alone" passed after 0.004 seconds.
+􁁛  Test "does not coerce non-string values" passed after 0.004 seconds.
+􁁛  Test "Qwen 3.8 incomplete stream is salvaged as one valid call" passed after 0.007 seconds.
+􁁛  Test "requiredParamNames preserves client schema order (not alphabetical)" passed after 0.005 seconds.
+􁁛  Suite Qwen38ToolCallingQualificationTests passed after 0.008 seconds.
+􁁛  Test "EBNF grammar generates named required param rules for bash tool" passed after 0.004 seconds.
+􁁛  Test "EBNF grammar allows extra optional params after required ones" passed after 0.006 seconds.
+[2026-08-16 08:27:26.742] [ToolCallParser] Missing required string param 'description' for bash — not filling
+[2026-08-16 08:27:26.742] [ToolCallParser] Filled missing required param 'limit' (integer) with default for search
+[2026-08-16 08:27:26.742] [ToolCallParser] Missing required string param 'location' for get_weather — not filling
+[2026-08-16 08:27:26.742] [ToolCallParser] Filled missing required param 'verbose' (boolean) with default for cfg
+􁁛  Test "does NOT fill missing required string param (let client report missing)" passed after 0.005 seconds.
+􁁛  Test "runtime does not append an extra brace when a parameter delta is already a full JSON object" passed after 0.007 seconds.
+􁁛  Test "fills missing required integer param with 0" passed after 0.004 seconds.
+􁁛  Test "fills missing required boolean param with false" passed after 0.007 seconds.
+􁁛  Suite ToolCallStreamingRuntimeTests passed after 0.008 seconds.
+􁁛  Suite XMLToolCallParsingTests passed after 0.008 seconds.
+􁁛  Test run with 143 tests in 3 suites passed after 0.008 seconds.

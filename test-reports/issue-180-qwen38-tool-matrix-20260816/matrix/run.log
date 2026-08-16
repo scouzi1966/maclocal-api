@@ -1,0 +1,17 @@
+[2026-08-16 08:46:53] START mtp-off__reasoning-no-thinking
+[2026-08-16 08:52:26] START mtp-off__reasoning-no-thinking
+[2026-08-16 08:52:32] DONE mtp-off__reasoning-no-thinking score=96.00%
+[2026-08-16 08:52:32] START mtp-off__reasoning-low
+[2026-08-16 08:55:21] DONE mtp-off__reasoning-low score=96.00%
+[2026-08-16 08:55:21] START mtp-off__reasoning-high
+[2026-08-16 08:58:11] DONE mtp-off__reasoning-high score=96.00%
+[2026-08-16 08:58:11] START mtp-off__reasoning-max
+[2026-08-16 09:00:59] DONE mtp-off__reasoning-max score=96.00%
+[2026-08-16 09:00:59] START mtp-on__reasoning-no-thinking
+[2026-08-16 09:03:46] DONE mtp-on__reasoning-no-thinking score=96.00%
+[2026-08-16 09:03:46] START mtp-on__reasoning-low
+[2026-08-16 09:06:34] DONE mtp-on__reasoning-low score=96.00%
+[2026-08-16 09:06:34] START mtp-on__reasoning-high
+[2026-08-16 09:09:22] DONE mtp-on__reasoning-high score=96.00%
+[2026-08-16 09:09:22] START mtp-on__reasoning-max
+[2026-08-16 09:12:10] DONE mtp-on__reasoning-max score=96.00%

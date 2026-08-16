@@ -1,0 +1,5 @@
+{"id": "multiple_0", "result": [{"triangle_properties_get": "{\"get_angles\":true,\"get_area\":true,\"get_perimeter\":true,\"side1\":5,\"side2\":4,\"side3\":3}"}], "input_token_count": 875, "output_token_count": 168, "latency": 6.65616512298584}
+{"id": "multiple_1", "result": [{"math_triangle_area_heron": "{\"side1\":3,\"side2\":4,\"side3\":5}"}], "input_token_count": 738, "output_token_count": 127, "latency": 5.254120826721191}
+{"id": "multiple_2", "result": [{"country_info_capital": "{\"country\":\"Brazil\"}"}], "input_token_count": 517, "output_token_count": 71, "latency": 3.2280120849609375}
+{"id": "multiple_3", "result": [{"EuclideanDistance_calculate": "{\"pointA\":[3,4],\"pointB\":[1,2]}"}], "input_token_count": 661, "output_token_count": 99, "latency": 4.292158842086792}
+{"id": "multiple_4", "result": [{"kinematics_calculate_displacement": "{\"acceleration\":10,\"initial_speed\":20,\"time\":5}"}], "input_token_count": 822, "output_token_count": 118, "latency": 5.174410104751587}

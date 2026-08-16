@@ -173,10 +173,22 @@ public final class ToolCallStreamingRuntime {
 
         if let endRange = currentToolText.range(of: toolCallEndTag) {
             let beforeEnd = String(currentToolText[..<endRange.lowerBound])
+            let afterEnd = String(currentToolText[endRange.upperBound...])
             currentToolText = beforeEnd
             finalizedCurrentToolCall = true
             events.append(contentsOf: finalizeCurrentToolCall())
-            return ToolCallStreamingOutput(handled: true, events: events)
+
+            guard !afterEnd.isEmpty else {
+                return ToolCallStreamingOutput(handled: true, events: events)
+            }
+
+            let trailing = process(piece: afterEnd)
+            events.append(contentsOf: trailing.events)
+            return ToolCallStreamingOutput(
+                handled: true,
+                events: events,
+                passthroughText: trailing.handled ? trailing.passthroughText : afterEnd
+            )
         }
 
         events.append(contentsOf: scanIncrementalMarkers())
@@ -212,6 +224,15 @@ public final class ToolCallStreamingRuntime {
     }
 
     private func parseIncrementalToolCalls(includeTrailingPartial: Bool) -> [ToolCall] {
+        // At end-of-stream, the incremental representation is authoritative: it
+        // includes both closed parameters and the salvaged trailing parameter.
+        // The general fallback parser only sees closed XML elements and would
+        // otherwise produce a replacement snapshot that drops the salvaged value.
+        if includeTrailingPartial,
+           let fallback = buildIncrementalToolCall(includeTrailingPartial: true) {
+            return [fallback]
+        }
+
         let wrapped = "\(toolCallStartTag)\(currentToolText)\(toolCallEndTag)"
         let (parsed, _) = MLXModelService.extractToolCallsFallback(
             from: wrapped, tools: tools,
@@ -219,7 +240,7 @@ public final class ToolCallStreamingRuntime {
         if !parsed.isEmpty {
             return parsed
         }
-        guard let fallback = buildIncrementalToolCall(includeTrailingPartial: includeTrailingPartial) else {
+        guard let fallback = buildIncrementalToolCall(includeTrailingPartial: false) else {
             return []
         }
         return [fallback]
@@ -341,7 +362,8 @@ public final class ToolCallStreamingRuntime {
             emittedKey = remapSingleKey(rawKey, incrementalFunctionName)
         }
 
-        let jsonValue = Self.jsonEncodeValue(Self.decodeParameterValue(Self.normalizeParameterBody(rawValue)))
+        let decodedValue = Self.decodeParameterValue(Self.normalizeParameterBody(rawValue))
+        let jsonValue = Self.jsonEncodeValue(coerceIncrementalParameterValue(decodedValue, key: emittedKey))
         let fragment: String
         if incrementalParamCount == 0 {
             fragment = "{\"\(Self.jsonEscapeKey(emittedKey))\":\(jsonValue)"
@@ -360,21 +382,42 @@ public final class ToolCallStreamingRuntime {
         )
     }
 
-    private func salvageUnclosedParameterFragment() -> StreamDeltaToolCall? {
-        let pattern = #"<parameter=([^>]+)>([\s\S]+)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: currentToolText, range: NSRange(currentToolText.startIndex..., in: currentToolText)),
-              let keyRange = Range(match.range(at: 1), in: currentToolText),
-              let valueRange = Range(match.range(at: 2), in: currentToolText) else {
-            return nil
+    private func coerceIncrementalParameterValue(
+        _ value: any Sendable,
+        key: String
+    ) -> any Sendable {
+        guard let stringValue = value as? String,
+              let tool = tools?.first(where: { $0.function.name == incrementalFunctionName }),
+              let parameters = tool.function.parameters?.toSendable() as? [String: Any],
+              let properties = parameters["properties"] as? [String: Any],
+              let schema = properties[key] as? [String: Any],
+              let schemaType = schema["type"] as? String else {
+            return value
         }
 
-        let rawKey = String(currentToolText[keyRange])
-        guard !incrementalEmittedKeys.contains(rawKey) else { return nil }
+        switch schemaType {
+        case "integer":
+            return Int(stringValue) ?? value
+        case "number":
+            guard let number = Double(stringValue) else { return value }
+            let integer = Int(number)
+            return number == Double(integer) ? integer : number
+        case "boolean":
+            switch stringValue.lowercased() {
+            case "true": return true
+            case "false": return false
+            default: return value
+            }
+        default:
+            return value
+        }
+    }
 
-        let value = String(currentToolText[valueRange])
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return buildParameterDelta(rawKey: rawKey, rawValue: value)
+    private func salvageUnclosedParameterFragment() -> StreamDeltaToolCall? {
+        guard let partial = trailingPartialParameter() else { return nil }
+        let rawKey = partial.key
+        guard !incrementalEmittedKeys.contains(rawKey) else { return nil }
+        return buildParameterDelta(rawKey: rawKey, rawValue: partial.value)
     }
 
     private func resolveToolName(_ name: String) -> String {
@@ -417,19 +460,29 @@ public final class ToolCallStreamingRuntime {
     }
 
     private func trailingPartialParameter() -> (key: String, value: String)? {
-        let pattern = #"<parameter=([^>]+)>([\s\S]+)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: currentToolText, range: NSRange(currentToolText.startIndex..., in: currentToolText)),
-              let keyRange = Range(match.range(at: 1), in: currentToolText),
-              let valueRange = Range(match.range(at: 2), in: currentToolText) else {
+        guard let openRange = currentToolText.range(of: "<parameter=", options: .backwards) else {
+            return nil
+        }
+        if let closedRange = currentToolText.range(of: "</parameter>", options: .backwards),
+           closedRange.lowerBound > openRange.lowerBound {
             return nil
         }
 
-        var value = String(currentToolText[valueRange])
+        let fragment = String(currentToolText[openRange.lowerBound...])
+        let pattern = #"^\s*<parameter=([^>]+)>([\s\S]+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: fragment, range: NSRange(fragment.startIndex..., in: fragment)),
+              let keyRange = Range(match.range(at: 1), in: fragment),
+              let valueRange = Range(match.range(at: 2), in: fragment) else {
+            return nil
+        }
+
+        let key = String(fragment[keyRange])
+        var value = String(fragment[valueRange])
         if value.hasPrefix("\n") { value = String(value.dropFirst()) }
         if value.hasSuffix("\n") { value = String(value.dropLast()) }
         guard !value.isEmpty else { return nil }
-        return (String(currentToolText[keyRange]), value)
+        return (key, value)
     }
 
     private func resetState() {

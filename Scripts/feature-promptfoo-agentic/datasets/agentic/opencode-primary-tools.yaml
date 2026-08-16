@@ -547,6 +547,7 @@
     <<: *opencode_meta
   vars:
     prompt: "Plan the work to expand the Promptfoo harness across all parser profiles."
+    max_tokens: 1024
     tools:
       - type: function
         function:
@@ -873,8 +874,8 @@
     - type: javascript
       value: |
         const parsed = JSON.parse(output);
-        return parsed.tool_calls.length === 1 &&
-          parsed.tool_calls[0].function.name === 'grep';
+        return parsed.tool_calls.length >= 1 &&
+          parsed.tool_calls.every((call) => call.function.name === 'grep');
 
 - description: "opencode/read after explicit file path should not grep"
   metadata:
@@ -1039,8 +1040,8 @@
     - type: javascript
       value: |
         const parsed = JSON.parse(output);
-        return parsed.tool_calls.length === 1 &&
-          parsed.tool_calls[0].function.name === 'websearch';
+        return parsed.tool_calls.length >= 1 &&
+          parsed.tool_calls.every((call) => call.function.name === 'websearch');
 
 - description: "opencode/webfetch once URL is known"
   metadata:

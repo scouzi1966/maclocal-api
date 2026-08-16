@@ -214,6 +214,7 @@ export default class AfmPromptfooProvider {
     if (vars.response_format) body.response_format = vars.response_format;
     if (vars.tools) body.tools = vars.tools;
     if (vars.tool_choice !== undefined) body.tool_choice = vars.tool_choice;
+    if (vars.parallel_tool_calls !== undefined) body.parallel_tool_calls = vars.parallel_tool_calls;
     if (vars.stop) body.stop = vars.stop;
     if (vars.seed !== undefined) body.seed = vars.seed;
 

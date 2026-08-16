@@ -118,7 +118,8 @@
           parsed.tool_calls[0].function.name === 'apply_patch' &&
           (
             (/\*\*\* Begin Patch/.test(input) && /\*\*\* Add File: docs\/cache-notes\.md/.test(input)) ||
-            (/^diff --git /m.test(input) && /(\+\+\+ b\/docs\/cache-notes\.md|new file mode)/.test(input))
+            (/^diff --git /m.test(input) && /(\+\+\+ b\/docs\/cache-notes\.md|new file mode)/.test(input)) ||
+            (/^--- (?:a\/)?docs\/cache-notes\.md/m.test(input) && /^\+\+\+ (?:b\/)?docs\/cache-notes\.md/m.test(input))
           );
 
 - description: "openclaw/apply_patch update existing file"
