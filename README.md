@@ -11,8 +11,6 @@
 
 ## What's new
 
-Release infographics are collected here newest first. Select an infographic to open the full release notes.
-
 ### [AFM v0.9.16](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
 
 [![AFM v0.9.16 — four new models, official developer logos, and two installation paths](assets/afm-0.9.16-models-deep-dive-social-v6.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
