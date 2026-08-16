@@ -27,6 +27,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
             kernelEngine: .ds4,
             mtpEnabled: true,
             mtpDepth: 5,
+            mtpModelID: "mlx-community/Qwen3.8-27B-MTP-4bit",
             eagle3DrafterPath: "/tmp/eagle",
             maxConcurrent: 4,
             toolCallParser: "qwen3_xml",
@@ -54,6 +55,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
         XCTAssertEqual(service.kernelEngine, .ds4)
         XCTAssertTrue(service.mtpEnabled)
         XCTAssertEqual(service.mtpDepth, 5)
+        XCTAssertEqual(service.mtpModelID, "mlx-community/Qwen3.8-27B-MTP-4bit")
         XCTAssertEqual(service.eagle3DrafterPath, "/tmp/eagle")
         XCTAssertEqual(service.maxConcurrent, 4)
         XCTAssertEqual(service.toolCallParser, "qwen3_xml")
@@ -92,6 +94,8 @@ final class AFMMLXRuntimeTests: XCTestCase {
             providerConfiguration: AFMProviderConfiguration(values: [
                 "enablePrefixCaching": .bool(false),
                 "mlxKernels": .string("ds4"),
+                "mtpEnabled": .bool(true),
+                "mtpModelID": .string("/models/custom-mtp.safetensors"),
                 "maxConcurrent": .integer(8),
                 "toolCallParser": .string("none")
             ]),
@@ -101,8 +105,26 @@ final class AFMMLXRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.modelID, "mlx-community/Qwen3.6-35B-A3B-4bit")
         XCTAssertFalse(service.enablePrefixCaching)
         XCTAssertEqual(service.kernelEngine, .ds4)
+        XCTAssertTrue(service.mtpEnabled)
+        XCTAssertEqual(service.mtpModelID, "/models/custom-mtp.safetensors")
         XCTAssertEqual(service.maxConcurrent, 8)
         XCTAssertEqual(service.toolCallParser, "none")
+    }
+
+    func testMTPConfigurationKeepsConcurrentBatchAndPrefixCacheModesEnabled() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+
+        AFMMLXRuntimeConfiguration(
+            enablePrefixCaching: true,
+            mtpEnabled: true,
+            mtpModelID: "mlx-community/Qwen3.8-27B-MTP-8bit",
+            maxConcurrent: 8
+        ).apply(to: service)
+
+        XCTAssertTrue(service.mtpEnabled)
+        XCTAssertEqual(service.mtpModelID, "mlx-community/Qwen3.8-27B-MTP-8bit")
+        XCTAssertTrue(service.enablePrefixCaching)
+        XCTAssertEqual(service.maxConcurrent, 8)
     }
 
     func testKernelEngineFallsBackToNativeForUnknownConfigurationValue() {

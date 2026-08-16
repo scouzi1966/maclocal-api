@@ -128,7 +128,9 @@ has_generated_dependency_failure() {
 
 has_recoverable_xcode_failure() {
     local log_file="$1"
-    has_scanner_failure "$log_file" || has_generated_dependency_failure "$log_file"
+    has_scanner_failure "$log_file" \
+        || has_generated_dependency_failure "$log_file" \
+        || grep -q "was not compiled for testing" "$log_file"
 }
 
 run_native() {
@@ -239,6 +241,26 @@ if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
         "$ROOT_DIR/.build/release"
     printf '%s\n' "$MLX_SOURCE_FINGERPRINT" > "$MLX_SOURCE_STAMP"
 fi
+
+# A normal Release build emits modules without `-enable-testing`. Xcode 27's
+# native SwiftPM driver may then incorrectly reuse those modules for a Release
+# XCTest invocation, causing `@testable import` to fail. Track build-to-test
+# transitions and invalidate only compiled products; dependency checkouts and
+# downloaded artifacts remain intact.
+CONFIGURATION="$(test_configuration "$@")"
+SCRATCH_PATH="$(test_scratch_path "$@")"
+if [[ "$SCRATCH_PATH" != /* ]]; then
+    SCRATCH_PATH="$ROOT_DIR/$SCRATCH_PATH"
+fi
+OPERATION_STAMP="$STATE_DIR/last-operation-${CONFIGURATION}"
+PREVIOUS_OPERATION="$(cat "$OPERATION_STAMP" 2>/dev/null || true)"
+if [[ "$SUBCOMMAND" == "test" && "$PREVIOUS_OPERATION" == "build" ]]; then
+    echo "[swiftpm-reliable] Release build preceded tests; invalidating non-testable products." >&2
+    rm -rf \
+        "$SCRATCH_PATH/$(uname -m)-apple-macosx/$CONFIGURATION" \
+        "$SCRATCH_PATH/$CONFIGURATION"
+fi
+printf '%s\n' "$SUBCOMMAND" > "$OPERATION_STAMP"
 
 DRIVER="${AFM_SWIFTPM_DRIVER:-auto}"
 DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"

@@ -212,7 +212,9 @@ afm mlx -m <model> --gpu-profile -s "Explain Metal kernels"
 
 Supported checkpoints can also use speculative decoding:
 
-- `--mtp` for Qwen3.6 checkpoints that include an MTP head
+- `--mtp` for compatible Qwen models. Qwen3.8 automatically prefetches the
+  separately published MTP head matching the base checkpoint's quantization;
+  use `--mtp-model <repo-or-path>` to override it.
 - `--eagle3 <drafter-directory>` for supported dense Gemma4 models
 - `--dspark-support <support.gguf>` for compatible DwarfStar DSpark workflows
 

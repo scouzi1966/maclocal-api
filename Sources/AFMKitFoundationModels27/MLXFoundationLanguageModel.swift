@@ -18,6 +18,7 @@ public struct MLXLanguageModel: LanguageModel, AFMFoundationModelsModelConfigura
         enablePrefixCaching: Bool = true,
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
+        mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
         maxConcurrent: Int = 0,
         defaultMaximumResponseTokens: Int = 2_048,
@@ -33,6 +34,7 @@ public struct MLXLanguageModel: LanguageModel, AFMFoundationModelsModelConfigura
             enablePrefixCaching: enablePrefixCaching,
             mtpEnabled: mtpEnabled,
             mtpDepth: mtpDepth,
+            mtpModelID: mtpModelID,
             eagle3DrafterPath: eagle3DrafterPath,
             maxConcurrent: maxConcurrent,
             defaultMaximumResponseTokens: defaultMaximumResponseTokens,
@@ -84,6 +86,7 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
         public let enablePrefixCaching: Bool
         public let mtpEnabled: Bool
         public let mtpDepth: Int
+        public let mtpModelID: String?
         public let eagle3DrafterPath: String?
         public let maxConcurrent: Int
         public let defaultMaximumResponseTokens: Int
@@ -98,6 +101,7 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
             enablePrefixCaching: Bool = true,
             mtpEnabled: Bool = false,
             mtpDepth: Int = 3,
+            mtpModelID: String? = nil,
             eagle3DrafterPath: String? = nil,
             maxConcurrent: Int = 0,
             defaultMaximumResponseTokens: Int = 2_048,
@@ -111,6 +115,7 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
             self.enablePrefixCaching = enablePrefixCaching
             self.mtpEnabled = mtpEnabled
             self.mtpDepth = mtpDepth
+            self.mtpModelID = mtpModelID
             self.eagle3DrafterPath = eagle3DrafterPath
             self.maxConcurrent = maxConcurrent
             self.defaultMaximumResponseTokens = defaultMaximumResponseTokens
@@ -132,6 +137,7 @@ public final class MLXLanguageModelExecutor: LanguageModelExecutor, @unchecked S
                     enablePrefixCaching: configuration.enablePrefixCaching,
                     mtpEnabled: configuration.mtpEnabled,
                     mtpDepth: configuration.mtpDepth,
+                    mtpModelID: configuration.mtpModelID,
                     eagle3DrafterPath: configuration.eagle3DrafterPath,
                     maxConcurrent: configuration.maxConcurrent
                 )

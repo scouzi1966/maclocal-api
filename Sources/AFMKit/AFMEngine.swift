@@ -30,6 +30,7 @@ public struct EngineConfig: Sendable {
     public var mlxKernels: String
     public var mtpEnabled: Bool
     public var mtpDepth: Int
+    public var mtpModelID: String?
     public var eagle3DrafterPath: String?
     public var enableGrammarConstraints: Bool
     public var toolCallParser: String?
@@ -54,6 +55,7 @@ public struct EngineConfig: Sendable {
         mlxKernels: String = "native",
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
+        mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
         enableGrammarConstraints: Bool = false,
         toolCallParser: String? = nil,
@@ -77,6 +79,7 @@ public struct EngineConfig: Sendable {
         self.mlxKernels = mlxKernels
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
+        self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
         self.enableGrammarConstraints = enableGrammarConstraints
         self.toolCallParser = toolCallParser
@@ -115,6 +118,9 @@ private extension EngineConfig {
         }
         if let eagle3DrafterPath {
             values["eagle3DrafterPath"] = .string(eagle3DrafterPath)
+        }
+        if let mtpModelID {
+            values["mtpModelID"] = .string(mtpModelID)
         }
         if let toolCallParser {
             values["toolCallParser"] = .string(toolCallParser)

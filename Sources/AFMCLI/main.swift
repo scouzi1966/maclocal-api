@@ -233,8 +233,9 @@ struct MlxCommand: ParsableCommand {
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --mtp: Enable MTP self-speculative decoding for compatible Qwen3.6 models
+          --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
           --mtp-depth: MTP draft depth compatibility setting
+          --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
           --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
           --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
@@ -460,11 +461,14 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
-    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, quality-preserving (bit-exact greedy on short generations; near-greedy on long ones). No-op if the model has no MTP head.")
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
     var mtp: Bool = false
 
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
+
+    @Option(name: .customLong("mtp-model"), help: "Override the automatically selected MTP head with a Hugging Face repo, local directory, or .safetensors file.")
+    var mtpModel: String?
 
     @Option(name: .customLong("dspark-support"), help: "DwarfStar DSpark support GGUF. Supplying it enables greedy speculative decoding.")
     var dsparkSupportPath: String?
@@ -669,6 +673,7 @@ struct MlxCommand: ParsableCommand {
             kernelEngine: kernelEngine,
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
+            mtpModelID: mtpModel,
             eagle3DrafterPath: eagle3,
             maxConcurrent: concurrent ?? 0,
             toolCallParser: toolCallParser,
@@ -1185,6 +1190,7 @@ struct MlxCommand: ParsableCommand {
                     mlxKernels: self.mlxKernels,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
+                    mtpModelID: self.mtpModel,
                     eagle3DrafterPath: self.eagle3,
                     enableGrammarConstraints: self.enableGrammarConstraints,
                     toolCallParser: self.toolCallParser,

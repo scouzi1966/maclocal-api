@@ -20,6 +20,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var kernelEngine: AFMMLXKernelEngine
     public var mtpEnabled: Bool
     public var mtpDepth: Int
+    public var mtpModelID: String?
     public var eagle3DrafterPath: String?
     public var maxConcurrent: Int
     public var toolCallParser: String?
@@ -44,6 +45,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         kernelEngine: AFMMLXKernelEngine = .native,
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
+        mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
         maxConcurrent: Int = 0,
         toolCallParser: String? = nil,
@@ -67,6 +69,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.kernelEngine = kernelEngine
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
+        self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
         self.maxConcurrent = max(0, maxConcurrent)
         self.toolCallParser = toolCallParser
@@ -106,6 +109,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
         if let value = configuration.integer("mtpDepth") {
             mtpDepth = value
+        }
+        if let value = configuration.string("mtpModelID") {
+            mtpModelID = value
         }
         if let value = configuration.string("eagle3DrafterPath") {
             eagle3DrafterPath = value
@@ -160,6 +166,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         service.kernelEngine = kernelEngine
         service.mtpEnabled = mtpEnabled
         service.mtpDepth = mtpDepth
+        service.mtpModelID = mtpModelID
         service.eagle3DrafterPath = eagle3DrafterPath
         service.maxConcurrent = maxConcurrent >= 2 ? maxConcurrent : 0
         service.toolCallParser = toolCallParser
@@ -237,6 +244,9 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         self.configuration = AFMMLXRuntimeConfiguration(
             enablePrefixCaching: service.enablePrefixCaching,
             kernelEngine: service.kernelEngine,
+            mtpEnabled: service.mtpEnabled,
+            mtpDepth: service.mtpDepth,
+            mtpModelID: service.mtpModelID,
             maxConcurrent: service.maxConcurrent,
             enableGrammarConstraints: service.enableGrammarConstraints,
             forceDisableThinking: service.forceDisableThinking,
