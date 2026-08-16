@@ -34,6 +34,17 @@ public struct MLXCacheResolver: Sendable {
         return URL(fileURLWithPath: Self.shellCWD).appendingPathComponent(path).standardized
     }
 
+    /// Resolve a user-provided filesystem path against the shell working
+    /// directory captured before MLX changes the process working directory.
+    /// Returns nil when the input does not currently identify a local file or
+    /// directory, allowing the caller to treat it as a Hub repository ID.
+    func localFilesystemURLIfExists(_ path: String) -> URL? {
+        let expanded = NSString(string: path).expandingTildeInPath
+        let resolved = resolveRelativePath(expanded)
+        guard FileManager.default.fileExists(atPath: resolved.path) else { return nil }
+        return resolved
+    }
+
     func normalizedModelID(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
