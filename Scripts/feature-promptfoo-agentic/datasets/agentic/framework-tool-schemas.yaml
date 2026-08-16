@@ -337,6 +337,7 @@
   vars:
     prompt: "Plan the work to migrate our Promptfoo harness to nightly CI with classification and reporting."
     system_prompt: "You are a Hermes-style agent. Use a todo/planning tool for multi-step execution plans."
+    max_tokens: 1024
     tools:
       - type: function
         function:

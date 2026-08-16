@@ -141,6 +141,30 @@ struct Qwen38ToolCallingQualificationTests {
         #expect(effectiveCalls?.map(\.function.name) == ["create_event"])
     }
 
+    @Test("tool_choice auto and required preserve the complete tool surface")
+    func automaticAndRequiredToolChoicePreserveTools() throws {
+        let tools = [weatherTool, eventTool]
+        let calls = [
+            responseCall(name: "get_weather", index: 0),
+            responseCall(name: "create_event", index: 1),
+        ]
+
+        for mode in ["auto", "required"] {
+            let choice = ToolChoice.mode(mode)
+            let effectiveTools = try MLXChatCompletionsController.resolveEffectiveTools(
+                tools,
+                toolChoice: choice
+            )
+            let effectiveCalls = MLXChatCompletionsController.applyToolChoice(
+                calls,
+                toolChoice: choice
+            )
+
+            #expect(effectiveTools?.map(\.function.name) == ["get_weather", "create_event"])
+            #expect(effectiveCalls?.map(\.function.name) == ["get_weather", "create_event"])
+        }
+    }
+
     @Test("parallel_tool_calls false returns exactly one structured call")
     func parallelFalseReturnsOneCall() {
         let turn = MLXChatCompletionsController.finalizeAssistantTurn(
@@ -176,6 +200,110 @@ struct Qwen38ToolCallingQualificationTests {
         )
         #expect(calls.isEmpty)
         #expect(remaining == text)
+    }
+
+    @Test("OpenCode grep arguments preserve arrays and optional paths")
+    func parsesOpenCodeGrepArguments() throws {
+        let tool = makeTool(
+            name: "grep",
+            properties: [
+                "pattern": ["type": "string"],
+                "path": ["type": "string"],
+                "include": ["type": "array", "items": ["type": "string"]],
+            ],
+            required: ["pattern"]
+        )
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: #"<tool_call>{"name":"grep","arguments":{"pattern":"finalizeAssistantTurn","path":"Sources","include":["*.swift","*.md"]}}</tool_call>"#,
+            toolCallParser: "afm_adaptive_xml",
+            tools: [tool]
+        )
+        let call = try #require(calls.first)
+        #expect(calls.count == 1)
+        #expect(remaining.isEmpty)
+        #expect(call.function.name == "grep")
+        #expect(call.function.arguments["path"]?.anyValue as? String == "Sources")
+        #expect(call.function.arguments["include"]?.anyValue as? [String] == ["*.swift", "*.md"])
+    }
+
+    @Test("Pi write arguments preserve camelCase fields and Unicode content")
+    func parsesPiWriteArguments() throws {
+        let tool = makeTool(
+            name: "write",
+            properties: [
+                "path": ["type": "string"],
+                "content": ["type": "string"],
+                "createDirectories": ["type": "boolean"],
+            ],
+            required: ["path", "content"]
+        )
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: #"<tool_call>{"name":"write","arguments":{"path":"Notes/café.md","content":"line 1\nline 2 🚀","createDirectories":true}}</tool_call>"#,
+            toolCallParser: "afm_adaptive_xml",
+            tools: [tool]
+        )
+        let call = try #require(calls.first)
+        #expect(calls.count == 1)
+        #expect(remaining.isEmpty)
+        #expect(call.function.arguments["path"]?.anyValue as? String == "Notes/café.md")
+        #expect(call.function.arguments["content"]?.anyValue as? String == "line 1\nline 2 🚀")
+        #expect(call.function.arguments["createDirectories"]?.anyValue as? Bool == true)
+    }
+
+    @Test("OpenClaw apply_patch preserves a multiline unified diff")
+    func parsesOpenClawApplyPatchArguments() throws {
+        let tool = makeTool(
+            name: "apply_patch",
+            properties: ["patch": ["type": "string"]],
+            required: ["patch"]
+        )
+        let diff = "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new"
+        let encodedDiff = try JSONEncoder().encode(diff)
+        let quotedDiff = try #require(String(data: encodedDiff, encoding: .utf8))
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: "<tool_call>{\"name\":\"apply_patch\",\"arguments\":{\"patch\":\(quotedDiff)}}</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [tool]
+        )
+        let call = try #require(calls.first)
+        #expect(calls.count == 1)
+        #expect(remaining.isEmpty)
+        #expect(call.function.arguments["patch"]?.anyValue as? String == diff)
+    }
+
+    @Test("Hermes todo preserves nested arrays and nullable metadata")
+    func parsesHermesTodoArguments() throws {
+        let tool = makeTool(
+            name: "todo",
+            properties: [
+                "items": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "content": ["type": "string"],
+                            "status": ["type": "string"],
+                            "owner": ["type": ["string", "null"]],
+                        ],
+                    ],
+                ],
+            ],
+            required: ["items"]
+        )
+        let (calls, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
+            from: #"<tool_call>{"name":"todo","arguments":{"items":[{"content":"Inspect API","status":"in_progress","owner":null},{"content":"Run tests","status":"pending","owner":"agent"}]}}</tool_call>"#,
+            toolCallParser: "afm_adaptive_xml",
+            tools: [tool]
+        )
+        let call = try #require(calls.first)
+        #expect(calls.count == 1)
+        #expect(remaining.isEmpty)
+        let items = try #require(call.function.arguments["items"]?.anyValue as? [[String: Any]])
+
+        #expect(items.count == 2)
+        #expect(items[0]["content"] as? String == "Inspect API")
+        #expect(items[0]["owner"] is NSNull)
+        #expect(items[1]["owner"] as? String == "agent")
     }
 
     private var weatherTool: RequestTool {
@@ -235,12 +363,12 @@ struct Qwen38ToolCallingQualificationTests {
         )
     }
 
-    private func responseCall(name: String, index: Int) -> ResponseToolCall {
+    private func responseCall(name: String, index: Int, arguments: String = "{}") -> ResponseToolCall {
         ResponseToolCall(
             index: index,
             id: "call_\(index)",
             type: "function",
-            function: .init(name: name, arguments: "{}")
+            function: .init(name: name, arguments: arguments)
         )
     }
 

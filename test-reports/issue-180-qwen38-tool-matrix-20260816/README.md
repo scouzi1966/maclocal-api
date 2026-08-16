@@ -44,3 +44,54 @@ Use `matrix/summary.csv` and the five selected category score files instead.
 The original persistent run remains under
 `/Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142` on the test
 machine.
+
+## Extended Real-Tool Coverage
+
+The qualification now also exercises controls and schemas used by real coding
+agents:
+
+- named `tool_choice`
+- `parallel_tool_calls: false`
+- OpenCode `grep` arguments, including arrays and optional paths
+- Pi `write` arguments, including camelCase keys and multiline Unicode
+- OpenClaw `apply_patch` multiline unified diffs
+- Hermes nested `todo` arrays and nullable values
+
+The focused Release qualification contains 14 tests and passes 14/14. The live
+Promptfoo matrix runs 106 cases under each of the default, adaptive XML, and
+adaptive XML plus grammar profiles. It passes 295/318 overall (92.77%):
+
+| Suite | Passed | Total |
+| --- | ---: | ---: |
+| Core tool calling | 39 | 39 |
+| Agentic coding workflows | 12 | 12 |
+| Framework schemas | 22 | 24 |
+| OpenCode tools | 105 | 111 |
+| Pi tools | 51 | 60 |
+| OpenClaw tools | 30 | 36 |
+| Hermes tools | 36 | 36 |
+
+Raw live exports and a failure extract are stored at
+`/Volumes/edata2/afm-benchmarks/issue180-tool-coverage-20260816/live-all-profiles`.
+
+### Failure Attribution
+
+None of the 23 remaining Promptfoo misses shows an AFM transport, SSE, JSON,
+stream assembly, tool-call parser, or crash failure. AFM returned structured
+`tool_calls` for every miss except the truncated `todowrite` responses.
+
+- 20 are model policy or semantic argument choices. Examples include exploring
+  with `ls` or `find` instead of immediately building, reading through a shell
+  instead of the requested `read` tool, using `cat README.md` as an
+  `apply_patch` argument, omitting a requested timeout, and choosing
+  `skillCommands.enabled` instead of the expected `enableSkillCommands` key.
+- 3 are the same verbose OpenCode `todowrite` generation reaching
+  `finish_reason: length`. Increasing the case budget from 400 to 1024 did not
+  make this model concise enough to complete the call. This is model behavior
+  exposed by a finite harness budget, not an AFM parsing limitation.
+
+The v0.9.16 release report's 41 Promptfoo misses also included approximately 15
+false negatives from over-strict assertions. The updated harness now accepts
+valid multiple search/read calls and conventional unified diff syntax. The
+remaining failures are useful behavioral quality measurements and should not be
+relaxed into passes.

@@ -36,10 +36,11 @@
     - type: javascript
       value: |
         const parsed = JSON.parse(output);
-        const call = parsed.tool_calls[0];
-        return parsed.tool_calls.length === 1 &&
-          call.function.name === 'search_code' &&
-          /cache|prefix|save/i.test(String(call.function.arguments.query || ''));
+        return parsed.tool_calls.length >= 1 &&
+          parsed.tool_calls.every((call) => call.function.name === 'search_code') &&
+          parsed.tool_calls.some((call) =>
+            /cache|prefix|save/i.test(String(call.function.arguments.query || ''))
+          );
 
 - description: "agentic/openhands style inspect file after search results"
   metadata:
@@ -93,10 +94,11 @@
     - type: javascript
       value: |
         const parsed = JSON.parse(output);
-        const call = parsed.tool_calls[0];
-        return parsed.tool_calls.length === 1 &&
-          call.function.name === 'read_file' &&
-          /MLXModelService\.swift|BatchScheduler\.swift/.test(String(call.function.arguments.path || ''));
+        return parsed.tool_calls.length >= 1 &&
+          parsed.tool_calls.every((call) => call.function.name === 'read_file') &&
+          parsed.tool_calls.some((call) =>
+            /MLXModelService\.swift|BatchScheduler\.swift/.test(String(call.function.arguments.path || ''))
+          );
 
 - description: "agentic/hermes style avoid patch before file context"
   metadata:
