@@ -21,6 +21,7 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
                 "enablePrefixCaching",
                 "mtpEnabled",
                 "mtpDepth",
+                "mtpModelID",
                 "eagle3DrafterPath",
                 "maxConcurrent",
                 "toolCallParser",

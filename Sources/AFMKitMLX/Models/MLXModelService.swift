@@ -243,10 +243,11 @@ public final class MLXModelService: @unchecked Sendable {
     public var kernelEngine: AFMMLXKernelEngine = .native
     public var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     public var enablePrefixCaching: Bool = false
-    /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
-    /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
+    /// MTP self-speculative decoding (--mtp). Qwen 3.8 heads are cached as
+    /// separate model repositories so their weights never enter the base loader.
     public var mtpEnabled: Bool = false
     public var mtpDepth: Int = 3
+    public var mtpModelID: String?
     /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
     /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
     public var eagle3DrafterPath: String?
@@ -1362,6 +1363,88 @@ public final class MLXModelService: @unchecked Sendable {
         try registry.revalidate(using: resolver)
     }
 
+    private func resolveMTPHead(
+        baseModelDirectory: URL,
+        progress: (@Sendable (Progress) -> Void)?,
+        stage: (@Sendable (MLXLoadStage) -> Void)?
+    ) async throws -> String? {
+        let fileManager = FileManager.default
+
+        // Preserve compatibility with checkpoints that already ship the head.
+        if mtpModelID == nil,
+           let bundled = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+               modelDirectory: baseModelDirectory
+           ) {
+            return bundled
+        }
+
+        let resource = mtpModelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? AFMMLXSpeculativeRuntimeResourceResolver.automaticMTPRepositoryID(
+                modelDirectory: baseModelDirectory
+            )
+        guard let resource, !resource.isEmpty else { return nil }
+
+        let expanded = NSString(string: resource).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: expanded, isDirectory: &isDirectory) {
+            if !isDirectory.boolValue {
+                guard URL(fileURLWithPath: expanded).pathExtension == "safetensors" else {
+                    throw MLXServiceError.loadFailed("MTP override must be a .safetensors file: \(expanded)")
+                }
+                print("[\(ts())] [MTP] using local head: \(expanded)")
+                return expanded
+            }
+            guard let sidecar = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+                resourceDirectory: URL(fileURLWithPath: expanded, isDirectory: true)
+            ) else {
+                throw MLXServiceError.loadFailed("No MTP weights found in \(expanded)")
+            }
+            print("[\(ts())] [MTP] using local head: \(sidecar)")
+            return sidecar
+        }
+
+        let resourceDirectory: URL
+        if let cached = resolver.localModelDirectory(repoId: resource) {
+            resourceDirectory = cached
+        } else {
+            stage?(.downloading)
+            print("[\(ts())] [MTP] downloading matching head: \(resource)")
+            try await downloadModel(modelID: resource, progress: progress)
+            guard let downloaded = resolver.localModelDirectory(repoId: resource) else {
+                throw MLXServiceError.modelNotFoundInCache(resource)
+            }
+            resourceDirectory = downloaded
+        }
+
+        guard let sidecar = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+            resourceDirectory: resourceDirectory
+        ) else {
+            throw MLXServiceError.loadFailed("MTP repository \(resource) has no model.safetensors or mtp.safetensors")
+        }
+        print("[\(ts())] [MTP] resolved head \(resource) -> \(sidecar)")
+        return sidecar
+    }
+
+    private func mtpQuantization(for sidecarPath: String) -> (
+        groupSize: Int, bits: Int, mode: QuantizationMode
+    ) {
+        let directory = URL(fileURLWithPath: sidecarPath).deletingLastPathComponent()
+        guard let quantization = AFMMLXSpeculativeRuntimeResourceResolver.mtpQuantization(
+            resourceDirectory: directory
+        ) else {
+            return (64, 4, .affine)
+        }
+
+        let mode: QuantizationMode
+        switch quantization.mode {
+        case "mxfp4": mode = .mxfp4
+        case "mxfp8": mode = .mxfp8
+        case "nvfp4": mode = .nvfp4
+        default: mode = .affine
+        }
+        return (quantization.groupSize, quantization.bits, mode)
+    }
+
     public func ensureLoaded(
         model rawModel: String,
         progress: (@Sendable (Progress) -> Void)? = nil,
@@ -1392,6 +1475,11 @@ public final class MLXModelService: @unchecked Sendable {
             stage?(.ready)
             return cached.0
         }
+
+        // The speculative runtime is process-global because it is consumed by
+        // both streaming and non-streaming generation paths. Never carry a
+        // generator across a model switch.
+        MTPRuntime.shared.clear()
 
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
@@ -1428,6 +1516,25 @@ public final class MLXModelService: @unchecked Sendable {
             modelID: modelID
         )
         try ensureGPUConfigured(for: modelArchitecture)
+
+        // Qwen 3.8 publishes its small MTP head separately from the base model.
+        // Prefetch the matching quant even when acceleration is disabled so a
+        // later --mtp launch is offline-ready. A missing optional prefetch must
+        // not make normal AR inference network-dependent.
+        let resolvedMTPSidecar: String?
+        do {
+            resolvedMTPSidecar = try await resolveMTPHead(
+                baseModelDirectory: directory,
+                progress: progress,
+                stage: stage
+            )
+        } catch {
+            if mtpEnabled {
+                throw error
+            }
+            resolvedMTPSidecar = nil
+            print("[\(ts())] [MTP] optional head prefetch failed (\(error)); continuing with AR")
+        }
 
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
@@ -1508,27 +1615,40 @@ public final class MLXModelService: @unchecked Sendable {
                 currentModelArchitecture = modelArchitecture
                 currentToolCallFormat = detectedFormat
             }
-            // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
-            // into the container's model. Silently no-op otherwise (falls back to AR).
+            // MTP: load the explicitly resolved sidecar only after the base model
+            // has loaded. The sidecar remains outside the base checkpoint.
             if mtpEnabled {
-                let sidecar = directory.appendingPathComponent("mtp.safetensors").path
-                if FileManager.default.fileExists(atPath: sidecar) {
+                if let sidecar = resolvedMTPSidecar {
                     do {
+                        let quantization = mtpQuantization(for: sidecar)
                         try await loaded.perform { context in
                             if let qwen = context.model as? Qwen3_5MoEModel {
-                                let head = try qwen.loadMTPHead(sidecarPath: sidecar)
+                                let head = try qwen.loadMTPHead(
+                                    sidecarPath: sidecar,
+                                    groupSize: quantization.groupSize,
+                                    bits: quantization.bits,
+                                    mode: quantization.mode
+                                )
                                 MTPRuntime.shared.install(model: qwen, head: head, depth: mtpDepth)
                                 print("[\(ts())] [MTP] head loaded — self-speculative decoding enabled (depth \(mtpDepth))")
+                                if maxConcurrent >= 2 {
+                                    print("[\(ts())] [MTP] concurrent/batch scheduler uses AR decode; serial requests use MTP")
+                                }
                             } else {
-                                print("[\(ts())] [MTP] model is not Qwen3.6 text LLM (\(type(of: context.model))) — MTP disabled")
+                                throw MLXServiceError.loadFailed(
+                                    "MTP head requires a compatible Qwen text model; loaded \(type(of: context.model))"
+                                )
                             }
                         }
                     } catch {
-                        print("[\(ts())] [MTP] head load failed (\(error)) — falling back to AR")
+                        MTPRuntime.shared.clear()
+                        throw MLXServiceError.loadFailed("MTP head load failed: \(error)")
                     }
                 } else {
-                    print("[\(ts())] [MTP] no mtp.safetensors at \(modelID) — MTP disabled (AR decode)")
+                    print("[\(ts())] [MTP] no compatible head for \(modelID) — MTP disabled (AR decode)")
                 }
+            } else if resolvedMTPSidecar != nil {
+                print("[\(ts())] [MTP] matching head cached; pass --mtp to enable serial speculative decoding")
             }
             // EAGLE3: if a drafter path was given and the verifier is a dense Gemma4 text model,
             // load the drafter. Silently no-op otherwise (falls back to AR).
@@ -3720,6 +3840,7 @@ public final class MLXModelService: @unchecked Sendable {
             print("[\(ts())] [PrefixCache] Invalidate: cleanup")
         }
         self.radixCache?.invalidateAll()
+        MTPRuntime.shared.clear()
         autoreleasepool {
             withStateLock {
                 currentContainer = nil
