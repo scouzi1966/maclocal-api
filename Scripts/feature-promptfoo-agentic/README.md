@@ -239,6 +239,59 @@ Still missing:
 - public benchmark imports beyond hand-curated representative cases
 - latency and failure-bucket reporting
 
+## BFCL release qualification
+
+AFM also uses the official Berkeley Function Calling Leaderboard (BFCL) for an
+external, implementation-independent tool-call check. The benchmark checkout
+is kept outside the repository and configured as an OpenAI-compatible provider.
+
+Qwen 3.8 qualification on 2026-08-16 used:
+
+- AFM `0.9.16`, Qwen `mlx-community/Qwen3.8-27B-4bit`
+- temperature `0`, thinking disabled, non-streaming OpenAI completions
+- five cases from each BFCL V4 category: `simple_python`, `multiple`,
+  `parallel`, `parallel_multiple`, and `irrelevance`
+- function-name normalization with `underscore_to_dot=true`, required because
+  the OpenAI API surface normalizes dotted function names to underscores
+
+Result: **24/25 (96%)**. All simple, multiple, parallel-multiple, and relevance
+cases passed. The sole miss (`parallel_3`) returned three structurally valid
+calls but used `"human HbA1c glycated hemoglobin"` instead of the benchmark's
+accepted exact value `"human HbA1c"`; this is classified as
+`semantic_tool_selection_failure`, not a parser or transport failure.
+
+The same 25 cases were then run through every supported Qwen 3.8 startup
+combination of speculative decoding and reasoning policy:
+
+| MTP | Reasoning | Score |
+| --- | --- | --- |
+| off | no-thinking | 24/25 (96%) |
+| off | low | 24/25 (96%) |
+| off | high | 24/25 (96%) |
+| off | max | 24/25 (96%) |
+| on | no-thinking | 24/25 (96%) |
+| on | low | 24/25 (96%) |
+| on | high | 24/25 (96%) |
+| on | max | 24/25 (96%) |
+
+All eight cells missed only `parallel_3` with the same semantically expanded
+argument. MTP loaded the matching `Qwen3.8-27B-MTP-4bit` sidecar in all four
+enabled cells. Its average generation rate in this tool-heavy workload was
+approximately 38 tok/s, effectively equal to autoregressive decoding; do not
+use this benchmark as evidence of an MTP speedup.
+
+Persistent artifacts:
+
+- BFCL checkout: `/Volumes/edata2/afm-benchmarks/gorilla/berkeley-function-call-leaderboard`
+- generation and scores: `/Volumes/edata2/afm-benchmarks/qwen38-bfcl-issue180`
+- normalized score CSV: `scores-normalized/data_non_live.csv`
+- MTP/reasoning matrix: `/Volumes/edata2/afm-benchmarks/qwen38-tool-matrix-20260816-084142`
+
+The repository-owned `Qwen38ToolCallingQualificationTests` complements BFCL
+with streaming chunk assembly, malformed-output recovery, schema coercion,
+tool-choice enforcement, and syntax-leak checks that BFCL's non-streaming
+OpenAI adapter does not exercise.
+
 ## Matrix and Classification
 
 The broader design for the full suite lives in:

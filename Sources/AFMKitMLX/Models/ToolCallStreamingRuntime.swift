@@ -212,6 +212,15 @@ public final class ToolCallStreamingRuntime {
     }
 
     private func parseIncrementalToolCalls(includeTrailingPartial: Bool) -> [ToolCall] {
+        // At end-of-stream, the incremental representation is authoritative: it
+        // includes both closed parameters and the salvaged trailing parameter.
+        // The general fallback parser only sees closed XML elements and would
+        // otherwise produce a replacement snapshot that drops the salvaged value.
+        if includeTrailingPartial,
+           let fallback = buildIncrementalToolCall(includeTrailingPartial: true) {
+            return [fallback]
+        }
+
         let wrapped = "\(toolCallStartTag)\(currentToolText)\(toolCallEndTag)"
         let (parsed, _) = MLXModelService.extractToolCallsFallback(
             from: wrapped, tools: tools,
@@ -219,7 +228,7 @@ public final class ToolCallStreamingRuntime {
         if !parsed.isEmpty {
             return parsed
         }
-        guard let fallback = buildIncrementalToolCall(includeTrailingPartial: includeTrailingPartial) else {
+        guard let fallback = buildIncrementalToolCall(includeTrailingPartial: false) else {
             return []
         }
         return [fallback]
@@ -417,19 +426,29 @@ public final class ToolCallStreamingRuntime {
     }
 
     private func trailingPartialParameter() -> (key: String, value: String)? {
-        let pattern = #"<parameter=([^>]+)>([\s\S]+)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: currentToolText, range: NSRange(currentToolText.startIndex..., in: currentToolText)),
-              let keyRange = Range(match.range(at: 1), in: currentToolText),
-              let valueRange = Range(match.range(at: 2), in: currentToolText) else {
+        guard let openRange = currentToolText.range(of: "<parameter=", options: .backwards) else {
+            return nil
+        }
+        if let closedRange = currentToolText.range(of: "</parameter>", options: .backwards),
+           closedRange.lowerBound > openRange.lowerBound {
             return nil
         }
 
-        var value = String(currentToolText[valueRange])
+        let fragment = String(currentToolText[openRange.lowerBound...])
+        let pattern = #"^\s*<parameter=([^>]+)>([\s\S]+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: fragment, range: NSRange(fragment.startIndex..., in: fragment)),
+              let keyRange = Range(match.range(at: 1), in: fragment),
+              let valueRange = Range(match.range(at: 2), in: fragment) else {
+            return nil
+        }
+
+        let key = String(fragment[keyRange])
+        var value = String(fragment[valueRange])
         if value.hasPrefix("\n") { value = String(value.dropFirst()) }
         if value.hasSuffix("\n") { value = String(value.dropLast()) }
         guard !value.isEmpty else { return nil }
-        return (String(currentToolText[keyRange]), value)
+        return (key, value)
     }
 
     private func resetState() {

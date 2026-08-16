@@ -3,6 +3,10 @@ classification:
   allowed:
     - not_yet_classified
     - afm_bug
+    - parser_failure
+    - stream_assembly_failure
+    - schema_validation_failure
+    - semantic_tool_selection_failure
     - model_quality
     - harness_bug
 
@@ -17,6 +21,31 @@ rules:
     - parser_regression
     - timeout_or_crash
     - truncation_or_duplicate_emission
+
+  parser_failure:
+    - valid_tool_syntax_not_recognized
+    - malformed_tool_syntax_leaked_as_content
+    - tool_name_or_arguments_corrupted
+    - parser_profile_regression
+
+  stream_assembly_failure:
+    - split_tag_not_buffered
+    - incomplete_call_not_salvaged
+    - duplicate_stream_delta
+    - stream_nonstream_tool_call_mismatch
+
+  schema_validation_failure:
+    - invalid_argument_json
+    - wrong_argument_type_after_coercion
+    - required_argument_dropped
+    - nested_schema_corruption
+
+  semantic_tool_selection_failure:
+    - wrong_tool_for_request
+    - wrong_argument_value
+    - missing_required_tool_call
+    - unnecessary_tool_call
+    - tool_choice_not_honored
 
   model_quality:
     - wrong_tool
