@@ -57,7 +57,7 @@ agents:
 - OpenClaw `apply_patch` multiline unified diffs
 - Hermes nested `todo` arrays and nullable values
 
-The focused Release qualification contains 14 tests and passes 14/14. The live
+The focused Release qualification contains 15 tests and passes 15/15. The live
 Promptfoo matrix runs 106 cases under each of the default, adaptive XML, and
 adaptive XML plus grammar profiles. It passes 295/318 overall (92.77%):
 
@@ -95,3 +95,36 @@ false negatives from over-strict assertions. The updated harness now accepts
 valid multiple search/read calls and conventional unified diff syntax. The
 remaining failures are useful behavioral quality measurements and should not be
 relaxed into passes.
+
+## Independent Review Remediation
+
+An independent review of PR #186 identified two streaming defects and three
+assertion gaps. The follow-up fixes:
+
+- preserve adjacent parallel tool calls emitted in one stream chunk;
+- salvage only the final unclosed parameter and schema-coerce its wire delta so
+  it matches the repaired final call;
+- require every agentic search/read call to carry a relevant query or path;
+- validate all advertised OpenCode and Pi schema fields; and
+- require an actual README hunk with the requested replacement in the OpenClaw
+  `apply_patch` case.
+
+The expanded Release streaming regression set passes 29 XCTest and 28 Swift
+Testing cases with zero failures. The affected live Promptfoo suites were rerun
+with `mlx-community/Qwen3.8-27B-4bit` across all three parser profiles:
+
+- core tool calling: 39/39;
+- agentic coding workflows: 12/12;
+- combined reviewer-remediation matrix: 51/51.
+
+The raw rerun exports are stored at
+`/Volumes/edata2/afm-benchmarks/issue180-review-fixes-20260816` on the test
+machine.
+
+The complete Release test suite was also rerun after these fixes. It passed:
+
+- XCTest: 665 tests, 3 intentional skips, 0 failures;
+- Swift Testing: 435 tests across 34 suites, 0 failures.
+
+The captured full-suite log is stored at
+`/Volumes/edata2/afm-benchmarks/issue180-review-fixes-20260816/full-release-tests.log`.

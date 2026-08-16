@@ -255,7 +255,9 @@
         const calls = JSON.parse(output);
         const args = calls[0]?.function?.arguments || {};
         return calls.length >= 1 && calls[0].function.name === 'grep' &&
-          /finalizeAssistantTurn/.test(String(args.pattern || ''));
+          /finalizeAssistantTurn/.test(String(args.pattern || '')) &&
+          args.path === 'Sources' && Array.isArray(args.include) &&
+          args.include.includes('*.swift');
 
 - description: "Pi write schema preserves camelCase and multiline Unicode content"
   vars:
@@ -279,7 +281,8 @@
         const calls = JSON.parse(output);
         const args = calls[0]?.function?.arguments || {};
         return calls.length === 1 && calls[0].function.name === 'write' &&
-          /café\.md$/.test(String(args.path || '')) && /line 2 🚀/.test(String(args.content || ''));
+          /café\.md$/.test(String(args.path || '')) &&
+          args.content === 'line 1\nline 2 🚀' && args.createDirectories === true;
 
 - description: "OpenClaw apply_patch schema preserves a conventional unified diff"
   vars:
@@ -301,9 +304,9 @@
         const calls = JSON.parse(output);
         const input = String(calls[0]?.function?.arguments?.input || '');
         return calls.length === 1 && calls[0].function.name === 'apply_patch' &&
-          (/\*\*\* (?:Begin Patch|Update File: README\.md)/.test(input) ||
-           /^diff --git /m.test(input) ||
-           (/^--- (?:a\/)?README\.md/m.test(input) && /^\+\+\+ (?:b\/)?README\.md/m.test(input)));
+          /(?:\*\*\* Update File: README\.md|^diff --git a\/README\.md b\/README\.md|^--- (?:a\/)?README\.md)/m.test(input) &&
+          /(?:^@@|\*\*\* Begin Patch)/m.test(input) &&
+          /^-old$/m.test(input) && /^\+new$/m.test(input);
 
 - description: "Hermes todo schema preserves nested task arrays"
   vars:

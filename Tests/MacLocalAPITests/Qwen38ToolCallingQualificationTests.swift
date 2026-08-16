@@ -83,17 +83,21 @@ struct Qwen38ToolCallingQualificationTests {
     @Test("Qwen 3.8 incomplete stream is salvaged as one valid call")
     func incompleteStreamIsSalvaged() throws {
         let runtime = makeRuntime(tools: [weatherTool])
-        _ = runtime.process(piece: "<tool_call>")
-        _ = runtime.process(piece: "<function=get_weather>")
-        _ = runtime.process(piece: "<parameter=location>Toronto</parameter>")
-        _ = runtime.process(piece: "<parameter=days>3")
+        var events = runtime.process(piece: "<tool_call>").events
+        events += runtime.process(piece: "<function=get_weather>").events
+        events += runtime.process(piece: "<parameter=location>Toronto</parameter>").events
+        events += runtime.process(piece: "<parameter=days>3").events
 
-        let events = runtime.finishIncompleteToolCall()
+        events += runtime.finishIncompleteToolCall()
         let call = try #require(replacementCall(from: events))
         let arguments = try decodeArguments(call.function.arguments)
         #expect(call.function.name == "get_weather")
         #expect(arguments["location"] as? String == "Toronto")
-        #expect(call.function.arguments.contains(#""days":3"#))
+        #expect(arguments["days"] as? Int == 3)
+        let streamed = try decodeArguments(streamedArguments(from: events))
+        #expect(streamed["location"] as? String == "Toronto")
+        #expect(streamed["days"] as? Int == 3)
+        #expect(NSDictionary(dictionary: streamed).isEqual(to: arguments))
     }
 
     @Test("Qwen 3.8 completed parser preserves valid parallel calls")
@@ -113,6 +117,18 @@ struct Qwen38ToolCallingQualificationTests {
         #expect(calls[0].function.arguments["location"]?.anyValue as? String == "Toronto")
         #expect(calls[1].function.arguments["location"]?.anyValue as? String == "Vancouver")
         #expect(remaining.isEmpty)
+    }
+
+    @Test("Qwen 3.8 streaming preserves adjacent parallel calls in one chunk")
+    func streamingPreservesAdjacentParallelCalls() throws {
+        let runtime = makeRuntime(tools: [weatherTool])
+        let output = runtime.process(piece: #"<tool_call>{"name":"get_weather","arguments":{"location":"Toronto","days":1}}</tool_call><tool_call>{"name":"get_weather","arguments":{"location":"Vancouver","days":2}}</tool_call>"#)
+        let calls = collectedCalls(from: output.events)
+
+        #expect(calls.count == 2)
+        #expect(try decodeArguments(calls[0].function.arguments)["location"] as? String == "Toronto")
+        #expect(try decodeArguments(calls[1].function.arguments)["location"] as? String == "Vancouver")
+        #expect(output.passthroughText == nil)
     }
 
     @Test("tool_choice none suppresses otherwise valid Qwen 3.8 calls")
@@ -384,6 +400,15 @@ struct Qwen38ToolCallingQualificationTests {
         return nil
     }
 
+    private func collectedCalls(from events: [ToolCallStreamingEvent]) -> [ResponseToolCall] {
+        events.compactMap { event in
+            if case .appendCollected(let call) = event, !call.function.arguments.isEmpty {
+                return call
+            }
+            return nil
+        }
+    }
+
     private func replacementCall(from events: [ToolCallStreamingEvent]) -> ResponseToolCall? {
         for event in events.reversed() {
             if case .replaceCollected(_, let call) = event {
@@ -391,6 +416,13 @@ struct Qwen38ToolCallingQualificationTests {
             }
         }
         return nil
+    }
+
+    private func streamedArguments(from events: [ToolCallStreamingEvent]) -> String {
+        events.compactMap { event in
+            guard case .delta(let delta) = event else { return nil }
+            return delta.function?.arguments
+        }.joined()
     }
 
     private func decodeArguments(_ arguments: String) throws -> [String: Any] {
