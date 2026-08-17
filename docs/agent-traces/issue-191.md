@@ -1,7 +1,6 @@
 # Issue #191 Phase A: Qwen 3.8 VLM Planning Trace
 
-Status: revised after architecture gate REQUEST CHANGES; implementation remains
-blocked pending re-review.
+Status: architecture gate 2 approved; implementation in progress.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/191>
 
@@ -568,5 +567,35 @@ until this revised plan is re-gated.
 | 6. Define capability surfaces | Section 4 separates declared/catalog from runtime-usable capability, derives `/props` and the loaded `/v1/models` entry from the loaded descriptor, and prohibits catalog capability from request admission. |
 | 7. Replace promotion tests | The revised unit, integration, and live matrices cover narrow startup selection, incomplete-assets LLM fallback, one static VLM container under concurrency, text no-media execution, and unchanged Gemma/language-Qwen/`--vlm` behavior while retaining DTO, controller, JPEG/PNG, grounding, and regression coverage. |
 
-No feature implementation or upstream dependency PR is authorized by this
-revision.
+Architecture gate 2 approved this revision at commit `a1915e2`; implementation
+may proceed within the approved scope.
+
+## Implementation decisions and verification
+
+### Checkpoint 1: immutable qualification and startup policy
+
+- Added `AFMMLXVisionAssetQualification` as immutable snapshot evidence. It
+  contains architecture/config/processor/weight results and stable missing
+  categories, but no loaded factory, container, or scheduler state.
+- Added a sibling `AFMMLXVisionAssetValidator`. Its cache key fingerprints the
+  resolved directory plus relevant config, processor, index, and safetensor file
+  metadata. Indexed checkpoints use structured `weight_map` keys and shard
+  presence; standalone checkpoints read only the bounded safetensor JSON header.
+- Matched VLM factory processor precedence: `preprocessor_config.json` wins over
+  `processor_config.json`, and valid Qwen 3.5-family metadata resolves through
+  the existing `Qwen3VLProcessor` factory override.
+- Kept `MLXCacheResolver.hasRequiredFiles` unchanged. Missing processor metadata,
+  vision config/token IDs, or vision weights makes optional vision unusable but
+  does not make the language snapshot incomplete.
+- Extended startup factory policy only for an asset-usable, config-resolved
+  Qwen `qwen3_5`/`qwen3_5_moe` conditional-generation qualification. Explicit
+  `--vlm`, vision-only behavior, Gemma, and incomplete-Qwen LLM selection retain
+  their approved ordering.
+
+Verification on 2026-08-17:
+
+- `./Scripts/swiftpm-reliable.sh test --filter
+  'AFMMLX(VisionAssetQualification|StartupFactoryPolicy)Tests'`
+- Result: 9 tests executed, 0 failures.
+- The first run exposed and fixed a Swift 6 optional-flattening compile error in
+  the bounded safetensor reader; the rerun passed.

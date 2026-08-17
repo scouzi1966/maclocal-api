@@ -43,9 +43,13 @@ public enum AFMMLXModelFactoryKind: Equatable, Sendable {
 public enum AFMMLXModelFactoryPolicy {
     public static func initialFactory(
         forceVLM: Bool,
-        architecture: AFMMLXModelArchitecturePreflight
+        architecture: AFMMLXModelArchitecturePreflight,
+        visionQualification: AFMMLXVisionAssetQualification? = nil
     ) -> AFMMLXModelFactoryKind {
         if forceVLM || architecture.requiresVisionModelFactory {
+            return .vlm
+        }
+        if visionQualification?.isUsableQwenConditionalGeneration == true {
             return .vlm
         }
         return .llm
