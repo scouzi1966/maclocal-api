@@ -60,8 +60,9 @@ upstream pull request.
   (`Sources/AFMKitMLX/Models/MLXModelService.swift:218`), then applies the above
   selection and only falls back from LLM to VLM after an LLM load failure
   (`Sources/AFMKitMLX/Models/MLXModelService.swift:1588`).
-- Loaded service state records model ID, architecture, configuration, and
-  container but not the actual factory that created the container
+- Loaded service state records model ID, architecture, container, and the MTP
+  binding, but not the resolved model directory, decoded configuration, or the
+  actual factory that created the container
   (`Sources/AFMKitMLX/Models/MLXModelService.swift:223`,
   `Sources/AFMKitMLX/Models/MLXModelService.swift:1673`).
 - Request validation consequently accepts image input based on architecture and
@@ -69,11 +70,31 @@ upstream pull request.
   (`Sources/AFMKitMLX/Models/MLXModelService.swift:6010`). This is the principal
   routing gap behind the issue.
 
+### Factory lifecycle history constrains the repair
+
+- Commit `09b278f` (`Fix MLX multimodal routing for dual-mode models`) previously
+  tracked the loaded directory/factory and reloaded a dual-mode LLM container
+  through the VLM factory when a media request arrived.
+- Commit `721d3ac` (`Fix MLX multimodal lifecycle review findings`) removed that
+  request-time reload and changed vision configurations to load as VLM from
+  startup. Its review finding was substantive: the old path began loading a new
+  container before scheduler shutdown/quiescence and then swapped service state,
+  so concurrent work could observe an unsafe lifecycle transition.
+- Commit `6535ca1` (`Fix Gemma 4 cache stability`) deliberately restored LLM-first
+  startup for dual-mode configurations to preserve text/cache behavior. The
+  current Qwen 3.8 gap is therefore the consequence of two intentional
+  constraints, not simply a missing architecture alias.
+- Implementation must not restore the `09b278f` reload method unchanged, and it
+  must not revert all dual-mode checkpoints to VLM-at-startup without explicit
+  architecture approval. A request-time transition is viable only if admission,
+  scheduler quiescence, publication, rollback, and cache/MTP invalidation form
+  one defined lifecycle.
+
 ### The MLX compatibility patch already contains a Qwen vision implementation
 
 - The patched VLM registry maps `qwen3_5` and `qwen3_5_moe` to
   `Qwen3_5MoEVL`, and the processor registry contains `Qwen3VLProcessor`
-  (`Scripts/patches/VLMModelFactory.swift:84`,
+  (`Scripts/patches/VLMModelFactory.swift:103`,
   `Scripts/patches/VLMModelFactory.swift:109`).
 - VLM loading reads model config, tokenizer/processor config, and weights, then
   explicitly chooses `Qwen3VLProcessor` for Qwen 3.5-family checkpoints
@@ -93,11 +114,18 @@ upstream pull request.
 - Compatibility files are maintained as repository patches and applied by
   `Scripts/apply-mlx-patches.sh`; vendored SwiftPM files must not be edited
   directly (`Scripts/apply-mlx-patches.sh:22`).
-- The local cached revision of `mlx-community/Qwen3.8-27B-4bit` was inspected as
-  qualification evidence: its config matches the fixture, its processor config
-  names `Qwen3VLProcessor`, and its safetensor index contains both
-  `vision_tower` and `language_model` keys. This supports using the existing
-  patched Qwen 3.5 VLM implementation, subject to a live load test.
+- The local cached revision `3e6447f082e89cc7f0bc6e5441afd38dfce760ff`
+  of `mlx-community/Qwen3.8-27B-4bit` was inspected as static qualification
+  evidence. Its config matches the fixture, both processor metadata files name
+  `Qwen3VLProcessor`, all three shards referenced by its index are present, and
+  the index contains 333 `vision_tower.*` and 1,847 `language_model.*` keys.
+  This supports using the existing patched Qwen 3.5 VLM implementation, but no
+  live model load or inference was performed during Phase A.
+- A locally cached Qwen 3.8 MXFP8 snapshot is incomplete (four of six indexed
+  shards), so it is not evidence that the MXFP8 variant can currently pass live
+  qualification. The repository implementation log independently records the
+  shared `qwen3_5` text/vision contract
+  (`docs/qwen3.8-27b-mxfp8-implementation-log.md`).
 
 ### Image DTOs and request conversion already preserve multimodal content
 
@@ -231,11 +259,16 @@ text requests after the first image no longer use the original LLM container.
 
 ### 3. Add pre-response request preparation to the server boundary
 
-Extend the AFMKitMLX chat-serving protocol with an async preparation operation
-that defaults to a no-op for test doubles and non-MLX adapters. The concrete MLX
-service will use it for media classification, vision asset validation, and any
-factory promotion. Call it from the controller before non-streaming generation
-and before streaming headers/body are committed.
+Add an async preparation operation at the `AFMMLXOpenAIChatServing` boundary
+(`Sources/AFMKitMLX/AFMMLXOpenAIChatGenerating.swift:93`) with a no-op default
+for test doubles and non-MLX adapters. The concrete MLX service will use it for
+media classification, vision asset validation, and any factory promotion. The
+`AFMKitMLXChatServingAdapter` must forward it. Call preparation from the
+controller before non-streaming generation and, critically, before creating the
+streaming response body. Restructuring the streaming controller to perform the
+same work synchronously before body creation is an acceptable implementation
+alternative; the architectural requirement is the response-commit boundary,
+not a particular protocol shape.
 
 Return a stable HTTP 400 OpenAI-style error for missing vision assets, proposed
 as `type: invalid_request_error` and `code: vision_assets_unavailable`. Preserve
@@ -272,12 +305,11 @@ script. No upstream mlx-swift-lm PR is part of this issue.
 
 | Layer | Required? | Responsibility |
 | --- | --- | --- |
-| maclocal-api / AFMKitMLX | Yes | Config/asset contract, actual-factory state, lazy promotion, cache/MTP invalidation, typed vision errors. |
-| maclocal-api / AFMServer | Yes | Pre-response preparation, consistent stream/non-stream errors, descriptor-backed `/v1/models` and `/props`. |
-| maclocal-api / AFMOpenAICompat | Test-only expected | Existing multimodal DTO is sufficient; add code only if tests expose a decoding incompatibility. |
+| maclocal-api host/server (`AFMServer`, CLI) | Yes | Request/response commitment, consistent stream/non-stream error mapping, and descriptor-backed `/v1/models` and `/props`. The bundled WebUI consumes this contract. |
+| AFMKit products in this repository (`AFMKitCore`, `AFMKitMLX`, `AFMOpenAICompat`) | Yes, primarily `AFMKitMLX` | Reusable config/asset contract, actual-factory state, safe promotion lifecycle, cache/MTP invalidation, and typed vision errors. Existing Core capability and OpenAI multimodal DTO shapes should remain source-compatible. `Package.swift:20` confirms these are same-repository products, not an external dependency. |
 | Bundled WebUI (`vendor/llama.cpp`) | No feature change expected | Existing attachment conversion is correct once capability and backend routing are correct. Do not edit the submodule for this issue unless a reproducible WebUI contract defect is found. |
-| mlx-swift-lm compatibility patches | Qualification required; code change conditional | Existing Qwen VLM model/factory should be sufficient. Patch only a demonstrated compatibility gap in repository patch files. |
-| External AFMKit or upstream repositories | No | AFMKit is in this repository. Do not create upstream PRs. |
+| AFM-owned mlx-swift-lm compatibility patch (`Scripts/patches`) | Qualification required; code change conditional | Existing Qwen VLM model/factory should be sufficient. Patch only a demonstrated compatibility gap in repository-owned patch files and apply it through `Scripts/apply-mlx-patches.sh`. |
+| External/upstream repositories | No | Do not create an mlx-swift-lm, llama.cpp, or separate AFMKit PR. No external AFMKit repository owns this change. |
 
 ## Likely implementation files
 
@@ -288,6 +320,7 @@ Required or strongly likely:
 - `Sources/AFMKitMLX/Models/MLXModelService.swift`
 - `Sources/AFMKitMLX/Models/MLXCacheResolver.swift`
 - `Sources/AFMKitMLX/AFMMLXOpenAIChatGenerating.swift`
+- `Sources/AFMServer/Controllers/AFMKitMLXChatServingAdapter.swift`
 - `Sources/AFMServer/Controllers/MLXChatCompletionsController.swift`
 - `Sources/AFMServer/Server.swift`
 - `Tests/MacLocalAPITests/Qwen38PublishedConfigFixture.swift`
@@ -298,6 +331,15 @@ Required or strongly likely:
 
 Possible new production file to keep the contract testable and out of the model
 service actor: `Sources/AFMKitMLX/AFMMLXVisionCapability.swift`.
+
+Reviewed but no production change expected unless the implementation exposes a
+missing shared field:
+
+- `Sources/AFMKitCore/AFMCoreTypes.swift` (existing capability vocabulary)
+- `Sources/AFMOpenAICompat/OpenAIRequest.swift` (existing ordered image parts)
+- `Sources/AFMOpenAICompat/OpenAIResponse.swift` (existing typed error `code`)
+- `Sources/AFMKitMLX/AFMMLXRuntime.swift` (only if runtime capability needs a
+  public read surface rather than the serving adapter)
 
 Conditional only after a demonstrated live compatibility failure:
 
@@ -386,6 +428,7 @@ No change is expected in the OpenAI DTO files or bundled WebUI source.
 | DTO conversion | String content, mixed text/image parts, data URLs, HTTP URLs, `detail`, and multi-message histories decode without dropping image parts. |
 | Error mapping | Unsupported model and incomplete vision assets produce distinct stable errors; error text names missing asset categories and omits local paths. |
 | Capabilities | Provider descriptor, `/v1/models`, and `/props` agree for complete vision, incomplete vision, and text-only models; curated unavailable models retain catalog semantics. |
+| Lifecycle regression | Preserve the `6535ca1` LLM-first startup behavior for dual-mode text use; prove request promotion waits for scheduler quiescence and does not recreate the unsafe pre-`721d3ac` container swap. |
 | Regression | Existing Gemma VLM factory tests, Qwen text tests, forced-VLM tests, and generic OpenAI chat tests remain green. |
 
 ### Integration tests
@@ -406,7 +449,10 @@ No change is expected in the OpenAI DTO files or bundled WebUI source.
 Run this matrix only after implementation approval and focused automated tests:
 
 1. Build using the repository's reliable SwiftPM/build wrapper and start the
-   server with the exact cached Qwen 3.8 revision recorded in the test report.
+   server without `--vlm`, matching the issue's LLM-first reproduction, with the
+   exact cached Qwen 3.8 revision recorded in the test report. Run a separate
+   explicit `--vlm` launch as a factory/processor control, not as acceptance of
+   the default route.
 2. Before any image request, run a fixed text prompt and record load time,
    tokens/second, peak resident memory, selected factory, and whether image
    preprocessing/vision execution occurred.
