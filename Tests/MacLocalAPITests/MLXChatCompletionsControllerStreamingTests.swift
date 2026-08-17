@@ -804,7 +804,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     func testVisionAssetFailureReturnsJSONBeforeStreamingCommitAndReservation() async throws {
         let service = FakeMLXChatService(
             preflightFailure: .visionAssetsUnavailable(
-                model: "test-model",
+                model: "/Users/example/private/test-model",
                 missing: ["processorConfiguration", "visionWeights"]
             ),
             streamingResult: makeStreamingResult(chunks: [])
@@ -828,6 +828,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
             XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
             XCTAssertContains(res.body.string, "processorConfiguration, visionWeights")
+            XCTAssertFalse(res.body.string.contains("/Users/example/private"))
             XCTAssertFalse(res.body.string.contains("data:"))
         }
         XCTAssertEqual(service.preflightCallCount, 1)

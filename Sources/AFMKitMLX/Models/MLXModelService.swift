@@ -140,11 +140,16 @@ public enum MLXServiceError: Error, LocalizedError {
         case .serverBusy(let max):
             return "Server at capacity (\(max) concurrent requests). Please retry shortly."
         case .unsupportedMediaInput(let model, let kind):
-            return "\(model): \(kind) input is not supported by the loaded MLX model"
+            return "\(Self.diagnosticModelLabel(model)): \(kind) input is not supported by the loaded MLX model"
         case .visionAssetsUnavailable(let model, let missing):
             let categories = missing.isEmpty ? "unknown" : missing.joined(separator: ", ")
-            return "\(model): vision assets are unavailable (missing: \(categories))"
+            return "\(Self.diagnosticModelLabel(model)): vision assets are unavailable (missing: \(categories))"
         }
+    }
+
+    private static func diagnosticModelLabel(_ model: String) -> String {
+        guard model.hasPrefix("/") else { return model }
+        return URL(fileURLWithPath: model).lastPathComponent
     }
 }
 

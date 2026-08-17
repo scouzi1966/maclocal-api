@@ -3,6 +3,28 @@ import AFMKitCore
 import XCTest
 
 final class MLXMediaPreflightTests: XCTestCase {
+    func testMediaErrorsDoNotExposeAbsoluteModelPaths() {
+        let missingAssets = MLXServiceError.visionAssetsUnavailable(
+            model: "/Users/example/private/qwen-snapshot",
+            missing: ["processorConfiguration", "visionWeights"]
+        )
+        let unsupported = MLXServiceError.unsupportedMediaInput(
+            model: "/Users/example/private/qwen-snapshot",
+            kind: "image"
+        )
+
+        XCTAssertEqual(
+            missingAssets.localizedDescription,
+            "qwen-snapshot: vision assets are unavailable (missing: processorConfiguration, visionWeights)"
+        )
+        XCTAssertEqual(
+            unsupported.localizedDescription,
+            "qwen-snapshot: image input is not supported by the loaded MLX model"
+        )
+        XCTAssertFalse(missingAssets.localizedDescription.contains("/Users/example"))
+        XCTAssertFalse(unsupported.localizedDescription.contains("/Users/example"))
+    }
+
     func testCompleteQwenVLMAllowsImagesAndAdvertisesRuntimeVision() {
         let architecture = qwenArchitecture()
         let qualification = qwenQualification()

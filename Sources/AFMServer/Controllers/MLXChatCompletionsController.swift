@@ -504,7 +504,7 @@ struct MLXChatCompletionsController: RouteCollection {
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
         } catch let serviceError as MLXServiceError {
             if case .visionAssetsUnavailable = serviceError {
-                req.logger.error("[\(Self.timestamp())] MLX vision preflight error: \(serviceError)")
+                req.logger.error("[\(Self.timestamp())] MLX vision preflight error: \(serviceError.localizedDescription)")
                 return try await createErrorResponse(
                     req: req,
                     error: OpenAIError(
@@ -516,7 +516,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     status: .badRequest
                 )
             }
-            req.logger.error("[\(Self.timestamp())] MLX completions error: \(serviceError)")
+            req.logger.error("[\(Self.timestamp())] MLX completions error: \(serviceError.localizedDescription)")
             return try await createErrorResponse(
                 req: req,
                 error: OpenAIError(
