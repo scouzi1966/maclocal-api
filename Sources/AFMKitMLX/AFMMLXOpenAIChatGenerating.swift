@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 import AFMOpenAICompat
 import MLX
 
@@ -107,6 +108,13 @@ public protocol AFMMLXOpenAIChatServing:
 
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
+
+    /// Validate media against the immutable capability state of the active
+    /// container. Implementations must not load, reload, or inspect model files.
+    func preflightMediaRequest(model: String, messages: [Message]) throws
+
+    /// Runtime-usable descriptor for the active model, if this service owns one.
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor?
 }
 
 public extension AFMMLXOpenAIChatServing {
@@ -122,6 +130,10 @@ public extension AFMMLXOpenAIChatServing {
             serverDefault: defaultGuidedJsonSchema
         )
     }
+
+    func preflightMediaRequest(model: String, messages: [Message]) throws {}
+
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor? { nil }
 }
 
 public extension AFMMLXOpenAIChatGenerating {

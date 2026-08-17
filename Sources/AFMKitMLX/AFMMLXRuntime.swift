@@ -290,7 +290,12 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         if initializesSchedulerOnLoad && configuration.maxConcurrent >= 2 {
             try await service.initScheduler()
         }
-        return descriptor
+        guard let runtimeDescriptor = service.loadedModelDescriptor(model: modelID) else {
+            throw MLXServiceError.loadFailed(
+                "\(modelID): loaded runtime descriptor is unavailable"
+            )
+        }
+        return runtimeDescriptor
     }
 
     public func prewarm(

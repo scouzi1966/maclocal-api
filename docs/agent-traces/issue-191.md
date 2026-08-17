@@ -599,3 +599,38 @@ Verification on 2026-08-17:
 - Result: 9 tests executed, 0 failures.
 - The first run exposed and fixed a Swift 6 optional-flattening compile error in
   the bounded safetensor reader; the rerun passed.
+
+### Checkpoint 2: static runtime capability state
+
+- `MLXModelService.ensureLoaded` now runs snapshot qualification before factory
+  selection and passes it into the narrow startup policy. The service publishes
+  immutable qualification, actual factory, runtime descriptor, architecture,
+  container, and MTP binding together under `stateLock`; terminal shutdown
+  clears all of those runtime fields together.
+- Added `AFMMLXRuntimeVisionPolicy` as a pure decision layer. A loaded descriptor
+  advertises vision only when the active factory is VLM and, for Qwen
+  conditional generation, the immutable qualification is asset-usable.
+  Complete qualification cannot authorize an LLM-backed container.
+- Added side-effect-free media preflight to `AFMMLXOpenAIChatServing` with
+  source-compatible defaults. `MLXModelService` classifies ordered message
+  parts from one locked runtime snapshot; it performs no file read, factory
+  invocation, reload, scheduler operation, or state mutation.
+- Added typed `visionAssetsUnavailable` and distinct `unsupportedMediaInput`
+  service failures. Missing-asset diagnostics contain sorted category names and
+  no snapshot paths. Direct generation retains the same internal media guard,
+  so non-HTTP callers cannot bypass runtime capability validation.
+- `AFMMLXRuntime.load` now returns the authoritative post-load descriptor
+  synthesized by the service instead of returning its pre-load catalog
+  descriptor.
+
+Verification on 2026-08-17:
+
+- `./Scripts/swiftpm-reliable.sh test --filter
+  'MLXMediaPreflightTests|AFMMLXStartupFactoryPolicyTests|AFMMLXVisionAssetQualificationTests|AFMMLXRuntimeTests'`
+- Result: 20 tests executed, 0 failures. Log:
+  `.build-reliable-logs/test-20260817-171828.log`.
+- The first compile exposed an ambiguous `flatMap` result for messages without
+  multipart content; the array result was made explicit and the identical
+  focused command then passed.
+- No compatibility patch source changed. The repository wrapper only reapplied
+  the existing AFM-owned patch set to the local vendor worktree.

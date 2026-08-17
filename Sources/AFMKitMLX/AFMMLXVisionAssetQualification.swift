@@ -43,9 +43,12 @@ public struct AFMMLXVisionAssetQualification: Hashable, Sendable {
     }
 
     public var isUsableQwenConditionalGeneration: Bool {
+        isQwenConditionalGeneration && isAssetUsable
+    }
+
+    public var isQwenConditionalGeneration: Bool {
         Self.qwenConditionalModelTypes.contains(canonicalModelType)
             && isConditionalGeneration
-            && isAssetUsable
     }
 
     public var missingAssetNames: [String] {
