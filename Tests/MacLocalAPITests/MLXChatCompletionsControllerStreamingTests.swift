@@ -801,6 +801,72 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testVisionAssetFailureReturnsJSONBeforeStreamingCommitAndReservation() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .visionAssetsUnavailable(
+                model: "test-model",
+                missing: ["processorConfiguration", "visionWeights"]
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
+            XCTAssertContains(res.body.string, "processorConfiguration, visionWeights")
+            XCTAssertFalse(res.body.string.contains("data:"))
+        }
+        XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.reserveSlotCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testVisionAssetFailureMatchesForNonStreamingRequests() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .visionAssetsUnavailable(
+                model: "test-model",
+                missing: ["visionWeights"]
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: false)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
+        }
+        XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.reserveSlotCallCount, 0)
+        XCTAssertEqual(service.generateCallCount, 0)
+    }
+
     private func requestBody(
         stream: Bool = true,
         prompt: String = "What is the weather in Berlin?",
@@ -830,6 +896,27 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         headers.contentType = .json
         headers.replaceOrAdd(name: .contentLength, value: body.readableBytes.description)
         return headers
+    }
+
+    private func imageRequestBody(stream: Bool) -> ByteBuffer {
+        let json = """
+        {
+          "model": "test-model",
+          "stream": \(stream ? "true" : "false"),
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "Describe this image" },
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,iVBORw0KGgo=" } }
+              ]
+            }
+          ]
+        }
+        """
+        var buffer = ByteBufferAllocator().buffer(capacity: json.utf8.count)
+        buffer.writeString(json)
+        return buffer
     }
 
     private func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
@@ -1022,12 +1109,17 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private let generateResult: AFMMLXChatGenerationResult
     private let streamingResult: AFMMLXChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
+    private let preflightFailure: MLXServiceError?
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
     private(set) var recordedGenerateToolChoices: [String] = []
     private(set) var recordedStreamingToolChoices: [String] = []
     private(set) var recordedPreserveStructuralTags: [Bool] = []
+    private(set) var preflightCallCount = 0
+    private(set) var reserveSlotCallCount = 0
+    private(set) var generateCallCount = 0
+    private(set) var generateStreamingCallCount = 0
 
     init(
         maxConcurrent: Int = 1,
@@ -1036,6 +1128,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
+        preflightFailure: MLXServiceError? = nil,
         generateResult: AFMMLXChatGenerationResult? = nil,
         streamingResult: AFMMLXChatStreamingResult
     ) {
@@ -1045,6 +1138,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
+        self.preflightFailure = preflightFailure
         self.generateResult = generateResult ?? (
             modelID: "test-model",
             content: "",
@@ -1068,6 +1162,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
+        preflightFailure: MLXServiceError? = nil,
         streamingHandler: @escaping ([Message]) -> AFMMLXChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
@@ -1076,6 +1171,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
+        self.preflightFailure = preflightFailure
         self.generateResult = (
             modelID: "test-model",
             content: "",
@@ -1094,7 +1190,17 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func tryReserveSlot() -> Bool { true }
+    func preflightMediaRequest(model: String, messages: [Message]) throws {
+        let failure = stateLock.withLock {
+            preflightCallCount += 1
+            return preflightFailure
+        }
+        if let failure { throw failure }
+    }
+    func tryReserveSlot() -> Bool {
+        stateLock.withLock { reserveSlotCallCount += 1 }
+        return true
+    }
     func releaseSlot() {}
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
@@ -1126,6 +1232,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
+        stateLock.withLock { generateCallCount += 1 }
         recordGenerateTools(tools)
         return generateResult
     }
@@ -1191,6 +1298,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatStreamingResult {
+        stateLock.withLock { generateStreamingCallCount += 1 }
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }

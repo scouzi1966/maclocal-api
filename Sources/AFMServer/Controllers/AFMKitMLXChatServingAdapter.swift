@@ -64,12 +64,63 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         service?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
     }
 
+    func preflightMediaRequest(model: String, messages: [Message]) throws {
+        if let service {
+            try service.preflightMediaRequest(model: model, messages: messages)
+            return
+        }
+
+        guard let descriptor = fixedModel?.descriptor else { return }
+        for message in messages {
+            guard let content = message.content, case .parts(let parts) = content else {
+                continue
+            }
+            for part in parts {
+                guard let kind = AFMMLXRequestMediaPolicy.kind(
+                    contentPartType: part.type,
+                    mediaURL: part.image_url?.url
+                ) else { continue }
+                let supported: Bool
+                switch kind {
+                case .image, .video:
+                    supported = descriptor.capabilities.contains(.vision)
+                case .audio:
+                    supported = descriptor.capabilities.contains(.audioInput)
+                }
+                if !supported {
+                    throw MLXServiceError.unsupportedMediaInput(
+                        model: fixedModelID ?? model,
+                        kind: Self.mediaLabel(kind)
+                    )
+                }
+            }
+        }
+    }
+
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {
+        if let service {
+            return service.loadedModelDescriptor(model: model)
+        }
+        guard fixedModelID == nil || normalizeModel(model) == fixedModelID else {
+            return nil
+        }
+        return fixedModel?.descriptor
+    }
+
     func normalizeModel(_ raw: String) -> String {
         service?.normalizeModel(raw) ?? fixedModelID ?? raw
     }
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
         service?.resolvedToolCallParser(logBypass: logBypass)
+    }
+
+    private static func mediaLabel(_ kind: AFMMLXRequestMediaKind) -> String {
+        switch kind {
+        case .image: "image"
+        case .video: "video"
+        case .audio: "audio"
+        }
     }
 
     func tryReserveSlot() -> Bool {

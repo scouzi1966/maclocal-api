@@ -634,3 +634,37 @@ Verification on 2026-08-17:
   focused command then passed.
 - No compatibility patch source changed. The repository wrapper only reapplied
   the existing AFM-owned patch set to the local vendor worktree.
+
+### Checkpoint 3: server preflight and capability surfaces
+
+- `AFMKitMLXChatServingAdapter` now forwards media preflight and the loaded
+  descriptor for concrete MLX services. Its fixed-model path validates media
+  against that model's descriptor without reading files or changing runtime
+  state.
+- `MLXChatCompletionsController` invokes provider preflight after request/model
+  validation but before slot reservation and before streaming response
+  construction. The typed missing-assets failure maps to HTTP `400`,
+  `invalid_request_error`, and `vision_assets_unavailable` for streaming and
+  non-streaming requests; no generation or slot accounting starts first.
+- `/props` and the loaded `/v1/models` details entry now read the same
+  runtime-usable descriptor through the serving abstraction. Both fail closed
+  for vision when no loaded descriptor is available. The existing response
+  shapes and WebUI contract are unchanged.
+- Added explicit `declaredDescriptor` and `isDeclaredVisionModel` discovery APIs
+  to `AFMMLXModelStore`, retaining the old spellings as compatibility aliases.
+  Their documentation prohibits using catalog declarations for runtime media
+  admission.
+
+Verification on 2026-08-17:
+
+- `./Scripts/swiftpm-reliable.sh test --filter
+  'MLX(ChatCompletionsControllerStreaming|CapabilityEndpoint)Tests|AFMKitMLXReasoningPropagationTests|AFMMLXProviderTests'`
+- Result: 59 tests executed, 0 failures. Log:
+  `.build-reliable-logs/test-20260817-172309.log`.
+- `./Scripts/swiftpm-reliable.sh test --filter
+  'AFMMLXModelStoreTests|MLXCapabilityEndpointTests|MLXChatCompletionsControllerStreamingTests'`
+- Result: 59 tests executed, 0 failures. Log:
+  `.build-reliable-logs/test-20260817-172415.log`.
+- Controller tests assert both stream modes return JSON before response
+  commitment and observe one preflight call, zero slot reservations, and zero
+  generation calls for missing vision assets.

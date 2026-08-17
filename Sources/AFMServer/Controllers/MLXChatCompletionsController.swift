@@ -147,6 +147,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model"); fflush(stdout)
             }
 
+            // Media admission is provider-owned and side-effect-free. Run it
+            // before slot reservation and before constructing an SSE response.
+            try service.preflightMediaRequest(
+                model: modelID,
+                messages: chatRequest.messages
+            )
+
             let effectiveTools = try Self.resolveEffectiveTools(
                 chatRequest.tools,
                 toolChoice: chatRequest.toolChoice
@@ -495,6 +502,30 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)"); fflush(stdout)
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+        } catch let serviceError as MLXServiceError {
+            if case .visionAssetsUnavailable = serviceError {
+                req.logger.error("[\(Self.timestamp())] MLX vision preflight error: \(serviceError)")
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: serviceError.localizedDescription,
+                        type: "invalid_request_error",
+                        code: "vision_assets_unavailable",
+                        requestId: reqId.isEmpty ? nil : reqId
+                    ),
+                    status: .badRequest
+                )
+            }
+            req.logger.error("[\(Self.timestamp())] MLX completions error: \(serviceError)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: serviceError.localizedDescription,
+                    type: "mlx_error",
+                    requestId: reqId.isEmpty ? nil : reqId
+                ),
+                status: .badRequest
+            )
         } catch let abort as Abort {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(abort)")
             return try await createErrorResponse(

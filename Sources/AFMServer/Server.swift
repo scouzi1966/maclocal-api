@@ -331,6 +331,9 @@ public class Server: @unchecked Sendable {
             }
 
             if let mlxModelID = self.mlxModelID {
+                let loadedDescriptor = mlxChatService?.loadedModelDescriptor(
+                    model: mlxModelID
+                )
                 return ModelsResponse(
                     object: "list",
                     data: [
@@ -347,7 +350,9 @@ public class Server: @unchecked Sendable {
                         ModelDetails(
                             name: mlxModelID,
                             model: mlxModelID,
-                            capabilities: ["chat", "completion", "vision"]
+                            capabilities: AFMMLXCapabilityPresentation.modelCapabilityLabels(
+                                descriptor: loadedDescriptor
+                            )
                         )
                     ] + embeddingDetails
                 )
@@ -539,6 +544,9 @@ public class Server: @unchecked Sendable {
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in
             if let mlxModelID = self.mlxModelID {
+                let loadedDescriptor = mlxChatService?.loadedModelDescriptor(
+                    model: mlxModelID
+                )
                 return PropsResponse(
                     default_generation_settings: DefaultGenerationSettings(
                         n_ctx: 8192,
@@ -555,7 +563,12 @@ public class Server: @unchecked Sendable {
                     total_slots: 1,
                     model_path: mlxModelID,
                     role: "mlx",
-                    modalities: Modalities(vision: true, audio: Self.audioAvailable),
+                    modalities: Modalities(
+                        vision: AFMMLXCapabilityPresentation.supportsVision(
+                            descriptor: loadedDescriptor
+                        ),
+                        audio: Self.audioAvailable
+                    ),
                     chat_template: "",
                     bos_token: "",
                     eos_token: "",

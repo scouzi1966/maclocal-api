@@ -290,7 +290,7 @@ final class AFMMLXModelStoreTests: XCTestCase {
         XCTAssertFalse(options[2].isAvailableLocally)
     }
 
-    func testIsVisionModelUsesLocalDescriptorCapabilities() throws {
+    func testDeclaredVisionCapabilityIsDiscoveryMetadata() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -309,9 +309,17 @@ final class AFMMLXModelStoreTests: XCTestCase {
 
         let store = AFMMLXModelStore(resolver: MLXCacheResolver(cacheRoot: root))
 
-        XCTAssertTrue(store.isVisionModel("org/vision-model"))
-        XCTAssertFalse(store.isVisionModel("org/text-model"))
-        XCTAssertFalse(store.isVisionModel("org/missing"))
+        XCTAssertTrue(store.isDeclaredVisionModel("org/vision-model"))
+        XCTAssertFalse(store.isDeclaredVisionModel("org/text-model"))
+        XCTAssertFalse(store.isDeclaredVisionModel("org/missing"))
+        XCTAssertEqual(
+            store.descriptor(for: "org/vision-model"),
+            store.declaredDescriptor(for: "org/vision-model")
+        )
+        XCTAssertEqual(
+            store.isVisionModel("org/vision-model"),
+            store.isDeclaredVisionModel("org/vision-model")
+        )
     }
 
     func testAbsoluteModelDirectoryUsesSharedValidation() throws {
