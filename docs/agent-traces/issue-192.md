@@ -1,237 +1,346 @@
 # Issue 192 Phase A: vLLM Metrics and GuideLLM Interoperability Plan
 
-Status: planning checkpoint only. No feature code is included in this phase. Implementation must wait for reviewer approval.
+Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending architecture re-review.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/192>
 
-## Scope and acceptance target
+## Scope and pinned compatibility targets
 
-Issue 192 has two coupled compatibility goals:
+Issue 192 has two compatibility goals:
 
-1. Expose metrics that an unmodified vLLM Playground can scrape while retaining every existing `afm:*` metric and its meaning.
-2. Make both OpenAI completion endpoints usable by GuideLLM in streaming and non-streaming modes, with deterministic model discovery, correct terminal events, and trustworthy usage.
+1. Expose metrics that an unmodified vLLM Playground can scrape while retaining every existing `afm:*` metric and its current meaning.
+2. Qualify `/v1/chat/completions` and a true raw-prompt `/v1/completions` implementation with GuideLLM in streaming and non-streaming modes.
 
-The implementation should not claim general vLLM/OpenAI conformance. It should qualify the exact metric families and GuideLLM profiles in this plan against pinned upstream revisions:
+This is not a claim of general vLLM or OpenAI conformance. Implementation and fixtures are pinned to the revisions inspected on 2026-08-17:
 
-- GuideLLM `97b3077c05a367599112fd7080082c2d32c14b7e` (inspected 2026-08-17).
-- vLLM Playground `76276229092455f9ef66748731e4a615f4d80720` (inspected 2026-08-17).
-- vLLM `9633933dd81228fbcae07969f20881ad0b7cb766` (inspected 2026-08-17).
+- GuideLLM `97b3077c05a367599112fd7080082c2d32c14b7e`.
+- vLLM Playground `76276229092455f9ef66748731e4a615f4d80720`.
+- vLLM `9633933dd81228fbcae07969f20881ad0b7cb766`.
 
 ## Current-state evidence
 
-### Metrics and telemetry ownership
+### Metrics and telemetry
 
-- `MetricsController` registers only `GET /metrics`, returns Prometheus text 0.0.4, and renders one `StatsAggregator` snapshot (`Sources/AFMServer/Controllers/MetricsController.swift:22`, `Sources/AFMServer/Controllers/MetricsController.swift:26`, `Sources/AFMServer/Controllers/MetricsController.swift:64`).
-- The current exposition contains only `afm:*` series. Running/waiting/cache gauges are at `Sources/AFMServer/Controllers/MetricsController.swift:82`; token/request/cache counters at line 128; finish-reason counters at line 160; latency and token histograms at line 173; process metadata at line 252.
-- `StatsAggregator` is a process singleton owned by `AFMKitMLX`; AFMServer is deliberately the HTTP/presentation owner (`Sources/AFMKitMLX/Models/StatsAggregator.swift:18`, `Sources/AFMKitMLX/Models/StatsAggregator.swift:23`, `Sources/AFMKitMLX/Models/StatsAggregator.swift:37`). Keep that ownership split.
-- Its current counters cover prompt/generated tokens, accepted/completed requests, request-level radix hit/miss events, and `requestSuccessByReason` (`Sources/AFMKitMLX/Models/StatsAggregator.swift:126`). It has no failure-status, preemption, token-level prefix-cache, speculative, per-token ITL, or rolling-throughput state.
-- `observeRequest` derives E2E, queue, inference, prefill, TTFT, and one average TPOT observation per request (`Sources/AFMKitMLX/Models/StatsAggregator.swift:304`, `Sources/AFMKitMLX/Models/StatsAggregator.swift:340`). It cannot reconstruct an ITL distribution after completion.
-- The histogram provenance is an older vLLM snapshot (`Sources/AFMKitMLX/Models/StatsAggregator.swift:47`). Current upstream has additional upper buckets. Those can be appended without removing or reinterpreting existing AFM buckets.
-- `BatchScheduler` owns live running/waiting state and registers readers at `Sources/AFMKitMLX/Models/BatchScheduler.swift:590`; it starts accepted work at line 654 and records completion at lines 1979-1992.
-- Batched prefix caching adds only uncached suffix tokens to `promptTokensTotal` and increments hit/miss once per request (`Sources/AFMKitMLX/Models/BatchScheduler.swift:1359`). This is not vLLM's token-level prefix-query/hit semantics.
-- Serial MLX paths update the same singleton (`Sources/AFMKitMLX/Models/MLXModelService.swift:2100`, `Sources/AFMKitMLX/Models/MLXModelService.swift:2433`, `Sources/AFMKitMLX/Models/MLXModelService.swift:3821`). Several speculative fast paths terminate counters without recording the complete token/latency observation, for example `Sources/AFMKitMLX/Models/MLXModelService.swift:2177` and line 2254.
-- `afm:gpu_cache_usage_perc` is Metal working-set pressure, including weights and intermediates, not KV occupancy (`Sources/AFMServer/Controllers/MetricsController.swift:103`). It must not be relabeled as `vllm:kv_cache_usage_perc`.
-- DwarfStar already tracks accepted speculative tokens internally (`Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift:647`) but cannot import `AFMKitMLX`: `AFMKitDwarfStar` and `AFMKitMLX` are sibling targets depending on `AFMKitCore` (`Package.swift:166`, `Package.swift:188`).
-- No existing test directly exercises `StatsAggregator`, `MetricsController`, Prometheus parsing, or AFM/vLLM parity.
+- `MetricsController` registers only `GET /metrics`, returns Prometheus text 0.0.4, and renders one `StatsAggregator` snapshot (`Sources/AFMServer/Controllers/MetricsController.swift:22`, line 26, line 64).
+- The exposition contains only `afm:*`: live gauges begin at `Sources/AFMServer/Controllers/MetricsController.swift:82`, counters at line 128, finish reasons at line 160, histograms at line 173, and process metadata at line 252.
+- `StatsAggregator` is currently a process singleton implemented in `AFMKitMLX`, while AFMServer owns HTTP rendering (`Sources/AFMKitMLX/Models/StatsAggregator.swift:18`, line 23, line 37). That concrete ownership cannot support sibling runtimes without a dependency violation.
+- Existing state covers generated and computed prompt tokens, accepted/completed requests, request-level radix hit/miss events, and terminal reasons (`Sources/AFMKitMLX/Models/StatsAggregator.swift:126`). It has no full-prompt total, failure-status counter, preemption counter, token-level prefix metrics, speculative totals, per-token ITL, or rolling throughput.
+- `observeRequest` derives E2E, queue, inference, prefill, TTFT, and one average TPOT observation per request (`Sources/AFMKitMLX/Models/StatsAggregator.swift:304`, line 340). It cannot reconstruct ITL.
+- Batched prefix caching adds only the uncached suffix to the current AFM prompt counter and records cache hit/miss once per request (`Sources/AFMKitMLX/Models/BatchScheduler.swift:1359`). Pinned vLLM instead increments `prompt_tokens_total` with full prompt tokens, including cached tokens, while prompt throughput uses locally computed tokens.
+- `BatchScheduler` owns running/waiting state, registers gauge readers at `Sources/AFMKitMLX/Models/BatchScheduler.swift:590`, accepts work at line 654, and records terminal observations at lines 1979-1992.
+- Serial MLX paths update the same singleton (`Sources/AFMKitMLX/Models/MLXModelService.swift:2100`, line 2433, line 3821). Some speculative fast paths terminate without a complete token/latency observation, including lines 2177 and 2254.
+- `afm:gpu_cache_usage_perc` is Metal working-set pressure including weights and intermediates, not KV occupancy (`Sources/AFMServer/Controllers/MetricsController.swift:103`). It cannot back `vllm:kv_cache_usage_perc`.
+- DwarfStar already tracks accepted speculative tokens (`Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift:647`) but cannot import AFMKitMLX because both are sibling targets depending on AFMKitCore (`Package.swift:166`, line 188).
+- No existing test directly exercises the aggregator, metrics renderer, Prometheus parsing, or AFM/vLLM value parity.
 
-### Routes and OpenAI protocol behavior
+### OpenAI routes and semantics
 
-- Both runtime controllers register only `POST /v1/chat/completions`; no `/v1/completions` route or legacy completion DTO exists (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:90`, `Sources/AFMServer/Controllers/ChatCompletionsController.swift:40`, `Sources/AFMOpenAICompat/OpenAIRequest.swift:3`).
-- Chat requests accept both `max_tokens` and `max_completion_tokens`; current precedence is `max_tokens` then `max_completion_tokens` (`Sources/AFMOpenAICompat/OpenAIRequest.swift:8`, `Sources/AFMOpenAICompat/OpenAIRequest.swift:66`). Unknown GuideLLM extensions such as `ignore_eos` and `continuous_usage_stats` are ignored by Codable.
-- Streaming usage defaults to enabled when `stream_options` is absent (`Sources/AFMOpenAICompat/OpenAIRequest.swift:60`) and that non-OpenAI default is intentionally locked by `Tests/MacLocalAPITests/AgentFriendlyTier1Tests.swift:52`. Do not change it incidentally.
-- MLX emits a terminal finish chunk, optionally an empty-choice usage chunk, then `[DONE]` (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1453`). MLX normally receives real token counts, but falls back to estimation when final runtime counts are unavailable (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1279`).
-- Streaming failures are currently converted to normal text content followed by `[DONE]` (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1514`; Foundation equivalent at `Sources/AFMServer/Controllers/ChatCompletionsController.swift:490`). GuideLLM can therefore count a failed generation as successful.
-- MLX derives `tool_calls`, `stop`, and `length` terminal reasons in `Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:2140`. Foundation completion and prompt token usage is heuristic (`Sources/AFMServer/Controllers/ChatCompletionsController.swift:192`, `Sources/AFMServer/Controllers/ChatCompletionsController.swift:304`).
-- Existing streaming tests check selected finish reasons and `[DONE]`, but not the complete ordering/usage/error contract (`Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift:46`; `Tests/MacLocalAPITests/StreamingUsageChunkTests.swift:97`).
+- Both runtime controllers register only `POST /v1/chat/completions`; there is no `/v1/completions` route or raw completion DTO (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:90`, `Sources/AFMServer/Controllers/ChatCompletionsController.swift:40`, `Sources/AFMOpenAICompat/OpenAIRequest.swift:3`).
+- The existing serving abstraction accepts message arrays. MLX's input path inserts instructions and applies a chat template, so it cannot provide raw completion semantics by wrapping a prompt in a chat message.
+- Chat accepts `max_tokens` and `max_completion_tokens`, preferring the former (`Sources/AFMOpenAICompat/OpenAIRequest.swift:8`, line 66). Unknown GuideLLM extensions such as `ignore_eos` and `continuous_usage_stats` are ignored by Codable.
+- Streaming usage defaults to enabled when `stream_options` is absent (`Sources/AFMOpenAICompat/OpenAIRequest.swift:60`), a behavior locked by `Tests/MacLocalAPITests/AgentFriendlyTier1Tests.swift:52` and out of scope to change incidentally.
+- MLX success currently emits a finish chunk, optional usage-only chunk, then `[DONE]` (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1453`). MLX normally obtains runtime token counts but can fall back to estimates (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1279`).
+- Streaming failures are currently converted to assistant text and `[DONE]` (`Sources/AFMServer/Controllers/MLXChatCompletionsController.swift:1514`; Foundation equivalent at `Sources/AFMServer/Controllers/ChatCompletionsController.swift:490`). GuideLLM can misclassify these as successful.
+- Foundation usage remains heuristic (`Sources/AFMServer/Controllers/ChatCompletionsController.swift:192`, line 304), so Foundation cannot be claimed as GuideLLM-qualified.
 
-### Model discovery
+### Discovery and external clients
 
-- `/v1/models` is defined inline in `Server` (`Sources/AFMServer/Server.swift:321`). The loaded MLX model is first, which matches GuideLLM's first-model fallback, but its `created` value changes on every request (`Sources/AFMServer/Server.swift:333`).
-- Foundation also uses the current timestamp and appends backend-discovery results without an explicit sort (`Sources/AFMServer/Server.swift:356`, `Sources/AFMServer/Server.swift:369`). Full responses are therefore not deterministic.
-- Existing coverage checks embedding-model presence, not repeat-response equality or first-model suitability (`Tests/MacLocalAPITests/EmbeddingsControllerTests.swift:231`).
+- `/v1/models` is inline in `Server` (`Sources/AFMServer/Server.swift:321`). MLX is first, but its `created` value changes per request (`Sources/AFMServer/Server.swift:333`). Foundation also uses current time and appends discovery results without explicit sorting (`Sources/AFMServer/Server.swift:356`, line 369).
+- Existing tests cover embedding-model presence rather than repeat-response equality or first-model suitability (`Tests/MacLocalAPITests/EmbeddingsControllerTests.swift:231`).
+- Pinned GuideLLM maps `completions` and `chat_completions` to `/v1/completions` and `/v1/chat/completions`, and selects the first `/v1/models` ID if no model is supplied (`src/guidellm/backends/openai/http.py:45`, line 322 in the pinned checkout).
+- Its streaming payloads request usage, send compatibility extras, and expect token-bearing SSE, usage, and exact `[DONE]` termination (`src/guidellm/backends/openai/request_handlers.py:485`, line 620, line 1010, line 1153). Pinned GuideLLM sends one prompt string for legacy completions.
+- Pinned GuideLLM documents synchronous, throughput, concurrent, constant-rate, Poisson, and sweep profiles plus JSON/CSV/HTML outputs (`docs/getting-started/benchmark.md:105`, line 295).
+- Pinned Playground always scrapes `<base-url>/metrics` and discards names without the `vllm:` prefix (`vllm_playground/app.py:622`, line 313). It has no separate metrics-path setting.
+- The existing local harness covers discovery, chat, and optional `vllm bench serve`, but not raw completions, GuideLLM, or Prometheus parsing (`Scripts/feature-codex-optimize-api/test-openai-compat-evals.py:1`, line 120, line 302). `Scripts/test-assertions.sh` has reusable HTTP/SSE helpers at line 110.
 
-### External clients and harnesses
+## Approved representation decision
 
-- GuideLLM maps its `completions` and `chat_completions` request formats to `/v1/completions` and `/v1/chat/completions` respectively (`src/guidellm/backends/openai/http.py:45` in the pinned checkout). If no model is supplied, it selects the first ID from `/v1/models` (`http.py:322`).
-- GuideLLM streaming sends `stream_options.include_usage=true`, `continuous_usage_stats=true`, `stop=null`, and `ignore_eos=true`. Legacy completions send `max_tokens`; chat sends `max_completion_tokens` (`src/guidellm/backends/openai/request_handlers.py:485`, line 1010). Its stream parser expects token-bearing SSE chunks, a usage object, and exact `[DONE]` termination (`request_handlers.py:620`, line 1153).
-- The pinned GuideLLM documents synchronous, throughput, concurrent, constant-rate, Poisson, and sweep profiles plus JSON/CSV/HTML outputs (`docs/getting-started/benchmark.md:105`, line 295).
-- vLLM Playground always scrapes `<base-url>/metrics` (`vllm_playground/app.py:622`) and drops metric names not prefixed `vllm:` (`app.py:313`). It has no independent metrics-path setting in the inspected revision.
-- Its registry expects, among others, running/waiting, KV usage, prefix counters/rate, preemptions, prompt/generation throughput, speculative counts/rate, E2E, TTFT, ITL, and TPOT (`vllm_playground/static/js/modules/metrics-registry.js`).
-- The existing local qualification script covers model discovery, chat streaming/non-streaming, and optional `vllm bench serve`, but not legacy completions, GuideLLM, or Prometheus parsing (`Scripts/feature-codex-optimize-api/test-openai-compat-evals.py:1`, line 120, line 302).
-- `Scripts/test-assertions.sh` has reusable HTTP/SSE helpers (`Scripts/test-assertions.sh:110`) and streaming parity coverage around line 4349, but no metrics compatibility section.
-- The release workflow currently attempts to package absent root scripts `test-streaming.sh` and `test-metrics.sh` (`.github/workflows/release.yml:62`). The new qualification harness must not depend on those stale references.
+Append `vllm:*` compatibility families to the existing `GET /metrics` representation. Keep every existing AFM HELP/TYPE/sample family and meaning unchanged.
 
-## Metrics compatibility decision
+This is additive for Prometheus and is the only representation that works with the pinned unmodified Playground. Content negotiation is unsafe because neither Playground nor normal Prometheus scrapers request a vLLM-specific media profile. A separate endpoint cannot be the compatibility surface while Playground hardcodes `/metrics`. No content-negotiated or separate vLLM endpoint is planned.
 
-### Chosen representation: additive dual exposition on `/metrics`
+AFM and vLLM rendering consume one immutable provider-neutral snapshot. There is no second registry and no scrape-time mutation except taking the atomic live-gauge snapshot.
 
-Keep all current `afm:*` HELP/TYPE/sample families and append `vllm:*` compatibility families to the same Prometheus response.
+## Selected telemetry architecture
 
-This is backward-compatible for Prometheus consumers because adding families does not alter existing AFM series. It also satisfies the unmodified Playground, which hardcodes `/metrics` and ignores `afm:*` names.
+This plan selects **cross-runtime qualification** rather than keeping the concrete collector in AFMKitMLX.
 
-Content negotiation is unsafe here: Playground sends no vLLM-specific media profile, Prometheus commonly sends broad `Accept` values, caches/proxies would require correct `Vary`, and a scrape could silently receive the wrong namespace. A separate endpoint is safer than negotiation in isolation because its representation is explicit and cache-stable, but it does not meet the no-fork Playground requirement unless Playground first gains a metrics-path option. Therefore neither mechanism is the primary design. If reviewers require isolation later, add `/metrics/vllm` as an alias in addition to, not instead of, the dual `/metrics` response.
+- `AFMKitCore` owns only `Sendable` event/value protocols and immutable observation types. It has no counters, Prometheus names, HTTP concepts, or dependency on a provider.
+- `AFMKitServices` owns the provider-neutral process collector, locks/rolling windows, immutable snapshot, clock abstraction, and one-terminal enforcement. Proposed new files are `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `Sources/AFMKitServices/Telemetry/InferenceMetricsSnapshot.swift`.
+- AFMKitMLX and AFMKitDwarfStar receive an `any AFMInferenceTelemetryObserving` during construction. They never import AFMKitServices; the CLI/server composition root injects the collector through the AFMKitCore protocol.
+- AFMServer receives the same collector through a snapshot-source protocol. It owns only HTTP-side failure classification and deterministic Prometheus exposition.
+- `Sources/AFMKitMLX/Models/StatsAggregator.swift` becomes a deprecated forwarding facade/type alias if public source compatibility requires `StatsAggregator.shared`. New provider and server code must not use that global facade.
+- `Sources/AFMCLI/main.swift` creates exactly one collector per server process and injects it into provider/runtime and `Server`. `Package.swift` is updated only as needed for AFMKitCore protocol and AFMKitServices collector dependencies.
+- Foundation is not adapted to the provider event contract in issue 192 and is not part of the qualified matrix below.
 
-AFM is the source of truth. The vLLM renderer consumes the same immutable snapshot; it does not maintain a second metric registry. Tests must assert AFM/vLLM parity for aliased values.
+The observer methods are synchronous, nonblocking, `Sendable`, cancellation-safe, and limited to a short lock/atomic enqueue. They must never await, call provider code, or re-enter a scheduler actor. Event values include an opaque collector-issued request token so terminal deduplication does not require request IDs as Prometheus labels.
 
-## Proposed metric mapping and semantics
+### Event ownership and one-terminal rule
 
-| vLLM family | AFM source / new observation | Type and policy |
+A request becomes **accepted** only when a provider validates its runtime request, reserves/adopts its request token, and admits it to the provider's runnable/waiting queue. HTTP decode/auth/client-validation/capacity failures before that point are rejected, not accepted. Every accepted request gets exactly one provider-owned terminal event.
+
+| Event/state | Sole owner | Recording rule |
 | --- | --- | --- |
-| `vllm:num_requests_running` | existing live running reader | Gauge; exact alias of `afm:num_requests_running`. |
-| `vllm:num_requests_waiting` | existing live waiting reader | Gauge; exact alias of `afm:num_requests_waiting`. |
-| `vllm:num_preemptions_total` | new explicit preemption counter | Counter; emit zero until a scheduler actually evicts/requeues KV state. Cancellation is not preemption. |
-| `vllm:request_success_total{finished_reason}` | existing terminal-reason counter | Counter; exact value parity with AFM, including bounded `stop`, `length`, `tool_calls`, `abort`, `error`, `unknown`. Preserve the awkward upstream name rather than rewriting AFM history. |
-| `vllm:request_failures_total{status}` | new failure classification | Counter; bounded `client_error`, `capacity`, `cancelled`, `inference`, `internal`. No HTTP code or error text labels. |
-| `vllm:prompt_tokens_total` | existing processed-prefill counter | Counter; tokens actually processed after reusable prefix, matching the present AFM HELP text. |
-| `vllm:generation_tokens_total` | existing generated-token counter | Counter; exact AFM alias. |
-| `vllm:request_prompt_tokens` | existing full prompt-size histogram | Histogram; one observation per accepted request. |
-| `vllm:request_generation_tokens` | existing output-size histogram | Histogram; one observation per completed request, including zero-token failures where appropriate. |
-| `vllm:request_throughput_requests_per_s` | new rolling completion events | Gauge over a documented 10-second monotonic window. |
-| `vllm:avg_prompt_throughput_toks_per_s` | new rolling processed-token events | Gauge over the same window; use the exact legacy name consumed by Playground. |
-| `vllm:avg_generation_throughput_toks_per_s` | new rolling generated-token events | Gauge over the same window. |
-| `vllm:time_to_first_token_seconds` | existing TTFT histogram | Histogram; arrival/queue timestamp to first generated token. |
-| `vllm:request_time_per_output_token_seconds` | existing per-request TPOT | Histogram; decode duration divided by generated intervals (`tokens - 1`). |
-| `vllm:inter_token_latency_seconds` | new token timestamp observations | Histogram; one observation per adjacent output-token pair, not an alias of TPOT. |
-| `vllm:e2e_request_latency_seconds` | existing E2E histogram | Histogram; accepted/queued to terminal completion. |
-| `vllm:kv_cache_usage_perc` | new logical KV occupancy reader | Gauge in `[0,1]`; never alias Metal working-set pressure. Denominator requires reviewer decision below. |
-| `vllm:prefix_cache_queries_total` | new eligible prompt-token counter | Counter; queried tokens, matching current vLLM semantics. |
-| `vllm:prefix_cache_hits_total` | new reused prompt-token counter | Counter; cached tokens. |
-| `vllm:prefix_cache_misses_total` | derived queried minus hit tokens | Counter; compatibility extension requested by issue 192. |
-| `vllm:prefix_cache_hit_rate` | hits / queries | Gauge; zero when queries are zero. Existing AFM request-event hit/miss counters remain unchanged. |
-| `vllm:spec_decode_num_draft_tokens_total` | new provider observation | Counter; all proposed speculative tokens. |
-| `vllm:spec_decode_num_accepted_tokens_total` | new provider observation | Counter; accepted draft tokens. |
-| `vllm:spec_decode_num_rejected_tokens_total` | derived draft minus accepted | Counter. |
-| `vllm:spec_decode_num_drafts_total` | new provider observation | Counter; number of draft rounds, for Playground's existing panel. |
-| `vllm:spec_decode_draft_acceptance_rate` | accepted / draft tokens | Gauge; zero when draft count is zero. |
+| HTTP body decode, auth, endpoint/model/client-field validation failure | AFMServer | Record one bounded rejection status; no provider request token and no accepted/completed event. |
+| Capacity rejection before provider admission | AFMServer | Record `capacity`; no accepted request. Waiting after provider admission is not rejection. |
+| Provider admission | Runtime/provider | Allocate telemetry token and emit `accepted` exactly once after successful queue admission. |
+| Waiting/running gauges | Runtime scheduler | Publish an atomic snapshot; accepted queued work is waiting, scheduled work is running. |
+| Full prompt token count | Runtime/provider tokenizer | Record exact model-input token IDs once per accepted request, including reusable cached prefix. |
+| Computed prompt token count | Runtime/provider prefill | Record only prompt token positions actually computed after prefix reuse. |
+| Output tokens and monotonic timestamps | Runtime/provider generation loop | Record actual generated token events; server text chunk boundaries are irrelevant. |
+| Prefix queried/hit token counts | Runtime/provider cache owner | Record eligible queried tokens and reused tokens once, at cache resolution. |
+| Logical KV positions | Runtime scheduler | Publish atomic active-position sum; waiting and retained radix entries contribute zero. |
+| Speculative draft round/draft/accepted token counts | Runtime speculative implementation | Record one observation per draft round; collector derives rejected totals and rate. |
+| Successful/failed runtime terminal | Runtime/provider | Atomically claim the request token's terminal state once, with bounded finish/failure reason and exact usage. |
+| Client disconnect/cancel after acceptance | AFMServer requests; provider owns result | Server signals cancellation. Provider removes runtime/KV state and emits the sole `cancelled` terminal. Server must not emit a second terminal metric. |
+| Wire HTTP status, JSON errors, SSE framing | AFMServer | Map provider result/error to wire state only; never increment accepted-runtime terminal counters. |
 
-Update vLLM histogram buckets to the pinned upstream values by appending new upper bounds only. Existing AFM bucket boundaries and all existing AFM names remain present, so historical dashboard queries continue to work.
+The collector rejects duplicate terminal events for the same telemetry token and tests assert balanced accepted/terminal counts for every exit path.
+
+## Metric contract and cardinality
+
+### Full versus computed prompt tokens
+
+The snapshot stores two distinct monotonic values:
+
+- `fullPromptTokensTotal`: exact tokenizer input length before prefix reuse, including cached tokens. This renders as pinned vLLM `vllm:prompt_tokens_total` and feeds the full request-size histogram.
+- `computedPromptTokensTotal`: prompt positions actually prefetched/computed after cache reuse. This continues to render as the existing `afm:prompt_tokens_total` without changing AFM semantics and feeds the 10-second prompt-throughput gauge.
+
+For a cache-hit request with full prompt `F`, reused prefix `H`, and computed suffix `C = F - H`, tests must prove: vLLM prompt total increases by `F`; AFM computed prompt total and prompt-throughput window increase by `C`; prefix queries increase by `F`; prefix hits increase by `H`; misses increase by `C`.
+
+### Canonical and AFM-extension families
+
+| Rendered metric | Source | Contract classification |
+| --- | --- | --- |
+| `vllm:num_requests_running` | provider live gauge | Pinned vLLM/Playground family. |
+| `vllm:num_requests_waiting` | provider live gauge | Pinned vLLM/Playground family. |
+| `vllm:num_preemptions_total` | explicit provider preemption events | Pinned family; cancellation never increments it. |
+| `vllm:request_success_total{finished_reason}` | sole provider terminal | Pinned family with bounded `stop`, `length`, `tool_calls`, `abort`, `error`. |
+| `vllm:prompt_tokens_total` | `fullPromptTokensTotal` | Pinned family; includes cached tokens. It is not an AFM prompt-total alias. |
+| `vllm:generation_tokens_total` | exact generated tokens | Pinned family; value agrees with existing AFM generation total. |
+| `vllm:request_prompt_tokens` | full prompt size | Pinned histogram. |
+| `vllm:request_generation_tokens` | exact output size | Pinned histogram. |
+| `vllm:avg_prompt_throughput_toks_per_s` | rolling computed prompt tokens | Exact legacy Playground key; documented 10-second monotonic window. |
+| `vllm:avg_generation_throughput_toks_per_s` | rolling generated tokens | Exact legacy Playground key; same window. |
+| `vllm:time_to_first_token_seconds` | accepted/queued to first token | Pinned histogram. |
+| `vllm:request_time_per_output_token_seconds` | decode duration / output intervals | Pinned TPOT histogram. |
+| `vllm:inter_token_latency_seconds` | adjacent output-token timestamps | Pinned ITL histogram, not a TPOT alias. |
+| `vllm:e2e_request_latency_seconds` | accepted to terminal | Pinned histogram. |
+| `vllm:kv_cache_usage_perc` | active logical positions / logical capacity | Pinned family with AFM approximation documented below. |
+| `vllm:prefix_cache_queries_total` | eligible full prompt tokens queried | Pinned/Playground family. |
+| `vllm:prefix_cache_hits_total` | reused prefix tokens | Pinned/Playground family. |
+| `vllm:prefix_cache_hit_rate` | hits / queries | Exact Playground registry key; zero at zero queries. |
+| `vllm:spec_decode_num_draft_tokens_total` | speculative draft tokens | Exact Playground counter sample. |
+| `vllm:spec_decode_num_accepted_tokens_total` | accepted draft tokens | Exact Playground counter sample. |
+| `vllm:spec_decode_num_drafts_total` | draft rounds | Exact Playground counter sample. |
+| `vllm:spec_decode_acceptance_rate` | accepted / draft tokens | **Exact pinned Playground key**; zero when draft tokens are zero. |
+| `afm:request_failures_total{status}` | server rejection plus provider failure classification | AFM issue-192 addition, not represented as upstream vLLM. Bounded statuses only. |
+| `afm:prefix_cache_missed_tokens_total` | queries minus hits | AFM issue-192 addition, not upstream vLLM. Existing request-event radix counters remain unchanged. |
+| `afm:spec_decode_num_rejected_tokens_total` | draft minus accepted | AFM issue-192 addition, not upstream vLLM. |
+| `afm:request_throughput_requests_per_s` | rolling terminal events | AFM issue-192 addition, not upstream vLLM. |
+
+Create pinned fixtures such as `Tests/MacLocalAPITests/Fixtures/vllm-9633933-metrics.prom` and `Tests/MacLocalAPITests/Fixtures/vllm-playground-7627622-registry.json`. Renderer tests lock canonical sample names, HELP/TYPE names, label sets, and bucket boundaries to those fixtures. Prometheus counters retain `_total` on rendered samples. AFM additions are tested separately and never described as upstream families.
+
+Append only the upper histogram bounds added by pinned upstream. Do not remove old AFM buckets or change their cumulative values.
 
 ### Cardinality policy
 
-- Every vLLM family uses only `model_name` and fixed `engine="0"`, matching current upstream's bounded labels. `model_name` is process configuration, not request input.
-- Only the two enumerated labels above are added: `finished_reason` and `status`. Unknown runtime values are normalized to `unknown`; arbitrary strings are never emitted.
-- Do not label by request ID, API key, user, prompt, endpoint, sampling parameters, HTTP path/code, cache key, tool name, or exception type/message.
-- Runtime/provider identity, if needed, is one bounded info gauge such as `afm:runtime_info{model_name,runtime="mlx|foundation|dwarfstar"} 1`; do not add it to every time series.
-- Emit stable zero samples for expected bounded series so HELP/TYPE and Playground panels do not appear/disappear with traffic.
+- Canonical vLLM families use only process-derived `model_name` and fixed `engine="0"`, matching pinned upstream.
+- `finished_reason` and AFM `status` use closed enums. Unknown values collapse to `unknown`; arbitrary strings are never labels.
+- Do not label by request ID/token, API key, user, prompt, endpoint, sampling values, HTTP code/path, cache key, tool name, or error type/message.
+- Runtime identity, if exposed, is one bounded AFM info gauge, not a label copied onto every series.
+- Expected bounded series render stable zero samples so schema does not change with traffic.
 
-## Implementation sequence and likely files
+### Logical KV utilization
 
-1. **Add provider-neutral telemetry observations without moving `StatsAggregator`.**
-   - Add a small callback/protocol and value types under `Sources/AFMKitCore/Telemetry/InferenceTelemetry.swift` for request lifecycle, token timestamps, prefix token counts, KV occupancy, and speculative rounds.
-   - Make `StatsAggregator` the AFMKitMLX implementation/consumer in `Sources/AFMKitMLX/Models/StatsAggregator.swift`.
-   - Inject the observer through model/runtime construction rather than importing AFMKitMLX from DwarfStar. Likely wiring files are `Sources/AFMCLI/main.swift`, `Sources/AFMKitMLX/AFMMLXRuntime.swift`, and `Sources/AFMKitMLX/AFMMLXProvider.swift`.
+`vllm:kv_cache_usage_perc` is the atomic scheduler snapshot:
 
-2. **Close MLX/DwarfStar telemetry gaps.**
-   - Instrument `Sources/AFMKitMLX/Models/BatchScheduler.swift` and `Sources/AFMKitMLX/Models/MLXModelService.swift` once per lifecycle event, including speculative fast paths and streaming failures.
-   - Emit DSpARK rounds/draft/accepted totals from `Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift` through the neutral observer.
-   - Expose MTP/EAGLE3 totals from AFM-owned patch sources `Scripts/patches/Qwen3_5MoE.swift`, `Scripts/patches/DeepseekV4.swift`, and `Scripts/patches/Gemma4Eagle3.swift`, then update the existing patch application/checksum machinery. Do not edit vendored dependency sources directly.
-   - Add a real KV logical-occupancy reader beside the current prefix-cache and Metal readers in `Sources/AFMKitMLX/Models/MLXModelService.swift` and the batched scheduler.
+```text
+sum(active request logical KV positions) / (contextWindow * maxConcurrent)
+```
 
-3. **Render additive compatibility metrics.**
-   - Refactor `Sources/AFMServer/Controllers/MetricsController.swift` into AFM-native and vLLM compatibility render sections over one snapshot.
-   - Preserve the current content type, CORS behavior, AFM HELP/TYPE strings, and AFM samples. Add deterministic HELP/TYPE ordering for all vLLM families.
-   - Update `Scripts/grafana/README.md` and `Scripts/grafana/UPSTREAM.md` with the pinned upstream revision and the fact that direct vLLM scraping no longer needs a prefix rewrite.
+- An active logical KV position is a prompt or generated sequence position currently addressable in a running request's model KV state. Reused prefix positions count while attached to an active request because they are logically addressable by that request.
+- Waiting requests have no KV allocation and contribute zero.
+- Completed/cancelled requests are removed atomically before the next snapshot.
+- Retained radix/prefix snapshots not attached to active requests are excluded and remain visible only through existing AFM radix metrics.
+- The value is clamped to `[0,1]`; zero capacity/configuration yields zero and a diagnostic rather than division by zero.
+- HELP/docs call this logical slot occupancy, an AFM approximation of vLLM KV usage, and explicitly distinguish it from Metal working-set pressure.
 
-4. **Implement legacy completions as a protocol adapter.**
-   - Add `CompletionRequest`, completion response/chunk DTOs, and explicit coding keys under `Sources/AFMOpenAICompat/` (likely new `CompletionRequest.swift` and `CompletionResponse.swift`). Support `prompt` string and string-array forms required by GuideLLM, `max_tokens`, `stream`, `stream_options.include_usage`, stop, temperature, and model. Reject unsupported batched prompt shapes clearly rather than returning a malformed partial result.
-   - Add `Sources/AFMServer/Controllers/CompletionsController.swift`. Route both Foundation and model-backed servers through the existing serving abstraction, but map wire output to `text_completion` objects and `choices[].text` rather than exposing chat objects.
-   - Register POST/OPTIONS `/v1/completions` alongside both current chat controllers and document it in `Sources/AFMServer/Controllers/OpenAPIController.swift` and the startup route list in `Sources/AFMServer/Server.swift`.
-   - Keep the existing chat `max_tokens`/`max_completion_tokens` precedence and default streaming-usage behavior unless a dedicated compatibility test proves GuideLLM requires a change.
+Tests cover idle zero, admission before allocation, prefill/decode growth, concurrent active sums, completion, cancellation, retained-prefix exclusion, and the invariant `0 <= usage <= 1`.
 
-5. **Make terminal and usage semantics machine-detectable.**
-   - For successful streaming: role/content chunks, exactly one finish-reason chunk, optional final usage-only chunk when requested, then exactly one `[DONE]`.
-   - For non-streaming: return actual prompt/completion/total counts from runtime telemetry and the terminal reason in the normal JSON response.
-   - Before response headers, use the existing OpenAI error envelope and non-2xx status. After SSE starts, emit an OpenAI-shaped SSE error event and close without a success finish or `[DONE]`; verify GuideLLM treats it as a failed request. Do not convert failures to assistant text.
-   - MLX fallback estimates must be visible as a documented limitation or eliminated for qualified paths. Foundation must not be advertised as exact until native `FoundationSessionUsageTelemetry` is wired into `ChatCompletionsController`.
+## Provider-neutral raw-prompt generation contract
 
-6. **Stabilize model discovery.**
-   - Extract `/v1/models` construction from `Sources/AFMServer/Server.swift` into a testable helper.
-   - Use a stable created epoch from model metadata/process load time, sort discovered backends and embeddings by stable keys, and always keep the loaded generative model first. Keep IDs unchanged.
+Add wire-independent types in `Sources/AFMKitCore/Providers/AFMRawTextGeneration.swift`:
 
-7. **Add repeatable qualification and documentation.**
-   - Add `Scripts/test-vllm-guidellm-compat.py` for model discovery, both endpoints, stream/non-stream usage and finish checks, Prometheus parsing, AFM/vLLM equality, Playground-required family checks, and GuideLLM artifact validation.
-   - Add focused shell integration to `Scripts/test-assertions.sh`; keep heavyweight live GuideLLM/model tests opt-in via explicit environment variables.
-   - Add `docs/guidellm.md` with pinned-version install, server startup, synchronous/throughput/concurrent/constant/Poisson/sweep commands, output paths, parser/linter commands, supported request fields, and runtime-specific limitations.
-   - Repair or remove the stale release-package references to absent `test-streaming.sh`/`test-metrics.sh` when adding the new script; do not expand this issue into a broader release refactor.
+- `AFMRawTextGenerationRequest`: one `prompt: String`, selected model, maximum output tokens, stop strings, supported sampling values, and seed. It contains no messages, roles, instructions, or HTTP/SSE fields.
+- `AFMRawTextGenerationEvent`: text/token delta with provider monotonic timestamp, followed by exactly one terminal result containing bounded finish reason and exact `promptTokens`, `completionTokens`, and `totalTokens`; or one typed provider failure.
+- `AFMRawTextGenerating`: capability plus a generation method returning the provider event stream. The same stream is collected for non-streaming responses, preventing separate usage/finish implementations.
+
+Provider requirements:
+
+1. Tokenize the raw prompt and construct the runtime equivalent of `UserInput(prompt:)` directly.
+2. Do not insert system/default instructions, synthesize a user/assistant turn, invoke a chat template, or use `buildUserInput`'s message path.
+3. Count the exact model input token IDs as full prompt usage even when a prefix is cached; report computed prompt tokens separately to telemetry.
+4. Count actual generated token IDs, preserve stop/length semantics, and emit one provider terminal event.
+5. Advertise the capability only when these semantics and exact usage are implemented.
+
+AFMOpenAICompat owns `CompletionRequest`, response, chunk, usage, and error wire DTOs. AFMServer owns DTO validation and mapping provider events to OpenAI JSON/SSE. `/v1/completions` POST/OPTIONS is registered only when the selected runtime supplies `AFMRawTextGenerating`; unsupported runtimes do not silently route through chat.
+
+### Prompt-array behavior
+
+The request DTO decodes `prompt` as either string or array so it can return a stable protocol error. Issue 192 supports only one prompt string, matching pinned GuideLLM. Any array, including a one-element array, is rejected before provider admission with:
+
+- HTTP `400`.
+- `type: "invalid_request_error"`.
+- `code: "unsupported_prompt_array"`.
+- `param: "prompt"` when the existing error DTO supports it; otherwise include `prompt` in the stable message and add `param` as part of the DTO work.
+
+No partial choices, usage, accepted telemetry, or SSE headers are emitted for an array.
+
+## Exact runtime qualification matrix
+
+| Runtime/path | vLLM metrics | Chat GuideLLM | Raw `/v1/completions` | Usage claim | Issue-192 result |
+| --- | --- | --- | --- | --- | --- |
+| MLX batch and serial | Required | Required, stream and non-stream | Required through `AFMRawTextGenerating` | Exact provider token IDs only; estimation disqualifies a run | Fully qualified baseline. |
+| MLX MTP/EAGLE3 | Required including spec metrics | Required | Required through same raw contract | Exact provider token IDs | Qualified after the same matrix passes with each mode. |
+| DwarfStar and DSpARK | Required through neutral observer, including DSpARK spec metrics | Required | Required through `AFMRawTextGenerating` | Exact provider token IDs | Cross-runtime qualification is required; do not register raw route or claim success until contract passes. |
+| Foundation Models | Not qualified for vLLM provider metrics | Existing chat remains supported but not GuideLLM-qualified | Not registered | Current estimates are prohibited for qualification | Explicitly out of the issue-192 compatibility claim until native raw generation and usage exist. |
+| Proxy/discovered remote backends | Existing proxy behavior only | Not qualified by this issue | Not registered unless a future provider implements the contract | No local accuracy claim | Out of scope. |
+
+`/v1/models` remains available for every server, but GuideLLM documentation lists only a runtime/model row that passed this matrix. The loaded generative model remains first, IDs remain unchanged, its creation epoch is stable, and remaining entries are sorted.
+
+## Wire success and error state machines
+
+Chat and legacy completion streams are separate machines; shared framing helpers must not erase their distinct choice payloads.
+
+### Chat SSE (`chat.completion.chunk`)
+
+1. `validated`: request is decoded/validated before response headers and provider admission succeeds.
+2. `opened`: emit the assistant role delta at most once if retained by current compatibility behavior.
+3. `streaming`: emit zero or more `choices[0].delta.content`/reasoning/tool deltas with `finish_reason: null`.
+4. `finished`: emit exactly one choice with empty delta and non-null `finish_reason`.
+5. `usage` (only when requested): emit exactly one final event with `choices: []` and exact usage.
+6. `done`: emit exactly one `data: [DONE]`, then close.
+
+### Legacy SSE (`text_completion`)
+
+1. `validated`: decode/validate the single raw prompt before headers; provider admission succeeds.
+2. `streaming`: emit zero or more choices containing `text` and `index: 0`; never emit a role or `delta` object.
+3. `finished`: emit exactly one choice with `text: ""`, `index: 0`, and non-null `finish_reason`.
+4. `usage` (only when requested): emit exactly one event with `choices: []` and exact usage.
+5. `done`: emit exactly one `data: [DONE]`, then close.
+
+For both machines, a pre-header failure is a non-2xx OpenAI JSON error. A failure after headers is exactly one `data: {"error": ...}` event followed by connection close, with no success finish, usage event, assistant/text substitution, or `[DONE]`. The pinned GuideLLM parser itself is run against success and post-header-error fixtures and a live forced failure; qualification requires that it classify the latter as an error. If it does not, implementation remains unqualified rather than changing the declared state machine silently.
+
+Non-streaming chat and raw completions use their respective normal object shapes and the provider's exact terminal usage/reason. There is no estimate fallback on a qualified path.
+
+## Implementation sequence and exact likely files
+
+1. Add event/value protocols and raw-prompt contracts in new `Sources/AFMKitCore/Telemetry/InferenceTelemetry.swift` and `Sources/AFMKitCore/Providers/AFMRawTextGeneration.swift`.
+2. Add the collector/snapshot/clock in new `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `InferenceMetricsSnapshot.swift`; update `Package.swift` target dependencies.
+3. Convert `Sources/AFMKitMLX/Models/StatsAggregator.swift` to a compatibility facade and instrument `BatchScheduler.swift`, `MLXModelService.swift`, `AFMMLXRuntime.swift`, and `AFMMLXProvider.swift` through injected protocols.
+4. Instrument `Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift` and its model/runtime construction. Expose MTP/EAGLE3/DSpARK observations from AFM-owned sources. Patch only `Scripts/patches/Qwen3_5MoE.swift`, `DeepseekV4.swift`, or `Gemma4Eagle3.swift` if direct implementation proves the callback unavailable; never edit vendor sources directly.
+5. Construct/inject one collector in `Sources/AFMCLI/main.swift` and inject its snapshot source into `Server`.
+6. Refactor `Sources/AFMServer/Controllers/MetricsController.swift` into unchanged AFM-native rendering plus pinned vLLM rendering over one snapshot. Update `Scripts/grafana/README.md` and `Scripts/grafana/UPSTREAM.md`.
+7. Add raw completion DTOs under `Sources/AFMOpenAICompat/CompletionRequest.swift` and `CompletionResponse.swift`; add `Sources/AFMServer/Controllers/CompletionsController.swift`; register capability-gated routes and update `OpenAPIController.swift` and `Server.swift` route output.
+8. Correct chat and raw SSE framing/error behavior in `MLXChatCompletionsController.swift`, `ChatCompletionsController.swift` only where existing unqualified behavior must not be shared, and common response helpers/DTOs.
+9. Extract deterministic model-list construction from `Sources/AFMServer/Server.swift` into a testable helper.
+10. Add `Scripts/test-vllm-guidellm-compat.py`, focused deterministic coverage in `Scripts/test-assertions.sh`, and `docs/guidellm.md`. Heavy model/GuideLLM runs remain opt-in.
+
+Release packaging/workflow cleanup is explicitly out of scope. Do not modify `.github/workflows/release.yml` or repair/remove its stale script references under issue 192.
 
 ## Automated test matrix
 
-| Layer | Test | Expected assertion |
+| Layer | Test | Required assertion |
 | --- | --- | --- |
-| Aggregator unit | Counter/histogram lifecycle | Accepted/completed/error/cancel paths increment once; reset preserves readers/metadata; no double counting. |
-| Aggregator unit | Rolling throughput | Deterministic injected clock validates empty, partial-window, expiry, and concurrent completion behavior. |
-| Aggregator unit | Prefix semantics | Request-event AFM counters stay unchanged; vLLM query/hit/miss token counters and rate are exact. |
-| Aggregator unit | Speculative semantics | accepted <= draft; rejected is derived; zero denominator gives zero rate; all provider modes map identically. |
-| Aggregator unit | TTFT/TPOT/ITL | Known timestamps produce distinct expected distributions; zero/one-token outputs do not fabricate intervals. |
-| Renderer unit | AFM preservation | Golden list of every pre-issue AFM HELP/TYPE/family remains present and values are unchanged. |
-| Renderer unit | vLLM schema | Stable HELP then TYPE then samples; counters/histograms follow Prometheus suffix rules; escaping and finite values are valid. |
-| Renderer unit | Alias parity | Running/waiting, tokens, finish reasons, E2E and TTFT match AFM source values exactly. |
-| Parser test | Prometheus validation | Pipe rendered output through `promtool check metrics` and Python `prometheus_client.parser`; reject duplicate/conflicting TYPE metadata. |
-| Route test | `/metrics` | 200, existing content type/CORS, both namespaces, deterministic family order. |
-| DTO unit | GuideLLM payload decoding | Chat and legacy payloads accept the pinned client's extra fields; both max-token field variants work as specified. |
-| Protocol unit | Non-stream responses | Chat and text-completion object shapes, finish reasons, IDs/model, and exact usage are correct. |
-| Protocol unit | SSE ordering | Both endpoints produce content, one finish chunk, requested usage-only chunk, and one `[DONE]` in that order. |
-| Protocol unit | Usage disabled | `include_usage=false` suppresses only the usage chunk, preserving finish and `[DONE]`. |
-| Protocol unit | Error semantics | Pre-header errors are non-2xx OpenAI JSON; post-header errors are detectable SSE errors and never assistant text/success finish. |
-| Route unit | `/v1/models` | Two consecutive responses are byte-stable; loaded generative model is first; discovered/embedding tail is sorted. |
-| Scheduler/service | Lifecycle paths | Batch, serial, MTP, EAGLE3, DSpARK, cancellation, and thrown errors each balance started/completed and observations. |
+| Collector | Lifecycle/terminal dedupe | Accepted/terminal balances; duplicate terminal ignored/reported; cancellation race is exactly once. |
+| Collector | Nonblocking observer | Concurrent event calls do not await or re-enter a scheduler; deterministic stress test has no lost counts. |
+| Collector | Full/computed/cache split | On cache hit `F/H/C`, vLLM full `+F`, AFM computed and throughput `+C`, query `+F`, hit `+H`, miss `+C`. |
+| Collector | Rolling throughput | Injected monotonic clock covers empty, partial 10-second window, expiry, and concurrency. |
+| Collector | Speculation | Draft/accepted/derived rejected arithmetic and exact `vllm:spec_decode_acceptance_rate`; zero denominator is zero. |
+| Collector | TTFT/TPOT/ITL | Known token timestamps produce distinct values; zero/one-token outputs fabricate no intervals. |
+| Collector | KV logical occupancy | Admission/decode/completion/cancel bounds and retained-prefix exclusion. |
+| Renderer | AFM preservation golden | Every pre-issue AFM HELP/TYPE/sample family and meaning remains unchanged. |
+| Renderer | Pinned vLLM fixture | Exact canonical names, `_total` samples, HELP/TYPE, labels, and buckets match pinned fixtures. |
+| Renderer | Playground registry | Every pinned registry key exists, especially `vllm:spec_decode_acceptance_rate`; AFM additions are not classified as upstream. |
+| Renderer | Prometheus parser/linter | `promtool check metrics` and `prometheus_client.parser` accept output; no duplicate/conflicting metadata. |
+| Renderer | Shared-source parity | Only true aliases (running/waiting/generated/latency/finish) agree; full and computed prompt totals intentionally differ on hits. |
+| Route | `/metrics` | 200, existing content type/CORS, both namespaces, deterministic order, no scrape-time counter mutation. |
+| Raw provider | Template bypass | Exact raw prompt reaches `UserInput(prompt:)`; no system instruction, messages, chat template, or role tokens. |
+| DTO/controller | Prompt array | Every array shape returns stable pre-header 400 and no provider admission. |
+| Protocol | Non-stream success | Chat and text-completion shapes, finish reasons, IDs/model, exact usage. |
+| Protocol | Chat SSE | Delta payloads, one finish, optional usage-only, one `[DONE]` in exact order. |
+| Protocol | Legacy SSE | Text payloads/no role/no delta, one finish, optional usage-only, one `[DONE]`. |
+| Protocol | SSE post-header error | One OpenAI error event, no finish/usage/text substitution/`[DONE]`; pinned GuideLLM counts failure. |
+| Protocol | Usage disabled | Suppresses only usage event and preserves successful finish/`[DONE]`. |
+| Discovery | Determinism | Consecutive responses byte-stable; loaded generative model first; tail sorted. |
+| Runtime matrix | Capability/route gating | MLX and DwarfStar expose raw route only with exact contract; Foundation/proxy do not. |
+| Runtime matrix | Lifecycle paths | MLX batch/serial/MTP/EAGLE3 and DwarfStar/DSpARK each balance events and exact usage. |
 
-Likely test files:
+Likely tests:
 
-- New `Tests/MacLocalAPITests/StatsAggregatorCompatibilityTests.swift`.
-- New `Tests/MacLocalAPITests/MetricsControllerTests.swift`.
+- New `Tests/MacLocalAPITests/InferenceTelemetryCollectorTests.swift`.
+- New `Tests/MacLocalAPITests/MetricsControllerTests.swift` and pinned fixture directory.
+- New `Tests/MacLocalAPITests/RawTextGenerationContractTests.swift`.
 - New `Tests/MacLocalAPITests/LegacyCompletionsControllerTests.swift`.
 - New `Tests/MacLocalAPITests/ModelDiscoveryDeterminismTests.swift`.
-- Extend `Tests/MacLocalAPITests/StreamingUsageChunkTests.swift`.
-- Extend `Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift`.
-- Extend `Tests/MacLocalAPITests/FoundationSessionUsageTelemetryTests.swift` if Foundation is included in the qualified set.
+- Extend `StreamingUsageChunkTests.swift` and `MLXChatCompletionsControllerStreamingTests.swift`.
+- Add DwarfStar provider conformance tests; retain Foundation telemetry tests only to prove it remains unqualified/route-gated.
 
-All SwiftPM builds/tests must run through `Scripts/swiftpm-reliable.sh` per repository instructions.
+All SwiftPM builds/tests run through `Scripts/swiftpm-reliable.sh` per repository instructions.
 
 ## Live qualification matrix
 
-Run with a small deterministic MLX model first, then repeat applicable rows with prefix caching, each speculative backend, concurrency > 1, and Foundation if approved.
+Run every applicable row separately for MLX batch, MLX serial, MTP, EAGLE3, DwarfStar, and DSpARK. A runtime is listed as qualified only when all required rows pass without estimated usage.
 
-| Live scenario | Traffic/profile | Pass criteria/artifact |
+| Scenario | Traffic/profile | Pass criteria/artifacts |
 | --- | --- | --- |
-| Metrics idle | Scrape before requests | Prometheus parser/linter pass; all stable families exist; no NaN/Inf; AFM metrics retained. |
-| Metrics single request | One fixed prompt/output | AFM/vLLM aliases agree; request/token/latency counts become nonzero; running/waiting return to zero. |
-| Metrics concurrency | More streams than `--concurrent` | Running reaches capacity, waiting becomes nonzero, completed balances accepted, throughput nonzero. |
-| Prefix cache | Same long prefix twice | AFM event counters preserve behavior; vLLM queried/hit token counts and rate agree with service logs/known lengths. |
-| Speculative | MTP, EAGLE3, DSpARK separately | draft/accepted/rejected arithmetic holds; acceptance rate in `[0,1]`; non-spec mode remains zero. |
-| Cancellation/failure | Cancel queued and active requests; force inference failure | abort/error/status counters increment once; GuideLLM reports errors rather than successful text. |
-| Playground | Point pinned unmodified Playground at server base URL | Dashboard discovers `/metrics` and populates running/waiting, throughput, latency, cache, and applicable speculative panels without source changes. |
-| GuideLLM synchronous | Both endpoints, stream false/true | Zero protocol errors; exact usage; correct finish and termination. |
-| GuideLLM throughput | Throughput profile | Zero request errors and nonzero request/token rate metrics. |
-| GuideLLM concurrent | At least 2 concurrent streams | JSON, CSV, and HTML artifacts are produced and contain nonzero TTFT, ITL/TPOT, E2E, request rate, input/output token counts. |
-| GuideLLM constant | Constant-rate below and above capacity | Below-capacity errors zero; overload is bounded and reported as failures, not hangs. |
-| GuideLLM Poisson | Seeded arrival profile | Completes without parser errors; artifacts contain nonzero latency/throughput. |
-| GuideLLM sweep | Small concurrency/rate sweep | Every point completes, outputs are ordered/stable, no model rediscovery drift. |
-| Repeatability | Repeat `/v1/models` and fixed benchmark | Model response is byte-stable; metric families/labels stay constant across scrapes. |
+| Idle metrics | Scrape before traffic | Pinned parser/linter passes; canonical keys and AFM metrics present; finite zeros. |
+| Full/computed prefix | Repeat a known-token long prefix | Full/computed/query/hit/miss deltas match tokenizer/cache evidence exactly. |
+| Logical KV | Queue, admit, decode, cancel, complete | Gauge follows active positions/capacity, excludes waiting/retained radix, remains `[0,1]`. |
+| Concurrent metrics | More streams than capacity | Running reaches capacity, waiting becomes nonzero, lifecycle balances, throughput nonzero. |
+| Speculation | Each supported speculative mode | Exact draft/accepted arithmetic and canonical acceptance-rate key; non-spec remains zero. |
+| Cancellation/failure | Queued/active cancel and forced provider error | Sole terminal owner, bounded failure count, no preemption increment for cancel. |
+| Unmodified Playground | Point pinned checkout at server base URL | Hardcoded `/metrics` populates required panels without patch/config fork. |
+| GuideLLM synchronous | Chat/raw, stream false/true | Zero protocol errors, exact usage and finish semantics. |
+| GuideLLM throughput | Chat/raw throughput profile | Zero errors and nonzero request/token throughput. |
+| GuideLLM concurrent | At least two streams | JSON/CSV/HTML include nonzero TTFT, ITL/TPOT, E2E, rates, input/output counts. |
+| GuideLLM constant | Below/above capacity | Below-capacity zero errors; overload bounded and represented as failure, never hang/success text. |
+| GuideLLM Poisson | Seeded arrival profile | No parser errors; nonzero latency/throughput artifacts. |
+| GuideLLM sweep | Small rate/concurrency sweep | Every point completes and model discovery does not drift. |
+| SSE forced error | Both endpoint parsers | Pinned GuideLLM counts post-header error as failure; no successful terminal. |
+| Runtime gating | Foundation and proxy start | No raw route/GuideLLM accuracy claim; existing chat behavior remains available. |
 
-The qualification script should capture server version/config, model ID, runtime, upstream GuideLLM version/commit, commands, raw `/metrics`, GuideLLM JSON/CSV/HTML, and a concise pass/fail manifest. Generated benchmark artifacts remain ignored and are not committed.
+The harness captures server config/version, runtime/model, upstream commits, exact commands, raw `/metrics`, GuideLLM JSON/CSV/HTML, and a pass/fail manifest. Generated artifacts are ignored and not committed.
 
 ## Compatibility risks and mitigations
 
-- **Metric-name compatibility:** Playground is tied to legacy/current vLLM names. Emit the exact names it consumes plus current upstream names where they differ; lock the list in tests.
-- **Semantic false equivalence:** Metal pressure is not KV usage, request cache hits are not token hits, and per-request TPOT is not ITL. Keep separate observations and HELP text.
-- **Double counting:** Controller, service, and scheduler all see overlapping lifecycle stages. Define one owner per event and test every exit path.
-- **Streaming false success:** Current text-wrapped errors are accepted by benchmark clients. Change only with explicit SSE error tests and document the post-header behavior.
-- **Foundation accuracy:** Estimated token counts do not meet the issue's “accurate usage” requirement. Qualify MLX first or wire native telemetry before including Foundation.
-- **Prompt semantics:** Implementing `/v1/completions` by blindly wrapping prompts in chat messages may add template tokens and alter raw-completion behavior. The adapter must either use a raw prompt-capable serving path or document/test the template boundary.
-- **Bucket evolution:** Append upstream buckets; never delete old AFM buckets or change their counts.
-- **Cardinality:** Model/runtime values must be configuration-derived and bounded; sanitize reason/status to enums rather than arbitrary strings.
-- **External CLI drift:** Pin GuideLLM for qualification and record its version; keep its invocation isolated in one script.
-- **Release harness drift:** The current workflow references missing scripts. Verify packaging separately and avoid claiming release coverage until the new harness is actually present and run.
+- Full and computed prompt tokens are deliberately separate; golden cache-hit tests prevent accidental re-aliasing.
+- Canonical pinned names are fixture-controlled. AFM additions use `afm:*` and are documented as non-upstream.
+- Provider events and server rejection events have disjoint ownership; collector tokens enforce one terminal.
+- Raw completions bypass chat templates by contract and test, not by controller convention.
+- Chat and text SSE have separate payload/state tests; failures cannot become normal text.
+- Logical KV occupancy is an approximation with explicit numerator/denominator and excludes retained cache state.
+- Foundation remains unqualified until it has native raw generation and exact usage; estimates are never emitted on a qualified path.
+- External GuideLLM/Playground revisions are pinned and recorded to contain CLI/parser drift.
+- Existing AFM metric names, meanings, buckets, and Grafana behavior are preserved; upstream bucket updates are additive.
 
-## Unresolved architectural questions for reviewer approval
+## Architecture review verdict and resolution trace
 
-1. **KV denominator:** Should `vllm:kv_cache_usage_perc` mean logical resident tokens divided by `contextWindow * maxConcurrent`, allocated KV bytes divided by an explicit budget, or another runtime-native capacity? The existing Metal gauge cannot be reused. Recommendation: logical token-slot occupancy because it is portable and deterministic, with runtime-specific readers.
-2. **Foundation qualification:** Is GuideLLM interoperability required for Foundation in this issue, or may the acceptance claim be MLX/DwarfStar only until native Foundation usage replaces estimates? Recommendation: do not claim Foundation accuracy with heuristic counts.
-3. **Legacy completion semantics:** Must `/v1/completions` be true raw-prompt generation, or is a documented prompt-to-chat adapter acceptable for GuideLLM? Recommendation: use a raw prompt path; template wrapping changes both output and usage.
-4. **Streaming error wire format:** GuideLLM's exact behavior for an SSE `error` object after HTTP 200 must be confirmed live. If it does not classify that as failure, the safe alternative is to terminate the stream without `[DONE]` and count a client-visible transport failure.
-5. **Telemetry bridge breadth:** Approve the small `AFMKitCore` observer contract so DwarfStar can report to the existing MLX-owned aggregator without a target cycle. The alternative is to limit speculative metrics to MLX, which would leave DSpARK incomplete.
-6. **Compatibility endpoint fallback:** Approve additive AFM+vLLM output on `/metrics`. A separate `/metrics/vllm` may be added for humans/tools, but cannot be the only compatibility surface while Playground hardcodes `/metrics`.
-7. **Throughput window:** Approve a fixed, documented 10-second rolling window with an injected monotonic clock. If strict upstream parity is required instead, define the exact vLLM logging interval semantics before implementation.
+Durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191-192/ARCHITECTURE_REVIEW.md`, dated 2026-08-17. Verdict for issue 192: **REQUEST CHANGES**. Implementation remains blocked until this revision is re-gated.
 
-Implementation remains blocked on reviewer approval of this plan and the questions above.
+| Reviewer requirement | Resolution in this revision |
+| --- | --- |
+| 1. Correct full vs computed prompt tokens | Added distinct full and computed counters, corrected `vllm:prompt_tokens_total`, and specified exact `F/H/C` cache-hit assertions. |
+| 2. Exact speculative key and pinned contract | Replaced the wrong key with `vllm:spec_decode_acceptance_rate`; added pinned name/HELP/TYPE/label/bucket fixtures and classified misses/rejected/failure metrics as AFM additions. |
+| 3. Resolve cross-runtime collector ownership | Selected AFMKitCore protocols plus AFMKitServices collector/snapshot, injected into providers and AFMServer; MLX singleton retained only as compatibility facade. |
+| 4. Add event ownership table | Defined acceptance, sole owners for every event, nonblocking observer constraints, cancellation behavior, and one-terminal enforcement. |
+| 5. Define true raw-prompt contract | Added provider-neutral `AFMRawTextGenerating` using direct raw `UserInput(prompt:)`, exact usage, shared stream/non-stream provider events, and capability-gated route registration. |
+| 6. Do not claim Foundation accuracy | Added exact runtime matrix: MLX and DwarfStar contracts are required; Foundation and proxies are explicitly unqualified and receive no silent raw route. |
+| 7. Unambiguous prompt arrays | Chose stable rejection of every array shape with HTTP 400/code `unsupported_prompt_array`, before admission/SSE. |
+| 8. Separate SSE state machines | Defined distinct chat `delta` and legacy `text` machines, terminal/usage/`[DONE]` ordering, and one post-header error event with no success terminal. |
+| 9. Precise KV utilization | Adopted active logical positions divided by `contextWindow * maxConcurrent`, atomic snapshot, no waiting/retained radix contribution, and full lifecycle tests. |
+| 10. Exclude release cleanup | Explicitly prohibits release workflow/package cleanup under issue 192. |
+| 11. Retain and extend tests | Retained parser, AFM golden, discovery, usage, SSE, concurrency, GuideLLM, and Playground tests; added prompt split, registry, raw bypass, KV, ownership, and runtime-gating coverage. |
+
+No architectural questions from the first checkpoint remain open: the gate supplied the KV definition, approved the 10-second window and additive `/metrics`, and this revision selects cross-runtime ownership and exact runtime/route behavior. Implementation waits for reviewer approval.
