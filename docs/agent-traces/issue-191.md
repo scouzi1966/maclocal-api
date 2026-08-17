@@ -1,6 +1,7 @@
 # Issue #191 Phase A: Qwen 3.8 VLM Planning Trace
 
-Status: planning complete; implementation requires reviewer approval.
+Status: revised after architecture gate REQUEST CHANGES; implementation remains
+blocked pending re-review.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/191>
 
@@ -84,11 +85,14 @@ upstream pull request.
   startup for dual-mode configurations to preserve text/cache behavior. The
   current Qwen 3.8 gap is therefore the consequence of two intentional
   constraints, not simply a missing architecture alias.
-- Implementation must not restore the `09b278f` reload method unchanged, and it
-  must not revert all dual-mode checkpoints to VLM-at-startup without explicit
-  architecture approval. A request-time transition is viable only if admission,
-  scheduler quiescence, publication, rollback, and cache/MTP invalidation form
-  one defined lifecycle.
+- The approved correction is not a generic lifecycle transition. It is a narrow
+  startup rule for asset-usable Qwen conditional-generation configurations.
+  Request-time promotion, demotion, container replacement, and reversible
+  scheduler quiescence are explicitly outside issue #191.
+- The current service only exposes terminal shutdown/release: it marks the
+  service shutting down and cancels scheduler work. It has no reversible
+  admission/quiescence transaction to reuse
+  (`Sources/AFMKitMLX/Models/MLXModelService.swift:3879`).
 
 ### The MLX compatibility patch already contains a Qwen vision implementation
 
@@ -207,118 +211,158 @@ upstream pull request.
   `Tests/MacLocalAPITests/ConcurrentBatchTests.swift:166`). There is no current
   end-to-end Qwen/Gemma image-grounding test through the OpenAI chat route.
 
-## Proposed architecture
+## Revised architecture
 
-### 1. Define a config- and asset-driven vision contract
+### 1. Build immutable vision qualification from configuration and assets
 
-Add an AFMKitMLX value type representing:
+Add an immutable AFMKitMLX value such as `AFMMLXVisionAssetQualification` that
+contains only evidence derived from a resolved snapshot:
 
-- declared media capability from decoded architecture/configuration;
-- required image token IDs and vision configuration;
-- processor metadata availability and selected processor class;
-- presence of vision-tower weights in either a safetensor index or standalone
-  safetensor files; and
-- the current load factory (`llm` or `vlm`).
+- canonical architecture and conditional-generation architecture evidence;
+- declared image/video capability from structured model configuration;
+- required vision configuration and image/vision token IDs;
+- processor metadata presence and the processor class the VLM factory will use;
+- vision weight evidence from a safetensor index or standalone safetensor
+  headers; and
+- an asset-usable result with stable missing categories.
 
-Detection must use published configuration and weight metadata, not the model
-repository name. Qwen 3.8 should remain a `qwen3_5` conditional-generation
-checkpoint. The contract should distinguish "the architecture supports images"
-from "the local snapshot has all assets needed to serve images."
+It must not contain `currentFactory`, a container, scheduler state, or any other
+mutable runtime property. Qwen 3.8 remains configuration-resolved as
+`qwen3_5`/`qwen3_5_moe`; repository-name heuristics cannot make a checkpoint
+vision-usable.
 
-Vision asset checks should be lazy or separately scoped so an incomplete vision
-snapshot can continue to serve text. An image request against it should fail
-before generation with a typed error listing the missing category (processor
-configuration, token IDs/vision config, or vision weights), without printing
-machine-specific cache paths.
+Run this qualification once during model startup after
+`MLXCacheResolver.localModelDirectory` has resolved the language-usable
+snapshot. Cache the result by snapshot identity. Use structured JSON for model,
+processor, and index metadata and safetensor headers for unindexed weights; do
+not scan tensor payloads and do not repeat filesystem qualification per request.
 
-### 2. Track the loaded factory and promote dual-mode models atomically
+The base cache resolver's completeness contract remains unchanged. Missing
+processor metadata, vision token/config fields, or vision-tower weights are
+optional-vision failures, not base-cache failures. A Qwen snapshot with usable
+language assets but incomplete vision assets must still resolve and start for
+text. Diagnostics expose missing categories without machine-specific paths.
 
-Keep the current LLM-first startup for dual-mode Qwen checkpoints. Before slot
-reservation or response commitment, classify the request. For an image request
-whose model is image-capable and asset-complete but currently loaded through the
-LLM factory, perform a single-flight, one-way promotion to a VLM container:
+### 2. Select the Qwen VLM factory narrowly at startup
 
-1. block new generation admission for that model;
-2. wait for active scheduler work to quiesce, or return an explicit busy/retry
-   error if safe quiescence cannot be guaranteed;
-3. load the same snapshot through `VLMModelFactory`;
-4. atomically replace the container and record the actual factory;
-5. invalidate prefix/radix caches and any factory-specific MTP state; and
-6. resume admission and build the multimodal `UserInput`.
+Extend AFMKitMLX startup factory policy with this ordered decision:
 
-Concurrent image requests must share the same promotion task. Do not retain both
-27B containers, and do not demote after each request. After promotion, text-only
-requests remain free of image decoding and vision-tower execution because the
-Qwen processor/model already branch on absent media; live tests must quantify
-the remaining VLM-container throughput and memory cost.
+1. Preserve the existing explicit `--vlm` behavior.
+2. Preserve existing factory requirements for vision-only architectures.
+3. Select `VLMModelFactory` for a configuration-resolved `qwen3_5` or
+   `qwen3_5_moe` conditional-generation checkpoint only when its required vision
+   contract is present and its local vision qualification is asset-usable.
+4. For that same Qwen conditional-generation shape with incomplete optional
+   vision assets, select the LLM factory so text startup remains available.
+5. Leave Gemma, language-only Qwen, and every other existing architecture on
+   their current policy.
 
-This one-way lazy promotion is the recommended compromise: it preserves the
-existing LLM fast path until vision is actually requested, avoids duplicate
-residency, and avoids repeated reload thrash. It needs reviewer approval because
-text requests after the first image no longer use the original LLM container.
+`MLXModelService` records the selected/actual factory beside its model ID,
+architecture, qualification, container, and MTP binding under the existing
+state lock. The factory is mutable runtime state; it is not part of the
+qualification value or reusable static provider descriptor.
 
-### 3. Add pre-response request preparation to the server boundary
+The selected container is static for that model load. No request promotes,
+demotes, reloads, or replaces it. It changes only through the existing explicit
+model-load/switch or terminal shutdown lifecycle. This avoids a second 27B
+container, rollback state, scheduler quiescence, cache transfer, and all
+request-time factory mutation.
 
-Add an async preparation operation at the `AFMMLXOpenAIChatServing` boundary
+For a complete Qwen checkpoint the VLM container is also the text path. The
+existing `Qwen3VLProcessor` returns before image preprocessing when media is
+absent, and `Qwen3_5MoEVL` skips vision-tower execution. That is the required
+text-only fast path. Live qualification must measure startup time, peak memory,
+and text throughput rather than requiring LLM-container residency.
+
+### 3. Keep request preflight provider-owned and side-effect-free
+
+Add a media preflight operation at the `AFMMLXOpenAIChatServing` boundary
 (`Sources/AFMKitMLX/AFMMLXOpenAIChatGenerating.swift:93`) with a no-op default
-for test doubles and non-MLX adapters. The concrete MLX service will use it for
-media classification, vision asset validation, and any factory promotion. The
-`AFMKitMLXChatServingAdapter` must forward it. Call preparation from the
-controller before non-streaming generation and, critically, before creating the
-streaming response body. Restructuring the streaming controller to perform the
-same work synchronously before body creation is an acceptable implementation
-alternative; the architectural requirement is the response-commit boundary,
-not a particular protocol shape.
+for source-compatible fakes/adapters. `MLXModelService` classifies ordered media
+parts and reads one coherent runtime snapshot: immutable qualification plus the
+loaded factory/container state. It performs no file inspection, factory choice,
+load, reload, scheduler shutdown, or container mutation.
 
-Return a stable HTTP 400 OpenAI-style error for missing vision assets, proposed
-as `type: invalid_request_error` and `code: vision_assets_unavailable`. Preserve
-the existing DTO and ordered content-part representation; no request schema
-fork is needed.
+For a direct image request:
 
-### 4. Make capability endpoints descriptor-backed
+- an active asset-usable VLM runtime proceeds;
+- a declared Qwen vision model with incomplete assets throws a typed
+  `visionAssetsUnavailable` failure carrying stable missing categories; and
+- a model that does not declare the requested media retains the distinct
+  unsupported-media error.
 
-Replace unconditional MLX vision flags in `/v1/models` and `/props` with the
-same resolved capability contract used by request preparation. For a locally
-loaded/downloaded model, advertise vision only when the configuration declares
-it and required local vision assets are complete. Text-only models must report
-vision false. Keep the response shape expected by the bundled WebUI so its
-existing attachment path needs no source change.
+AFMServer invokes this provider operation before scheduler reservation and
+before constructing an SSE response body. The server only maps the typed asset
+failure to HTTP `400`, `type: invalid_request_error`, and
+`code: vision_assets_unavailable`; it never reads model files or selects a
+factory. The `AFMKitMLXChatServingAdapter` forwards the operation. The generation
+entry points retain an internal validation guard so non-HTTP AFMKit callers
+cannot bypass runtime capability checks.
 
-If model listing must describe a curated but not-yet-downloaded model, use its
-catalog descriptor and treat that as advertised/catalog capability, while
-`/props` for the selected local model should report runtime-usable capability.
-This distinction must be documented in code and tested.
+### 4. Publish honest, explicitly scoped capabilities
+
+Use two named capability surfaces and never use the catalog surface for request
+admission:
+
+- **Declared/catalog capability:** immutable metadata for curated entries that
+  may not be downloaded. It can advertise that a known checkpoint family is
+  designed for vision, but says nothing about local usability.
+- **Runtime-usable capability:** the loaded provider descriptor computed from
+  the immutable qualification and coherent active runtime state. Vision is true
+  only when assets qualified successfully and the active container is VLM-backed.
+
+`/props` reports the loaded descriptor's runtime-usable capability. The loaded
+entry in `/v1/models` is derived from that same descriptor, replacing the
+unconditional server flag. Other unavailable catalog entries may retain declared
+capability, but that distinction must be explicit in naming/tests and cannot be
+fed into media preflight. Keep existing JSON shapes so the bundled WebUI needs
+no source change: complete loaded Qwen enables attachments; incomplete or
+text-only loaded models report vision false.
+
+Concretely, keep pre-load discovery/catalog description separate from the
+post-load descriptor. After `MLXModelService` publishes its startup state it
+synthesizes the runtime descriptor; `AFMMLXRuntime.load` returns that descriptor,
+and the serving abstraction exposes the same read-only value to AFMServer. This
+avoids reconstructing runtime capability in `Server.swift` and avoids treating
+the pre-load `AFMMLXModelDescriptor.describe` result as request-admission truth.
+The descriptor returned by provider load is the authoritative loaded descriptor;
+the pre-load descriptor property remains discovery/catalog information.
 
 ### 5. Qualify the existing mlx-swift-lm compatibility patches
 
 The static path already maps Qwen 3.8's published `qwen3_5` metadata to
 `Qwen3_5MoEVL` and `Qwen3VLProcessor`, including vision weight remapping. Do not
-add a speculative `qwen3_8` model implementation. First run focused live
-qualification through the VLM factory.
+add a speculative `qwen3_8` implementation. First run focused live qualification
+through the startup-selected VLM factory.
 
-Only if that qualification exposes a loader/processor incompatibility should
-the repository-owned patch files be updated. Any such change belongs under
-`Scripts/patches/` and must be reproducible through the patch application
-script. No upstream mlx-swift-lm PR is part of this issue.
+Only a demonstrated loader, processor, or weight-mapping incompatibility may
+change the AFM-owned files under `Scripts/patches/`, reproducibly applied through
+`Scripts/apply-mlx-patches.sh`. No upstream mlx-swift-lm, llama.cpp, or separate
+AFMKit pull request is part of this issue.
 
 ## Ownership by layer
 
-| Layer | Required? | Responsibility |
-| --- | --- | --- |
-| maclocal-api host/server (`AFMServer`, CLI) | Yes | Request/response commitment, consistent stream/non-stream error mapping, and descriptor-backed `/v1/models` and `/props`. The bundled WebUI consumes this contract. |
-| AFMKit products in this repository (`AFMKitCore`, `AFMKitMLX`, `AFMOpenAICompat`) | Yes, primarily `AFMKitMLX` | Reusable config/asset contract, actual-factory state, safe promotion lifecycle, cache/MTP invalidation, and typed vision errors. Existing Core capability and OpenAI multimodal DTO shapes should remain source-compatible. `Package.swift:20` confirms these are same-repository products, not an external dependency. |
-| Bundled WebUI (`vendor/llama.cpp`) | No feature change expected | Existing attachment conversion is correct once capability and backend routing are correct. Do not edit the submodule for this issue unless a reproducible WebUI contract defect is found. |
-| AFM-owned mlx-swift-lm compatibility patch (`Scripts/patches`) | Qualification required; code change conditional | Existing Qwen VLM model/factory should be sufficient. Patch only a demonstrated compatibility gap in repository-owned patch files and apply it through `Scripts/apply-mlx-patches.sh`. |
-| External/upstream repositories | No | Do not create an mlx-swift-lm, llama.cpp, or separate AFMKit PR. No external AFMKit repository owns this change. |
+| Layer | Responsibility |
+| --- | --- |
+| AFMKitMLX | Owns immutable vision qualification, snapshot-scoped asset validation, startup factory policy, synchronized actual-factory state, runtime descriptors, side-effect-free media preflight, and typed vision failures. All model-file and factory decisions stay here. |
+| maclocal-api host/server (`AFMServer`, CLI) | Calls provider preflight before reservation/response commitment, maps typed errors, and exposes the provider descriptor through `/props` and the loaded `/v1/models` entry. It does not inspect assets or choose/reload factories. |
+| AFMKitCore / AFMOpenAICompat | Existing capability and multimodal/error DTO shapes remain source-compatible. Add shared code only if implementation proves an existing shape is insufficient. |
+| Bundled WebUI (`vendor/llama.cpp`) | No feature change. Existing attachment conversion works with honest `/props`; do not edit the submodule. |
+| AFM-owned mlx compatibility patch (`Scripts/patches`) | Qualification-first and conditional. Change only for a reproduced direct-VLM incompatibility, then apply through the repository patch workflow. |
+| External/upstream repositories | No ownership and no PR. AFMKit products are in this repository (`Package.swift:20`). |
 
-## Likely implementation files
+## Exact implementation files
 
 Required or strongly likely:
 
 - `Sources/AFMKitMLX/AFMMLXModelArchitecture.swift`
-- `Sources/AFMKitMLX/AFMMLXLoadedModeSwitchPolicy.swift`
+- `Sources/AFMKitMLX/AFMMLXLoadedModeSwitchPolicy.swift` (startup policy only;
+  no mode switch is added)
+- `Sources/AFMKitMLX/AFMMLXProvider.swift`
+- `Sources/AFMKitMLX/AFMMLXRuntime.swift`
+- `Sources/AFMKitMLX/AFMMLXModelStore.swift` (make declared/catalog semantics
+  explicit; no runtime admission from discovery descriptors)
 - `Sources/AFMKitMLX/Models/MLXModelService.swift`
-- `Sources/AFMKitMLX/Models/MLXCacheResolver.swift`
 - `Sources/AFMKitMLX/AFMMLXOpenAIChatGenerating.swift`
 - `Sources/AFMServer/Controllers/AFMKitMLXChatServingAdapter.swift`
 - `Sources/AFMServer/Controllers/MLXChatCompletionsController.swift`
@@ -326,20 +370,29 @@ Required or strongly likely:
 - `Tests/MacLocalAPITests/Qwen38PublishedConfigFixture.swift`
 - `Tests/MacLocalAPITests/AFMMLXModelArchitectureTests.swift`
 - `Tests/MacLocalAPITests/AFMMLXLoadedModeSwitchPolicyTests.swift`
-- New focused asset-validation, promotion, capability-endpoint, and controller
-  preflight tests under `Tests/MacLocalAPITests/`.
+- `Tests/MacLocalAPITests/AFMMLXProviderTests.swift`
+- `Tests/MacLocalAPITests/AFMMLXRuntimeTests.swift`
+- `Tests/MacLocalAPITests/AFMMLXModelStoreTests.swift`
+- `Tests/MacLocalAPITests/MLXChatCompletionsControllerStreamingTests.swift`
 
-Possible new production file to keep the contract testable and out of the model
-service actor: `Sources/AFMKitMLX/AFMMLXVisionCapability.swift`.
+Preferred new AFMKitMLX files:
 
-Reviewed but no production change expected unless the implementation exposes a
-missing shared field:
+- `Sources/AFMKitMLX/AFMMLXVisionAssetQualification.swift`
+- `Sources/AFMKitMLX/Models/AFMMLXVisionAssetValidator.swift`
+- `Tests/MacLocalAPITests/AFMMLXVisionAssetQualificationTests.swift`
+- `Tests/MacLocalAPITests/AFMMLXStartupFactoryPolicyTests.swift`
+- `Tests/MacLocalAPITests/MLXMediaPreflightTests.swift`
+- `Tests/MacLocalAPITests/MLXCapabilityEndpointTests.swift`
 
-- `Sources/AFMKitCore/AFMCoreTypes.swift` (existing capability vocabulary)
-- `Sources/AFMOpenAICompat/OpenAIRequest.swift` (existing ordered image parts)
-- `Sources/AFMOpenAICompat/OpenAIResponse.swift` (existing typed error `code`)
-- `Sources/AFMKitMLX/AFMMLXRuntime.swift` (only if runtime capability needs a
-  public read surface rather than the serving adapter)
+Reviewed but unchanged unless a narrow implementation need is demonstrated:
+
+- `Sources/AFMKitMLX/Models/MLXCacheResolver.swift`: base language snapshot
+  completeness must not absorb optional vision validation; an accessor for
+  stable snapshot identity is the maximum expected change.
+- `Sources/AFMKitCore/AFMCoreTypes.swift`: existing capability vocabulary.
+- `Sources/AFMOpenAICompat/OpenAIRequest.swift`: ordered image parts already work.
+- `Sources/AFMOpenAICompat/OpenAIResponse.swift`: typed error `code` already works.
+- bundled WebUI files: no change.
 
 Conditional only after a demonstrated live compatibility failure:
 
@@ -348,163 +401,172 @@ Conditional only after a demonstrated live compatibility failure:
 - `Scripts/patches/Qwen3VL.swift`
 - `Scripts/apply-mlx-patches.sh` only if the mapped patch set changes.
 
-No change is expected in the OpenAI DTO files or bundled WebUI source.
-
 ## Dependency and patch implications
 
 - Keep the pinned mlx-swift-lm dependency revision unless live qualification
-  proves the required fix cannot be represented in the existing patch set.
+  proves the fix cannot be represented in the existing AFM-owned patch set.
 - Never edit `.build/checkouts`, SwiftPM-managed sources, or the llama.cpp
-  submodule directly. Regenerate/apply compatibility changes through the
-  repository patch workflow.
-- Do not introduce a second image-processing dependency. Reuse MLXVLM,
-  `Qwen3VLProcessor`, and the existing `UserInput` media pipeline.
-- A new protocol preparation method should have a default implementation to
-  avoid breaking fake services and alternate AFMKit adapters.
-- If safetensor key validation requires reading an index, use structured JSON
-  decoding and support both indexed shards and unindexed safetensor layouts.
+  submodule directly.
+- Reuse MLXVLM, `Qwen3VLProcessor`, and the existing `UserInput` media pipeline;
+  do not add an image-processing dependency.
+- The preflight protocol method has a default implementation for source
+  compatibility, while the concrete AFMKitMLX service remains authoritative.
+- Asset validation uses structured metadata and caches by snapshot identity. It
+  does not alter base resolution and does not scan tensor payloads per request.
 
 ## Backward compatibility
 
-- OpenAI request and response JSON remain unchanged; existing text and
-  `image_url` clients need no migration.
-- Explicit `--vlm` remains authoritative and skips lazy promotion because the
-  container is already VLM-backed.
-- Text-only Qwen requests before promotion continue on the existing LLM path.
-- Missing optional vision assets do not prevent text-only startup or generation;
-  they affect capability advertisement and image requests only.
-- Non-vision models stop falsely advertising vision. Clients that relied on the
-  current unconditional flags will see a correction, not a schema change.
-- Promotion invalidates model-specific prompt/radix cache and incompatible MTP
-  state. This may reduce cache hit rate once, but prevents cross-factory state
-  reuse.
-- Existing Gemma and other models retain their current factory policy unless
-  they meet the same dual-mode contract and are explicitly covered by tests.
+- OpenAI request/response JSON and ordered `image_url` content remain unchanged.
+- Complete Qwen `qwen3_5`/`qwen3_5_moe` conditional-generation snapshots now
+  start once through VLM; this is the intentionally narrow behavior change.
+- Text on that VLM container avoids media decoding and vision execution. Its
+  throughput and memory are qualification criteria, not reasons to add reloads.
+- Incomplete optional Qwen vision assets select LLM, preserve text startup, omit
+  runtime vision capability, and reject direct image requests clearly.
+- Explicit `--vlm` remains authoritative with its current startup semantics.
+- Gemma, language-only Qwen, and other architectures retain their current
+  startup factory policy.
+- No request changes container identity, so prompt/radix cache and scheduler
+  lifetimes remain tied to the single startup container.
+- Existing Qwen MTP integration is text-model-oriented. Issue #191 does not add
+  VLM MTP support: when the narrow rule selects VLM, an incompatible explicit
+  `--mtp` combination fails clearly at startup and never silently routes media
+  to an LLM.
 
 ## Risks and mitigations
 
-- **Concurrent promotion and generation:** replacing a container while scheduler
-  work is active can crash or corrupt state. Use one admission gate and a
-  single-flight transition; add stress tests before enabling it.
-- **Text fast-path ambiguity:** the VLM model skips visual computation for text,
-  but historical behavior indicates extra memory and lower throughput than the
-  LLM container. Preserve LLM until first media and publish live measurements.
-- **Memory pressure:** two 27B containers are not acceptable. Promotion must
-  release the LLM container before or as the VLM container becomes active,
-  without leaving the service in a half-loaded state on failure.
-- **Failed promotion rollback:** retain or restore the usable LLM container when
-  VLM loading fails, then return a typed image error. Verify subsequent text.
-- **Cache and MTP coupling:** current Qwen MTP paths contain text-model casts and
-  factory-specific state. Disable/invalidate MTP during promotion until a VLM
-  path is explicitly verified; never reuse prompt caches for media.
-- **Processor variants:** repositories may provide `preprocessor_config.json`,
-  `processor_config.json`, or both. Match existing VLM factory precedence and
-  report absence without relying on filenames alone.
-- **Weight validation:** indexed and standalone safetensors require different
-  inspection. Avoid scanning full tensor payloads during each request; cache a
-  snapshot fingerprint and validation result.
-- **Streaming error semantics:** validation after body commitment yields HTTP 200
-  with an error token. Complete validation/promotion before response commitment.
-- **Remote image behavior:** current URL decoding has network, size, and latency
-  implications. This issue should preserve current behavior and body limits,
-  while tests primarily use deterministic data URLs.
-- **WebUI caching:** capability data may be cached in the browser. Integration
-  instructions must force model-property refresh/reload before judging a fix.
-- **Large-model test cost:** full Qwen 3.8 cannot be a routine unit test. Keep
-  deterministic fixtures/fakes for CI and a separately gated live qualification.
+- **Over-broad factory rule:** a generic "dual-mode means VLM" would regress
+  Gemma/cache behavior. Require canonical Qwen family, conditional-generation
+  shape, complete contract, and asset-usable qualification in tests.
+- **Text performance and memory:** a 27B VLM container may cost more than its LLM
+  path even when the vision tower is skipped. Measure startup, peak resident
+  memory, and fixed-prompt throughput; do not solve a failed budget with mutable
+  request-time containers inside this issue.
+- **False asset completeness:** metadata can declare vision while shards or keys
+  are absent. Validate indexed shard presence and vision namespaces; support
+  unindexed safetensor headers without reading tensor payloads.
+- **Text startup regression:** optional vision checks must not feed base cache
+  completeness. Test missing processor/config/token/vision-weight cases through
+  resolver plus LLM text startup.
+- **Mutable/immutable state mixing:** putting `currentFactory` in qualification
+  can stale provider descriptors. Store evidence immutably and publish one
+  coherent runtime snapshot under the service lock.
+- **Capability disagreement:** `/props`, the loaded `/v1/models` entry, and media
+  preflight must derive from the same loaded descriptor; catalog declarations
+  remain separately named and never authorize requests.
+- **Processor variants:** support `preprocessor_config.json`,
+  `processor_config.json`, and factory precedence without filename-only guesses.
+- **Streaming errors:** preflight after SSE commitment yields HTTP 200. Invoke it
+  before body creation and test exact status/type/code.
+- **Remote images and WebUI caching:** preserve current body/network behavior;
+  use deterministic data URLs in automation and refresh model properties during
+  WebUI acceptance.
+- **Large-model cost:** keep CI fixture/fake coverage deterministic and gate live
+  Qwen runs separately with revision, timing, and memory evidence.
 
-## Test matrix
+## Revised test matrix
 
 ### Unit tests
 
 | Area | Cases and assertions |
 | --- | --- |
-| Architecture | Published Qwen 3.8 fixture resolves to `qwen3_5`; arbitrary repository name still works; name-only `Qwen3.8` without vision config is not vision-capable; language-only Qwen remains unchanged. |
-| Asset contract | Complete processor + vision config/token IDs + indexed `vision_tower` keys is usable; missing processor config, missing token IDs, missing vision config, missing vision keys, malformed index, and standalone weights each produce deterministic results. |
-| Factory policy | Dual-mode complete Qwen starts LLM; `--vlm` starts VLM; text request causes no transition; first image causes one promotion; already-VLM request does not reload. |
-| Promotion concurrency | Multiple simultaneous image preparations await one load; text admission during transition follows the defined gate; failed promotion restores text service; cancellation does not strand transition state. |
-| Cache/MTP state | Promotion invalidates prefix/radix cache and MTP binding; media never uses prompt cache; subsequent text can establish cache only against the new container. |
-| Processor/model | Text-only Qwen VLM preparation does not decode images or execute the vision tower; JPEG and PNG tensors reach the vision path; multiple images preserve order. |
-| DTO conversion | String content, mixed text/image parts, data URLs, HTTP URLs, `detail`, and multi-message histories decode without dropping image parts. |
-| Error mapping | Unsupported model and incomplete vision assets produce distinct stable errors; error text names missing asset categories and omits local paths. |
-| Capabilities | Provider descriptor, `/v1/models`, and `/props` agree for complete vision, incomplete vision, and text-only models; curated unavailable models retain catalog semantics. |
-| Lifecycle regression | Preserve the `6535ca1` LLM-first startup behavior for dual-mode text use; prove request promotion waits for scheduler quiescence and does not recreate the unsafe pre-`721d3ac` container swap. |
-| Regression | Existing Gemma VLM factory tests, Qwen text tests, forced-VLM tests, and generic OpenAI chat tests remain green. |
+| Architecture | Published Qwen 3.8 resolves to canonical `qwen3_5` conditional generation from config; arbitrary repository names do not matter; name-only Qwen3.8 and language-only Qwen are not classified as asset-usable vision. |
+| Immutable qualification | Complete processor + config/token IDs + indexed vision keys is asset-usable; missing processor, token IDs, vision config, shard, vision namespace, malformed index, and standalone weights are deterministic. The value has no loaded-factory/runtime state. |
+| Base cache independence | Every language-usable fixture with missing optional vision evidence still resolves through `localModelDirectory`; qualification reports unusable separately and is cached by snapshot identity. |
+| Narrow startup factory | Complete Qwen conditional generation selects VLM; incomplete optional vision selects LLM; similarly shaped non-Qwen and non-conditional Qwen do not trigger the rule. Gemma retains current policy. |
+| Explicit factory behavior | `--vlm` retains existing authority; already vision-only models retain current selection; direct VLM load failure follows startup failure semantics and never creates a request-time fallback/swap. |
+| Static runtime state | Service publishes qualification and actual factory separately under its lock; text/image preflight never invokes either factory and never changes container identity. |
+| Processor/model fast path | Text-only Qwen VLM preparation performs no image decode and no vision-tower execution; JPEG/PNG reach vision; multiple images preserve order. |
+| DTO conversion | String and ordered mixed text/image parts, data/HTTP URLs, `detail`, and histories decode without dropping or reordering images. |
+| Provider preflight | Complete VLM runtime accepts image; incomplete declared vision returns typed missing categories; unsupported media is distinct; text always remains admissible for the language-usable fallback. |
+| Capability surfaces | Loaded descriptor, `/props`, and loaded `/v1/models` entry agree for complete VLM, incomplete LLM fallback, and text-only models. Catalog-only declared capability cannot pass request admission. |
+| Error mapping | Missing assets map to `400 invalid_request_error` / `vision_assets_unavailable`; messages omit local paths. Stream and non-stream mappings match. |
+| Regression | Gemma factory/cache tests, language-only Qwen, explicit `--vlm`, Qwen text, MTP compatibility behavior, and generic OpenAI chat remain green. |
 
 ### Integration tests
 
 | Flow | Cases and assertions |
 | --- | --- |
-| Non-streaming controller | OpenAI request with an image invokes preparation before generation and returns normal assistant JSON; incomplete assets return HTTP 400 with the stable code. |
-| Streaming controller | Preparation finishes before headers/body; image request streams normal chunks; incomplete assets return protocol-level HTTP 400 rather than an HTTP 200 error token. |
-| WebUI contract | `/props` reports usable vision, WebUI-style base64 `image_url` payload is preserved, and a text-only/incomplete model reports false so attachments are not falsely enabled. |
-| Lazy promotion | Load Qwen through fake LLM factory, send text, send image, verify one VLM load and container swap, then send text again without image preprocessing. |
-| Multiple media | Mixed history and two image parts retain ordering and are passed once to the processor. |
-| Concurrency | Two image requests arriving together cannot double-load; active text plus image transition follows the documented admission behavior without deadlock. |
-| Failure recovery | Inject VLM load failure, confirm image error, then confirm text generation still succeeds through the retained/restored LLM container. |
-| Other models | Gemma VLM, language-only Qwen, and a model without media support preserve existing routing and errors. |
+| Static complete-Qwen lifecycle | Resolve complete Qwen, select and load VLM exactly once, send text then image then text, and assert one unchanged container/factory for the full model lifetime. |
+| Incomplete-assets fallback | Resolve the same language snapshot with each optional vision category absent, load LLM, complete text generation, advertise vision false, and reject image without any VLM factory call. |
+| Concurrent static container | Concurrent text/image and two image requests use one already-loaded VLM container; there is no promotion task, duplicate load, container swap, or scheduler shutdown. |
+| Non-streaming controller | Provider preflight precedes reservation/generation; usable image returns assistant JSON; incomplete assets return the stable HTTP 400. |
+| Streaming controller | Provider preflight finishes before headers/body; usable image streams normally; incomplete assets return HTTP 400 rather than an HTTP 200 error token. |
+| WebUI contract | `/props` enables vision only for the usable loaded VLM; WebUI-style base64 `image_url` is preserved; incomplete/text-only models disable attachment submission. |
+| Grounding and media order | JPEG, PNG, mixed history, and two ordered image parts reach the processor and produce image-conditioned output. |
+| Other models | Gemma, language-only Qwen, unsupported-media models, and explicit `--vlm` preserve existing startup and error behavior. |
 
 ### Live qualification and acceptance
 
-Run this matrix only after implementation approval and focused automated tests:
+Run only after implementation approval and deterministic tests:
 
-1. Build using the repository's reliable SwiftPM/build wrapper and start the
-   server without `--vlm`, matching the issue's LLM-first reproduction, with the
-   exact cached Qwen 3.8 revision recorded in the test report. Run a separate
-   explicit `--vlm` launch as a factory/processor control, not as acceptance of
-   the default route.
-2. Before any image request, run a fixed text prompt and record load time,
-   tokens/second, peak resident memory, selected factory, and whether image
-   preprocessing/vision execution occurred.
-3. In a fresh WebUI session, attach a JPEG, ask a fact grounded in visible
-   content, and verify the response. Repeat with PNG.
-4. Send equivalent `/v1/chat/completions` data-URL requests through `curl` in
-   non-streaming and streaming modes; record status, chunks, finish reason, and
-   server factory-transition logs.
-5. Use two deliberately different images with the same grounded prompt. Define
-   expected facts before running, assert each response matches its own image,
-   and assert the answers differ. Repeat once to guard against a lucky response.
-6. Send text after promotion and verify no image decoding or vision-tower
-   execution. Record throughput/memory versus the pre-promotion baseline.
-7. Use a disposable local snapshot with processor metadata absent, then one with
-   vision weight metadata absent. Verify text still works, capability is false,
-   and image requests return the stable clear error in both stream modes.
-8. Run concurrent text/image and two-image-request cases while watching for
-   deadlock, duplicate loading, memory spikes, and stale cache use.
-9. Repeat the core API grounding case with the curated MXFP8 Qwen 3.8 variant if
-   locally available; otherwise record it as an unexecuted coverage item.
-10. Run the repository smoke assertions and relevant Gemma/Qwen regression
-    suites. Save model revision, request hashes, redacted logs, outputs, timings,
-    and WebUI screenshots under the normal test-report location; do not commit
-    model artifacts or machine-specific cache paths.
+1. Build with the repository wrapper and launch without `--vlm` against recorded
+   Qwen 3.8 revision `3e6447f082e89cc7f0bc6e5441afd38dfce760ff`.
+   Assert startup qualification selected one VLM container before any request.
+2. Send a fixed text prompt first. Record startup time, tokens/second, peak
+   resident memory, selected factory/container identity, and instrumentation
+   proving no image decode or vision-tower execution.
+3. In a fresh WebUI session, attach a JPEG and then a PNG and ask facts grounded
+   in visible content. Verify `/props` enabled attachment submission and both
+   answers are correct.
+4. Send equivalent data-URL API requests in streaming and non-streaming modes;
+   record statuses, chunks, finish reasons, and confirmation that the original
+   startup container remained unchanged.
+5. Use two deliberately different images with the same predeclared grounded
+   prompt. Assert each response matches its own image and the answers differ;
+   repeat once to reduce chance success.
+6. Send text again and verify no image processing or vision execution. Compare
+   text throughput/memory with the pre-image text request and a recorded
+   pre-change LLM baseline; no factory transition is expected.
+7. Run concurrent text/image and two-image requests. Verify one static VLM
+   container, no reload, no scheduler shutdown, bounded memory, and correct
+   outputs.
+8. Use disposable snapshots missing processor metadata and vision weight
+   evidence. Verify base resolution and LLM text startup succeed, `/props` and
+   the loaded model entry report vision false, and both stream modes reject
+   direct images with the stable HTTP 400 before response commitment.
+9. Run a separate explicit `--vlm` launch as a control and verify its behavior is
+   unchanged. Repeat the core grounding case on MXFP8 only after all indexed
+   shards are locally available; otherwise record it as unexecuted.
+10. Run repository smoke assertions and Gemma/Qwen regressions. Save revision,
+    request hashes, redacted logs, outputs, timings, memory, and WebUI screenshots
+    under the normal test-report location without committing model artifacts or
+    machine-specific cache paths.
 
-## Unresolved architectural questions for reviewer approval
+## Fixed decisions and remaining qualification gates
 
-1. **Factory lifecycle:** approve the recommended one-way lazy promotion, or
-   require VLM-at-startup? Dual residency is not recommended for a 27B model.
-2. **Meaning of "text-only fast path":** is preserving LLM performance until
-   the first image sufficient, with VLM text-only execution afterward, or must
-   every later text request return to the LLM factory? The latter implies costly
-   demotion/reload or duplicate residency.
-3. **Admission during promotion:** should active requests be drained while new
-   requests wait, or should image requests receive a retryable busy error when
-   the scheduler is active? Draining is preferable if the scheduler exposes a
-   reliable quiescence primitive.
-4. **Capability semantics:** should `/v1/models` describe catalog capability
-   while `/props` describes locally usable capability, as proposed, or must both
-   be false whenever the selected local snapshot is incomplete?
-5. **MTP behavior:** is disabling MTP across the first vision promotion and
-   using autoregressive generation acceptable until Qwen VLM MTP is separately
-   qualified? Current service integration is text-model-oriented.
-6. **Error contract:** approve HTTP 400 with
-   `invalid_request_error`/`vision_assets_unavailable`, or preserve the existing
-   generic `mlx_error` type for compatibility.
-7. **Video scope:** Qwen metadata and current routing advertise video, but issue
-   acceptance is image-only. The recommendation is to preserve existing video
-   behavior without expanding this implementation or its live acceptance gate.
-8. **Patch gate:** static evidence says the existing mlx-swift-lm compatibility
-   patches should load Qwen 3.8. Any patch change should wait for the direct VLM
-   live qualification rather than be assumed during implementation.
+Architecture review fixed the following decisions: Qwen remains `qwen3_5`; the
+narrow complete-Qwen rule uses VLM at startup; containers are static per load;
+missing optional vision assets preserve LLM text startup; direct unusable-vision
+requests use the approved HTTP 400 contract; image acceptance is in scope while
+video behavior is only preserved; patch changes require a reproduced direct-VLM
+failure; and WebUI/upstream changes remain out of scope.
 
-Implementation must not begin until these planning decisions receive reviewer
-approval.
+The remaining gates are empirical, not alternative architecture proposals:
+
+- quantify text throughput, startup latency, and peak memory on the VLM
+  container;
+- directly qualify the existing Qwen processor/model/weight patch before
+  changing it; and
+- defer MXFP8 live coverage until its local snapshot is complete.
+
+## Architecture review verdict and resolution trace
+
+The durable review dated 2026-08-17 returned **REQUEST CHANGES** for commit
+`87b06c8`. Its blocking finding was that request-time promotion could not both
+avoid dual 27B residency and retain the LLM container for rollback, while the
+service has no reversible quiescence lifecycle. Implementation remains blocked
+until this revised plan is re-gated.
+
+| Review requirement | Resolution in this revision |
+| --- | --- |
+| 1. Narrow startup Qwen VLM rule | Section 2 selects VLM only for configuration-resolved `qwen3_5`/`qwen3_5_moe` conditional generation with a complete vision contract/assets, keeps other architectures unchanged, and defines the VLM no-media text path plus live performance qualification. |
+| 2. Remove request-time promotion | Sections 2, Backward compatibility, Risks, and all test matrices define one static startup container and remove promotion, rollback, quiescence, dual residency, and cache-transfer work. |
+| 3. Separate capability evidence from runtime state | Section 1 makes qualification immutable and asset-only; Section 2 stores actual factory/container state solely under `MLXModelService` synchronization. |
+| 4. Keep optional vision separate from base cache completeness | Sections 1 and Exact implementation files preserve `localModelDirectory` language completeness, add a sibling snapshot-cached validator, and require LLM text startup for incomplete optional vision assets. |
+| 5. Keep decisions in AFMKitMLX | Section 3 and the ownership table assign files, factory choice, runtime admission, and typed errors to AFMKitMLX; AFMServer only invokes side-effect-free preflight and maps the result before SSE commitment. |
+| 6. Define capability surfaces | Section 4 separates declared/catalog from runtime-usable capability, derives `/props` and the loaded `/v1/models` entry from the loaded descriptor, and prohibits catalog capability from request admission. |
+| 7. Replace promotion tests | The revised unit, integration, and live matrices cover narrow startup selection, incomplete-assets LLM fallback, one static VLM container under concurrency, text no-media execution, and unchanged Gemma/language-Qwen/`--vlm` behavior while retaining DTO, controller, JPEG/PNG, grounding, and regression coverage. |
+
+No feature implementation or upstream dependency PR is authorized by this
+revision.
