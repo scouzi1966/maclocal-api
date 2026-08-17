@@ -668,3 +668,114 @@ Verification on 2026-08-17:
 - Controller tests assert both stream modes return JSON before response
   commitment and observe one preflight call, zero slot reservations, and zero
   generation calls for missing vision assets.
+
+### Checkpoint 4: live qualification and acceptance
+
+Implementation decisions:
+
+- The existing AFM-owned mlx-swift-lm Qwen VLM patch loaded the recorded
+  Qwen 3.8 revision directly. No compatibility patch, dependency revision, or
+  upstream repository change was required.
+- A live disposable-snapshot check found that the typed media error included an
+  absolute model path when the model identifier itself was a local directory.
+  Commit `b3940d3` now reduces absolute model identifiers to their final path
+  component in media diagnostics and logs `localizedDescription` rather than
+  the enum's associated values. Remote repository identifiers are unchanged.
+- The fallback fixture remained language-usable: it retained config, tokenizer,
+  all three shards, and an index containing 1,847 language tensors, while
+  omitting processor metadata and all 333 indexed `vision_tower` entries. This
+  exercised optional-vision failure independently of base cache completeness.
+
+Deterministic verification on 2026-08-17:
+
+- `./Scripts/swiftpm-reliable.sh build -c release` succeeded before live
+  qualification and again after the diagnostic redaction fix.
+- `./Scripts/swiftpm-reliable.sh test --filter
+  'MLXMediaPreflightTests|MLXChatCompletionsControllerStreamingTests'`
+  executed 25 tests with 0 failures. Log:
+  `.build-reliable-logs/test-20260817-175135.log`.
+- The final broad regression command covered architecture and startup policy,
+  immutable qualification, runtime/provider/store capability behavior, MTP,
+  Gemma/static decode cohorts, controller stream handling, Foundation Models
+  image translation, and concurrent batch behavior. XCTest executed 170 tests
+  with 0 failures and Swift Testing executed 31 tests with 0 failures, for
+  201 total. Log: `.build-reliable-logs/test-20260817-180037.log`.
+- The repository wrapper repeatedly reapplied the existing patch set and left
+  `vendor/mlx-swift-lm` modified as expected. No vendor file or patch source is
+  staged or committed.
+
+Live complete-snapshot evidence:
+
+- Launched `mlx-community/Qwen3.8-27B-4bit` without `--vlm` at revision
+  `3e6447f082e89cc7f0bc6e5441afd38dfce760ff`. Startup logged
+  `declared=qwen3_5 canonical=qwen3_5 vision=true factory=VLM` before the first
+  request. Model loading took 5.4 seconds and the server was listening about
+  7.1 seconds after factory selection.
+- `/props.modalities.vision` was `true`; the loaded `/v1/models` details entry
+  included `vision`. Both were read from the same running process.
+- Pre-image non-streaming and streaming text requests returned HTTP 200 and the
+  requested exact strings. Prompt throughput was 159.1 and 169.8 tokens/s.
+  A post-image text request returned HTTP 200 at 164.8 prompt tokens/s. Its
+  30-token prompt contained no vision tokens, compared with 1,067 tokens for a
+  one-image request; no factory transition occurred.
+- A PNG non-streaming request identified a stylized `V`, connected nodes, and a
+  blue/pink gradient. A JPEG streaming request identified a smiling yellow face
+  and returned a normal terminal chunk plus `[DONE]`. Both returned HTTP 200.
+- The PNG fixture SHA-256 was
+  `2c1e0c2e93aa0d821a3b723b18e28a72d153fa60178e27bfa583117b1e4dd978`;
+  the JPEG fixture SHA-256 was
+  `07a5401ec785f0c2216418c897aefcfea7575d5c0b6a927acdeb2bd3510d654f`.
+- One ordered two-image request described image 1 as the stylized `V` and image
+  2 as the smiling yellow face. Concurrent text, PNG, and JPEG requests all
+  returned HTTP 200 with `CONCURRENT_TEXT_OK`, `V`, and `yellow` respectively.
+  The listener remained the original PID throughout; observed resident memory
+  peaked at 15.42 GiB, with no reload or scheduler shutdown log.
+- A separate explicit `--vlm` control advertised vision and returned `V` for
+  the PNG request, confirming the flag's behavior is unchanged.
+
+Live incomplete-snapshot evidence:
+
+- Startup logged `factory=LLM` and
+  `optional vision unavailable: processorConfiguration, visionWeights;
+  preserving text startup`. Loading completed, and a text request returned
+  HTTP 200 with `FALLBACK_TEXT_OK`.
+- `/props.modalities.vision` was `false`; the loaded model details entry omitted
+  `vision` while retaining chat, completion, structured, streaming, and prefix
+  cache capabilities.
+- Image requests with `stream=false` and `stream=true` both returned HTTP 400,
+  `application/json`, `invalid_request_error`, and
+  `vision_assets_unavailable` before SSE commitment. The response listed only
+  `processorConfiguration, visionWeights`; after `b3940d3`, neither response nor
+  the preflight log exposed an absolute path.
+
+Live WebUI evidence:
+
+- A fresh `--webui` session exposed the Images menu because `/props` reported
+  runtime vision. The actual file chooser accepted the PNG and JPEG and showed
+  both attachment previews.
+- With the same prompt, the PNG answer described the stylized `V` on a
+  blue-to-pink background, while the JPEG answer described the smiling yellow
+  face. The UI reported approximately 32.8 generation tokens/s for both and the
+  browser console contained no warning or error entries.
+- Screenshot evidence is stored at
+  `.build-reliable-logs/issue-191-webui.png` (42,760 bytes). Model artifacts and
+  machine-specific cache paths were not copied into the repository.
+
+### Completion state and deferred gates
+
+The approved implementation scope is complete in commits `78fe3b8`, `c307728`,
+`4973c6b`, and `b3940d3`. The runtime uses one static startup container, complete
+Qwen conditional-generation snapshots select VLM, incomplete optional vision
+assets preserve LLM text startup, and request admission plus capability surfaces
+reflect that actual runtime state.
+
+Two empirical comparisons remain intentionally unexecuted rather than hidden as
+passing results:
+
+- The Qwen 3.8 MXFP8 snapshot still has only four of six indexed shards, so the
+  plan's MXFP8 grounding repeat remains deferred until that cache is complete.
+- No recorded pre-change LLM throughput baseline was available in this worktree.
+  The same-process pre-image/post-image VLM measurements are recorded above;
+  there is also no dedicated vision-tower invocation counter, so the text fast
+  path is evidenced by its text-only tokenization and stable throughput rather
+  than a hardware-level tower trace.
