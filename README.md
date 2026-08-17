@@ -29,15 +29,15 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 ## Install
 
 > [!NOTE]
-> **Stable v0.9.16 is the recommended release.** It adds Qwen 3.8 27B, Muse Glimmer 30B, and Gemma 4 support; improves Nemotron recurrent prefix reuse, Muse reasoning and tool calls, DwarfStar model resolution and reasoning separation; and requires a verified WebUI in every release package. Install `afm-next` only to preview changes made after v0.9.16.
+> **Stable v0.9.17 is the recommended release.** It adds automatic Qwen 3.8 MTP sidecar discovery and quant-matched download behavior, plus expanded Qwen 3.8 tool-calling qualification. Install `afm-next` only to preview changes made after v0.9.17.
 >
-> **The qualified nightly and v0.9.16 are essentially the same build.** The nightly was promoted to this stable release after the full Qwen 3.8 qualification run; the remaining differences are release versioning and distribution packaging, not user-facing functionality. Use the stable release unless a newer nightly explicitly lists post-v0.9.16 changes you need.
+> **The qualified nightly and v0.9.17 are essentially the same build.** Nightly `nightly-20260816-bc343f6` was promoted to this stable release; the differences are release versioning and distribution packaging, not runtime functionality. Use the stable release unless a newer nightly explicitly lists post-v0.9.17 changes you need.
 
-|  | Stable (v0.9.16) | Nightly (afm-next) |
+|  | Stable (v0.9.17) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.16](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
+| **Release notes** | [v0.9.17](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
 
 ### Install a previous version
 
