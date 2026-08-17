@@ -1,6 +1,6 @@
 # Issue 192 Phase A: vLLM Metrics and GuideLLM Interoperability Plan
 
-Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending approval from architecture gate 3.
+Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending approval from a new independent architecture gate.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/192>
 
@@ -65,17 +65,54 @@ AFM and vLLM rendering consume one immutable provider-neutral snapshot. There is
 
 This plan selects **cross-runtime qualification** rather than keeping the concrete collector in AFMKitMLX.
 
-- `AFMKitCore` owns only `Sendable` event/value protocols, immutable observation types, bounded provider finish/rejection enums, generation-admission contracts, and raw-generator type erasure. It has no counters, Prometheus names, Vapor types, or dependency on a provider.
-- `AFMKitServices` owns the provider-neutral process collector, locks/rolling windows, immutable snapshot, clock abstraction, and one-terminal enforcement. Proposed new files are `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `Sources/AFMKitServices/Telemetry/InferenceMetricsSnapshot.swift`.
+- `AFMKitCore` owns all immutable cross-target value contracts: `AFMInferenceMetricsSnapshot`, `AFMHistogramSnapshot`, `AFMInferenceMetricsSnapshotSource`, `Sendable` event/observer protocols, bounded provider finish/rejection enums, generation-admission contracts, and raw-generator type erasure. Proposed snapshot declarations live in `Sources/AFMKitCore/Telemetry/InferenceMetricsSnapshot.swift`. Core has no mutable collector state, rolling-window implementation, Prometheus names, Vapor types, or provider dependency.
+- `AFMKitServices` owns the provider-neutral process collector's mutable state, locks, rolling-window/clock implementation, one-terminal enforcement, and conversion of one atomic state read into the Core-owned immutable snapshot. Proposed implementation file: `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift`. Services does not define a second public snapshot type.
 - AFMKitMLX and AFMKitDwarfStar receive an `any AFMInferenceTelemetryObserving` during construction. They never import AFMKitServices; the CLI/server composition root injects the collector through the AFMKitCore protocol.
 - AFMServer receives the same collector through two narrow Core-owned interfaces: read-only `AFMInferenceMetricsSnapshotSource` for rendering and writable `AFMServerTelemetryObserving` for bounded pre-admission rejections and active-connection lifecycle. AFMServer owns HTTP-side classification and calls the writable observer; AFMKitServices remains the state owner.
-- `Sources/AFMKitMLX/Models/StatsAggregator.swift` becomes a deprecated forwarding facade/type alias if public source compatibility requires `StatsAggregator.shared`. New provider and server code must not use that global facade.
+- `Sources/AFMKitMLX/Models/StatsAggregator.swift` remains a concrete deprecated forwarding facade with its existing public name, `shared`, nested types, and method signatures. It is not a type alias and owns no authoritative metric state. The explicit compatibility bridge is defined below.
 - `Sources/AFMCLI/main.swift` creates exactly one collector per server process and injects its provider observer, server observer, and snapshot-source views into provider/runtime and `Server`. `Package.swift` is updated only as needed for AFMKitCore protocol and AFMKitServices collector dependencies.
 - Foundation is not adapted to the provider event contract in issue 192 and is not part of the qualified matrix below.
 
 Both observer interfaces are synchronous, nonblocking, `Sendable`, cancellation-safe, and limited to a short lock/atomic update. They must never await, call provider code, or re-enter a scheduler actor. Provider event values include an opaque collector-issued request token so terminal deduplication does not require request IDs as Prometheus labels. Server rejection calls cannot allocate or receive a provider token.
 
 `AFMServerTelemetryObserving` has only three operations: `recordRejection(_:)`, `connectionOpened() -> AFMServerConnectionToken`, and `connectionClosed(_:)`. `AFMServerRejectionReason` is the closed Core enum `decode`, `authentication`, `validation`, `capacity`; provider failures (`cancelled`, `inference`, `internal`) enter through the provider observer instead. The opaque connection token makes close idempotent and carries no request/model label data.
+
+### Immutable snapshot boundary
+
+`AFMInferenceMetricsSnapshotSource` is implementable without a reverse dependency because its method returns the concrete Core-owned `AFMInferenceMetricsSnapshot`:
+
+```swift
+public protocol AFMInferenceMetricsSnapshotSource: Sendable {
+    func metricsSnapshot() -> AFMInferenceMetricsSnapshot
+}
+```
+
+The snapshot contains immutable scalar counters/gauges/metadata, bounded reason/status maps, and Core-owned `AFMHistogramSnapshot` values (`buckets`, cumulative counts, sum, count). It contains no Services collector type, lock, closure/gauge reader, Prometheus name, or renderer policy. `InferenceTelemetryCollector` in AFMKitServices conforms by locking/copying its state once and returning this value. AFMServer depends on the Core protocol/value and can render every required field. Provider targets depend on Core only and receive write/admission interfaces, not the Services implementation.
+
+### Public compatibility and migration contract
+
+Issue 192 is a source-compatible deprecation, not a breaking release. Existing public names and required method signatures remain available for the full current major version.
+
+#### `StatsAggregator` facade
+
+- Keep `public final class StatsAggregator`, `public static let shared`, `GaugeReader`, `FractionReader`, `Buckets`, nested `Histogram`, `RequestObservation`, nested `Snapshot`, and every current public mutation/registration/observation/snapshot method in `Sources/AFMKitMLX/Models/StatsAggregator.swift` with the same signatures and accessibility.
+- Mark the concrete class deprecated with a message directing new code to injected AFMKitCore telemetry protocols and `InferenceTelemetryCollector` from AFMKitServices. Do not replace it with a type alias: qualified names such as `StatsAggregator.Snapshot` and `StatsAggregator.Histogram` must continue to compile.
+- Add Core-owned `AFMLegacyStatsAggregating: AFMInferenceMetricsSnapshotSource`, whose methods represent the existing aggregate mutations, gauge-reader registration, reset, and metadata operations. `InferenceTelemetryCollector` implements this compatibility sink in Services.
+- The concrete MLX facade stores only a thread-safe reference to `any AFMLegacyStatsAggregating`. The composition root binds the process collector before constructing providers or Server. Every legacy mutating method forwards one-for-one to that sink; `snapshot()` maps the Core snapshot into the existing nested `StatsAggregator.Snapshot`; nested `Histogram` remains a source-compatible local value wrapper over `AFMHistogramSnapshot` semantics.
+- Provide an explicit `StatsAggregator.installCompatibilityTarget(_:)` accepting the Core protocol. It is idempotent for the same target and rejects replacement after runtime start, preventing split state. Shipped CLI/server composition always installs the same Services collector that is injected through the new protocols.
+- When no target is installed, the deprecated facade uses a Core-owned no-op compatibility sink and returns a documented zero snapshot. It does not create fallback counters or a second registry. Existing source still builds; standalone consumers that require metrics add the `AFMKitServices` product, create one `InferenceTelemetryCollector`, install it, and inject its Core protocol views. This is the explicit behavioral migration.
+- Existing AFMKitMLX provider code is migrated off `StatsAggregator.shared`; the facade is only for external-source compatibility. It imports AFMKitCore, never AFMKitServices, so AFMKitMLX remains independent of Services.
+
+#### Scheduling and chat-serving protocols
+
+- Preserve the existing requirements of public `AFMMLXRequestScheduling`: `maxConcurrent`, `tryReserveSlot()`, `waitForSlot(timeout:)`, and `releaseSlot()`. Preserve every current requirement and default overload of `AFMMLXOpenAIChatGenerating` and `AFMMLXOpenAIChatServing`.
+- Add only one source-compatible, defaulted requirement to `AFMMLXRequestScheduling`: `var generationAdmitter: AnyAFMGenerationAdmitter? { get }`, with a public protocol-extension default of `nil`. The type eraser and admission value/lease types are Core-owned. Existing external conformers therefore rebuild without source changes.
+- Built-in MLX and erased DwarfStar services return a non-`nil` provider-owned admitter and are forbidden by tests from using the legacy polling path. Controllers call this admitter for qualified runtimes.
+- If an external conformer returns the default `nil`, controllers preserve current behavior through a deprecated `LegacyAFMMLXAdmissionAdapter` that calls its existing `waitForSlot(timeout:)`/`releaseSlot()`. That fallback preserves service behavior and source compatibility but is explicitly not vLLM waiting/latency-qualified because it cannot report provider queue admission.
+- Do not add admission requirements directly to `AFMMLXOpenAIChatGenerating` or raw generation methods to `AFMMLXOpenAIChatServing`. Raw generation remains an optional `AnyAFMRawTextGenerator` capability, so old conformers do not acquire new requirements.
+- Any new telemetry/admission arguments on public initializers are added as trailing defaulted parameters or new overloads; no existing initializer is removed or reordered in issue 192.
+
+Compile-level compatibility coverage imports public modules without `@testable`, defines external conformers implementing only the pre-issue protocol requirements, exercises every retained `StatsAggregator` nested type/method, and constructs services through the old public initializers. A small local-package fixture also builds against the issue branch to catch cross-module qualified-name and default-witness failures.
 
 ### Event ownership and one-terminal rule
 
@@ -269,11 +306,11 @@ Non-streaming chat and raw completions use their respective normal object shapes
 
 ## Implementation sequence and exact likely files
 
-1. Add provider event/value protocols, the five-value canonical finish enum, server rejection/connection observer, shared admission lease, raw-prompt contract, and `AnyAFMRawTextGenerator` in new `Sources/AFMKitCore/Telemetry/InferenceTelemetry.swift` and `Sources/AFMKitCore/Providers/AFMRawTextGeneration.swift`; extend `AnyAFMModel` in `AFMProviderRegistry.swift` to retain the optional raw capability.
-2. Add the collector/snapshot/clock in new `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `InferenceMetricsSnapshot.swift`. The collector conforms separately to provider observation, server observation, and snapshot-source protocols; update `Package.swift` target dependencies.
-3. Convert `Sources/AFMKitMLX/Models/StatsAggregator.swift` to a compatibility facade and instrument `BatchScheduler.swift`, `MLXModelService.swift`, `AFMMLXRuntime.swift`, and `AFMMLXProvider.swift` through injected protocols. Move slot wait/reservation from `MLXChatCompletionsController.swift` into provider admission.
+1. Add the immutable snapshot/histogram value contract, concrete snapshot-source protocol, provider/server/legacy observer protocols, five-value canonical finish enum, shared admission lease/type eraser, raw-prompt contract, and `AnyAFMRawTextGenerator` under `Sources/AFMKitCore/Telemetry/` and `Sources/AFMKitCore/Providers/`; extend `AnyAFMModel` in `AFMProviderRegistry.swift` to retain the optional raw capability.
+2. Add only the mutable collector/clock/rolling-window implementation in new `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift`. It conforms to Core provider observation, server observation, legacy compatibility, and snapshot-source protocols; update `Package.swift` while preserving `AFMKitServices -> AFMKitCore` and provider-target `-> AFMKitCore` dependency direction.
+3. Rewrite `Sources/AFMKitMLX/Models/StatsAggregator.swift` as the concrete deprecated forwarding facade while retaining its full public surface. Add the defaulted optional `generationAdmitter` requirement without removing any `AFMMLXRequestScheduling`/chat-serving requirement. Instrument `BatchScheduler.swift`, `MLXModelService.swift`, `AFMMLXRuntime.swift`, and `AFMMLXProvider.swift` through injected Core protocols and move built-in slot wait/reservation from `MLXChatCompletionsController.swift` into provider admission.
 4. Instrument `Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift` and its model/runtime construction; replace pre-generation polling in `AFMKitMLXChatServingAdapter.swift` with the same provider-owned admission contract. Expose MTP/EAGLE3/DSpARK observations from AFM-owned sources. Patch only `Scripts/patches/Qwen3_5MoE.swift`, `DeepseekV4.swift`, or `Gemma4Eagle3.swift` if direct implementation proves the callback unavailable; never edit vendor sources directly.
-5. Construct one collector in `Sources/AFMCLI/main.swift`; inject its provider observer into runtimes and its server-observer/snapshot-source views into `Server`. Add a testable DwarfStar server-composition helper that preserves `AnyAFMModel.rawTextGenerator` through erasure.
+5. Construct one collector in `Sources/AFMCLI/main.swift`; install it as the deprecated facade's compatibility target before runtime start, inject its provider observer into runtimes, and inject its server-observer/Core snapshot-source views into `Server`. Add a testable DwarfStar server-composition helper that preserves `AnyAFMModel.rawTextGenerator` through erasure.
 6. Refactor `Sources/AFMServer/Controllers/MetricsController.swift` into unchanged AFM-native rendering plus pinned vLLM rendering over one snapshot. Update `Scripts/grafana/README.md` and `Scripts/grafana/UPSTREAM.md`.
 7. Add raw completion DTOs under `Sources/AFMOpenAICompat/CompletionRequest.swift` and `CompletionResponse.swift`; add `Sources/AFMServer/Controllers/CompletionsController.swift`; register routes from retained `AnyAFMRawTextGenerator` capability and update `OpenAPIController.swift` and `Server.swift` route output.
 8. Inject `AFMServerTelemetryObserving` into request-validation paths and `ActiveConnectionsMiddleware`; migrate all active/peak connection writes away from `StatsAggregator.shared`. Keep server rejection writes disjoint from provider accepted/terminal state.
@@ -289,6 +326,7 @@ Release packaging/workflow cleanup is explicitly out of scope. Do not modify `.g
 | --- | --- | --- |
 | Collector | Lifecycle/terminal dedupe | Accepted/terminal balances; duplicate terminal ignored/reported; cancellation race is exactly once. |
 | Collector | Nonblocking observer | Concurrent event calls do not await or re-enter a scheduler; deterministic stress test has no lost counts. |
+| Target boundary | Core snapshot contract | AFMKitCore snapshot/source compile without Services; Services conforms; MLX/DwarfStar import no Services module; AFMServer renders using only the Core value/protocol. |
 | Collector/server observer | Writable ownership | Decode/auth/validation/capacity rejection increments only bounded rejection state; no provider token, accepted, or terminal mutation. Active connection open/close is balanced and peak remains correct. |
 | Collector | Full/computed/cache split | On cache hit `F/H/C`, vLLM full `+F`, AFM computed and throughput `+C`, query `+F`, hit `+H`, miss `+C`. |
 | Collector | Rolling throughput | Injected monotonic clock covers empty, partial 10-second window, expiry, and concurrency. |
@@ -315,6 +353,10 @@ Release packaging/workflow cleanup is explicitly out of scope. Do not modify `.g
 | Runtime matrix | Lifecycle paths | MLX batch/serial/MTP/EAGLE3 and DwarfStar/DSpARK each balance events and exact usage. |
 | Admission | MLX wait paths | Deterministic clock/slot tests cover wait success, queue-full rejection, timeout, and cancellation; waiting is observable and each admitted request has one accepted/terminal pair. |
 | Admission | DwarfStar wait paths | The erased-provider adapter passes the same success/rejection/timeout/cancel matrix with no server polling or duplicate terminal. |
+| Public API compile | Legacy protocol conformers | External conformers implementing only pre-issue `AFMMLXRequestScheduling`, `AFMMLXOpenAIChatGenerating`, and `AFMMLXOpenAIChatServing` requirements compile; default `generationAdmitter == nil` selects the legacy adapter. |
+| Public API compile | `StatsAggregator` surface | `shared`, nested types, bucket constants, every current mutation/registration/observation method, and `snapshot()` compile from an external module. |
+| Compatibility behavior | Facade binding/parity | Installed Services collector receives each legacy facade call once; nested snapshot conversion matches Core values; same-target reinstall is harmless, replacement is rejected, unbound facade is zero/no-op. |
+| Compatibility behavior | Built-in admission enforcement | Built-in MLX/DwarfStar always provide a non-`nil` admitter and cannot fall back to legacy slot polling; external default conformer preserves old behavior but is marked unqualified. |
 
 Likely tests:
 
@@ -324,6 +366,8 @@ Likely tests:
 - New `Tests/MacLocalAPITests/AnyAFMModelRawGenerationTests.swift` plus provider-registry and CLI composition coverage.
 - New `Tests/MacLocalAPITests/LegacyCompletionsControllerTests.swift`.
 - New `Tests/MacLocalAPITests/GenerationAdmissionTelemetryTests.swift` for MLX and DwarfStar slot-wait handoffs.
+- New `Tests/MacLocalAPITests/PublicAPICompatibilityTests.swift`, importing public modules without `@testable`.
+- New local package fixture `Tests/CompatibilityFixtures/Issue192LegacyClient/` compiled through `Scripts/swiftpm-reliable.sh` to exercise qualified nested types, old initializers, and default protocol witnesses.
 - New `Tests/MacLocalAPITests/ModelDiscoveryDeterminismTests.swift`.
 - Extend `StreamingUsageChunkTests.swift` and `MLXChatCompletionsControllerStreamingTests.swift`.
 - Add DwarfStar provider conformance tests; retain Foundation telemetry tests only to prove it remains unqualified/route-gated.
@@ -376,7 +420,7 @@ Durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191-192/AR
 | --- | --- |
 | 1. Correct full vs computed prompt tokens | Added distinct full and computed counters, corrected `vllm:prompt_tokens_total`, and specified exact `F/H/C` cache-hit assertions. |
 | 2. Exact speculative key and pinned contract | Replaced the wrong key with `vllm:spec_decode_acceptance_rate`; added pinned name/HELP/TYPE/label/bucket fixtures and classified misses/rejected/failure metrics as AFM additions. |
-| 3. Resolve cross-runtime collector ownership | Selected AFMKitCore protocols plus AFMKitServices collector/snapshot, injected into providers and AFMServer; MLX singleton retained only as compatibility facade. |
+| 3. Resolve cross-runtime collector ownership | Selected AFMKitCore protocols/immutable snapshot plus AFMKitServices mutable collector, injected into providers and AFMServer; MLX singleton retained only as compatibility facade. |
 | 4. Add event ownership table | Defined acceptance, sole owners for every event, nonblocking observer constraints, cancellation behavior, and one-terminal enforcement. |
 | 5. Define true raw-prompt contract | Added provider-neutral `AFMRawTextGenerating` using direct raw `UserInput(prompt:)`, exact usage, shared stream/non-stream provider events, and capability-gated route registration. |
 | 6. Do not claim Foundation accuracy | Added exact runtime matrix: MLX and DwarfStar contracts are required; Foundation and proxies are explicitly unqualified and receive no silent raw route. |
@@ -399,4 +443,15 @@ Second durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191
 | 3. AFMServer cannot write through a snapshot source | Added Core-owned writable `AFMServerTelemetryObserving`, implemented by the same Services collector and injected separately from the snapshot source. It owns bounded rejection and active-connection writes; tests prove rejection writes allocate no provider token and do not alter accepted/terminal counts. |
 | 4. Pre-provider slot wait conflicts with acceptance metrics | Moved slot wait/reservation into provider-owned queue admission for MLX and the DwarfStar adapter. Queue insertion atomically creates accepted/waiting state; success returns a running lease, while timeout/cancel emits one provider terminal. Pre-insertion queue-full rejection has no token. Deterministic tests cover all handoffs. |
 
-No feature code may be implemented until the third gate approves this revised plan.
+This was the Gate-2 checkpoint. The Gate-3 verdict below supersedes its approval condition.
+
+## Architecture review 3 verdict and resolution trace
+
+Third durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191-192/ARCHITECTURE_REVIEW_3_ISSUE_192.md`, dated 2026-08-17. Verdict for issue 192: **REQUEST CHANGES**. No production implementation may begin until a new independent architecture gate approves this revision.
+
+| Gate-3 blocker | Resolution in this revision |
+| --- | --- |
+| 1. Snapshot ownership violates Core/Services dependency direction | Moved the complete immutable `AFMInferenceMetricsSnapshot`/`AFMHistogramSnapshot` value contract and concrete `AFMInferenceMetricsSnapshotSource` return type to AFMKitCore. AFMKitServices owns only mutable collector state and constructs the Core value. AFMServer reads the Core contract; MLX/DwarfStar depend only on Core. Added package-boundary compile tests. |
+| 2. Public compatibility/migration is conditional | Chose a non-breaking source-compatible migration. `StatsAggregator` remains a concrete deprecated AFMKitMLX facade with every existing public nested type and method, forwarding through a Core legacy sink to the single Services collector. Existing scheduling/chat requirements and initializers remain; a new optional admitter requirement defaults to `nil`, preserving external conformers through a documented unqualified legacy adapter. Added external-module and local-package compile fixtures plus facade binding/parity tests. |
+
+The plan now makes both target ownership and public migration normative rather than conditional. Implementation remains blocked pending a new independent approval.
