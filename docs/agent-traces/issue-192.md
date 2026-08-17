@@ -1,6 +1,6 @@
 # Issue 192 Phase A: vLLM Metrics and GuideLLM Interoperability Plan
 
-Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending architecture re-review.
+Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending approval from architecture gate 3.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/192>
 
@@ -65,26 +65,29 @@ AFM and vLLM rendering consume one immutable provider-neutral snapshot. There is
 
 This plan selects **cross-runtime qualification** rather than keeping the concrete collector in AFMKitMLX.
 
-- `AFMKitCore` owns only `Sendable` event/value protocols and immutable observation types. It has no counters, Prometheus names, HTTP concepts, or dependency on a provider.
+- `AFMKitCore` owns only `Sendable` event/value protocols, immutable observation types, bounded provider finish/rejection enums, generation-admission contracts, and raw-generator type erasure. It has no counters, Prometheus names, Vapor types, or dependency on a provider.
 - `AFMKitServices` owns the provider-neutral process collector, locks/rolling windows, immutable snapshot, clock abstraction, and one-terminal enforcement. Proposed new files are `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `Sources/AFMKitServices/Telemetry/InferenceMetricsSnapshot.swift`.
 - AFMKitMLX and AFMKitDwarfStar receive an `any AFMInferenceTelemetryObserving` during construction. They never import AFMKitServices; the CLI/server composition root injects the collector through the AFMKitCore protocol.
-- AFMServer receives the same collector through a snapshot-source protocol. It owns only HTTP-side failure classification and deterministic Prometheus exposition.
+- AFMServer receives the same collector through two narrow Core-owned interfaces: read-only `AFMInferenceMetricsSnapshotSource` for rendering and writable `AFMServerTelemetryObserving` for bounded pre-admission rejections and active-connection lifecycle. AFMServer owns HTTP-side classification and calls the writable observer; AFMKitServices remains the state owner.
 - `Sources/AFMKitMLX/Models/StatsAggregator.swift` becomes a deprecated forwarding facade/type alias if public source compatibility requires `StatsAggregator.shared`. New provider and server code must not use that global facade.
-- `Sources/AFMCLI/main.swift` creates exactly one collector per server process and injects it into provider/runtime and `Server`. `Package.swift` is updated only as needed for AFMKitCore protocol and AFMKitServices collector dependencies.
+- `Sources/AFMCLI/main.swift` creates exactly one collector per server process and injects its provider observer, server observer, and snapshot-source views into provider/runtime and `Server`. `Package.swift` is updated only as needed for AFMKitCore protocol and AFMKitServices collector dependencies.
 - Foundation is not adapted to the provider event contract in issue 192 and is not part of the qualified matrix below.
 
-The observer methods are synchronous, nonblocking, `Sendable`, cancellation-safe, and limited to a short lock/atomic enqueue. They must never await, call provider code, or re-enter a scheduler actor. Event values include an opaque collector-issued request token so terminal deduplication does not require request IDs as Prometheus labels.
+Both observer interfaces are synchronous, nonblocking, `Sendable`, cancellation-safe, and limited to a short lock/atomic update. They must never await, call provider code, or re-enter a scheduler actor. Provider event values include an opaque collector-issued request token so terminal deduplication does not require request IDs as Prometheus labels. Server rejection calls cannot allocate or receive a provider token.
+
+`AFMServerTelemetryObserving` has only three operations: `recordRejection(_:)`, `connectionOpened() -> AFMServerConnectionToken`, and `connectionClosed(_:)`. `AFMServerRejectionReason` is the closed Core enum `decode`, `authentication`, `validation`, `capacity`; provider failures (`cancelled`, `inference`, `internal`) enter through the provider observer instead. The opaque connection token makes close idempotent and carries no request/model label data.
 
 ### Event ownership and one-terminal rule
 
-A request becomes **accepted** only when a provider validates its runtime request, reserves/adopts its request token, and admits it to the provider's runnable/waiting queue. HTTP decode/auth/client-validation/capacity failures before that point are rejected, not accepted. Every accepted request gets exactly one provider-owned terminal event.
+A request becomes **accepted** when the provider atomically inserts it into its bounded runnable/waiting admission queue and allocates its collector token. It does not wait for a compute slot first. Queue insertion increments accepted and waiting in one provider-owned operation, so slot-wait time is visible in waiting, E2E, queue latency, and TTFT. A provider that refuses insertion because the admission queue itself is full returns a typed rejection with no token; AFMServer maps and records that pre-admission capacity rejection. Every accepted request gets exactly one provider-owned terminal event, including timeout or cancellation while waiting.
 
 | Event/state | Sole owner | Recording rule |
 | --- | --- | --- |
-| HTTP body decode, auth, endpoint/model/client-field validation failure | AFMServer | Record one bounded rejection status; no provider request token and no accepted/completed event. |
-| Capacity rejection before provider admission | AFMServer | Record `capacity`; no accepted request. Waiting after provider admission is not rejection. |
-| Provider admission | Runtime/provider | Allocate telemetry token and emit `accepted` exactly once after successful queue admission. |
-| Waiting/running gauges | Runtime scheduler | Publish an atomic snapshot; accepted queued work is waiting, scheduled work is running. |
+| HTTP body decode, auth, endpoint/model/client-field validation failure | AFMServer via `AFMServerTelemetryObserving` | Record one bounded rejection status; no provider request token and no accepted/terminal mutation. |
+| Admission-queue capacity rejection | Provider decides; AFMServer classifies/records via server observer | Provider returns typed rejection before insertion and without token. Server records `capacity`; accepted/terminal remain unchanged. |
+| Provider queue admission | Runtime/provider | Atomically insert into waiting queue, allocate token, emit `accepted`, and start accepted latency exactly once. |
+| Slot wait | Runtime scheduler | Accepted request remains waiting. Success moves waiting to running; timeout/cancel removes waiting and emits the sole provider terminal (`abort`) for its token. |
+| Waiting/running gauges | Runtime scheduler | Publish an atomic snapshot from the admission queue and active leases. Server-side polling/reservation is removed. |
 | Full prompt token count | Runtime/provider tokenizer | Record exact model-input token IDs once per accepted request, including reusable cached prefix. |
 | Computed prompt token count | Runtime/provider prefill | Record only prompt token positions actually computed after prefix reuse. |
 | Output tokens and monotonic timestamps | Runtime/provider generation loop | Record actual generated token events; server text chunk boundaries are irrelevant. |
@@ -94,8 +97,11 @@ A request becomes **accepted** only when a provider validates its runtime reques
 | Successful/failed runtime terminal | Runtime/provider | Atomically claim the request token's terminal state once, with bounded finish/failure reason and exact usage. |
 | Client disconnect/cancel after acceptance | AFMServer requests; provider owns result | Server signals cancellation. Provider removes runtime/KV state and emits the sole `cancelled` terminal. Server must not emit a second terminal metric. |
 | Wire HTTP status, JSON errors, SSE framing | AFMServer | Map provider result/error to wire state only; never increment accepted-runtime terminal counters. |
+| Active HTTP connection open/close | AFMServer middleware via `AFMServerTelemetryObserving` | Migrate current active/peak writes from `StatsAggregator.shared`; use a server connection token/idempotent close so every counted open closes once. Existing route exclusions remain unchanged. |
 
-The collector rejects duplicate terminal events for the same telemetry token and tests assert balanced accepted/terminal counts for every exit path.
+The shared Core admission contract is used by chat and raw generation. AFMServer performs decode/auth/field validation, then calls the provider admission operation once; `MLXChatCompletionsController` and `AFMKitMLXChatServingAdapter` no longer poll or reserve slots. Admission asynchronously waits inside the provider after queue insertion and returns a running lease on success. The lease carries the telemetry token and has provider-owned idempotent release/terminal cleanup. Pre-insertion rejection returns no lease/token. Cancellation races are resolved by the provider's single terminal compare-and-set.
+
+The collector rejects duplicate terminal events for the same telemetry token and tests assert balanced accepted/terminal counts for every exit path. Server-observer tests separately prove that rejection and connection writes cannot allocate provider tokens or mutate accepted/terminal totals.
 
 ## Metric contract and cardinality
 
@@ -115,7 +121,7 @@ For a cache-hit request with full prompt `F`, reused prefix `H`, and computed su
 | `vllm:num_requests_running` | provider live gauge | Pinned vLLM/Playground family. |
 | `vllm:num_requests_waiting` | provider live gauge | Pinned vLLM/Playground family. |
 | `vllm:num_preemptions_total` | explicit provider preemption events | Pinned family; cancellation never increments it. |
-| `vllm:request_success_total{finished_reason}` | sole provider terminal | Pinned family with bounded `stop`, `length`, `tool_calls`, `abort`, `error`. |
+| `vllm:request_success_total{finished_reason}` | sole provider terminal | Pinned family with exactly `stop`, `length`, `abort`, `error`, `repetition`; all five series are pre-created. |
 | `vllm:prompt_tokens_total` | `fullPromptTokensTotal` | Pinned family; includes cached tokens. It is not an AFM prompt-total alias. |
 | `vllm:generation_tokens_total` | exact generated tokens | Pinned family; value agrees with existing AFM generation total. |
 | `vllm:request_prompt_tokens` | full prompt size | Pinned histogram. |
@@ -134,22 +140,37 @@ For a cache-hit request with full prompt `F`, reused prefix `H`, and computed su
 | `vllm:spec_decode_num_accepted_tokens_total` | accepted draft tokens | Exact Playground counter sample. |
 | `vllm:spec_decode_num_drafts_total` | draft rounds | Exact Playground counter sample. |
 | `vllm:spec_decode_acceptance_rate` | accepted / draft tokens | **Exact pinned Playground key**; zero when draft tokens are zero. |
-| `afm:request_failures_total{status}` | server rejection plus provider failure classification | AFM issue-192 addition, not represented as upstream vLLM. Bounded statuses only. |
+| `afm:request_failures_total{status}` | server rejection plus provider failure classification | AFM issue-192 addition, not represented as upstream vLLM. Closed union: `decode`, `authentication`, `validation`, `capacity`, `cancelled`, `inference`, `internal`. |
 | `afm:prefix_cache_missed_tokens_total` | queries minus hits | AFM issue-192 addition, not upstream vLLM. Existing request-event radix counters remain unchanged. |
 | `afm:spec_decode_num_rejected_tokens_total` | draft minus accepted | AFM issue-192 addition, not upstream vLLM. |
 | `afm:request_throughput_requests_per_s` | rolling terminal events | AFM issue-192 addition, not upstream vLLM. |
 
-Create pinned fixtures such as `Tests/MacLocalAPITests/Fixtures/vllm-9633933-metrics.prom` and `Tests/MacLocalAPITests/Fixtures/vllm-playground-7627622-registry.json`. Renderer tests lock canonical sample names, HELP/TYPE names, label sets, and bucket boundaries to those fixtures. Prometheus counters retain `_total` on rendered samples. AFM additions are tested separately and never described as upstream families.
+Create pinned fixtures such as `Tests/MacLocalAPITests/Fixtures/vllm-9633933-metrics.prom` and `Tests/MacLocalAPITests/Fixtures/vllm-playground-7627622-registry.json`. Renderer tests lock canonical sample names, HELP/TYPE names, label sets, bucket boundaries, and the exact five `finished_reason` values to those fixtures. Prometheus counters retain `_total` on rendered samples. AFM additions are tested separately and never described as upstream families.
 
 Append only the upper histogram bounds added by pinned upstream. Do not remove old AFM buckets or change their cumulative values.
 
 ### Cardinality policy
 
 - Canonical vLLM families use only process-derived `model_name` and fixed `engine="0"`, matching pinned upstream.
-- `finished_reason` and AFM `status` use closed enums. Unknown values collapse to `unknown`; arbitrary strings are never labels.
+- Canonical vLLM `finished_reason` is a closed five-value enum: `stop`, `length`, `abort`, `error`, `repetition`. It has no `unknown` or `tool_calls` series. AFM rejection `status` remains a separate closed enum whose unexpected internal value may collapse to `unknown`.
 - Do not label by request ID/token, API key, user, prompt, endpoint, sampling values, HTTP code/path, cache key, tool name, or error type/message.
 - Runtime identity, if exposed, is one bounded AFM info gauge, not a label copied onto every series.
 - Expected bounded series render stable zero samples so schema does not change with traffic.
+
+### Engine finish labels versus OpenAI wire finish reasons
+
+Provider terminal observations store a pinned engine reason separately from the OpenAI response reason. AFMServer may refine the wire reason after parsing generated content, but it cannot mutate the canonical metric label.
+
+| Provider/runtime outcome | `vllm:request_success` label | OpenAI wire behavior |
+| --- | --- | --- |
+| Natural stop or stop sequence | `stop` | `finish_reason: "stop"`. |
+| Valid tool call parsed from a normally stopped generation | `stop` | Preserve `finish_reason: "tool_calls"`; `tool_calls` is never a vLLM label. |
+| Maximum output/context limit | `length` | `finish_reason: "length"`. |
+| Repetition guard terminates generation | `repetition` | Map to wire `finish_reason: "stop"` because OpenAI has no repetition reason; retain provider diagnostic separately. |
+| Accepted request cancelled/aborted, including slot-wait timeout/cancel | `abort` | Error/cancellation path; no successful finish event. |
+| Accepted request fails in provider/runtime | `error` | OpenAI error JSON/SSE path; no successful finish event. |
+
+Existing AFM-native finish-reason output remains unchanged, including any `tool_calls` wire-oriented AFM series. Only the vLLM compatibility renderer applies the canonical mapping. Tests drive all five provider outcomes, assert exactly five pre-created vLLM label values, and independently assert that tool-call responses still use the OpenAI wire value `tool_calls`.
 
 ### Logical KV utilization
 
@@ -184,7 +205,19 @@ Provider requirements:
 4. Count actual generated token IDs, preserve stop/length semantics, and emit one provider terminal event.
 5. Advertise the capability only when these semantics and exact usage are implemented.
 
-AFMOpenAICompat owns `CompletionRequest`, response, chunk, usage, and error wire DTOs. AFMServer owns DTO validation and mapping provider events to OpenAI JSON/SSE. `/v1/completions` POST/OPTIONS is registered only when the selected runtime supplies `AFMRawTextGenerating`; unsupported runtimes do not silently route through chat.
+### Capability-preserving model erasure
+
+Use a Core-owned type eraser rather than attempting a runtime cast after model erasure:
+
+- Add `AnyAFMRawTextGenerator` in `AFMKitCore`. It captures the raw admission/generation closures of an `AFMRawTextGenerating` provider without importing server or wire types.
+- Extend `AnyAFMModel` in `Sources/AFMKitCore/AFMProviderRegistry.swift` with `public let rawTextGenerator: AnyAFMRawTextGenerator?`. Its generic initializer captures the optional conformance before storing the base model closures; non-conforming models store `nil`.
+- Provider-registry model creation returns an `AnyAFMModel` whose optional raw generator survives registry lookup and erasure.
+- The DwarfStar CLI path constructs `AFMDwarfStarModel`, erases it once, and passes that same `AnyAFMModel` to `Server`; `Server` reads `afmModel.rawTextGenerator` and injects it into `CompletionsController`. It never attempts to recover the concrete DwarfStar model.
+- MLX composition uses the same erased capability when a model travels through `AnyAFMModel`; direct MLX service composition wraps the same provider contract in `AnyAFMRawTextGenerator` before server registration.
+
+AFMOpenAICompat owns `CompletionRequest`, response, chunk, usage, and error wire DTOs. AFMServer owns DTO validation and mapping provider events to OpenAI JSON/SSE. `/v1/completions` POST/OPTIONS is registered only when the composed `AnyAFMModel.rawTextGenerator` or direct `AnyAFMRawTextGenerator` is non-`nil`; unsupported runtimes do not silently route through chat.
+
+Composition tests cover: direct conforming/non-conforming erasure; provider-registry construction through `AnyAFMModel`; DwarfStar CLI server-composition helper from concrete model through erasure to registered route; and DSpARK using the same retained capability. These are in addition to direct provider conformance tests.
 
 ### Prompt-array behavior
 
@@ -236,16 +269,17 @@ Non-streaming chat and raw completions use their respective normal object shapes
 
 ## Implementation sequence and exact likely files
 
-1. Add event/value protocols and raw-prompt contracts in new `Sources/AFMKitCore/Telemetry/InferenceTelemetry.swift` and `Sources/AFMKitCore/Providers/AFMRawTextGeneration.swift`.
-2. Add the collector/snapshot/clock in new `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `InferenceMetricsSnapshot.swift`; update `Package.swift` target dependencies.
-3. Convert `Sources/AFMKitMLX/Models/StatsAggregator.swift` to a compatibility facade and instrument `BatchScheduler.swift`, `MLXModelService.swift`, `AFMMLXRuntime.swift`, and `AFMMLXProvider.swift` through injected protocols.
-4. Instrument `Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift` and its model/runtime construction. Expose MTP/EAGLE3/DSpARK observations from AFM-owned sources. Patch only `Scripts/patches/Qwen3_5MoE.swift`, `DeepseekV4.swift`, or `Gemma4Eagle3.swift` if direct implementation proves the callback unavailable; never edit vendor sources directly.
-5. Construct/inject one collector in `Sources/AFMCLI/main.swift` and inject its snapshot source into `Server`.
+1. Add provider event/value protocols, the five-value canonical finish enum, server rejection/connection observer, shared admission lease, raw-prompt contract, and `AnyAFMRawTextGenerator` in new `Sources/AFMKitCore/Telemetry/InferenceTelemetry.swift` and `Sources/AFMKitCore/Providers/AFMRawTextGeneration.swift`; extend `AnyAFMModel` in `AFMProviderRegistry.swift` to retain the optional raw capability.
+2. Add the collector/snapshot/clock in new `Sources/AFMKitServices/Telemetry/InferenceTelemetryCollector.swift` and `InferenceMetricsSnapshot.swift`. The collector conforms separately to provider observation, server observation, and snapshot-source protocols; update `Package.swift` target dependencies.
+3. Convert `Sources/AFMKitMLX/Models/StatsAggregator.swift` to a compatibility facade and instrument `BatchScheduler.swift`, `MLXModelService.swift`, `AFMMLXRuntime.swift`, and `AFMMLXProvider.swift` through injected protocols. Move slot wait/reservation from `MLXChatCompletionsController.swift` into provider admission.
+4. Instrument `Sources/AFMKitDwarfStar/AFMDwarfStarScheduler.swift` and its model/runtime construction; replace pre-generation polling in `AFMKitMLXChatServingAdapter.swift` with the same provider-owned admission contract. Expose MTP/EAGLE3/DSpARK observations from AFM-owned sources. Patch only `Scripts/patches/Qwen3_5MoE.swift`, `DeepseekV4.swift`, or `Gemma4Eagle3.swift` if direct implementation proves the callback unavailable; never edit vendor sources directly.
+5. Construct one collector in `Sources/AFMCLI/main.swift`; inject its provider observer into runtimes and its server-observer/snapshot-source views into `Server`. Add a testable DwarfStar server-composition helper that preserves `AnyAFMModel.rawTextGenerator` through erasure.
 6. Refactor `Sources/AFMServer/Controllers/MetricsController.swift` into unchanged AFM-native rendering plus pinned vLLM rendering over one snapshot. Update `Scripts/grafana/README.md` and `Scripts/grafana/UPSTREAM.md`.
-7. Add raw completion DTOs under `Sources/AFMOpenAICompat/CompletionRequest.swift` and `CompletionResponse.swift`; add `Sources/AFMServer/Controllers/CompletionsController.swift`; register capability-gated routes and update `OpenAPIController.swift` and `Server.swift` route output.
-8. Correct chat and raw SSE framing/error behavior in `MLXChatCompletionsController.swift`, `ChatCompletionsController.swift` only where existing unqualified behavior must not be shared, and common response helpers/DTOs.
-9. Extract deterministic model-list construction from `Sources/AFMServer/Server.swift` into a testable helper.
-10. Add `Scripts/test-vllm-guidellm-compat.py`, focused deterministic coverage in `Scripts/test-assertions.sh`, and `docs/guidellm.md`. Heavy model/GuideLLM runs remain opt-in.
+7. Add raw completion DTOs under `Sources/AFMOpenAICompat/CompletionRequest.swift` and `CompletionResponse.swift`; add `Sources/AFMServer/Controllers/CompletionsController.swift`; register routes from retained `AnyAFMRawTextGenerator` capability and update `OpenAPIController.swift` and `Server.swift` route output.
+8. Inject `AFMServerTelemetryObserving` into request-validation paths and `ActiveConnectionsMiddleware`; migrate all active/peak connection writes away from `StatsAggregator.shared`. Keep server rejection writes disjoint from provider accepted/terminal state.
+9. Correct chat and raw SSE framing/error behavior in `MLXChatCompletionsController.swift`, `ChatCompletionsController.swift` only where existing unqualified behavior must not be shared, and common response helpers/DTOs.
+10. Extract deterministic model-list construction from `Sources/AFMServer/Server.swift` into a testable helper.
+11. Add `Scripts/test-vllm-guidellm-compat.py`, focused deterministic coverage in `Scripts/test-assertions.sh`, and `docs/guidellm.md`. Heavy model/GuideLLM runs remain opt-in.
 
 Release packaging/workflow cleanup is explicitly out of scope. Do not modify `.github/workflows/release.yml` or repair/remove its stale script references under issue 192.
 
@@ -255,34 +289,41 @@ Release packaging/workflow cleanup is explicitly out of scope. Do not modify `.g
 | --- | --- | --- |
 | Collector | Lifecycle/terminal dedupe | Accepted/terminal balances; duplicate terminal ignored/reported; cancellation race is exactly once. |
 | Collector | Nonblocking observer | Concurrent event calls do not await or re-enter a scheduler; deterministic stress test has no lost counts. |
+| Collector/server observer | Writable ownership | Decode/auth/validation/capacity rejection increments only bounded rejection state; no provider token, accepted, or terminal mutation. Active connection open/close is balanced and peak remains correct. |
 | Collector | Full/computed/cache split | On cache hit `F/H/C`, vLLM full `+F`, AFM computed and throughput `+C`, query `+F`, hit `+H`, miss `+C`. |
 | Collector | Rolling throughput | Injected monotonic clock covers empty, partial 10-second window, expiry, and concurrency. |
 | Collector | Speculation | Draft/accepted/derived rejected arithmetic and exact `vllm:spec_decode_acceptance_rate`; zero denominator is zero. |
 | Collector | TTFT/TPOT/ITL | Known token timestamps produce distinct values; zero/one-token outputs fabricate no intervals. |
 | Collector | KV logical occupancy | Admission/decode/completion/cancel bounds and retained-prefix exclusion. |
 | Renderer | AFM preservation golden | Every pre-issue AFM HELP/TYPE/sample family and meaning remains unchanged. |
-| Renderer | Pinned vLLM fixture | Exact canonical names, `_total` samples, HELP/TYPE, labels, and buckets match pinned fixtures. |
+| Renderer | Pinned vLLM fixture | Exact canonical names, `_total` samples, HELP/TYPE, labels, buckets, and exactly `stop|length|abort|error|repetition` finish series match pinned fixtures. |
 | Renderer | Playground registry | Every pinned registry key exists, especially `vllm:spec_decode_acceptance_rate`; AFM additions are not classified as upstream. |
 | Renderer | Prometheus parser/linter | `promtool check metrics` and `prometheus_client.parser` accept output; no duplicate/conflicting metadata. |
 | Renderer | Shared-source parity | Only true aliases (running/waiting/generated/latency/finish) agree; full and computed prompt totals intentionally differ on hits. |
 | Route | `/metrics` | 200, existing content type/CORS, both namespaces, deterministic order, no scrape-time counter mutation. |
 | Raw provider | Template bypass | Exact raw prompt reaches `UserInput(prompt:)`; no system instruction, messages, chat template, or role tokens. |
+| Raw composition | Type erasure | Direct `AnyAFMModel`, provider registry, and DwarfStar CLI composition retain conforming raw capability and omit it for non-conforming models. |
 | DTO/controller | Prompt array | Every array shape returns stable pre-header 400 and no provider admission. |
 | Protocol | Non-stream success | Chat and text-completion shapes, finish reasons, IDs/model, exact usage. |
 | Protocol | Chat SSE | Delta payloads, one finish, optional usage-only, one `[DONE]` in exact order. |
 | Protocol | Legacy SSE | Text payloads/no role/no delta, one finish, optional usage-only, one `[DONE]`. |
 | Protocol | SSE post-header error | One OpenAI error event, no finish/usage/text substitution/`[DONE]`; pinned GuideLLM counts failure. |
+| Protocol/metrics | Finish mapping | Wire `tool_calls` records canonical vLLM `stop`; repetition records vLLM `repetition` and wire `stop`; all five canonical labels are pre-created. |
 | Protocol | Usage disabled | Suppresses only usage event and preserves successful finish/`[DONE]`. |
 | Discovery | Determinism | Consecutive responses byte-stable; loaded generative model first; tail sorted. |
 | Runtime matrix | Capability/route gating | MLX and DwarfStar expose raw route only with exact contract; Foundation/proxy do not. |
 | Runtime matrix | Lifecycle paths | MLX batch/serial/MTP/EAGLE3 and DwarfStar/DSpARK each balance events and exact usage. |
+| Admission | MLX wait paths | Deterministic clock/slot tests cover wait success, queue-full rejection, timeout, and cancellation; waiting is observable and each admitted request has one accepted/terminal pair. |
+| Admission | DwarfStar wait paths | The erased-provider adapter passes the same success/rejection/timeout/cancel matrix with no server polling or duplicate terminal. |
 
 Likely tests:
 
 - New `Tests/MacLocalAPITests/InferenceTelemetryCollectorTests.swift`.
 - New `Tests/MacLocalAPITests/MetricsControllerTests.swift` and pinned fixture directory.
 - New `Tests/MacLocalAPITests/RawTextGenerationContractTests.swift`.
+- New `Tests/MacLocalAPITests/AnyAFMModelRawGenerationTests.swift` plus provider-registry and CLI composition coverage.
 - New `Tests/MacLocalAPITests/LegacyCompletionsControllerTests.swift`.
+- New `Tests/MacLocalAPITests/GenerationAdmissionTelemetryTests.swift` for MLX and DwarfStar slot-wait handoffs.
 - New `Tests/MacLocalAPITests/ModelDiscoveryDeterminismTests.swift`.
 - Extend `StreamingUsageChunkTests.swift` and `MLXChatCompletionsControllerStreamingTests.swift`.
 - Add DwarfStar provider conformance tests; retain Foundation telemetry tests only to prove it remains unqualified/route-gated.
@@ -317,8 +358,10 @@ The harness captures server config/version, runtime/model, upstream commits, exa
 
 - Full and computed prompt tokens are deliberately separate; golden cache-hit tests prevent accidental re-aliasing.
 - Canonical pinned names are fixture-controlled. AFM additions use `afm:*` and are documented as non-upstream.
-- Provider events and server rejection events have disjoint ownership; collector tokens enforce one terminal.
-- Raw completions bypass chat templates by contract and test, not by controller convention.
+- Canonical engine finish labels and OpenAI wire reasons are separate; `tool_calls` remains wire-only and maps to engine `stop`.
+- Provider events and writable server rejection/connection events use separate Core protocols; only provider admission can allocate a telemetry token.
+- Slot waiting is provider-owned from queue insertion through lease cleanup, so waiting/latency metrics include successful, timed-out, and cancelled waits without controller polling.
+- Raw completions bypass chat templates by contract and survive `AnyAFMModel` erasure through a Core-owned optional type eraser.
 - Chat and text SSE have separate payload/state tests; failures cannot become normal text.
 - Logical KV occupancy is an approximation with explicit numerator/denominator and excludes retained cache state.
 - Foundation remains unqualified until it has native raw generation and exact usage; estimates are never emitted on a qualified path.
@@ -344,3 +387,16 @@ Durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191-192/AR
 | 11. Retain and extend tests | Retained parser, AFM golden, discovery, usage, SSE, concurrency, GuideLLM, and Playground tests; added prompt split, registry, raw bypass, KV, ownership, and runtime-gating coverage. |
 
 No architectural questions from the first checkpoint remain open: the gate supplied the KV definition, approved the 10-second window and additive `/metrics`, and this revision selects cross-runtime ownership and exact runtime/route behavior. Implementation waits for reviewer approval.
+
+## Architecture review 2 verdict and resolution trace
+
+Second durable gate: `/Volumes/edata/dev/git/CODEX/agent-traces/maclocal-api-191-192/ARCHITECTURE_REVIEW_2.md`, dated 2026-08-17. Verdict for issue 192: **REQUEST CHANGES**. Feature implementation remains blocked until a third architecture gate approves this plan.
+
+| Gate-2 finding | Resolution in this revision |
+| --- | --- |
+| 1. Pinned finish labels and wire mapping | Canonical vLLM labels are exactly `stop`, `length`, `abort`, `error`, `repetition`, all pre-created. Wire `tool_calls` maps to engine `stop` without changing the response; engine `repetition` maps to wire `stop`. Fixtures assert the exact label set and counter samples. |
+| 2. Raw capability lost through `AnyAFMModel` | Added the planned Core-owned `AnyAFMRawTextGenerator`, retained as an optional property during `AnyAFMModel` initialization. Server route composition consumes that retained capability. Direct erasure, provider registry, DwarfStar CLI, and DSpARK composition tests are specified. |
+| 3. AFMServer cannot write through a snapshot source | Added Core-owned writable `AFMServerTelemetryObserving`, implemented by the same Services collector and injected separately from the snapshot source. It owns bounded rejection and active-connection writes; tests prove rejection writes allocate no provider token and do not alter accepted/terminal counts. |
+| 4. Pre-provider slot wait conflicts with acceptance metrics | Moved slot wait/reservation into provider-owned queue admission for MLX and the DwarfStar adapter. Queue insertion atomically creates accepted/waiting state; success returns a running lease, while timeout/cancel emits one provider terminal. Pre-insertion queue-full rejection has no token. Deterministic tests cover all handoffs. |
+
+No feature code may be implemented until the third gate approves this revised plan.
