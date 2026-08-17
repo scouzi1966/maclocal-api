@@ -15,10 +15,6 @@
 
 [![AFM v0.9.17 — four new models with standard and MTP Qwen launch commands](assets/afm-0.9.17-models-deep-dive-social-v8-mtp.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17)
 
-### [AFM v0.9.16](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
-
-[![AFM v0.9.16 — four new models with copy-ready run commands](assets/afm-0.9.16-models-deep-dive-social-v7-command-strips.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.16)
-
 AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run Hugging Face MLX models or Apple’s on-device Foundation Model, then connect the clients and SDKs you already use.
 
 - Native Swift executable—no Python runtime for serving
