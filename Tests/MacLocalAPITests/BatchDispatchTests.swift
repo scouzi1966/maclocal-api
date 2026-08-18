@@ -453,6 +453,85 @@ struct BatchStoreTests {
         #expect(cancelled?.completedAt != nil)
     }
 
+    @Test("BatchStore retains and cancels the server dispatch task")
+    func batchDispatchTaskCancellation() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+
+        let task = Task<Void, Never> {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                // Expected when the batch is cancelled.
+            }
+        }
+        await store.registerDispatchTask(task, for: batchId)
+        #expect(await store.hasDispatchTask(for: batchId))
+
+        #expect(await store.cancelDispatchTask(for: batchId))
+        #expect(!await store.hasDispatchTask(for: batchId))
+        await task.value
+        #expect(task.isCancelled)
+    }
+
+    @Test("BatchStore rejects a dispatch task after cancellation begins")
+    func batchDispatchTaskLateRegistration() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+        await store.markBatchCancelling(batchId)
+
+        let task = Task<Void, Never> {}
+        await store.registerDispatchTask(task, for: batchId)
+
+        #expect(!await store.hasDispatchTask(for: batchId))
+        #expect(task.isCancelled)
+    }
+
+    @Test("BatchStore releases the dispatch task when the final result arrives")
+    func batchDispatchTaskCompletion() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+
+        let task = Task<Void, Never> {}
+        await store.registerDispatchTask(task, for: batchId)
+        await store.recordResult(
+            batchId,
+            result: BatchResultLine(
+                id: "result-1",
+                customId: "custom-1",
+                response: BatchResultResponse(
+                    statusCode: 200,
+                    requestId: "request-1",
+                    body: ChatCompletionResponse(
+                        model: "test",
+                        content: "ok",
+                        promptTokens: 1,
+                        completionTokens: 1
+                    )
+                ),
+                error: nil
+            )
+        )
+
+        #expect(!await store.hasDispatchTask(for: batchId))
+        #expect(await store.getBatch(batchId)?.status == "completed")
+    }
+
     @Test("listBatches returns all batches")
     func listBatches() async {
         let store = BatchStore()
