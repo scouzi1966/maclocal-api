@@ -35,6 +35,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let trace: Bool
     private let rawOutput: Bool
     private let stop: String?
+    private let telemetry: AFMServerTelemetryAdapter
 
     private struct GenerationAdmission: @unchecked Sendable {
         let lease: AFMGenerationLease
@@ -58,7 +59,8 @@ struct MLXChatCompletionsController: RouteCollection {
         veryVerbose: Bool = false,
         trace: Bool = false,
         rawOutput: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -76,6 +78,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.trace = trace
         self.rawOutput = rawOutput
         self.stop = stop
+        self.telemetry = telemetry
     }
 
     /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
@@ -171,11 +174,13 @@ struct MLXChatCompletionsController: RouteCollection {
             )
 
             guard !chatRequest.messages.isEmpty else {
+                telemetry.recordRejection(.validation)
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
             }
 
             // Validate top_logprobs against server max (vLLM-compatible)
             if let requestedTopLogprobs = chatRequest.topLogprobs, requestedTopLogprobs > maxLogprobs {
+                telemetry.recordRejection(.validation)
                 return try await createErrorResponse(
                     req: req,
                     error: OpenAIError(
@@ -225,6 +230,7 @@ struct MLXChatCompletionsController: RouteCollection {
             do {
                 admission = try await admitGeneration()
             } catch {
+                telemetry.recordRejection(.capacity)
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
                 req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
@@ -555,6 +561,9 @@ struct MLXChatCompletionsController: RouteCollection {
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
         } catch let abort as Abort {
+            if abort.status == .badRequest {
+                telemetry.recordRejection(.validation)
+            }
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(abort)")
             return try await createErrorResponse(
                 req: req,
@@ -563,6 +572,17 @@ struct MLXChatCompletionsController: RouteCollection {
                     type: abort.status == .badRequest ? "invalid_request_error" : "mlx_error"
                 ),
                 status: abort.status
+            )
+        } catch let decodingError as DecodingError {
+            telemetry.recordRejection(.decode)
+            req.logger.error("[\(Self.timestamp())] MLX request decode error: \(decodingError)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: "Invalid request body: \(decodingError.localizedDescription)",
+                    type: "invalid_request_error"
+                ),
+                status: .badRequest
             )
         } catch {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
@@ -611,12 +631,8 @@ struct MLXChatCompletionsController: RouteCollection {
             // generator (BatchScheduler / MLX serial path), stopping GPU work.
             let bodyTask = Task<Void, Never> {
             defer { admission.lease.release() }
-            // PR #122: Streaming routes account for their own
-            // afm:num_active_connections — ActiveConnectionsMiddleware filters
-            // them because its defer fires when the controller returns, not
-            // when the SSE body finishes.
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            let connectionToken = telemetry.connectionOpened()
+            defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()

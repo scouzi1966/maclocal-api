@@ -32,6 +32,10 @@ public struct AFMServerTelemetryAdapter:
         }
     }
 
+    static func standalone() -> Self {
+        Self(collector: InferenceTelemetryCollector())
+    }
+
     public func configure(modelName: String, maximumConcurrentRequests: Int) {
         configureHandler(modelName, maximumConcurrentRequests)
     }

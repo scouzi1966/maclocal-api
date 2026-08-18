@@ -4,6 +4,17 @@ import AFMKitServices
 import XCTest
 
 final class MetricsControllerTests: XCTestCase {
+    func testMiddlewareTracksChatRequestHandlingButNotMetricsScrapes() {
+        XCTAssertTrue(
+            ActiveConnectionsMiddleware.shouldTrackInMiddleware(
+                path: "/v1/chat/completions"
+            )
+        )
+        XCTAssertFalse(
+            ActiveConnectionsMiddleware.shouldTrackInMiddleware(path: "/metrics")
+        )
+    }
+
     func testRendererPreservesAFMMetricsAndEmitsPinnedVLLMMetrics() {
         let collector = InferenceTelemetryCollector(
             now: { 105 },

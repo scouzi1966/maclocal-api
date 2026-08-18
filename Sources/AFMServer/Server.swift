@@ -134,17 +134,13 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
 /// endpoint itself so a Prometheus scrape doesn't show up as a
 /// connection — that would be self-referential noise on every poll.
 ///
-/// Streaming endpoints (chat completions when `stream:true`) account
-/// for themselves: their handler returns the Response object
-/// immediately while the SSE body keeps writing for the duration of
-/// the generation. If we counted them here, the gauge would
-/// undercount — defer fires when `next.respond` returns, not when the
-/// body finishes. Streaming controllers wrap the asyncStream body in
-/// their own connectionStarted/connectionEnded bracket.
+/// Streaming endpoints also retain a controller-owned token for the
+/// lifetime of the SSE body. Middleware still records request parsing
+/// and response construction, which is the complete lifetime for
+/// non-streaming requests.
 struct ActiveConnectionsMiddleware: AsyncMiddleware {
     static let nonStreamingExcluded: Set<String> = ["/metrics", "/health", "/healthz", "/openapi.json", "/docs"]
     static let streamingPaths: Set<String> = [
-        "/v1/chat/completions",
         "/v1/batch/completions"
     ]
 
@@ -152,7 +148,7 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
 
     static func shouldTrackInMiddleware(path: String) -> Bool {
         if nonStreamingExcluded.contains(path) { return false }
-        // Filter the streaming chat path — its controller handles its own counting.
+        // Batch streaming still owns its complete connection lifecycle.
         if streamingPaths.contains(path) { return false }
         return true
     }
@@ -479,7 +475,8 @@ public class Server: @unchecked Sendable {
                 veryVerbose: veryVerbose,
                 trace: trace,
                 rawOutput: mlxRawOutput,
-                stop: stop
+                stop: stop,
+                telemetry: telemetry
             )
             try app.register(collection: mlxController)
 
@@ -537,7 +534,8 @@ public class Server: @unchecked Sendable {
                 permissiveGuardrails: permissiveGuardrails,
                 veryVerbose: veryVerbose,
                 stop: stop,
-                defaultGuidedJsonSchema: defaultGuidedJsonSchema
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                telemetry: telemetry
             )
             try app.register(collection: chatController)
         }
