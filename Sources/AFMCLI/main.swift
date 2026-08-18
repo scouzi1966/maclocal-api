@@ -565,7 +565,7 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
         // Publish the engine before any MLX object can initialize. The runtime
-        // also applies this typed value to MLXModelService; the environment is
+        // also applies this typed value to the AFMKit MLX runtime; the environment is
         // the stable boundary consumed by the patched mlx-swift-lm package.
         setenv("AFM_MLX_KERNELS", kernelEngine.rawValue, 1)
         if verbose {
@@ -694,14 +694,12 @@ struct MlxCommand: ParsableCommand {
             forceDisableThinking: noThink,
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
-        let runtime = AFMMLXRuntime(
-            modelID: resolvedModel,
-            configuration: runtimeConfiguration,
+        let mlxModel = AFMMLXModel(
+            modelID: AFMModelID(rawValue: resolvedModel),
+            runtimeConfiguration: runtimeConfiguration,
             resolver: resolver
         )
-        let selectedModel = runtime.modelID
-        let service = runtime.service
-        service.kernelEngine = kernelEngine
+        let selectedModel = mlxModel.normalizeModel(resolvedModel)
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -792,10 +790,11 @@ struct MlxCommand: ParsableCommand {
             do {
                 let loadReporter = MLXLoadReporter(modelID: selectedModel)
                 loadReporter.start()
-                _ = try await runtime.load(
-                    progress: { p in loadReporter.updateDownload(p) },
-                    stage: { s in loadReporter.updateStage(s) }
-                )
+                _ = try await mlxModel.load(progress: { fraction in
+                    let progress = Progress(totalUnitCount: 1_000)
+                    progress.completedUnitCount = Int64(fraction * 1_000)
+                    loadReporter.updateDownload(progress)
+                })
                 loadReporter.finish(success: true)
                 // Prewarm MLX Metal kernels (prefill + decode + gated-delta step) so the FIRST
                 // real request doesn't pay the one-time ~0.35s graph/kernel compilation that
@@ -803,7 +802,7 @@ struct MlxCommand: ParsableCommand {
                 if prewarmEnabled {
                     let prewarmStart = Date()
                     do {
-                        try await runtime.prewarm()
+                        try await mlxModel.prewarm()
                         if verbose {
                             print("MLX prewarm complete in \(String(format: "%.2f", Date().timeIntervalSince(prewarmStart)))s")
                         }
@@ -829,7 +828,7 @@ struct MlxCommand: ParsableCommand {
                     prewarmEnabled: false,
                     telegramConfiguration: telegramConfiguration,
                     mlxModelID: selectedModel,
-                    mlxModelService: service,
+                    mlxModel: mlxModel,
                     mlxRepetitionPenalty: repetitionPenalty,
                     mlxTopP: topP,
                     mlxMaxTokens: maxTokens,
@@ -1068,13 +1067,15 @@ struct MlxCommand: ParsableCommand {
         let model = AnyAFMModel(AFMDwarfStarModel(
             modelID: AFMModelID(rawValue: modelID),
             modelPath: checkpointPath,
-            contextWindow: 32_768,
-            dsparkSupportPath: resolvedDSparkPath,
-            dsparkDraftTokens: dsparkDraftTokens,
-            dsparkConfidenceThreshold: dsparkConfidenceThreshold,
-            dsparkStrict: dsparkStrict,
-            enablePrefixCaching: enablePrefixCaching,
-            maxConcurrent: residentSessions))
+            configuration: AFMDwarfStarRuntimeConfiguration(
+                contextWindow: 32_768,
+                dsparkSupportPath: resolvedDSparkPath,
+                dsparkDraftTokens: dsparkDraftTokens,
+                dsparkConfidenceThreshold: dsparkConfidenceThreshold,
+                dsparkStrict: dsparkStrict,
+                enablePrefixCaching: enablePrefixCaching,
+                maxConcurrent: residentSessions
+            )))
         let defaultChatTemplateKwargs = chatTemplateKwargs.isEmpty
             ? nil
             : chatTemplateKwargs.mapValues { AnyCodable($0) }
@@ -2112,6 +2113,19 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
+private func debugLog(_ message: @autoclosure () -> String) {
+    guard ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1" else { return }
+    print("DEBUG: \(message())")
+}
+
+private enum MLXLoadReporterStage: String {
+    case checkingCache = "checking cache"
+    case resuming
+    case downloading
+    case loadingModel = "loading model"
+    case ready
+}
+
 private final class MLXLoadReporter: @unchecked Sendable {
     private static let reporterLock = NSLock()
     nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
@@ -2119,7 +2133,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
     private let modelID: String
     private let loadingLabel: String
     private let lock = NSLock()
-    private var stage: MLXLoadStage = .checkingCache
+    private var stage: MLXLoadReporterStage = .checkingCache
     private var downloadFraction: Double?
     private var downloadCompletedBytes: Int64?
     private var downloadTotalBytes: Int64?
@@ -2193,7 +2207,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         lock.unlock()
     }
 
-    func updateStage(_ stage: MLXLoadStage) {
+    func updateStage(_ stage: MLXLoadReporterStage) {
         lock.lock()
         self.stage = stage
         if stage == .loadingModel || stage == .ready {
@@ -2479,8 +2493,8 @@ extension RootCommand {
     }
     
     private func runSinglePrompt(_ prompt: String, adapter: String?) throws {
-        DebugLogger.log("Starting single prompt mode with prompt: '\(prompt)'")
-        DebugLogger.log("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
+        debugLog("Starting single prompt mode with prompt: '\(prompt)'")
+        debugLog("Temperature: \(temperature?.description ?? "nil"), Randomness: \(randomness ?? "nil")")
 
         let group = DispatchGroup()
         let result = SendableBox<Result<String, Error>?>(nil)
@@ -2489,11 +2503,11 @@ extension RootCommand {
         Task {
             do {
                 if #available(macOS 26.0, *) {
-                    DebugLogger.log("macOS 26+ detected, initializing FoundationModelService...")
+                    debugLog("macOS 26+ detected, initializing FoundationModelService...")
                     let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
-                    DebugLogger.log("FoundationModelService initialized successfully")
+                    debugLog("FoundationModelService initialized successfully")
                     let message = Message(role: "user", content: prompt)
-                    DebugLogger.log("Generating response...")
+                    debugLog("Generating response...")
                     let response: String
                     if let guidedJson = self.guidedJson {
                         let schema = try parseGuidedJsonSchema(guidedJson)
@@ -2501,14 +2515,14 @@ extension RootCommand {
                     } else {
                         response = try await foundationService.generateResponse(for: [message], temperature: temperature, randomness: randomness)
                     }
-                    DebugLogger.log("Response generated successfully")
+                    debugLog("Response generated successfully")
                     result.value = .success(response)
                 } else {
-                    DebugLogger.log("macOS 26+ not available")
+                    debugLog("macOS 26+ not available")
                     result.value = .failure(FoundationModelError.notAvailable)
                 }
             } catch {
-                DebugLogger.log("Error occurred: \(error)")
+                debugLog("Error occurred: \(error)")
                 result.value = .failure(error)
             }
             group.leave()

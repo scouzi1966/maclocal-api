@@ -190,7 +190,7 @@ public class Server: @unchecked Sendable {
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
     private let mlxModelID: String?
-    private let mlxModelService: MLXModelService?
+    private let mlxModel: AFMMLXModel?
     private let afmModel: AnyAFMModel?
     private let mlxRepetitionPenalty: Double?
     private let mlxTopP: Double?
@@ -209,7 +209,7 @@ public class Server: @unchecked Sendable {
         return false
     }()
 
-    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModel: AFMMLXModel? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -231,7 +231,7 @@ public class Server: @unchecked Sendable {
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         self.mlxModelID = mlxModelID
-        self.mlxModelService = mlxModelService
+        self.mlxModel = mlxModel
         self.afmModel = afmModel
         self.mlxRepetitionPenalty = mlxRepetitionPenalty
         self.mlxTopP = mlxTopP
@@ -293,9 +293,9 @@ public class Server: @unchecked Sendable {
     }
     
     private func routes() throws {
-        let mlxServiceAdapter = mlxModelService.map {
+        let mlxServiceAdapter = mlxModel.map {
             AFMKitMLXChatServingAdapter(
-                service: $0,
+                model: $0,
                 defaultChatTemplateKwargs: defaultChatTemplateKwargs,
                 forceDisableThinking: forceDisableThinking)
         }
@@ -473,7 +473,7 @@ public class Server: @unchecked Sendable {
             )
             try app.register(collection: mlxController)
 
-            if mlxModelService != nil {
+            if mlxModel != nil {
                 // Batch endpoints remain MLX-specific. Fixed-schedule providers
                 // currently expose one serial generation slot.
                 let batchStore = BatchStore()
@@ -1801,8 +1801,8 @@ public class Server: @unchecked Sendable {
 
             await app.server.shutdown()
 
-            if let mlxService = mlxModelService {
-                await mlxService.shutdownAndReleaseResources(verbose: verbose)
+            if let mlxModel {
+                await mlxModel.unload()
             }
             if let afmModel {
                 await afmModel.unload()

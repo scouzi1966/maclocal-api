@@ -119,15 +119,17 @@ public final class DwarfStarLanguageModelExecutor:
                             .deletingPathExtension().lastPathComponent
                     ),
                     modelPath: configuration.modelPath,
-                    contextWindow: configuration.contextWindow,
-                    prefillChunk: configuration.prefillChunk,
-                    powerPercent: configuration.powerPercent,
-                    dsparkSupportPath: configuration.dsparkSupportPath,
-                    dsparkDraftTokens: configuration.dsparkDraftTokens,
-                    dsparkConfidenceThreshold: configuration.dsparkConfidenceThreshold,
-                    dsparkStrict: configuration.dsparkStrict,
-                    enablePrefixCaching: configuration.enablePrefixCaching,
-                    maxConcurrent: configuration.maxConcurrent
+                    configuration: AFMDwarfStarRuntimeConfiguration(
+                        contextWindow: configuration.contextWindow,
+                        prefillChunk: configuration.prefillChunk,
+                        powerPercent: configuration.powerPercent,
+                        dsparkSupportPath: configuration.dsparkSupportPath,
+                        dsparkDraftTokens: configuration.dsparkDraftTokens,
+                        dsparkConfidenceThreshold: configuration.dsparkConfidenceThreshold,
+                        dsparkStrict: configuration.dsparkStrict,
+                        enablePrefixCaching: configuration.enablePrefixCaching,
+                        maxConcurrent: configuration.maxConcurrent
+                    )
                 )
             )
         )

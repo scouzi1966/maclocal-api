@@ -10,6 +10,16 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Keep the standalone AFMKit package on the exact same patched language-model
+# checkout as the maclocal-api host during development. Published AFMKit builds
+# continue to use its tagged dependency when this override is absent.
+export AFMKIT_MLX_SWIFT_LM_PATH="${AFMKIT_MLX_SWIFT_LM_PATH:-$ROOT_DIR/vendor/mlx-swift-lm}"
+
+# All native MLX patch workflows target the AFM fork checkout. The former
+# official `mlx-swift` identity can otherwise survive in Package.resolved and
+# produce duplicate Cmlx/MLX modules alongside `mlx-swift-afm`.
+export MLX_SWIFT_CHECKOUT="${MLX_SWIFT_CHECKOUT:-$ROOT_DIR/.build/checkouts/mlx-swift-afm}"
 SUBCOMMAND="${1:-}"
 if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
     echo "Usage: $0 <build|test> [swiftpm options...]" >&2
@@ -177,7 +187,7 @@ run_required_patch_step() {
 # byte-packed block scales. The pinned mlx-swift release predates that tag.
 # Resolve once on a fresh clone, then apply the idempotent source patch before
 # SwiftPM decides whether dependency products are current.
-MLX_SAFETENSORS_SOURCE="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
+MLX_SAFETENSORS_SOURCE="$MLX_SWIFT_CHECKOUT/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
 if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
     echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
     swift package resolve

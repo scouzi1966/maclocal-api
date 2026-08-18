@@ -34,7 +34,7 @@ NEW_FILES+=("MuseGlimmer.swift")
 MLX_PACKAGE_SWIFT="$MLX_LM_DIR/Package.swift"
 MLX_INTEGRATION_TOOL_TEST="$MLX_LM_DIR/Tests/MLXLMIntegrationTests/ToolCallIntegrationTests.swift"
 PACKAGE_PINS=(
-  '.upToNextMinor(from: "0.30.3")|exact: "0.31.6"'
+  '.upToNextMinor(from: "0.30.3")|exact: "0.31.6-afm.1"'
   '.upToNextMinor(from: "1.1.6")|from: "1.3.0"'
 )
 
@@ -141,7 +141,8 @@ apply_mlx_dependency_override() {
   [ -f "$pkg_file" ] || { log_error "Package.swift not found: $pkg_file"; return 1; }
 
   if grep -qF 'let afmMLXSwiftDependency: Package.Dependency' "$pkg_file"; then
-    log_info "AFM MLX dependency override already present"
+    perl -0pi -e 's{https://github\.com/ml-explore/mlx-swift}{https://github.com/scouzi1966/mlx-swift-afm}g; s{exact: "0\.31\.6"}{exact: "0.31.6-afm.1"}g; s{afmMLXSwiftPackageIdentity = "mlx-swift"}{afmMLXSwiftPackageIdentity = "mlx-swift-afm"}g' "$pkg_file"
+    log_info "AFM MLX dependency override already present and normalized"
     return 0
   fi
 
@@ -152,7 +153,9 @@ apply_mlx_dependency_override() {
 
   perl -0pi -e 's{import PackageDescription\n}{import PackageDescription\nimport Foundation\n\nlet afmMLXSwiftDependency: Package.Dependency\nlet afmMLXSwiftPackageIdentity: String\n\nif let path = ProcessInfo.processInfo.environment["AFMKIT_MLX_SWIFT_PATH"], !path.isEmpty {\n    afmMLXSwiftDependency = .package(path: path)\n    afmMLXSwiftPackageIdentity = URL(fileURLWithPath: path).lastPathComponent.lowercased()\n} else {\n    afmMLXSwiftDependency = .package(\n        url: "https:\/\/github.com\/ml-explore\/mlx-swift",\n        exact: "0.31.6"\n    )\n    afmMLXSwiftPackageIdentity = "mlx-swift"\n}\n\n} or die "Failed to add AFM MLX dependency override declarations\n"' "$pkg_file"
 
-  perl -0pi -e 's{\s*\.package\(url: "https://github\.com/ml-explore/mlx-swift", exact: "0\.31\.6"\),}{\n        afmMLXSwiftDependency,} or die "Failed to replace mlx-swift dependency declaration\n"' "$pkg_file"
+  perl -0pi -e 's{https://github\.com/ml-explore/mlx-swift}{https://github.com/scouzi1966/mlx-swift-afm}g; s{exact: "0\.31\.6"}{exact: "0.31.6-afm.1"}g; s{afmMLXSwiftPackageIdentity = "mlx-swift"}{afmMLXSwiftPackageIdentity = "mlx-swift-afm"}g' "$pkg_file"
+
+  perl -0pi -e 's{\s*\.package\(url: "https://github\.com/(?:ml-explore/mlx-swift|scouzi1966/mlx-swift-afm)", exact: "0\.31\.6(?:-afm\.1)?"\),}{\n        afmMLXSwiftDependency,} or die "Failed to replace mlx-swift dependency declaration\n"' "$pkg_file"
   perl -0pi -e 's{package: "mlx-swift"}{package: afmMLXSwiftPackageIdentity}g' "$pkg_file"
 
   log_info "Added shared AFM MLX dependency override to Package.swift"
@@ -165,6 +168,7 @@ check_mlx_dependency_override() {
   grep -qF 'let afmMLXSwiftDependency: Package.Dependency' "$pkg_file" || all_ok=false
   grep -qF 'afmMLXSwiftDependency,' "$pkg_file" || all_ok=false
   grep -qF 'package: afmMLXSwiftPackageIdentity' "$pkg_file" || all_ok=false
+  grep -qF 'https://github.com/scouzi1966/mlx-swift-afm' "$pkg_file" || all_ok=false
 
   if $all_ok; then
     log_info "Shared AFM MLX dependency override is present"
