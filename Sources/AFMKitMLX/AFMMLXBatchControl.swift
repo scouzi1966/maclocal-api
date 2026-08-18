@@ -98,4 +98,7 @@ public protocol AFMMLXBatchControlling: Sendable {
     func cancelBatchSlots(ids: Set<UUID>) async
 }
 
-extension MLXModelService: AFMMLXRequestScheduling, AFMMLXBatchControlling {}
+extension MLXModelService:
+    AFMMLXGenerationAdmitting,
+    AFMMLXBatchControlling
+{}

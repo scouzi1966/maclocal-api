@@ -202,6 +202,7 @@ private final class NonStreamingScratch: @unchecked Sendable {
 private final class StreamingScratch: @unchecked Sendable {
     var userInput: UserInput!
     var streamStatPromptTokens = 0
+    var streamStatCachedTokens = 0
     var streamStatCompletionTokens = 0
     var streamStatPromptTime = 0.0
     var streamStatGenerateTime = 0.0
@@ -221,6 +222,7 @@ public final class MLXModelService: @unchecked Sendable {
     }()
 
     private let resolver: MLXCacheResolver
+    private let telemetryObserver: any AFMInferenceTelemetryObserving
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
     private var currentModelID: String?
@@ -507,6 +509,7 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Number of in-flight batch operations (for auto-teardown).
     private let _activeBatchCount = OSAllocatedUnfairLock(initialState: 0)
+    private let _serialTelemetryRunning = OSAllocatedUnfairLock(initialState: 0)
 
     /// Whether a promotion is currently in progress (prevents races).
     private var promotionInProgress = false
@@ -526,7 +529,113 @@ public final class MLXModelService: @unchecked Sendable {
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
+        self.telemetryObserver = AFMNoopInferenceTelemetryObserver()
         self.resolver.applyEnvironment()
+    }
+
+    public init(
+        resolver: MLXCacheResolver,
+        telemetryObserver: any AFMInferenceTelemetryObserving
+    ) {
+        _ = Self.registerModelFactoriesOnce
+        self.resolver = resolver
+        self.telemetryObserver = telemetryObserver
+        self.resolver.applyEnvironment()
+    }
+
+    public var generationAdmitter: AnyAFMGenerationAdmitter {
+        AnyAFMGenerationAdmitter { [weak self] timeout in
+            guard let self else { throw AFMGenerationAdmissionError.cancelled }
+            return try await self.admitGeneration(timeout: timeout)
+        }
+    }
+
+    public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        if let scheduler = withStateLock({ scheduler }) {
+            return try await scheduler.admitGeneration(
+                timeout: timeout.map(Self.timeInterval) ?? 30
+            )
+        }
+
+        let acceptedAt = Date().timeIntervalSince1970
+        let token = telemetryObserver.requestAccepted(at: acceptedAt)
+        guard !Task.isCancelled else {
+            _ = telemetryObserver.requestFailed(token, reason: .cancelled, at: acceptedAt)
+            throw AFMGenerationAdmissionError.cancelled
+        }
+        telemetryObserver.requestStarted(token, at: acceptedAt)
+        return AFMGenerationLease(telemetryToken: token) {}
+    }
+
+    private static func timeInterval(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+    }
+
+    private func beginSerialTelemetryRequest() -> AFMInferenceRequestToken {
+        let now = Date().timeIntervalSince1970
+        let token: AFMInferenceRequestToken
+        if let admittedToken = AFMGenerationContext.telemetryToken {
+            token = admittedToken
+        } else {
+            token = telemetryObserver.requestAccepted(at: AFMGenerationContext.acceptedAt ?? now)
+            telemetryObserver.requestStarted(token, at: now)
+        }
+        let running = _serialTelemetryRunning.withLock { count -> Int in
+            count += 1
+            return count
+        }
+        publishSerialProviderState(runningRequests: running)
+        return token
+    }
+
+    private func endSerialTelemetryRequest() {
+        let running = _serialTelemetryRunning.withLock { count -> Int in
+            count = max(0, count - 1)
+            return count
+        }
+        publishSerialProviderState(runningRequests: running)
+    }
+
+    @discardableResult
+    private func finishSerialTelemetryRequest(
+        _ token: AFMInferenceRequestToken,
+        reason: AFMInferenceFinishReason,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        generatedTokens: Int,
+        firstTokenAt: Double? = nil
+    ) -> Bool {
+        if let firstTokenAt, generatedTokens > 0 {
+            telemetryObserver.outputToken(token, at: firstTokenAt)
+        }
+        return telemetryObserver.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: reason,
+                completedAt: Date().timeIntervalSince1970,
+                fullPromptTokens: fullPromptTokens,
+                computedPromptTokens: computedPromptTokens,
+                generatedTokens: generatedTokens
+            )
+        )
+    }
+
+    private func publishSerialProviderState(runningRequests: Int) {
+        guard withStateLock({ scheduler == nil }) else { return }
+        let maximumWorkingSet = GPU.deviceInfo().maxRecommendedWorkingSetSize
+        let memoryUsage: Double? = maximumWorkingSet > 0
+            ? min(1, Double(GPU.activeMemory) / Double(maximumWorkingSet))
+            : nil
+        telemetryObserver.updateProviderState(
+            AFMInferenceProviderState(
+                runningRequests: runningRequests,
+                waitingRequests: 0,
+                memoryCacheUsage: memoryUsage,
+                prefixCacheFill: radixCache?.usageFraction
+            )
+        )
     }
 
     /// Configure MLX GPU settings once, before first model load.
@@ -1879,28 +1988,9 @@ public final class MLXModelService: @unchecked Sendable {
                     debugLogging: debugLogging
                 )
                 print("[\(ts())] [PrefixCache] Radix tree prefix caching active (64 entries max)")
-                // /metrics: expose radix fill as afm:radix_cache_fill_perc.
-                // The closure captures `self` weakly so it doesn't extend
-                // the service's lifetime; nil-check guards model unload.
-                StatsAggregator.shared.registerRadixCacheFillReader { [weak self] in
-                    self?.radixCache?.usageFraction ?? 0
-                }
             } else {
                 self.radixCache = nil
                 print("[\(ts())] [PrefixCache] Prefix caching disabled")
-            }
-            // /metrics: expose total GPU memory pressure as
-            // afm:gpu_cache_usage_perc — fraction of Metal's recommended
-            // working set currently in active MLX allocations. This
-            // includes model weights + KV cache + intermediate tensors,
-            // so it's broader than vLLM's strict "KV pool fill" but is
-            // the most useful single signal for "is afm running out of
-            // VRAM?". Registered on every successful model load.
-            let maxWorkingSetBytes = GPU.deviceInfo().maxRecommendedWorkingSetSize
-            StatsAggregator.shared.registerGpuCacheUsageReader {
-                guard maxWorkingSetBytes > 0 else { return 0 }
-                let active = Double(GPU.activeMemory)
-                return min(1.0, active / Double(maxWorkingSetBytes))
             }
             try registry.registerModel(modelID)
             stage?(.ready)
@@ -1946,6 +2036,7 @@ public final class MLXModelService: @unchecked Sendable {
                 tokenizer: context.tokenizer,
                 processor: context.processor,
                 configuration: context.configuration,
+                telemetryObserver: self.telemetryObserver,
                 maxConcurrent: limit,
                 enablePrefixCaching: prefixCaching,
                 cacheProfilePath: self.cacheProfilePath
@@ -2010,6 +2101,7 @@ public final class MLXModelService: @unchecked Sendable {
                 tokenizer: context.tokenizer,
                 processor: context.processor,
                 configuration: context.configuration,
+                telemetryObserver: self.telemetryObserver,
                 maxConcurrent: limit,
                 enablePrefixCaching: true,
                 cacheProfilePath: self.cacheProfilePath
@@ -2091,23 +2183,18 @@ public final class MLXModelService: @unchecked Sendable {
         try beginOperation()
         defer { endOperation() }
 
-        // /metrics: serial-path timestamps. The serial generate() has no
-        // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
-        // Token counters (prompt_tokens_total / generation_tokens_total) and
-        // the per-request histograms are recorded at the bottom of this
-        // function, after `completionInfo` is available.
         let serialQueuedAt = Date()
-        StatsAggregator.shared.requestStarted()
-        // Balance the requests_started_total counter on every exit, including
-        // throws between here and the success path below. Without this, an
-        // error during model load or input prep increments started_total
-        // without a matching completed_total, breaking dashboards and alerts.
+        let serialTelemetryToken = beginSerialTelemetryRequest()
         var serialRequestRecorded = false
         defer {
             if !serialRequestRecorded {
-                StatsAggregator.shared.requestSucceeded(reason: "error")
-                StatsAggregator.shared.requestCompleted()
+                _ = telemetryObserver.requestFailed(
+                    serialTelemetryToken,
+                    reason: Task.isCancelled ? .cancelled : .inference,
+                    at: Date().timeIntervalSince1970
+                )
             }
+            endSerialTelemetryRequest()
         }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
@@ -2126,6 +2213,7 @@ public final class MLXModelService: @unchecked Sendable {
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let ignoreEndOfSequence = AFMGenerationContext.ignoreEndOfSequence
 
         // Mutable generation state lives in a scratch box so the @Sendable
         // `container.perform` closure (Swift 6) can capture-and-mutate it.
@@ -2155,6 +2243,7 @@ public final class MLXModelService: @unchecked Sendable {
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
                 let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
                     .flatMap(Int.init)
                 let t0 = Date.timeIntervalSinceReferenceDate
@@ -2163,7 +2252,7 @@ public final class MLXModelService: @unchecked Sendable {
                 ).generate(
                     promptIds: promptIds,
                     maxTokens: effectiveMaxTokens,
-                    eosIds: eos)
+                    eosIds: stoppingEOS)
                 let elapsed = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (ids.last.map { eos.contains($0) } ?? false)
                     ? Array(ids.dropLast()) : ids
@@ -2173,9 +2262,16 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
             }) {
-                serialRequestRecorded = true
-                StatsAggregator.shared.requestSucceeded(reason: "stop")
-                StatsAggregator.shared.requestCompleted()
+                let reason: AFMInferenceFinishReason = result.2 >= effectiveMaxTokens
+                    ? .length
+                    : .stop
+                serialRequestRecorded = finishSerialTelemetryRequest(
+                    serialTelemetryToken,
+                    reason: reason,
+                    fullPromptTokens: result.1,
+                    computedPromptTokens: result.1,
+                    generatedTokens: result.2
+                )
                 return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
             }
         }
@@ -2196,8 +2292,13 @@ public final class MLXModelService: @unchecked Sendable {
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
+                let outIds = gen.generate(
+                    promptIds: promptIds,
+                    maxTokens: effectiveMaxTokens,
+                    eosIds: stoppingEOS
+                )
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 // strip a trailing EOS for the returned text
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
@@ -2208,9 +2309,16 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
-                serialRequestRecorded = true
-                StatsAggregator.shared.requestSucceeded(reason: "stop")
-                StatsAggregator.shared.requestCompleted()
+                let reason: AFMInferenceFinishReason = mtpResult.2 >= effectiveMaxTokens
+                    ? .length
+                    : .stop
+                serialRequestRecorded = finishSerialTelemetryRequest(
+                    serialTelemetryToken,
+                    reason: reason,
+                    fullPromptTokens: mtpResult.1,
+                    computedPromptTokens: mtpResult.1,
+                    generatedTokens: mtpResult.2
+                )
                 return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
             }
         }
@@ -2232,6 +2340,7 @@ public final class MLXModelService: @unchecked Sendable {
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
                 let t0 = Date.timeIntervalSinceReferenceDate
                 let gen = Gemma4Eagle3Generator(drafter: drafter)
                 // blockSize 2 is the sweet spot on the dense 31B (each round drafts only the carried
@@ -2240,7 +2349,7 @@ public final class MLXModelService: @unchecked Sendable {
                 let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                 let outIds = gen.generateSpeculative(
                     model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
-                    eosIds: eos, blockSize: block)
+                    eosIds: stoppingEOS, blockSize: block)
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
                 let text = context.tokenizer.decode(tokens: textIds)
@@ -2250,9 +2359,16 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
-                serialRequestRecorded = true
-                StatsAggregator.shared.requestSucceeded(reason: "stop")
-                StatsAggregator.shared.requestCompleted()
+                let reason: AFMInferenceFinishReason = e3Result.2 >= effectiveMaxTokens
+                    ? .length
+                    : .stop
+                serialRequestRecorded = finishSerialTelemetryRequest(
+                    serialTelemetryToken,
+                    reason: reason,
+                    fullPromptTokens: e3Result.1,
+                    computedPromptTokens: e3Result.1,
+                    generatedTokens: e3Result.2
+                )
                 return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
             }
         }
@@ -2426,37 +2542,25 @@ public final class MLXModelService: @unchecked Sendable {
                 promptTime: promptTime
             )
 
-            let completedAt = Date()
             let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
                 ? serialQueuedAt.addingTimeInterval(promptTime)
                 : nil
-            StatsAggregator.shared.addPromptTokens(promptTokens)
-            StatsAggregator.shared.addGenTokens(completionTokens)
-            StatsAggregator.shared.observeRequest(
-                StatsAggregator.RequestObservation(
-                    queuedAt: serialQueuedAt.timeIntervalSince1970,
-                    startedAt: serialQueuedAt.timeIntervalSince1970,
-                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
-                    completedAt: completedAt.timeIntervalSince1970,
-                    promptTokens: promptTokens,
-                    generationTokens: completionTokens,
-                    paramsN: 1,
-                    paramsBestOf: 1
-                )
-            )
-            let serialFinishedReason: String
+            let serialFinishedReason: AFMInferenceFinishReason
             if stoppedBySequence {
-                serialFinishedReason = "stop"
+                serialFinishedReason = .stop
             } else if completionTokens >= effectiveMaxTokens {
-                serialFinishedReason = "length"
-            } else if responseToolCalls?.isEmpty == false {
-                serialFinishedReason = "tool_calls"
+                serialFinishedReason = .length
             } else {
-                serialFinishedReason = "stop"
+                serialFinishedReason = .stop
             }
-            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
-            StatsAggregator.shared.requestCompleted()
-            serialRequestRecorded = true
+            serialRequestRecorded = finishSerialTelemetryRequest(
+                serialTelemetryToken,
+                reason: serialFinishedReason,
+                fullPromptTokens: promptTokens,
+                computedPromptTokens: promptTokens,
+                generatedTokens: completionTokens,
+                firstTokenAt: firstTokenAt?.timeIntervalSince1970
+            )
 
             return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
         }
@@ -2659,7 +2763,6 @@ public final class MLXModelService: @unchecked Sendable {
                     generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                     cachedTokenCount = effectivePrefix
                     cacheOutcome = "hit"
-                    StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                     cacheRestoreTime = tRestore1 - tRestore0
                     cacheTrimTime = tTrim - tRestore1
                     cacheTruncateTime = tRoundtrip - tTrim
@@ -2689,7 +2792,6 @@ public final class MLXModelService: @unchecked Sendable {
                 } else {
                     generateInput = input
                     cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
-                    StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                     self.logCachePrefill(
                         mode: "non-streaming",
                         outcome: cacheOutcome,
@@ -2719,6 +2821,11 @@ public final class MLXModelService: @unchecked Sendable {
                     print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                 }
             }
+
+            self.telemetryObserver.prefixCacheObserved(
+                queriedTokens: inputTokens.count,
+                hitTokens: cachedTokenCount
+            )
 
             let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
             var insideThink = templateInjectedThink
@@ -2977,41 +3084,25 @@ public final class MLXModelService: @unchecked Sendable {
                 insertTime: saveInsertTime
             )
 
-            // /metrics: serial-path observations.
-            // - queuedAt ≈ startedAt (no real queue in serial mode)
-            // - firstTokenAt ≈ startedAt + promptTime (prefill ends at first token)
-            // - completedAt = now
-            let completedAt = Date()
             let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
                 ? serialQueuedAt.addingTimeInterval(promptTime)
                 : nil
-            StatsAggregator.shared.addPromptTokens(promptTokens)
-            StatsAggregator.shared.addGenTokens(completionTokens)
-            StatsAggregator.shared.observeRequest(
-                StatsAggregator.RequestObservation(
-                    queuedAt: serialQueuedAt.timeIntervalSince1970,
-                    startedAt: serialQueuedAt.timeIntervalSince1970,
-                    firstTokenAt: firstTokenAt?.timeIntervalSince1970,
-                    completedAt: completedAt.timeIntervalSince1970,
-                    promptTokens: promptTokens,
-                    generationTokens: completionTokens,
-                    paramsN: 1,
-                    paramsBestOf: 1
-                )
-            )
-            let serialFinishedReason: String
+            let serialFinishedReason: AFMInferenceFinishReason
             if stoppedBySequence {
-                serialFinishedReason = "stop"
+                serialFinishedReason = .stop
             } else if completionTokens >= effectiveMaxTokens {
-                serialFinishedReason = "length"
-            } else if responseToolCalls?.isEmpty == false {
-                serialFinishedReason = "tool_calls"
+                serialFinishedReason = .length
             } else {
-                serialFinishedReason = "stop"
+                serialFinishedReason = .stop
             }
-            StatsAggregator.shared.requestSucceeded(reason: serialFinishedReason)
-            StatsAggregator.shared.requestCompleted()
-            serialRequestRecorded = true
+            serialRequestRecorded = finishSerialTelemetryRequest(
+                serialTelemetryToken,
+                reason: serialFinishedReason,
+                fullPromptTokens: promptTokens,
+                computedPromptTokens: max(0, promptTokens - cachedTokenCount),
+                generatedTokens: completionTokens,
+                firstTokenAt: firstTokenAt?.timeIntervalSince1970
+            )
 
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
         }
@@ -3082,6 +3173,7 @@ public final class MLXModelService: @unchecked Sendable {
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
         let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let ignoreEndOfSequence = AFMGenerationContext.ignoreEndOfSequence
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -3263,10 +3355,14 @@ public final class MLXModelService: @unchecked Sendable {
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
+                let telemetryToken = beginSerialTelemetryRequest()
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
-                        defer { self.cleanupTempFiles(mediaTempFiles) }
-                        StatsAggregator.shared.requestStarted()
+                        defer {
+                            self.cleanupTempFiles(mediaTempFiles)
+                            self.endSerialTelemetryRequest()
+                            self.endOperation()
+                        }
                         if openedThink, let thinkStartTag {
                             continuation.yield(StreamChunk(text: thinkStartTag))
                         }
@@ -3274,12 +3370,17 @@ public final class MLXModelService: @unchecked Sendable {
                         do {
                             let outCount = try await container.perform { context -> Int in
                                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                                let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
                                 var allTokens: [Int] = []
                                 var prevText = ""
                                 let emit: (Int) -> Bool = { tok in
                                     if Task.isCancelled { return false }    // client disconnected
-                                    if eos.contains(tok) { return false }   // stop; never stream EOS
+                                    if !ignoreEndOfSequence && eos.contains(tok) { return false }
                                     allTokens.append(tok)
+                                    self.telemetryObserver.outputToken(
+                                        telemetryToken,
+                                        at: Date().timeIntervalSince1970
+                                    )
                                     let full = context.tokenizer.decode(tokens: allTokens)
                                     if full.count > prevText.count {
                                         continuation.yield(StreamChunk(text: String(full.dropFirst(prevText.count))))
@@ -3294,17 +3395,17 @@ public final class MLXModelService: @unchecked Sendable {
                                         model: model, draftLimit: limit)
                                     _ = generator.generate(
                                         promptIds: promptIds, maxTokens: maxTok,
-                                        eosIds: eos, onToken: emit)
+                                        eosIds: stoppingEOS, onToken: emit)
                                 } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                                     let g = Gemma4Eagle3Generator(drafter: drafter)
                                     _ = g.generateSpeculative(model: model, promptIds: promptIds,
-                                                              maxTokens: maxTok, eosIds: eos,
+                                                              maxTokens: maxTok, eosIds: stoppingEOS,
                                                               blockSize: block, onToken: emit)
                                 } else if let gen = mtpBinding?.generator {
                                     _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
-                                                     eosIds: eos, onToken: emit)
+                                                     eosIds: stoppingEOS, onToken: emit)
                                 }
                                 return allTokens.count
                             }
@@ -3316,17 +3417,24 @@ public final class MLXModelService: @unchecked Sendable {
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
                                                            completionTokens: outCount, promptTime: 0, generateTime: gt))
-                            StatsAggregator.shared.requestSucceeded(reason: "stop")
-                            StatsAggregator.shared.requestCompleted()
+                            _ = self.finishSerialTelemetryRequest(
+                                telemetryToken,
+                                reason: outCount >= maxTok ? .length : .stop,
+                                fullPromptTokens: promptIds.count,
+                                computedPromptTokens: promptIds.count,
+                                generatedTokens: outCount
+                            )
                             continuation.finish()
                         } catch {
                             // Surface model/tokenizer/generator failures instead of masking them as
                             // an empty success (don't emit a final usage chunk; fail the stream).
-                            StatsAggregator.shared.requestSucceeded(reason: "error")
-                            StatsAggregator.shared.requestCompleted()
+                            _ = self.telemetryObserver.requestFailed(
+                                telemetryToken,
+                                reason: Task.isCancelled ? .cancelled : .inference,
+                                at: Date().timeIntervalSince1970
+                            )
                             continuation.finish(throwing: error)
                         }
-                        self.endOperation()
                     }
                     // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
                     continuation.onTermination = { _ in task.cancel() }
@@ -3344,11 +3452,8 @@ public final class MLXModelService: @unchecked Sendable {
         let streamTracing = beginGPUTraceIfNeeded()
         let streamGpuProfile = gpuProfile
         if streamGpuProfile { printGPUProfileHeader() }
+        let streamTelemetryToken = beginSerialTelemetryRequest()
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
-            // /metrics: serial-streaming counters. Captured here (after the
-            // batch-path branch has been ruled out) so we don't double-count
-            // with BatchScheduler.submit().
-            StatsAggregator.shared.requestStarted()
             // Mutables filled inside container.perform so the final
             // observation can fire just before continuation.finish().
             // Held in a scratch box so the nested @Sendable perform closure can
@@ -3356,7 +3461,10 @@ public final class MLXModelService: @unchecked Sendable {
             let streamScratch = StreamingScratch()
             streamScratch.userInput = userInput
             let task = Task {
-                defer { self.endOperation() }
+                defer {
+                    self.endSerialTelemetryRequest()
+                    self.endOperation()
+                }
                 do {
                     try await container.perform { context in
                         // Local generation params (the outer `params` is a captured
@@ -3497,7 +3605,6 @@ public final class MLXModelService: @unchecked Sendable {
                                 generateInput = LMInput(text: .init(tokens: MLXArray(suffixTokens)))
                                 streamCachedTokens = effectivePrefix
                                 cacheOutcome = "hit"
-                                StatsAggregator.shared.cacheHit()  // /metrics: afm:radix_cache_hits_total
                                 cacheRestoreTime = tRestore1 - tRestore0
                                 cacheTrimTime = tTrim - tRestore1
                                 cacheTruncateTime = tRoundtrip - tTrim
@@ -3527,7 +3634,6 @@ public final class MLXModelService: @unchecked Sendable {
                             } else {
                                 generateInput = input
                                 cacheOutcome = bypassExactReplay ? "exact-replay-bypass" : "miss"
-                                StatsAggregator.shared.cacheMiss()  // /metrics: afm:radix_cache_misses_total
                                 self.logCachePrefill(
                                     mode: "streaming",
                                     outcome: cacheOutcome,
@@ -3557,6 +3663,10 @@ public final class MLXModelService: @unchecked Sendable {
                                 print("[\(ts())] [KVCache] Multimodal input, skipping cache")
                             }
                         }
+                        self.telemetryObserver.prefixCacheObserved(
+                            queriedTokens: inputTokens.count,
+                            hitTokens: streamCachedTokens
+                        )
 
                         // Emit cached token count so the controller can include it in usage
                         continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
@@ -3695,6 +3805,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     continuation.yield(StreamChunk(text: "", promptTokens: finalPromptTokens, completionTokens: info.generationTokenCount, promptTime: info.promptTime, generateTime: info.generateTime))
                                     // /metrics: capture for the post-loop observation
                                     streamScratch.streamStatPromptTokens = finalPromptTokens
+                                    streamScratch.streamStatCachedTokens = streamCachedTokens
                                     streamScratch.streamStatCompletionTokens = info.generationTokenCount
                                     streamScratch.streamStatPromptTime = info.promptTime
                                     streamScratch.streamStatGenerateTime = info.generateTime
@@ -3806,6 +3917,7 @@ public final class MLXModelService: @unchecked Sendable {
                     // Re-bind metric counters from the scratch box so the
                     // observation below reads them by their original names.
                     let streamStatPromptTokens = streamScratch.streamStatPromptTokens
+                    let streamStatCachedTokens = streamScratch.streamStatCachedTokens
                     let streamStatCompletionTokens = streamScratch.streamStatCompletionTokens
                     let streamStatPromptTime = streamScratch.streamStatPromptTime
                     let streamStatStoppedBySequence = streamScratch.streamStatStoppedBySequence
@@ -3814,34 +3926,28 @@ public final class MLXModelService: @unchecked Sendable {
                     // /metrics: serial-streaming observation. Mirrors the
                     // non-streaming generate() path; queue time ≈ 0 in
                     // serial mode so queuedAt == startedAt.
-                    let streamCompletedAt = Date()
                     let streamFirstTokenAt: Date? = (streamStatCompletionTokens > 0 && streamStatPromptTime >= 0)
                         ? streamQueuedAt.addingTimeInterval(streamStatPromptTime)
                         : nil
-                    StatsAggregator.shared.addPromptTokens(streamStatPromptTokens)
-                    StatsAggregator.shared.addGenTokens(streamStatCompletionTokens)
-                    StatsAggregator.shared.observeRequest(
-                        StatsAggregator.RequestObservation(
-                            queuedAt: streamQueuedAt.timeIntervalSince1970,
-                            startedAt: streamQueuedAt.timeIntervalSince1970,
-                            firstTokenAt: streamFirstTokenAt?.timeIntervalSince1970,
-                            completedAt: streamCompletedAt.timeIntervalSince1970,
-                            promptTokens: streamStatPromptTokens,
-                            generationTokens: streamStatCompletionTokens,
-                            paramsN: 1,
-                            paramsBestOf: 1
-                        )
-                    )
-                    let streamReason: String
+                    let streamReason: AFMInferenceFinishReason
                     if streamStatStoppedBySequence {
-                        streamReason = "stop"
+                        streamReason = .stop
                     } else if streamStatCompletionTokens >= effectiveMaxTokens {
-                        streamReason = "length"
+                        streamReason = .length
                     } else {
-                        streamReason = "stop"
+                        streamReason = .stop
                     }
-                    StatsAggregator.shared.requestSucceeded(reason: streamReason)
-                    StatsAggregator.shared.requestCompleted()
+                    _ = self.finishSerialTelemetryRequest(
+                        streamTelemetryToken,
+                        reason: streamReason,
+                        fullPromptTokens: streamStatPromptTokens,
+                        computedPromptTokens: max(
+                            0,
+                            streamStatPromptTokens - streamStatCachedTokens
+                        ),
+                        generatedTokens: streamStatCompletionTokens,
+                        firstTokenAt: streamFirstTokenAt?.timeIntervalSince1970
+                    )
 
                     continuation.finish()
                 } catch {
@@ -3850,10 +3956,11 @@ public final class MLXModelService: @unchecked Sendable {
                     }
                     self.radixCache?.invalidateAll()
                     self.cleanupTempFiles(mediaTempFiles)
-                    // /metrics: error path — still complete the lifecycle so
-                    // requests_completed_total tracks requests_started_total.
-                    StatsAggregator.shared.requestSucceeded(reason: "error")
-                    StatsAggregator.shared.requestCompleted()
+                    _ = self.telemetryObserver.requestFailed(
+                        streamTelemetryToken,
+                        reason: Task.isCancelled ? .cancelled : .inference,
+                        at: Date().timeIntervalSince1970
+                    )
                     continuation.finish(throwing: error)
                 }
             }

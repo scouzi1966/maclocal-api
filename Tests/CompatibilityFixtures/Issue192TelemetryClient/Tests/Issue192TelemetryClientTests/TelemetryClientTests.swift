@@ -1,4 +1,5 @@
 import AFMKitCore
+import AFMOpenAICompat
 import AFMKitServices
 import XCTest
 
@@ -41,5 +42,18 @@ final class TelemetryClientTests: XCTestCase {
         XCTAssertEqual(snapshot.acceptedRequestsTotal, 0)
         XCTAssertEqual(snapshot.terminalRequestsTotal, 0)
         XCTAssertEqual(snapshot.failureCounts.first { $0.name == "validation" }?.count, 1)
+    }
+
+    func testGuideLLMExtensionFieldsDecodeWithoutChangingFinalUsagePolicy() throws {
+        let data = Data(
+            #"{"model":"test","messages":[{"role":"user","content":"hello"}],"ignore_eos":true,"stream":true,"stream_options":{"include_usage":true,"continuous_usage_stats":true}}"#.utf8
+        )
+
+        let request = try JSONDecoder().decode(ChatCompletionRequest.self, from: data)
+
+        XCTAssertEqual(request.ignoreEOS, true)
+        XCTAssertEqual(request.streamOptions?.includeUsage, true)
+        XCTAssertEqual(request.streamOptions?.continuousUsageStats, true)
+        XCTAssertEqual(request.includeStreamingUsage, true)
     }
 }
