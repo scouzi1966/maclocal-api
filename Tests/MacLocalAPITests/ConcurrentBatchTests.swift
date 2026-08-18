@@ -10,7 +10,7 @@ import MLXVLM
 @testable import AFMServer
 
 /// Unit tests for Phase 1 concurrent batching internals:
-/// RequestSlot, StreamChunk, and BatchScheduler queuing logic.
+/// RequestSlot, AFMServerStreamChunk, and BatchScheduler queuing logic.
 struct ConcurrentBatchTests {
 // dimensions: execution=batch
 
@@ -74,12 +74,12 @@ struct ConcurrentBatchTests {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // MARK: - StreamChunk
+    // MARK: - AFMServerStreamChunk
     // ═══════════════════════════════════════════════════════════════════
 
-    @Test("StreamChunk defaults: only text, everything else nil")
+    @Test("AFMServerStreamChunk defaults: only text, everything else nil")
     func streamChunkDefaults() {
-        let chunk = StreamChunk(text: "hello")
+        let chunk = AFMServerStreamChunk(text: "hello")
         #expect(chunk.text == "hello")
         #expect(chunk.logprobs == nil)
         #expect(chunk.toolCalls == nil)
@@ -90,9 +90,9 @@ struct ConcurrentBatchTests {
         #expect(chunk.generateTime == nil)
     }
 
-    @Test("StreamChunk carries timing info")
+    @Test("AFMServerStreamChunk carries timing info")
     func streamChunkWithInfo() {
-        let chunk = StreamChunk(
+        let chunk = AFMServerStreamChunk(
             text: "",
             promptTokens: 100,
             completionTokens: 50,
@@ -105,9 +105,9 @@ struct ConcurrentBatchTests {
         #expect(chunk.generateTime == 3.0)
     }
 
-    @Test("StreamChunk carries cached token count")
+    @Test("AFMServerStreamChunk carries cached token count")
     func streamChunkCachedTokens() {
-        let chunk = StreamChunk(text: "", cachedTokens: 512)
+        let chunk = AFMServerStreamChunk(text: "", cachedTokens: 512)
         #expect(chunk.cachedTokens == 512)
     }
 

@@ -1,4 +1,5 @@
 import AFMKit
+import AFMKitCore
 import AFMKitDwarfStar
 import AFMServer
 import ArgumentParser
@@ -691,8 +692,7 @@ struct MlxCommand: ParsableCommand {
             defaultChatTemplateKwargs: parsedKwargs.isEmpty
                 ? nil
                 : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) },
-            forceDisableThinking: noThink,
-            defaultGuidedJsonSchema: defaultGuidedJsonSchema
+            forceDisableThinking: noThink
         )
         let mlxModel = AFMMLXModel(
             modelID: AFMModelID(rawValue: resolvedModel),
@@ -1364,24 +1364,24 @@ struct MlxCommand: ParsableCommand {
         }
     }
 
-    private static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+    private static func buildChoiceLogprobs(_ resolved: [AFMTokenLogProbability]?) -> ChoiceLogprobs? {
         guard let resolved, !resolved.isEmpty else { return nil }
-        return ChoiceLogprobs(
-            content: resolved.map { entry in
-                TokenLogprobContent(
-                    token: entry.token,
-                    logprob: Double(entry.logprob),
-                    bytes: Array(entry.token.utf8).map { Int($0) },
-                    topLogprobs: entry.topTokens.map { top in
-                        TopLogprobEntry(
-                            token: top.token,
-                            logprob: Double(top.logprob),
-                            bytes: Array(top.token.utf8).map { Int($0) }
-                        )
-                    }
+        let content = resolved.map { entry in
+            let topLogprobs = entry.topTokens.map { top in
+                TopLogprobEntry(
+                    token: top.token,
+                    logprob: Double(top.logprob),
+                    bytes: Array(top.token.utf8).map { Int($0) }
                 )
             }
-        )
+            return TokenLogprobContent(
+                token: entry.token,
+                logprob: Double(entry.logprob),
+                bytes: Array(entry.token.utf8).map { Int($0) },
+                topLogprobs: topLogprobs
+            )
+        }
+        return ChoiceLogprobs(content: content)
     }
 
     private static func parseToolsJSON(_ value: String?) throws -> [RequestTool]? {

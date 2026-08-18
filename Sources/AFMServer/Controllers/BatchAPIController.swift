@@ -4,7 +4,7 @@ import AFMKitMLX
 import Foundation
 
 struct BatchAPIController: RouteCollection {
-    private let service: any AFMMLXOpenAIChatServing
+    private let service: any AFMChatServing
     private let store: BatchStore
     private let modelID: String
     private let temperature: Double?
@@ -18,7 +18,7 @@ struct BatchAPIController: RouteCollection {
     private let maxLogprobs: Int
 
     init(
-        service: any AFMMLXOpenAIChatServing,
+        service: any AFMChatServing,
         store: BatchStore,
         modelID: String,
         temperature: Double? = nil,
@@ -309,7 +309,9 @@ struct BatchAPIController: RouteCollection {
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: chatReq.responseFormat,
-                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs,
+                preserveStructuralTags: false,
+                requestId: requestId
             )
             reservationTransferred = true
 

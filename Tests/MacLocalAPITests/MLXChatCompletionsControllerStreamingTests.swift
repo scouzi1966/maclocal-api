@@ -17,12 +17,21 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
-    func testStreamingControllerParsesRawToolCallTextIntoSSEToolCalls() async throws {
+    func testStreamingControllerSerializesProviderToolCallsIntoSSEToolCalls() async throws {
+        let toolCall = ResponseToolCall(
+            index: 0,
+            id: "call_weather",
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: "get_weather",
+                arguments: #"{"location":"Berlin"}"#
+            )
+        )
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "<tool_call>{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Berlin\"}}</tool_call>"),
-                StreamChunk(text: "", promptTokens: 14, completionTokens: 3, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
+                AFMServerStreamChunk(text: "", toolCalls: [toolCall]),
+                AFMServerStreamChunk(text: "", promptTokens: 14, completionTokens: 3, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -48,19 +57,21 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
-    func testStreamingControllerParsesDeepseekDSMLWithoutAdvertisedToolTags() async throws {
+    func testStreamingControllerSerializesDeepseekProviderToolCallWithoutLeakingDSML() async throws {
+        let toolCall = ResponseToolCall(
+            index: 0,
+            id: "call_deepseek_weather",
+            type: "function",
+            function: ResponseToolCallFunction(
+                name: "get_weather",
+                arguments: #"{"location":"Toronto"}"#
+            )
+        )
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(
                 chunks: [
-                    StreamChunk(text: "\n\n"),
-                    StreamChunk(text: "<｜DSML｜"),
-                    StreamChunk(text: "tool"),
-                    StreamChunk(text: "_c"),
-                    StreamChunk(text: "alls>\n"),
-                    StreamChunk(text: "<｜DSML｜invoke name=\"get_weather\">\n"),
-                    StreamChunk(text: "<｜DSML｜parameter name=\"location\" string=\"true\">Toronto</｜DSML｜parameter>\n"),
-                    StreamChunk(text: "</｜DSML｜invoke>\n</｜DSML｜tool_calls>"),
-                    StreamChunk(text: "", promptTokens: 415, completionTokens: 44, cachedTokens: 0, promptTime: 1.5, generateTime: 1.8),
+                    AFMServerStreamChunk(text: "", toolCalls: [toolCall]),
+                    AFMServerStreamChunk(text: "", promptTokens: 415, completionTokens: 44, cachedTokens: 0, promptTime: 1.5, generateTime: 1.8),
                 ],
                 toolCallStartTag: nil,
                 toolCallEndTag: nil
@@ -92,8 +103,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     func testRawOutputPreservesStructuralTagsAtGenerationSource() async throws {
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "<|START_TEXT|>answer<|END_TEXT|>"),
-                StreamChunk(text: "", promptTokens: 4, completionTokens: 3, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+                AFMServerStreamChunk(text: "<|START_TEXT|>answer<|END_TEXT|>"),
+                AFMServerStreamChunk(text: "", promptTokens: 4, completionTokens: 3, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -129,8 +140,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", toolCalls: [toolCall]),
-                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 4, promptTime: 0.03, generateTime: 0.02),
+                AFMServerStreamChunk(text: "", toolCalls: [toolCall]),
+                AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 4, promptTime: 0.03, generateTime: 0.02),
             ])
         )
         try MLXChatCompletionsController(
@@ -168,12 +179,12 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "<tool_call>"),
-                StreamChunk(text: "<function=get_weather>"),
-                StreamChunk(text: "<parameter=location>Berlin</parameter>"),
-                StreamChunk(text: "", toolCalls: [vendorCall]),
-                StreamChunk(text: "</tool_call>"),
-                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+                AFMServerStreamChunk(text: "<tool_call>"),
+                AFMServerStreamChunk(text: "<function=get_weather>"),
+                AFMServerStreamChunk(text: "<parameter=location>Berlin</parameter>"),
+                AFMServerStreamChunk(text: "", toolCalls: [vendorCall]),
+                AFMServerStreamChunk(text: "</tool_call>"),
+                AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
             ])
         )
         try MLXChatCompletionsController(
@@ -204,7 +215,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: "call_batch",
@@ -215,7 +226,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", toolCalls: [
+                AFMServerStreamChunk(text: "", toolCalls: [
                     ResponseToolCall(
                         index: 0,
                         id: "call_batch",
@@ -226,7 +237,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 4, promptTime: 0.03, generateTime: 0.02),
+                AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 4, promptTime: 0.03, generateTime: 0.02),
             ])
         )
         try MLXChatCompletionsController(
@@ -260,7 +271,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: "call_weather",
@@ -268,7 +279,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: "get_weather", arguments: nil)
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -276,7 +287,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: nil, arguments: #"{"location":"Sydney""#)
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -284,7 +295,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: nil, arguments: #","unit":"celsius""#)
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -292,7 +303,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: nil, arguments: "}")
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -300,7 +311,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: nil, arguments: "}")
                     )
                 ]),
-                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+                AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
             ])
         )
         try MLXChatCompletionsController(
@@ -328,7 +339,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: "call_todos",
@@ -336,7 +347,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: "create_todos", arguments: nil)
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -347,7 +358,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -358,7 +369,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: nil,
@@ -366,7 +377,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         function: StreamDeltaFunction(name: nil, arguments: "}")
                     )
                 ]),
-                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+                AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
             ])
         )
         try MLXChatCompletionsController(
@@ -394,7 +405,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", toolCallDeltas: [
+                AFMServerStreamChunk(text: "", toolCallDeltas: [
                     StreamDeltaToolCall(
                         index: 0,
                         id: "call_weather",
@@ -405,7 +416,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", toolCalls: [
+                AFMServerStreamChunk(text: "", toolCalls: [
                     ResponseToolCall(
                         index: 0,
                         id: "call_weather",
@@ -416,7 +427,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         )
                     )
                 ]),
-                StreamChunk(text: "", promptTokens: 12, completionTokens: 4, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
+                AFMServerStreamChunk(text: "", promptTokens: 12, completionTokens: 4, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -495,7 +506,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", promptTokens: 12, completionTokens: 0, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
+                AFMServerStreamChunk(text: "", promptTokens: 12, completionTokens: 0, cachedTokens: 0, promptTime: 0.02, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -594,8 +605,29 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                     return Self.makeDelayedStreamingResult(
                         modelID: "test-model",
                         chunks: [
-                            StreamChunk(text: "<tool_call>{\"name\":\"get_weather\",\"arguments\":{\"location\":\"Berlin\"}}</tool_call>"),
-                            StreamChunk(text: "", promptTokens: 12, completionTokens: 4, cachedTokens: 0, promptTime: 0.02, generateTime: 0.02),
+                            AFMServerStreamChunk(text: "", toolCallDeltas: [
+                                StreamDeltaToolCall(
+                                    index: 0,
+                                    id: "call_weather_berlin",
+                                    type: "function",
+                                    function: StreamDeltaFunction(
+                                        name: "get_weather",
+                                        arguments: "{\"location\":\"Berlin\"}"
+                                    )
+                                )
+                            ]),
+                            AFMServerStreamChunk(text: "", toolCalls: [
+                                ResponseToolCall(
+                                    index: 0,
+                                    id: "call_weather_berlin",
+                                    type: "function",
+                                    function: ResponseToolCallFunction(
+                                        name: "get_weather",
+                                        arguments: #"{"location":"Berlin"}"#
+                                    )
+                                )
+                            ]),
+                            AFMServerStreamChunk(text: "", promptTokens: 12, completionTokens: 4, cachedTokens: 0, promptTime: 0.02, generateTime: 0.02),
                         ],
                         delayNanoseconds: 5_000_000
                     )
@@ -604,7 +636,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 return Self.makeDelayedStreamingResult(
                     modelID: "test-model",
                     chunks: [
-                        StreamChunk(text: "", toolCallDeltas: [
+                        AFMServerStreamChunk(text: "", toolCallDeltas: [
                             StreamDeltaToolCall(
                                 index: 0,
                                 id: "call_batch_readme",
@@ -615,7 +647,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                                 )
                             )
                         ]),
-                        StreamChunk(text: "", toolCalls: [
+                        AFMServerStreamChunk(text: "", toolCalls: [
                             ResponseToolCall(
                                 index: 0,
                                 id: "call_batch_readme",
@@ -626,7 +658,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                                 )
                             )
                         ]),
-                        StreamChunk(text: "", promptTokens: 18, completionTokens: 5, cachedTokens: 2, promptTime: 0.03, generateTime: 0.02),
+                        AFMServerStreamChunk(text: "", promptTokens: 18, completionTokens: 5, cachedTokens: 2, promptTime: 0.03, generateTime: 0.02),
                     ],
                     delayNanoseconds: 5_000_000
                 )
@@ -724,10 +756,10 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     func testStreamingStructuredOutputStripsMarkdownFences() async throws {
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "```json\n"),
-                StreamChunk(text: "{\"ok\":true}\n"),
-                StreamChunk(text: "```"),
-                StreamChunk(text: "", promptTokens: 8, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+                AFMServerStreamChunk(text: "```json\n"),
+                AFMServerStreamChunk(text: "{\"ok\":true}\n"),
+                AFMServerStreamChunk(text: "```"),
+                AFMServerStreamChunk(text: "", promptTokens: 8, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -769,7 +801,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         let service = FakeMLXChatService(
             supportsStrictToolGrammar: false,
             streamingResult: makeStreamingResult(chunks: [
-                StreamChunk(text: "", promptTokens: 2, completionTokens: 1, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+                AFMServerStreamChunk(text: "", promptTokens: 2, completionTokens: 1, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
             ])
         )
         try MLXChatCompletionsController(
@@ -832,7 +864,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         return headers
     }
 
-    private func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
+    private func makeStreamingResult(chunks: [AFMServerStreamChunk]) -> AFMChatStreamingResult {
         Self.makeDelayedStreamingResult(modelID: "test-model", chunks: chunks, delayNanoseconds: nil)
     }
 
@@ -855,10 +887,10 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     }
 
     private func makeStreamingResult(
-        chunks: [StreamChunk],
+        chunks: [AFMServerStreamChunk],
         toolCallStartTag: String?,
         toolCallEndTag: String?
-    ) -> AFMMLXChatStreamingResult {
+    ) -> AFMChatStreamingResult {
         Self.makeDelayedStreamingResult(
             modelID: "test-model",
             chunks: chunks,
@@ -868,7 +900,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         )
     }
 
-    private static func makeDelayedStreamingResult(modelID: String, chunks: [StreamChunk], delayNanoseconds: UInt64?) -> AFMMLXChatStreamingResult {
+    private static func makeDelayedStreamingResult(modelID: String, chunks: [AFMServerStreamChunk], delayNanoseconds: UInt64?) -> AFMChatStreamingResult {
         Self.makeDelayedStreamingResult(
             modelID: modelID,
             chunks: chunks,
@@ -880,12 +912,12 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 
     private static func makeDelayedStreamingResult(
         modelID: String,
-        chunks: [StreamChunk],
+        chunks: [AFMServerStreamChunk],
         delayNanoseconds: UInt64?,
         toolCallStartTag: String?,
         toolCallEndTag: String?
-    ) -> AFMMLXChatStreamingResult {
-        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+    ) -> AFMChatStreamingResult {
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             Task {
                 for chunk in chunks {
                     continuation.yield(chunk)
@@ -1001,7 +1033,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Sendable {
+private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
@@ -1009,8 +1041,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     let thinkEndTag: String?
     let fixToolArgs: Bool
     let enableGrammarConstraints: Bool = false
-    var servingConfiguration: AFMMLXServingConfiguration {
-        AFMMLXServingConfiguration(
+    var servingConfiguration: AFMChatServingConfiguration {
+        AFMChatServingConfiguration(
             toolCallParser: toolCallParser,
             supportsStrictToolGrammar: supportsStrictToolGrammar,
             thinkStartTag: thinkStartTag,
@@ -1019,9 +1051,9 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             grammarConstraintsEnabled: enableGrammarConstraints
         )
     }
-    private let generateResult: AFMMLXChatGenerationResult
-    private let streamingResult: AFMMLXChatStreamingResult
-    private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
+    private let generateResult: AFMChatGenerationResult
+    private let streamingResult: AFMChatStreamingResult
+    private let streamingHandler: (([Message]) -> AFMChatStreamingResult)?
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
@@ -1036,8 +1068,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
-        generateResult: AFMMLXChatGenerationResult? = nil,
-        streamingResult: AFMMLXChatStreamingResult
+        generateResult: AFMChatGenerationResult? = nil,
+        streamingResult: AFMChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
@@ -1068,7 +1100,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
-        streamingHandler: @escaping ([Message]) -> AFMMLXChatStreamingResult
+        streamingHandler: @escaping ([Message]) -> AFMChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
         self.toolCallParser = toolCallParser
@@ -1125,7 +1157,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         recordGenerateTools(tools)
         return generateResult
     }
@@ -1149,7 +1181,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         recordGenerateToolChoice(toolChoice)
         return try await generate(
             model: model,
@@ -1190,7 +1222,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }
@@ -1216,7 +1248,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         recordStreamingToolChoice(toolChoice)
         recordPreserveStructuralTags(preserveStructuralTags)
         return try await generateStreaming(
@@ -1260,7 +1292,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         recordPreserveStructuralTags(preserveStructuralTags)
         return try await generateStreaming(
             model: model,
@@ -1324,7 +1356,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         }
     }
 
-    private static let emptyStreamingResult: AFMMLXChatStreamingResult = (
+    private static let emptyStreamingResult: AFMChatStreamingResult = (
         modelID: "test-model",
         stream: AsyncThrowingStream { $0.finish() },
         promptTokens: 0,

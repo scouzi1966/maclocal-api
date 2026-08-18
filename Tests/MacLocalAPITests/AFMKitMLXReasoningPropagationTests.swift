@@ -118,7 +118,7 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
     private func generate(
         adapter: AFMKitMLXChatServingAdapter,
         kwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         try await adapter.generate(
             model: "capture",
             messages: [Message(role: "user", content: "hello")],

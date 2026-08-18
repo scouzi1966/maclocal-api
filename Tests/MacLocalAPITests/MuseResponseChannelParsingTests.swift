@@ -43,7 +43,7 @@ struct MuseResponseChannelParsingTests {
 
     @Test("Serving configuration preserves explicit Muse response channel format")
     func servingConfigurationPreservesMuseFormat() {
-        let configuration = AFMMLXServingConfiguration(responseChannelFormat: .muse)
+        let configuration = AFMChatServingConfiguration(responseChannelFormat: .muse)
 
         #expect(configuration.responseChannelFormat == .muse)
         #expect(configuration.harmonyChannels == false)
@@ -51,7 +51,7 @@ struct MuseResponseChannelParsingTests {
 
     @Test("Harmony compatibility still maps legacy bool to response channel format")
     func harmonyBoolMapsToResponseChannelFormat() {
-        let configuration = AFMMLXServingConfiguration(harmonyChannels: true)
+        let configuration = AFMChatServingConfiguration(harmonyChannels: true)
 
         #expect(configuration.responseChannelFormat == .harmony)
     }

@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 import Compression
 import Darwin
@@ -299,7 +300,7 @@ public class Server: @unchecked Sendable {
                 defaultChatTemplateKwargs: defaultChatTemplateKwargs,
                 forceDisableThinking: forceDisableThinking)
         }
-        let mlxChatService: (any AFMMLXOpenAIChatServing)?
+        let mlxChatService: (any AFMChatServing)?
         if let afmModel, let mlxModelID {
             mlxChatService = AFMKitMLXChatServingAdapter(
                 model: afmModel,

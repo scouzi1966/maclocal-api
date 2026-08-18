@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 
 struct ChatCompletionsController: RouteCollection {

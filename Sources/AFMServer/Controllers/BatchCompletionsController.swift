@@ -8,7 +8,7 @@ struct BatchCompletionsController: RouteCollection {
     /// Maximum requests allowed in a single SSE multiplex batch.
     private static let maxBatchSize = 64
 
-    private let service: any AFMMLXOpenAIChatServing
+    private let service: any AFMChatServing
     private let modelID: String
     private let temperature: Double?
     private let topP: Double?
@@ -21,7 +21,7 @@ struct BatchCompletionsController: RouteCollection {
     private let maxLogprobs: Int
 
     init(
-        service: any AFMMLXOpenAIChatServing,
+        service: any AFMChatServing,
         modelID: String,
         temperature: Double? = nil,
         topP: Double? = nil,
@@ -154,7 +154,7 @@ struct BatchCompletionsController: RouteCollection {
 
     private func processRequest(
         item: BatchRequestItem,
-        service: any AFMMLXOpenAIChatServing,
+        service: any AFMChatServing,
         modelID: String,
         temperature: Double?,
         topP: Double?,
@@ -208,7 +208,9 @@ struct BatchCompletionsController: RouteCollection {
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: effectiveResponseFormat,
-                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs,
+                preserveStructuralTags: false,
+                requestId: nil
             )
             reservationTransferred = true
 

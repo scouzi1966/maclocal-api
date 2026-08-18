@@ -46,8 +46,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
                 "enable_thinking": .bool(false),
                 "top_k": .integer(20)
             ],
-            forceDisableThinking: true,
-            defaultGuidedJsonSchema: guidedSchema
+            forceDisableThinking: true
         ).apply(to: service)
 
         XCTAssertEqual(service.kvBits, 4)
@@ -76,7 +75,7 @@ final class AFMMLXRuntimeTests: XCTestCase {
         XCTAssertEqual(enableThinking, false)
         XCTAssertEqual(topK, 20)
         XCTAssertTrue(service.forceDisableThinking)
-        XCTAssertEqual(service.defaultGuidedJsonSchema?.type, "json_schema")
+        XCTAssertEqual(service.effectiveResponseFormat(requestFormat: guidedSchema)?.type, "json_schema")
     }
 
     func testRuntimeConfigurationDisablesBatchModeForSingleConcurrency() {

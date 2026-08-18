@@ -171,6 +171,7 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
+                .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMKitDwarfStar", package: "AFMKit"),
                 .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMServer",

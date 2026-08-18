@@ -2,33 +2,28 @@ import Foundation
 import AFMKit
 import AFMKitMLX
 
-/// Bridges the existing OpenAI-compatible HTTP controllers onto AFMKit while
-/// preserving their current `AFMMLXOpenAIChatServing` contract.
-final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokenizing, @unchecked Sendable {
-    private let servingModel: (any AFMMLXOpenAIChatServing)?
-    private let tokenizer: (any AFMTextTokenizing)?
+/// Bridges the OpenAI-compatible HTTP controllers onto AFMKit's neutral model
+/// and event contracts. Provider scheduler and parser internals stay inside
+/// AFMKitMLX.
+final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unchecked Sendable {
     private let fixedModel: AnyAFMModel
-    private let fixedModelID: String?
-    private let fixedServingConfiguration: AFMMLXServingConfiguration
+    private let fixedModelID: String
+    private let fixedServingConfiguration: AFMChatServingConfiguration
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
-    private let slotLock = NSLock()
     private let fixedMaxConcurrent: Int
-    private var fixedSlotsReserved = 0
 
     init(
         model: AFMMLXModel,
         defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
         forceDisableThinking: Bool = false
     ) {
-        servingModel = model
-        tokenizer = model
         fixedModel = AnyAFMModel(model)
         fixedModelID = model.descriptor.modelID.rawValue
-        fixedServingConfiguration = model.servingConfiguration
+        fixedServingConfiguration = Self.configuration(for: model.descriptor)
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
-        fixedMaxConcurrent = model.maxConcurrent
+        fixedMaxConcurrent = Self.maximumConcurrency(for: model.descriptor)
     }
 
     init(
@@ -37,101 +32,53 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
         forceDisableThinking: Bool = false
     ) {
-        servingModel = nil
-        tokenizer = nil
         fixedModel = model
         fixedModelID = modelID
-        fixedServingConfiguration = model.descriptor.capabilities.contains(.reasoning)
-            ? .init(thinkStartTag: "<think>", thinkEndTag: "</think>")
-            : .init()
+        fixedServingConfiguration = Self.configuration(for: model.descriptor)
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
-        if case .integer(let value) = model.descriptor.metadata["maxConcurrent"] {
-            fixedMaxConcurrent = max(1, value)
-        } else {
-            fixedMaxConcurrent = 1
-        }
+        fixedMaxConcurrent = Self.maximumConcurrency(for: model.descriptor)
     }
 
-    var maxConcurrent: Int { servingModel?.maxConcurrent ?? fixedMaxConcurrent }
-    var servingConfiguration: AFMMLXServingConfiguration {
-        servingModel?.servingConfiguration ?? fixedServingConfiguration
-    }
-    var defaultGuidedJsonSchema: ResponseFormat? { servingModel?.defaultGuidedJsonSchema }
+    var maxConcurrent: Int { fixedMaxConcurrent }
+    var servingConfiguration: AFMChatServingConfiguration { fixedServingConfiguration }
+    var defaultGuidedJsonSchema: ResponseFormat? { nil }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        servingModel?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
+        requestFormat
     }
 
     func normalizeModel(_ raw: String) -> String {
-        servingModel?.normalizeModel(raw) ?? fixedModelID ?? raw
+        fixedModelID
     }
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
-        servingModel?.resolvedToolCallParser(logBypass: logBypass)
+        nil
     }
 
+    /// Admission is provider-owned. The HTTP layer no longer reserves MLX
+    /// scheduler slots independently before asking the model to execute.
     func tryReserveSlot() -> Bool {
-        if let servingModel { return servingModel.tryReserveSlot() }
-        slotLock.lock()
-        defer { slotLock.unlock() }
-        guard fixedSlotsReserved < fixedMaxConcurrent else { return false }
-        fixedSlotsReserved += 1
         return true
     }
 
     func waitForSlot(timeout: TimeInterval) async -> Bool {
-        if let servingModel { return await servingModel.waitForSlot(timeout: timeout) }
-        if timeout <= 0 { return tryReserveSlot() }
-        let deadline = ContinuousClock.now + .seconds(timeout)
-        while ContinuousClock.now < deadline {
-            if Task.isCancelled { return false }
-            if tryReserveSlot() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return false
+        !Task.isCancelled
     }
 
-    func releaseSlot() {
-        if let servingModel {
-            servingModel.releaseSlot()
-            return
-        }
-        slotLock.lock()
-        fixedSlotsReserved = max(0, fixedSlotsReserved - 1)
-        slotLock.unlock()
-    }
+    func releaseSlot() {}
 
     func tokenize(text: String) async throws -> [Int] {
-        do {
-            guard let tokenizer else {
-                throw AFMError.unsupportedCapability("tokenization for this provider")
-            }
-            return try await tokenizer.tokenize(text: text)
-        } catch MLXServiceError.noModelLoaded {
-            throw AFMError.unsupportedCapability("tokenization without a loaded model")
-        }
+        try await fixedModel.tokenize(text: text)
     }
 
-    func ensureBatchMode(concurrency: Int) async throws {
-        if let servingModel {
-            try await servingModel.ensureBatchMode(concurrency: concurrency)
-        } else if concurrency > fixedMaxConcurrent {
-            throw AFMError.unsupportedCapability("concurrent batch generation for this provider")
-        }
-    }
+    func ensureBatchMode(concurrency: Int) async throws {}
 
-    func releaseBatchReference() {
-        servingModel?.releaseBatchReference()
-    }
+    func releaseBatchReference() {}
 
-    func cancelBatchSlots(ids: Set<UUID>) async {
-        if let servingModel { await servingModel.cancelBatchSlots(ids: ids) }
-    }
+    func cancelBatchSlots(ids: Set<UUID>) async {}
 
-    func startAPIProfile() {
-        servingModel?.startAPIProfile()
-    }
+    func startAPIProfile() {}
 
     func stopAPIProfile(
         promptTokens: Int,
@@ -139,13 +86,6 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfile {
-        if let servingModel {
-            return servingModel.stopAPIProfile(
-                promptTokens: promptTokens,
-                completionTokens: completionTokens,
-                promptTime: promptTime,
-                generateTime: generateTime)
-        }
         return Self.profile(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
@@ -159,13 +99,6 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfileExtended {
-        if let servingModel {
-            return servingModel.stopAPIProfileExtended(
-                promptTokens: promptTokens,
-                completionTokens: completionTokens,
-                promptTime: promptTime,
-                generateTime: generateTime)
-        }
         return AFMProfileExtended(
             summary: Self.profile(
                 promptTokens: promptTokens,
@@ -193,7 +126,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         try await generate(
             model: model,
             messages: messages,
@@ -235,7 +168,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -304,7 +237,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         try await generateStreaming(
             model: model,
             messages: messages,
@@ -350,7 +283,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -377,13 +310,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         let startTag = thinkStartTag
         let endTag = thinkEndTag
 
-        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             let task = Task {
-                defer {
-                    if self.servingModel == nil {
-                        self.releaseSlot()
-                    }
-                }
                 var promptTokens = 0
                 var completionTokens = 0
                 var cachedTokens = 0
@@ -398,19 +326,19 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                         switch event {
                         case .responseText(_, let text, _):
                             if insideReasoning {
-                                continuation.yield(StreamChunk(text: endTag ?? ""))
+                                continuation.yield(AFMServerStreamChunk(text: endTag ?? ""))
                                 insideReasoning = false
                             }
-                            continuation.yield(StreamChunk(text: text))
+                            continuation.yield(AFMServerStreamChunk(text: text))
                         case .reasoningText(_, let text, _):
                             if !insideReasoning {
-                                continuation.yield(StreamChunk(text: startTag ?? ""))
+                                continuation.yield(AFMServerStreamChunk(text: startTag ?? ""))
                                 insideReasoning = true
                             }
-                            continuation.yield(StreamChunk(text: text))
+                            continuation.yield(AFMServerStreamChunk(text: text))
                         case .tokenLogprobs(let values):
                             continuation.yield(
-                                StreamChunk(
+                                AFMServerStreamChunk(
                                     text: "",
                                     logprobs: values.map(\.resolvedLogprob)
                                 )
@@ -429,7 +357,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                             completionTokens = usage.outputTokens
                             cachedTokens = usage.cachedInputTokens
                             continuation.yield(
-                                StreamChunk(
+                                AFMServerStreamChunk(
                                     text: "",
                                     promptTokens: promptTokens,
                                     completionTokens: completionTokens,
@@ -443,11 +371,11 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                                 metadata.bool("stoppedBySequence") ?? stoppedBySequence
                         case .completed:
                             if insideReasoning {
-                                continuation.yield(StreamChunk(text: endTag ?? ""))
+                                continuation.yield(AFMServerStreamChunk(text: endTag ?? ""))
                                 insideReasoning = false
                             }
                             continuation.yield(
-                                StreamChunk(
+                                AFMServerStreamChunk(
                                     text: "",
                                     promptTokens: promptTokens,
                                     completionTokens: completionTokens,
@@ -482,6 +410,23 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
 
     private func afmModel(for model: String) -> AnyAFMModel {
         fixedModel
+    }
+
+    private static func maximumConcurrency(for descriptor: AFMModelDescriptor) -> Int {
+        guard case .integer(let value)? = descriptor.metadata["maxConcurrent"] else {
+            return 1
+        }
+        return max(1, value)
+    }
+
+    private static func configuration(
+        for descriptor: AFMModelDescriptor
+    ) -> AFMChatServingConfiguration {
+        let reasoning = descriptor.capabilities.contains(.reasoning)
+        return AFMChatServingConfiguration(
+            thinkStartTag: reasoning ? "<think>" : nil,
+            thinkEndTag: reasoning ? "</think>" : nil
+        )
     }
 
     private static func profile(
@@ -588,12 +533,12 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         _ call: AFMToolCall,
         stage: AFMToolCallStage,
         index: Int,
-        continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
+        continuation: AsyncThrowingStream<AFMServerStreamChunk, Error>.Continuation
     ) {
         switch stage {
         case .started:
             continuation.yield(
-                StreamChunk(
+                AFMServerStreamChunk(
                     text: "",
                     toolCallDeltas: [
                         StreamDeltaToolCall(
@@ -610,7 +555,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             )
         case .argumentsDelta(let delta):
             continuation.yield(
-                StreamChunk(
+                AFMServerStreamChunk(
                     text: "",
                     toolCallDeltas: [
                         StreamDeltaToolCall(
@@ -627,7 +572,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             )
         case .completed:
             continuation.yield(
-                StreamChunk(
+                AFMServerStreamChunk(
                     text: "",
                     toolCalls: [call.responseToolCall(index: index)]
                 )
@@ -653,8 +598,8 @@ private extension AFMToolCall {
 }
 
 private extension AFMTokenLogProbability {
-    var resolvedLogprob: ResolvedLogprob {
-        ResolvedLogprob(
+    var resolvedLogprob: AFMServerResolvedLogprob {
+        AFMServerResolvedLogprob(
             token: token,
             tokenId: tokenID,
             logprob: logprob,

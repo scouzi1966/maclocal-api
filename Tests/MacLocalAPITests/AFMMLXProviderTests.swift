@@ -329,7 +329,7 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertEqual(arguments["days"] as? Int, 5)
     }
 
-    func testAFMKitOwnsChatGenerationResultShape() {
+    func testAFMKitMLXOwnsChatGenerationResultShape() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
             content: "ok",
