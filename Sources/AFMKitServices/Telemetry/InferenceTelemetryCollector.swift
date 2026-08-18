@@ -73,6 +73,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         var terminalCounts = Dictionary(
             uniqueKeysWithValues: AFMInferenceFinishReason.allCases.map { ($0.rawValue, UInt64(0)) }
         )
+        var legacyTerminalCounts: [String: UInt64] = [:]
         var failureCounts = Dictionary(
             uniqueKeysWithValues: AFMInferenceFailureReason.allCases.map { ($0.rawValue, UInt64(0)) }
         )
@@ -211,8 +212,8 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
     }
 
     public func legacyRequestSucceeded(reason: String) {
-        let key = Self.legacyReason(reason)
-        state.withLock { $0.terminalCounts[key, default: 0] &+= 1 }
+        let key = Self.legacySanitizedReason(reason)
+        state.withLock { $0.legacyTerminalCounts[key, default: 0] &+= 1 }
     }
 
     public func legacyObserveRequest(
@@ -264,14 +265,19 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         state.withLock { $0.generatedTokens.observe(Double(count)) }
     }
 
-    private static func legacyReason(_ reason: String) -> String {
-        switch reason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "stop", "tool_calls": return AFMInferenceFinishReason.stop.rawValue
-        case "length": return AFMInferenceFinishReason.length.rawValue
-        case "abort", "cancelled": return AFMInferenceFinishReason.abort.rawValue
-        case "repetition": return AFMInferenceFinishReason.repetition.rawValue
-        default: return AFMInferenceFinishReason.error.rawValue
+    private static func legacySanitizedReason(_ reason: String) -> String {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return "unknown" }
+        var result = ""
+        result.reserveCapacity(trimmed.count)
+        for scalar in trimmed.unicodeScalars {
+            if (scalar >= "a" && scalar <= "z") || (scalar >= "0" && scalar <= "9") {
+                result.unicodeScalars.append(scalar)
+            } else {
+                result.append("_")
+            }
         }
+        return result
     }
 
     private static func observeLatency(
@@ -526,7 +532,12 @@ extension InferenceTelemetryCollector: AFMInferenceMetricsSnapshotSource {
                 supplementalCounts: [
                     AFMNamedCount(name: "legacy_cache_hits", count: state.legacyCacheHitsTotal),
                     AFMNamedCount(name: "legacy_cache_misses", count: state.legacyCacheMissesTotal),
-                ],
+                ] + state.legacyTerminalCounts.keys.sorted().map {
+                    AFMNamedCount(
+                        name: "legacy_finish:\($0)",
+                        count: state.legacyTerminalCounts[$0, default: 0]
+                    )
+                },
                 supplementalIntegerGauges: [
                     AFMNamedIntegerGauge(
                         name: "active_connections",

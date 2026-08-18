@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 
 /// Controls admission to an MLX runtime's concurrent request slots.
 ///
@@ -34,6 +35,55 @@ public extension AFMMLXRequestScheduling {
             delay = min(delay * 2, maximumPollNanoseconds)
         }
         return false
+    }
+}
+
+/// Provider-owned admission capability used by qualified built-in runtimes.
+public protocol AFMMLXGenerationAdmitting: AFMMLXRequestScheduling {
+    var generationAdmitter: AnyAFMGenerationAdmitter { get }
+}
+
+@available(
+    *,
+    deprecated,
+    message: "External legacy schedulers are not queue-telemetry qualified."
+)
+public final class LegacyAFMMLXAdmissionAdapter:
+    AFMGenerationAdmitting,
+    @unchecked Sendable
+{
+    private let scheduler: any AFMMLXRequestScheduling
+    private let observer: any AFMInferenceTelemetryObserving
+
+    public init(
+        scheduler: any AFMMLXRequestScheduling,
+        observer: any AFMInferenceTelemetryObserving = AFMNoopInferenceTelemetryObserver()
+    ) {
+        self.scheduler = scheduler
+        self.observer = observer
+    }
+
+    public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        let acceptedAt = Date().timeIntervalSince1970
+        let token = observer.requestAccepted(at: acceptedAt)
+        let seconds = timeout.map(Self.seconds) ?? 30
+        guard await scheduler.waitForSlot(timeout: seconds) else {
+            let reason: AFMInferenceFailureReason = Task.isCancelled ? .cancelled : .inference
+            _ = observer.requestFailed(token, reason: reason, at: Date().timeIntervalSince1970)
+            throw Task.isCancelled
+                ? AFMGenerationAdmissionError.cancelled
+                : AFMGenerationAdmissionError.timedOut
+        }
+        observer.requestStarted(token, at: Date().timeIntervalSince1970)
+        return AFMGenerationLease(telemetryToken: token) { [scheduler] in
+            scheduler.releaseSlot()
+        }
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 }
 

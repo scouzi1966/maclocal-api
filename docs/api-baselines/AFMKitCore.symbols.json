@@ -2195,6 +2195,11 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore18AFMGenerationLeaseC25transferReleaseToProvideryyF",
+      "target": "s:10AFMKitCore18AFMGenerationLeaseC"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore18AFMGenerationLeaseC7releaseyyF",
       "target": "s:10AFMKitCore18AFMGenerationLeaseC"
     },
@@ -2355,6 +2360,36 @@
         "identifier": "s:SY8rawValuexSg03RawB0Qz_tcfc"
       },
       "target": "s:10AFMKitCore19AFMTextUpdateActionO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO10acceptedAtSdSgvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO11$acceptedAt12_Concurrency9TaskLocalCySdSgGvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO14telemetryTokenAA019AFMInferenceRequestF0VSgvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO15$telemetryToken12_Concurrency9TaskLocalCyAA019AFMInferenceRequestF0VSgGvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO19ignoreEndOfSequenceSbvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO20$ignoreEndOfSequence12_Concurrency9TaskLocalCySbGvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
     },
     {
       "kind": "memberOf",
@@ -30558,6 +30593,324 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "$acceptedAt"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "text",
+          "spelling": "?>"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+          "spelling": "TaskLocal"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sd",
+          "spelling": "Double"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO11$acceptedAt12_Concurrency9TaskLocalCySdSgGvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "$acceptedAt"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "<"
+          },
+          {
+            "kind": "text",
+            "spelling": "?>"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+            "spelling": "TaskLocal"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sd",
+            "spelling": "Double"
+          }
+        ],
+        "title": "$acceptedAt"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "$acceptedAt"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "$ignoreEndOfSequence"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "text",
+          "spelling": ">"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+          "spelling": "TaskLocal"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sb",
+          "spelling": "Bool"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO20$ignoreEndOfSequence12_Concurrency9TaskLocalCySbGvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "$ignoreEndOfSequence"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "<"
+          },
+          {
+            "kind": "text",
+            "spelling": ">"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+            "spelling": "TaskLocal"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sb",
+            "spelling": "Bool"
+          }
+        ],
+        "title": "$ignoreEndOfSequence"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "$ignoreEndOfSequence"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "$telemetryToken"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "text",
+          "spelling": "?>"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+          "spelling": "TaskLocal"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO15$telemetryToken12_Concurrency9TaskLocalCyAA019AFMInferenceRequestF0VSgGvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "$telemetryToken"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "<"
+          },
+          {
+            "kind": "text",
+            "spelling": "?>"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+            "spelling": "TaskLocal"
+          }
+        ],
+        "title": "$telemetryToken"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "$telemetryToken"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "AFMContentPart"
         },
         {
@@ -30874,6 +31227,68 @@
       },
       "pathComponents": [
         "AFMGenerationAdmitting"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "AFMGenerationContext"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "enum"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        }
+      ],
+      "docComment": {
+        "lines": [
+          {
+            "text": "Request-scoped generation values propagated without changing established"
+          },
+          {
+            "text": "provider method signatures."
+          }
+        ],
+        "module": "AFMKitCore"
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO"
+      },
+      "kind": {
+        "displayName": "Enumeration",
+        "identifier": "swift.enum"
+      },
+      "names": {
+        "navigator": [
+          {
+            "kind": "identifier",
+            "spelling": "AFMGenerationContext"
+          }
+        ],
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "AFMGenerationContext"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "enum"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          }
+        ],
+        "title": "AFMGenerationContext"
+      },
+      "pathComponents": [
+        "AFMGenerationContext"
       ]
     },
     {
@@ -34465,6 +34880,102 @@
       "pathComponents": [
         "AFMInferenceFinishReason",
         "abort"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "acceptedAt"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "get"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " }"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "? { "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sd",
+          "spelling": "Double"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO10acceptedAtSdSgvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "acceptedAt"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sd",
+            "spelling": "Double"
+          }
+        ],
+        "title": "acceptedAt"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "acceptedAt"
       ]
     },
     {
@@ -40715,6 +41226,98 @@
       "pathComponents": [
         "AFMToolCall",
         "id"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "ignoreEndOfSequence"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "get"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " { "
+        },
+        {
+          "kind": "text",
+          "spelling": " }"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sb",
+          "spelling": "Bool"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO19ignoreEndOfSequenceSbvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "ignoreEndOfSequence"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sb",
+            "spelling": "Bool"
+          }
+        ],
+        "title": "ignoreEndOfSequence"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "ignoreEndOfSequence"
       ]
     },
     {
@@ -50301,6 +50904,102 @@
         },
         {
           "kind": "keyword",
+          "spelling": "get"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " }"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "? { "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO14telemetryTokenAA019AFMInferenceRequestF0VSgvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "telemetryToken"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          }
+        ],
+        "title": "telemetryToken"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "telemetryToken"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "telemetryToken"
+        },
+        {
+          "kind": "keyword",
           "spelling": "let"
         },
         {
@@ -52728,6 +53427,79 @@
       "pathComponents": [
         "AFMRawTextGenerationResult",
         "totalTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "transferReleaseToProvider"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "func"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": "()"
+        }
+      ],
+      "docComment": {
+        "lines": [
+          {
+            "text": "Marks the lease as released when the provider's own scheduler has taken"
+          },
+          {
+            "text": "responsibility for releasing the underlying capacity reservation."
+          }
+        ],
+        "module": "AFMKitCore"
+      },
+      "functionSignature": {
+        "returns": [
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore18AFMGenerationLeaseC25transferReleaseToProvideryyF"
+      },
+      "kind": {
+        "displayName": "Instance Method",
+        "identifier": "swift.method"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "transferReleaseToProvider"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "func"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ],
+        "title": "transferReleaseToProvider()"
+      },
+      "pathComponents": [
+        "AFMGenerationLease",
+        "transferReleaseToProvider()"
       ]
     },
     {

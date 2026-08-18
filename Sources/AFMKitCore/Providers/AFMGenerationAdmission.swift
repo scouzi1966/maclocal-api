@@ -31,9 +31,23 @@ public final class AFMGenerationLease: @unchecked Sendable {
         if shouldRelease { releaseOperation() }
     }
 
+    /// Marks the lease as released when the provider's own scheduler has taken
+    /// responsibility for releasing the underlying capacity reservation.
+    public func transferReleaseToProvider() {
+        state.withLock { $0 = true }
+    }
+
     deinit {
         release()
     }
+}
+
+/// Request-scoped generation values propagated without changing established
+/// provider method signatures.
+public enum AFMGenerationContext {
+    @TaskLocal public static var telemetryToken: AFMInferenceRequestToken?
+    @TaskLocal public static var acceptedAt: Double?
+    @TaskLocal public static var ignoreEndOfSequence = false
 }
 
 public protocol AFMGenerationAdmitting: Sendable {

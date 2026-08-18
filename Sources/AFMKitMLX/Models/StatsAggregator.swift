@@ -1,96 +1,66 @@
+import AFMKitCore
 import Foundation
 import os
 
-/// Global thread-safe aggregator for AFM runtime metrics.
-///
-/// Modelled after vLLM's `vllm/engine/metrics.py`:
-///
-///   - counters (monotonic)     — total tokens, total requests, cache events,
-///                                request_success per finished_reason
-///   - gauges (instantaneous)   — running / waiting / peak batch size,
-///                                gpu_cache_usage_perc
-///   - histograms (cumulative)  — per-request latency / size / params
-///
-/// Bucket boundaries match vLLM's defaults exactly so Grafana dashboards
-/// authored against `vllm:*` work against `afm:*` after a search-and-replace
-/// of the namespace prefix.
-///
-/// The server presents snapshots from this type through `GET /metrics`;
-/// the Prometheus exposition renderer intentionally lives in AFMServer so
-/// AFMKit stays a structured-runtime layer instead of an HTTP presentation
-/// layer.
-///
-/// Both the batched code path (`BatchScheduler`) and the serial
-/// single-sequence path (`MLXModelService.generate*`) call into the
-/// same singleton so `/metrics` always reflects the complete server
-/// activity regardless of which path served the request.
-///
-/// Live-state gauges (inflight, queue depth, gpu cache usage) are read
-/// through closures registered at startup by whichever component owns
-/// the state. This lets presentation layers pull live values from existing
-/// nonisolated locks without hopping through any actor.
-public final class StatsAggregator: @unchecked Sendable {
+/// AFMKitMLX-local forwarding contract used by the deprecated compatibility facade.
+public protocol StatsAggregatorCompatibilityTarget: AnyObject, Sendable {
+    func setModel(_ name: String, maxConcurrent: Int)
+    func registerGaugeReaders(
+        running: @escaping StatsAggregator.GaugeReader,
+        waiting: @escaping StatsAggregator.GaugeReader
+    )
+    func registerGpuCacheUsageReader(_ reader: @escaping StatsAggregator.FractionReader)
+    func registerRadixCacheFillReader(_ reader: @escaping StatsAggregator.FractionReader)
+    func connectionStarted()
+    func connectionEnded()
+    func reset()
+    func addGenTokens(_ count: Int)
+    func addPromptTokens(_ count: Int)
+    func requestStarted()
+    func requestCompleted()
+    func cacheHit()
+    func cacheMiss()
+    func requestSucceeded(reason: String)
+    func observeRequest(_ observation: StatsAggregator.RequestObservation)
+    func observeE2eLatency(_ seconds: Double)
+    func observeTimeToFirstToken(_ seconds: Double)
+    func observeTimePerOutputToken(_ seconds: Double)
+    func observePromptTokens(_ count: Int)
+    func observeGenerationTokens(_ count: Int)
+    func metricsSnapshot() -> AFMInferenceMetricsSnapshot
+}
 
-    /// Process-wide singleton. All increment calls are O(1) under a
-    /// single unfair lock; contention is negligible vs the Metal
-    /// decode step.
+@available(
+    *,
+    deprecated,
+    message: "Inject AFMKitCore telemetry protocols and use InferenceTelemetryCollector from AFMKitServices."
+)
+public final class StatsAggregator: @unchecked Sendable {
     public static let shared = StatsAggregator()
 
     public typealias GaugeReader = @Sendable () -> Int
     public typealias FractionReader = @Sendable () -> Double
 
-    // MARK: - vLLM bucket boundaries
-
-    /// Bucket boundaries match upstream vLLM exactly so Grafana
-    /// dashboards from the vLLM ecosystem are drop-in compatible.
-    ///
-    /// Provenance (port-time snapshot, **not a live dependency** — values
-    /// are literals; nothing in afm's build or runtime reaches out to
-    /// vllm-project/vllm):
-    ///
-    ///   - source repo: vllm-project/vllm
-    ///   - source file: vllm/v1/metrics/loggers.py
-    ///   - source blob: 6855efd9f54c6f8ac5b95704455f64d6e456b4c8
-    ///   - repo HEAD:   2ee8c2a56e41fbd00b4fb52f29464fb7fca48dba
-    ///   - port date:   2026-05-09
-    ///
-    /// See `Scripts/grafana/UPSTREAM.md` for the full provenance trail
-    /// and the procedure to re-port if upstream evolves.
     public enum Buckets {
-        /// Used for e2e latency, queue time, inference time, prefill time,
-        /// decode time. Seconds.
         public static let requestLatency: [Double] = [
             0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0,
             10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0,
         ]
-
-        /// Time to first token. Seconds.
         public static let timeToFirstToken: [Double] = [
             0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1,
             0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
         ]
-
-        /// Time per output token (inter-token latency). Seconds.
         public static let timePerOutputToken: [Double] = [
             0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2,
             0.3, 0.4, 0.5, 0.75, 1.0, 2.5,
         ]
-
-        /// Token-count histograms (prompt + generation).
         public static let tokenCount: [Double] = [
             1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
             2000, 5000, 10000, 20000, 50000, 100000,
         ]
-
-        /// Sampling-parameter histograms (n, best_of).
         public static let samplingParam: [Double] = [1, 2, 5, 10, 20]
     }
 
-    // MARK: - Histogram primitive
-
-    /// Cumulative histogram with `+Inf` bucket. `bucketCounts[i]` is the
-    /// number of observations `<= buckets[i]`; the final entry is `+Inf`
-    /// (i.e. the total count, equal to `count`).
     public struct Histogram: Sendable {
         public let buckets: [Double]
         public var bucketCounts: [UInt64]
@@ -105,205 +75,23 @@ public final class StatsAggregator: @unchecked Sendable {
         }
 
         public mutating func observe(_ value: Double) {
-            // Drop NaN / negative noise instead of clamping to 0.
-            // Clamping would systematically bias percentiles toward the
-            // lowest bucket whenever upstream emits a bad measurement,
-            // skewing p50/p95 used for SLOs and dashboard alerts.
             guard value.isFinite, value >= 0 else { return }
-
             sum += value
             count &+= 1
-            for i in 0..<buckets.count where value <= buckets[i] {
-                bucketCounts[i] &+= 1
+            for index in buckets.indices where value <= buckets[index] {
+                bucketCounts[index] &+= 1
             }
-            // +Inf bucket always increments
             bucketCounts[buckets.count] &+= 1
         }
-    }
 
-    // MARK: - Storage
-
-    private struct Counters {
-        public var genTokensTotal: UInt64 = 0
-        public var promptTokensTotal: UInt64 = 0
-        public var requestsStartedTotal: UInt64 = 0
-        public var requestsCompletedTotal: UInt64 = 0
-        public var cacheHitsTotal: UInt64 = 0
-        public var cacheMissesTotal: UInt64 = 0
-        /// vLLM's `request_success_total{finished_reason=...}`. Keyed by
-        /// the finished_reason string ("stop", "length", "abort", "error").
-        public var requestSuccessByReason: [String: UInt64] = [:]
-    }
-
-    private struct Histograms {
-        public var e2eLatency = Histogram(buckets: Buckets.requestLatency)
-        public var queueTime = Histogram(buckets: Buckets.requestLatency)
-        public var inferenceTime = Histogram(buckets: Buckets.requestLatency)
-        public var prefillTime = Histogram(buckets: Buckets.requestLatency)
-        public var decodeTime = Histogram(buckets: Buckets.requestLatency)
-        public var timeToFirstToken = Histogram(buckets: Buckets.timeToFirstToken)
-        public var timePerOutputToken = Histogram(buckets: Buckets.timePerOutputToken)
-        public var promptTokens = Histogram(buckets: Buckets.tokenCount)
-        public var generationTokens = Histogram(buckets: Buckets.tokenCount)
-        public var paramsN = Histogram(buckets: Buckets.samplingParam)
-        public var paramsBestOf = Histogram(buckets: Buckets.samplingParam)
-    }
-
-    private struct Meta {
-        public var modelName: String = ""
-        public var maxConcurrent: Int = 0
-        public var processStartEpoch: Double
-    }
-
-    private struct GaugeState {
-        public var running: GaugeReader?
-        public var waiting: GaugeReader?
-        public var gpuCacheUsage: FractionReader?
-        public var radixCacheFill: FractionReader?
-        public var batchSizePeak: Int = 0
-        // Active HTTP connections — incremented when a request enters
-        // the Vapor pipeline, decremented when its response finalizes.
-        // Maintained by `ActiveConnectionsMiddleware` in Server.swift.
-        public var activeConnections: Int = 0
-        public var activeConnectionsPeak: Int = 0
-    }
-
-    private let counters = OSAllocatedUnfairLock(initialState: Counters())
-    private let histograms = OSAllocatedUnfairLock(initialState: Histograms())
-    private let meta: OSAllocatedUnfairLock<Meta>
-    private let gauges = OSAllocatedUnfairLock(initialState: GaugeState())
-
-    private init() {
-        self.meta = OSAllocatedUnfairLock(
-            initialState: Meta(processStartEpoch: Date().timeIntervalSince1970)
-        )
-    }
-
-    // MARK: - Configuration
-
-    /// Called once at server startup by `MLXModelService` (or the serial
-    /// path equivalent) with the resolved model id and the configured
-    /// `--concurrent` capacity. Appears in every response as a label.
-    public func setModel(_ name: String, maxConcurrent: Int) {
-        meta.withLock { m in
-            m.modelName = name
-            m.maxConcurrent = maxConcurrent
+        init(_ snapshot: AFMHistogramSnapshot) {
+            buckets = snapshot.buckets
+            bucketCounts = snapshot.bucketCounts
+            sum = snapshot.sum
+            count = snapshot.count
         }
     }
 
-    /// Register live-gauge providers. `running` returns the number of
-    /// requests currently generating on the GPU (active batch size).
-    /// `waiting` returns the number of requests queued behind the
-    /// `--concurrent` cap. Both are polled once per `/metrics` request.
-    public func registerGaugeReaders(
-        running: @escaping GaugeReader,
-        waiting: @escaping GaugeReader
-    ) {
-        gauges.withLock { g in
-            g.running = running
-            g.waiting = waiting
-        }
-    }
-
-    /// Register a reader for `gpu_cache_usage_perc` (a value in [0, 1]).
-    /// Polled once per `/metrics` request. Optional — if not registered,
-    /// the gauge is omitted from the exposition.
-    public func registerGpuCacheUsageReader(_ reader: @escaping FractionReader) {
-        gauges.withLock { $0.gpuCacheUsage = reader }
-    }
-
-    /// Register a reader for `radix_cache_fill_perc` (entries / capacity,
-    /// in [0, 1]). Polled once per `/metrics` request. Optional — omitted
-    /// when not registered (e.g. when `--enable-prefix-caching` is off).
-    public func registerRadixCacheFillReader(_ reader: @escaping FractionReader) {
-        gauges.withLock { $0.radixCacheFill = reader }
-    }
-
-    /// Increment the active-HTTP-connection gauge. Called by the request
-    /// middleware on entry. Also tracks an all-time peak.
-    public func connectionStarted() {
-        gauges.withLock { g in
-            g.activeConnections += 1
-            if g.activeConnections > g.activeConnectionsPeak {
-                g.activeConnectionsPeak = g.activeConnections
-            }
-        }
-    }
-
-    /// Decrement the active-HTTP-connection gauge. Called by the request
-    /// middleware when the response finalizes (success or failure).
-    public func connectionEnded() {
-        gauges.withLock { g in
-            if g.activeConnections > 0 { g.activeConnections -= 1 }
-        }
-    }
-
-    /// Reset counters and histograms (for long-running processes that
-    /// want to rebaseline). Gauge readers and metadata are preserved.
-    public func reset() {
-        counters.withLock { $0 = Counters() }
-        histograms.withLock { $0 = Histograms() }
-        gauges.withLock { $0.batchSizePeak = 0 }
-    }
-
-    // MARK: - Counter increments
-
-    public func addGenTokens(_ n: Int = 1) {
-        guard n > 0 else { return }
-        counters.withLock { $0.genTokensTotal &+= UInt64(n) }
-    }
-
-    public func addPromptTokens(_ n: Int) {
-        guard n > 0 else { return }
-        counters.withLock { $0.promptTokensTotal &+= UInt64(n) }
-    }
-
-    public func requestStarted() {
-        counters.withLock { $0.requestsStartedTotal &+= 1 }
-    }
-
-    public func requestCompleted() {
-        counters.withLock { $0.requestsCompletedTotal &+= 1 }
-    }
-
-    public func cacheHit() {
-        counters.withLock { $0.cacheHitsTotal &+= 1 }
-    }
-
-    public func cacheMiss() {
-        counters.withLock { $0.cacheMissesTotal &+= 1 }
-    }
-
-    /// vLLM's `request_success_total{finished_reason=...}`. `reason` is
-    /// the OpenAI-style finish reason — typically one of:
-    /// `"stop"`, `"length"`, `"tool_calls"`, `"abort"`, `"error"`.
-    /// Sanitized to lowercase with non-alphanumerics replaced by `_`
-    /// before being used as a Prometheus label value.
-    public func requestSucceeded(reason: String) {
-        let key = Self.sanitizeReason(reason)
-        counters.withLock { $0.requestSuccessByReason[key, default: 0] &+= 1 }
-    }
-
-    private static func sanitizeReason(_ s: String) -> String {
-        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if trimmed.isEmpty { return "unknown" }
-        var out = ""
-        out.reserveCapacity(trimmed.count)
-        for ch in trimmed.unicodeScalars {
-            if (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") {
-                out.unicodeScalars.append(ch)
-            } else {
-                out.append("_")
-            }
-        }
-        return out
-    }
-
-    // MARK: - Histogram observations
-
-    /// Per-request observation captured at completion. Pass `nil` for any
-    /// timestamp the caller wasn't able to capture (e.g. `firstTokenAt`
-    /// if the request produced zero tokens).
     public struct RequestObservation: Sendable {
         public var queuedAt: Double
         public var startedAt: Double?
@@ -334,67 +122,6 @@ public final class StatsAggregator: @unchecked Sendable {
             self.paramsBestOf = paramsBestOf
         }
     }
-
-    /// Observe every histogram derivable from a single completed request.
-    /// Safe to call from any thread — takes the histogram lock once.
-    public func observeRequest(_ obs: RequestObservation) {
-        let e2e = max(0, obs.completedAt - obs.queuedAt)
-        let queue: Double = obs.startedAt.map { max(0, $0 - obs.queuedAt) } ?? 0
-        let inference: Double = obs.startedAt.map { max(0, obs.completedAt - $0) } ?? e2e
-        let prefill: Double? = obs.startedAt.flatMap { s in
-            obs.firstTokenAt.map { ft in max(0, ft - s) }
-        }
-        let decode: Double? = obs.firstTokenAt.map { ft in
-            max(0, obs.completedAt - ft)
-        }
-        let ttft: Double? = obs.firstTokenAt.map { ft in
-            max(0, ft - obs.queuedAt)
-        }
-        let tpot: Double? = {
-            guard let d = decode, obs.generationTokens > 1 else { return nil }
-            return d / Double(obs.generationTokens - 1)
-        }()
-
-        histograms.withLock { h in
-            h.e2eLatency.observe(e2e)
-            h.queueTime.observe(queue)
-            h.inferenceTime.observe(inference)
-            if let p = prefill { h.prefillTime.observe(p) }
-            if let d = decode { h.decodeTime.observe(d) }
-            if let t = ttft { h.timeToFirstToken.observe(t) }
-            if let p = tpot { h.timePerOutputToken.observe(p) }
-            if obs.promptTokens > 0 {
-                h.promptTokens.observe(Double(obs.promptTokens))
-            }
-            if obs.generationTokens > 0 {
-                h.generationTokens.observe(Double(obs.generationTokens))
-            }
-            h.paramsN.observe(Double(max(1, obs.paramsN)))
-            h.paramsBestOf.observe(Double(max(1, obs.paramsBestOf)))
-        }
-    }
-
-    /// Lower-level observation helpers (use these when only one
-    /// dimension is available, e.g. abort path).
-    public func observeE2eLatency(_ seconds: Double) {
-        histograms.withLock { $0.e2eLatency.observe(seconds) }
-    }
-    public func observeTimeToFirstToken(_ seconds: Double) {
-        histograms.withLock { $0.timeToFirstToken.observe(seconds) }
-    }
-    public func observeTimePerOutputToken(_ seconds: Double) {
-        histograms.withLock { $0.timePerOutputToken.observe(seconds) }
-    }
-    public func observePromptTokens(_ n: Int) {
-        guard n > 0 else { return }
-        histograms.withLock { $0.promptTokens.observe(Double(n)) }
-    }
-    public func observeGenerationTokens(_ n: Int) {
-        guard n >= 0 else { return }
-        histograms.withLock { $0.generationTokens.observe(Double(n)) }
-    }
-
-    // MARK: - Snapshot
 
     public struct Snapshot: Sendable {
         public let timestampMs: Int64
@@ -428,51 +155,189 @@ public final class StatsAggregator: @unchecked Sendable {
         public let paramsBestOf: Histogram
     }
 
-    /// Build a single-point-in-time snapshot of every metric. Cheap —
-    /// four lock acquisitions, one call to each gauge reader.
-    public func snapshot() -> Snapshot {
-        let c = counters.withLock { $0 }
-        let h = histograms.withLock { $0 }
-        let m = meta.withLock { $0 }
-        let (running, waiting, peak, gpuCache, radixFill, conns, connsPeak) = gauges.withLock {
-            g -> (Int, Int, Int, Double?, Double?, Int, Int) in
-            let r = g.running?() ?? 0
-            let w = g.waiting?() ?? 0
-            let cache = g.gpuCacheUsage?()
-            let radix = g.radixCacheFill?()
-            if r > g.batchSizePeak { g.batchSizePeak = r }
-            return (r, w, g.batchSizePeak, cache, radix, g.activeConnections, g.activeConnectionsPeak)
+    private struct Binding {
+        var target: any StatsAggregatorCompatibilityTarget
+        var identity: ObjectIdentifier?
+        var used = false
+    }
+
+    private let binding = OSAllocatedUnfairLock<Binding>(
+        initialState: Binding(target: NoopStatsAggregatorCompatibilityTarget())
+    )
+
+    private init() {}
+
+    /// Installs the Services-backed target used by this compatibility facade.
+    /// Reinstalling the same object is harmless. A different target cannot replace
+    /// a binding after the facade has forwarded its first operation.
+    @discardableResult
+    public static func installCompatibilityTarget(
+        _ target: any StatsAggregatorCompatibilityTarget
+    ) -> Bool {
+        shared.binding.withLock { binding in
+            let identity = ObjectIdentifier(target)
+            if binding.identity == identity { return true }
+            guard !binding.used else { return false }
+            binding.target = target
+            binding.identity = identity
+            return true
         }
+    }
+
+    private func target() -> any StatsAggregatorCompatibilityTarget {
+        binding.withLock { binding in
+            binding.used = true
+            return binding.target
+        }
+    }
+
+    public func setModel(_ name: String, maxConcurrent: Int) {
+        target().setModel(name, maxConcurrent: maxConcurrent)
+    }
+
+    public func registerGaugeReaders(
+        running: @escaping GaugeReader,
+        waiting: @escaping GaugeReader
+    ) {
+        target().registerGaugeReaders(running: running, waiting: waiting)
+    }
+
+    public func registerGpuCacheUsageReader(_ reader: @escaping FractionReader) {
+        target().registerGpuCacheUsageReader(reader)
+    }
+
+    public func registerRadixCacheFillReader(_ reader: @escaping FractionReader) {
+        target().registerRadixCacheFillReader(reader)
+    }
+
+    public func connectionStarted() { target().connectionStarted() }
+    public func connectionEnded() { target().connectionEnded() }
+    public func reset() { target().reset() }
+
+    public func addGenTokens(_ n: Int = 1) { target().addGenTokens(n) }
+    public func addPromptTokens(_ n: Int) { target().addPromptTokens(n) }
+    public func requestStarted() { target().requestStarted() }
+    public func requestCompleted() { target().requestCompleted() }
+    public func cacheHit() { target().cacheHit() }
+    public func cacheMiss() { target().cacheMiss() }
+    public func requestSucceeded(reason: String) { target().requestSucceeded(reason: reason) }
+    public func observeRequest(_ observation: RequestObservation) {
+        target().observeRequest(observation)
+    }
+    public func observeE2eLatency(_ seconds: Double) {
+        target().observeE2eLatency(seconds)
+    }
+    public func observeTimeToFirstToken(_ seconds: Double) {
+        target().observeTimeToFirstToken(seconds)
+    }
+    public func observeTimePerOutputToken(_ seconds: Double) {
+        target().observeTimePerOutputToken(seconds)
+    }
+    public func observePromptTokens(_ n: Int) { target().observePromptTokens(n) }
+    public func observeGenerationTokens(_ n: Int) { target().observeGenerationTokens(n) }
+
+    public func snapshot() -> Snapshot {
+        let snapshot = target().metricsSnapshot()
+        let supplementalCounts = Dictionary(
+            uniqueKeysWithValues: snapshot.supplementalCounts.map { ($0.name, $0.count) }
+        )
+        let integerGauges = Dictionary(
+            uniqueKeysWithValues: snapshot.supplementalIntegerGauges.map { ($0.name, $0.value) }
+        )
+        let legacyReasons = snapshot.supplementalCounts.compactMap { metric -> (String, UInt64)? in
+            let prefix = "legacy_finish:"
+            guard metric.name.hasPrefix(prefix) else { return nil }
+            return (String(metric.name.dropFirst(prefix.count)), metric.count)
+        }
+        let reasons = legacyReasons.isEmpty
+            ? Dictionary(uniqueKeysWithValues: snapshot.terminalCounts.map { ($0.name, $0.count) })
+            : Dictionary(uniqueKeysWithValues: legacyReasons)
         return Snapshot(
-            timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
-            processStartEpoch: m.processStartEpoch,
-            modelName: m.modelName,
-            maxConcurrent: m.maxConcurrent,
-            numRunning: running,
-            numWaiting: waiting,
-            batchSizePeak: peak,
-            activeConnections: conns,
-            activeConnectionsPeak: connsPeak,
-            gpuCacheUsage: gpuCache,
-            radixCacheFill: radixFill,
-            genTokensTotal: c.genTokensTotal,
-            promptTokensTotal: c.promptTokensTotal,
-            requestsStartedTotal: c.requestsStartedTotal,
-            requestsCompletedTotal: c.requestsCompletedTotal,
-            cacheHitsTotal: c.cacheHitsTotal,
-            cacheMissesTotal: c.cacheMissesTotal,
-            requestSuccessByReason: c.requestSuccessByReason,
-            e2eLatency: h.e2eLatency,
-            queueTime: h.queueTime,
-            inferenceTime: h.inferenceTime,
-            prefillTime: h.prefillTime,
-            decodeTime: h.decodeTime,
-            timeToFirstToken: h.timeToFirstToken,
-            timePerOutputToken: h.timePerOutputToken,
-            promptTokens: h.promptTokens,
-            generationTokens: h.generationTokens,
-            paramsN: h.paramsN,
-            paramsBestOf: h.paramsBestOf
+            timestampMs: snapshot.timestampMilliseconds,
+            processStartEpoch: snapshot.processStartEpochSeconds,
+            modelName: snapshot.modelName,
+            maxConcurrent: snapshot.maximumConcurrentRequests,
+            numRunning: snapshot.runningRequests,
+            numWaiting: snapshot.waitingRequests,
+            batchSizePeak: snapshot.peakRunningRequests,
+            activeConnections: integerGauges["active_connections", default: 0],
+            activeConnectionsPeak: integerGauges["active_connections_peak", default: 0],
+            gpuCacheUsage: snapshot.memoryCacheUsage,
+            radixCacheFill: snapshot.prefixCacheFill,
+            genTokensTotal: snapshot.generatedTokensTotal,
+            promptTokensTotal: snapshot.computedPromptTokensTotal,
+            requestsStartedTotal: snapshot.acceptedRequestsTotal,
+            requestsCompletedTotal: snapshot.terminalRequestsTotal,
+            cacheHitsTotal: supplementalCounts["legacy_cache_hits", default: 0],
+            cacheMissesTotal: supplementalCounts["legacy_cache_misses", default: 0],
+            requestSuccessByReason: reasons,
+            e2eLatency: Histogram(snapshot.endToEndLatency),
+            queueTime: Histogram(snapshot.queueLatency),
+            inferenceTime: Histogram(snapshot.inferenceLatency),
+            prefillTime: Histogram(snapshot.prefillLatency),
+            decodeTime: Histogram(snapshot.decodeLatency),
+            timeToFirstToken: Histogram(snapshot.timeToFirstToken),
+            timePerOutputToken: Histogram(snapshot.timePerOutputToken),
+            promptTokens: Histogram(snapshot.computedPromptTokens),
+            generationTokens: Histogram(snapshot.generatedTokens),
+            paramsN: Histogram(snapshot.samplingN),
+            paramsBestOf: Histogram(snapshot.samplingBestOf)
+        )
+    }
+}
+
+private final class NoopStatsAggregatorCompatibilityTarget:
+    StatsAggregatorCompatibilityTarget,
+    @unchecked Sendable
+{
+    private let start = Date().timeIntervalSince1970
+
+    func setModel(_ name: String, maxConcurrent: Int) {}
+    func registerGaugeReaders(
+        running: @escaping StatsAggregator.GaugeReader,
+        waiting: @escaping StatsAggregator.GaugeReader
+    ) {}
+    func registerGpuCacheUsageReader(_ reader: @escaping StatsAggregator.FractionReader) {}
+    func registerRadixCacheFillReader(_ reader: @escaping StatsAggregator.FractionReader) {}
+    func connectionStarted() {}
+    func connectionEnded() {}
+    func reset() {}
+    func addGenTokens(_ count: Int) {}
+    func addPromptTokens(_ count: Int) {}
+    func requestStarted() {}
+    func requestCompleted() {}
+    func cacheHit() {}
+    func cacheMiss() {}
+    func requestSucceeded(reason: String) {}
+    func observeRequest(_ observation: StatsAggregator.RequestObservation) {}
+    func observeE2eLatency(_ seconds: Double) {}
+    func observeTimeToFirstToken(_ seconds: Double) {}
+    func observeTimePerOutputToken(_ seconds: Double) {}
+    func observePromptTokens(_ count: Int) {}
+    func observeGenerationTokens(_ count: Int) {}
+
+    func metricsSnapshot() -> AFMInferenceMetricsSnapshot {
+        let requestLatency = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.requestLatency)
+        let ttft = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.timeToFirstToken)
+        let tpot = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.timePerOutputToken)
+        let tokens = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.tokenCount)
+        let sampling = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.samplingParam)
+        return AFMInferenceMetricsSnapshot(
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000),
+            processStartEpochSeconds: start,
+            endToEndLatency: requestLatency,
+            queueLatency: requestLatency,
+            inferenceLatency: requestLatency,
+            prefillLatency: requestLatency,
+            decodeLatency: requestLatency,
+            timeToFirstToken: ttft,
+            timePerOutputToken: tpot,
+            interTokenLatency: tpot,
+            fullPromptTokens: tokens,
+            computedPromptTokens: tokens,
+            generatedTokens: tokens,
+            samplingN: sampling,
+            samplingBestOf: sampling
         )
     }
 }
