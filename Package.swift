@@ -255,6 +255,7 @@ let package = Package(
             name: "AFMServer",
             dependencies: [
                 "AFMKit",
+                "AFMKitServices",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
@@ -270,6 +271,7 @@ let package = Package(
         .executableTarget(
             name: "AFMCLI",
             dependencies: [
+                "AFMKitCore",
                 "AFMKit",
                 "AFMKitDwarfStar",
                 "AFMKitMLX",
@@ -314,6 +316,7 @@ let package = Package(
         .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
+                "AFMKitCore",
                 "AFMKit",
                 "AFMKitDwarfStar",
                 "AFMKitMLX",

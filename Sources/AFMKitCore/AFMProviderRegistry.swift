@@ -35,6 +35,8 @@ public extension AFMModel {
 }
 
 public struct AnyAFMModel: AFMModel, Sendable {
+    public let rawTextGenerator: AnyAFMRawTextGenerator?
+
     private let descriptorValue: AFMModelDescriptor
     private let availabilityOperation: @Sendable () async -> AFMModelAvailability
     private let loadOperation:
@@ -45,6 +47,11 @@ public struct AnyAFMModel: AFMModel, Sendable {
     private let unloadOperation: @Sendable () async -> Void
 
     public init<Model: AFMModel>(_ model: Model) {
+        if let generator = model as? any AFMRawTextGenerating {
+            rawTextGenerator = AnyAFMRawTextGenerator(generator)
+        } else {
+            rawTextGenerator = nil
+        }
         descriptorValue = model.descriptor
         availabilityOperation = { await model.availability() }
         loadOperation = { progress in try await model.load(progress: progress) }

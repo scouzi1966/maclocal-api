@@ -1,6 +1,6 @@
 # Issue 192 Phase A: vLLM Metrics and GuideLLM Interoperability Plan
 
-Status: revised planning checkpoint only. No feature code is included. Implementation remains blocked pending approval from a new independent architecture gate.
+Status: architecture approved at `343d02acf482620a76a81fd29a87488693a92531`; production implementation is in progress.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/192>
 
@@ -526,3 +526,15 @@ No blocking architecture findings remain from gate 4. This is a plan approval on
 - `./Scripts/check-afmkit-core-api.sh`: **failed at the reviewed commit** because the checked-in baseline predates existing `AFMDownloadProgressUserInfo` public symbols. Issue 192 must not absorb that drift without explicit review; the approved plan's mandatory baseline checkpoint remains a merge/qualification gate.
 - No feature tests or live model workloads were run because this checkpoint reviews architecture and the branch contains plan changes only.
 - Production implementation may begin under this approved plan. Each runtime remains unqualified until its focused deterministic and live rows pass, and the Core API/CI gate must be green before merge.
+
+## Implementation trace
+
+### 2026-08-17: Core and Services ownership checkpoint
+
+- Added only provider-neutral immutable telemetry snapshots, bounded finish/failure observations, provider-owned admission leases/type erasure, raw-prompt generation contracts, and `ignoreEndOfSequence` to AFMKitCore. The exact pre-issue `AFMGenerationOptions` initializer remains present and initializes the new policy to `false`; a distinct overload opts into it.
+- Extended `AnyAFMModel` to capture `AFMRawTextGenerating` before erasure. Non-conforming models retain `nil` and cannot accidentally acquire a raw completion route.
+- Added one mutable `InferenceTelemetryCollector` in AFMKitServices. Provider observations, ingress rejection/connection recording, rolling windows, terminal deduplication, and atomic Core snapshot construction share one lock-owned state. No writable ingress or connection declarations were added to Core.
+- Added `LegacyInferenceMetricsCompatibilityAdapter` in Services. It copies callbacks under its callback lock, invokes them exactly once after releasing locks, overlays only its returned Core snapshot, persists a compatibility-only peak, and returns the push-only collector snapshot on same-adapter re-entry.
+- Added an external path-dependent SwiftPM fixture that imports AFMKitCore and AFMKitServices as a consumer. Its two lifecycle/ingress ownership tests pass without compiling MLX or mutating dependency checkouts.
+- The first root filtered test attempt stopped before test compilation because the untouched `mlx-swift` checkout does not contain the repository's required `MLXFast.deepseekV4SymmetricQ8Matvec` patch. The implementation did not apply or edit that upstream checkout. Main-suite tests remain committed for the repository's normal patched CI/build environment.
+- Intentionally reconciled the pre-existing `AFMDownloadProgressUserInfo` baseline drift identified by architecture review 5 together with the reviewed issue-192 additive Core API. `./Scripts/check-afmkit-core-api.sh` now passes. Added a dedicated macOS PR/push workflow; `.github/workflows/release.yml` remains untouched.

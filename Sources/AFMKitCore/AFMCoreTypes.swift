@@ -210,6 +210,7 @@ public struct AFMGenerationOptions: Hashable, Sendable {
     public var topLogprobs: Int?
     public var stopSequences: [String]
     public var responseConstraint: AFMResponseConstraint?
+    public var ignoreEndOfSequence: Bool
 
     public init(
         temperature: Double? = nil,
@@ -237,6 +238,37 @@ public struct AFMGenerationOptions: Hashable, Sendable {
         self.topLogprobs = topLogprobs
         self.stopSequences = stopSequences
         self.responseConstraint = responseConstraint
+        self.ignoreEndOfSequence = false
+    }
+
+    public init(
+        temperature: Double? = nil,
+        maximumResponseTokens: Int? = nil,
+        topP: Double? = nil,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        repetitionPenalty: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
+        stopSequences: [String] = [],
+        responseConstraint: AFMResponseConstraint? = nil,
+        ignoreEndOfSequence: Bool
+    ) {
+        self.temperature = temperature
+        self.maximumResponseTokens = maximumResponseTokens
+        self.topP = topP
+        self.topK = topK
+        self.minP = minP
+        self.repetitionPenalty = repetitionPenalty
+        self.presencePenalty = presencePenalty
+        self.seed = seed
+        self.logprobs = logprobs
+        self.topLogprobs = topLogprobs
+        self.stopSequences = stopSequences
+        self.responseConstraint = responseConstraint
+        self.ignoreEndOfSequence = ignoreEndOfSequence
     }
 }
 
