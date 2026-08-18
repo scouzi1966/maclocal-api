@@ -159,10 +159,11 @@ public final class DwarfStarLanguageModelExecutor:
             )
         }
 
-        let messages = try AFMFoundationModelsRequestAdapter.messages(
-            from: request.transcript
+        let afmRequest = try AFMFoundationModelsRequestAdapter.request(
+            from: request,
+            model: model
         )
-        guard !messages.isEmpty else {
+        guard !afmRequest.messages.isEmpty else {
             throw LanguageModelError.unsupportedTranscriptContent(
                 .init(
                     unsupportedContent: Array(request.transcript),
@@ -170,14 +171,6 @@ public final class DwarfStarLanguageModelExecutor:
                 )
             )
         }
-        let options = try AFMFoundationModelsRequestAdapter.generationConfig(
-            from: request,
-            model: model
-        )
-        let afmRequest = try AFMRequest(
-            openAIMessages: messages,
-            generationConfig: options
-        )
         let providerModel = try await runtime.preparedModel()
         try await AFMFoundationModelsExecutorBridge.respond(
             events: AFMFoundationModelsExecutorBridge.events(

@@ -112,7 +112,8 @@ let package = Package(
         .target(
             name: "AFMKitFoundationModels27",
             dependencies: [
-                "AFMKit"
+                .product(name: "AFMKitApple", package: "AFMKit"),
+                .product(name: "AFMKitFoundationModelsMLX", package: "AFMKit")
             ]
         ),
         .target(
