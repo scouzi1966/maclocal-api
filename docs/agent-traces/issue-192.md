@@ -8,7 +8,7 @@ Issue: <https://github.com/scouzi1966/maclocal-api/issues/192>
 
 Issue 192 has two compatibility goals:
 
-1. Expose metrics that an unmodified vLLM Playground can scrape while retaining every existing `afm:*` metric and its current meaning.
+1. Expose metrics that unmodified vLLM Prometheus tooling, including vLLM Playground and the pinned vLLM Grafana dashboards, can scrape while retaining every existing `afm:*` metric and its current meaning.
 2. Qualify `/v1/chat/completions` and a true raw-prompt `/v1/completions` implementation with GuideLLM in streaming and non-streaming modes.
 
 This is not a claim of general vLLM or OpenAI conformance. Implementation and fixtures are pinned to the revisions inspected on 2026-08-17:
@@ -16,6 +16,59 @@ This is not a claim of general vLLM or OpenAI conformance. Implementation and fi
 - GuideLLM `97b3077c05a367599112fd7080082c2d32c14b7e`.
 - vLLM Playground `76276229092455f9ef66748731e4a615f4d80720`.
 - vLLM `9633933dd81228fbcae07969f20881ad0b7cb766`.
+
+### Explicit Prometheus interoperability acceptance
+
+The `/metrics` goal is wire compatibility with the pinned vLLM Prometheus
+contract, not merely analogous AFM telemetry under `vllm:*` names. For every
+supported vLLM family, AFM must match the pinned family name, Prometheus type,
+required label set, units, cumulative-versus-instantaneous behavior, and update
+lifecycle. The compatibility renderer remains wholly in AFMServer; AFMKitCore
+continues to expose only provider-neutral immutable values and observations.
+
+The required compatibility gate covers the metric families consumed by the
+pinned vLLM Playground and official vLLM Grafana dashboards:
+
+- scheduler gauges: `num_requests_running`, `num_requests_waiting`, and
+  `kv_cache_usage_perc`;
+- cumulative token, prefix-cache, preemption, speculative-decode, and
+  `request_success` counters;
+- request-size histograms for prompt, generation, requested maximum output,
+  and `n`;
+- latency histograms for queue, prefill, decode, inference, end-to-end, TTFT,
+  TPOT, and ITL;
+- Playground compatibility gauges for rolling prompt/generation throughput,
+  prefix-cache hit rate, and speculative acceptance rate.
+
+All vLLM engine metrics use the pinned vLLM labels
+`model_name="<served model>",engine="0"`; bounded success samples additionally
+use `finished_reason`. Tests parse the exposition into families and assert exact
+types/label names instead of relying on substring presence. They also assert
+that every family referenced by representative official dashboard PromQL
+queries exists with the required histogram suffixes.
+
+Intentional unsupported metrics must be listed in the issue qualification
+report rather than emitted with fabricated semantics. At this checkpoint the
+exact unsupported pinned families are:
+
+- `vllm:iteration_tokens_total`;
+- `vllm:spec_decode_num_accepted_tokens_per_pos_total`;
+- `vllm:corrupted_requests_total`;
+- `vllm:lora_requests_info`;
+- `vllm:cache_config_info`;
+- `vllm:kv_block_lifetime_seconds`;
+- `vllm:kv_block_idle_before_evict_seconds`;
+- `vllm:kv_block_reuse_gap_seconds`;
+- `vllm:estimated_flops_per_gpu_total`;
+- `vllm:estimated_read_bytes_per_gpu_total`;
+- `vllm:estimated_write_bytes_per_gpu_total`.
+
+AFM does not emit substitutes for those families. External-prefix-cache and
+multimodal-cache query/hit counters are emitted as truthful process-lifetime
+zero counters because AFM has neither subsystem. Sleep-state and
+waiting-by-reason are bounded gauges: AFM reports an always-awake engine,
+capacity waiting from its scheduler, and zero deferred requests because it has
+no LoRA/KV-transfer deferral path.
 
 ## Current-state evidence
 

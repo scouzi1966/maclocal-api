@@ -1656,6 +1656,15 @@
     },
     {
       "kind": "defaultImplementationOf",
+      "source": "s:10AFMKitCore30AFMInferenceTelemetryObservingPAAE21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF",
+      "sourceOrigin": {
+        "displayName": "AFMInferenceTelemetryObserving.promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)",
+        "identifier": "s:10AFMKitCore30AFMInferenceTelemetryObservingP21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF"
+      },
+      "target": "s:10AFMKitCore30AFMInferenceTelemetryObservingP21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF"
+    },
+    {
+      "kind": "defaultImplementationOf",
       "source": "s:10AFMKitCore8AFMModelPAAE6unloadyyYaF",
       "target": "s:10AFMKitCore8AFMModelP6unloadyyYaF"
     },
@@ -3349,6 +3358,11 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV19maximumOutputTokensAA012AFMHistogramE0Vvp",
+      "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV19peakRunningRequestsSivp",
       "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
     },
@@ -3360,6 +3374,11 @@
     {
       "kind": "memberOf",
       "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV20generatedTokensTotals6UInt64Vvp",
+      "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV20maximumContextTokensSivp",
       "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
     },
     {
@@ -3384,12 +3403,17 @@
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV21timestampMilliseconds24processStartEpochSeconds9modelName25maximumConcurrentRequests07runningP007waitingP0011peakRunningP017logicalCacheUsage06memoryvW006prefixV4Fill20generatedTokensTotal21fullPromptTokensTotal25computedPromptTokensTotal08acceptedP5Total08terminalP5Total16preemptionsTotal0yV12QueriesTotal0yV9HitsTotal27speculativeDraftRoundsTotal27speculativeDraftTokensTotal30speculativeAcceptedTokensTotal14terminalCounts13failureCounts18supplementalCounts25supplementalIntegerGauges24supplementalDoubleGauges15endToEndLatency12queueLatency16inferenceLatency14prefillLatency13decodeLatency16timeToFirstToken18timePerOutputToken17interTokenLatency16fullPromptTokens20computedPromptTokens15generatedTokens9samplingN14samplingBestOfACs5Int64V_SdSSS4iS2dSgA17_s6UInt64VA19_A19_A19_A19_A19_A19_A19_A19_A19_A19_SayAA13AFMNamedCountVGA22_A22_SayAA20AFMNamedIntegerGaugeVGSayAA19AFMNamedDoubleGaugeVGAA012AFMHistogramE0VA30_A30_A30_A30_A30_A30_A30_A30_A30_A30_A30_A30_tcfc",
+      "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV21timestampMilliseconds24processStartEpochSeconds9modelName25maximumConcurrentRequests0N13ContextTokens07runningP007waitingP0011peakRunningP017logicalCacheUsage06memoryxY006prefixX4Fill09generatedR5Total010fullPromptR5Total014computedPromptR5Total08acceptedP5Total08terminalP5Total16preemptionsTotal06prefixX12QueriesTotal06prefixX9HitsTotal27speculativeDraftRoundsTotal016speculativeDraftR5Total019speculativeAcceptedR5Total14terminalCounts13failureCounts18supplementalCounts25supplementalIntegerGauges24supplementalDoubleGauges15endToEndLatency12queueLatency16inferenceLatency14prefillLatency13decodeLatency16timeToFirstToken18timePerOutputToken17interTokenLatency010fullPromptR0014computedPromptR009generatedR00n9GeneratedR00n6OutputR09samplingN14samplingBestOfACs5Int64V_SdSSS5iS2dSgA20_s6UInt64VA22_A22_A22_A22_A22_A22_A22_A22_A22_A22_SayAA13AFMNamedCountVGA25_A25_SayAA20AFMNamedIntegerGaugeVGSayAA19AFMNamedDoubleGaugeVGAA012AFMHistogramE0VA33_A33_A33_A33_A33_A33_A33_A33_A33_A33_A33_SgA34_A33_A33_tcfc",
       "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
     },
     {
       "kind": "memberOf",
       "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV21timestampMillisecondss5Int64Vvp",
+      "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV22maximumGeneratedTokensAA012AFMHistogramE0Vvp",
       "target": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV"
     },
     {
@@ -3705,6 +3729,15 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore33AFMNoopInferenceTelemetryObserverV21promptTokensProcessed_010fullPromptH008computedkH02atyAA24AFMInferenceRequestTokenV_S2iSdtF",
+      "sourceOrigin": {
+        "displayName": "AFMInferenceTelemetryObserving.promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)",
+        "identifier": "s:10AFMKitCore30AFMInferenceTelemetryObservingP21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF"
+      },
+      "target": "s:10AFMKitCore33AFMNoopInferenceTelemetryObserverV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore33AFMNoopInferenceTelemetryObserverVACycfc",
       "target": "s:10AFMKitCore33AFMNoopInferenceTelemetryObserverV"
     },
@@ -3730,12 +3763,17 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSivp",
+      "target": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV20computedPromptTokensSivp",
       "target": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV"
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL09samplingN0O6BestOfAcA0cE6ReasonO_SdS5itcfc",
+      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS6itcfc",
       "target": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV"
     },
     {
@@ -3900,6 +3938,11 @@
     {
       "kind": "requirementOf",
       "source": "s:10AFMKitCore30AFMInferenceTelemetryObservingP19updateProviderStateyyAA0cgH0VF",
+      "target": "s:10AFMKitCore30AFMInferenceTelemetryObservingP"
+    },
+    {
+      "kind": "requirementOf",
+      "source": "s:10AFMKitCore30AFMInferenceTelemetryObservingP21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF",
       "target": "s:10AFMKitCore30AFMInferenceTelemetryObservingP"
     },
     {
@@ -7234,6 +7277,864 @@
         },
         {
           "kind": "externalParam",
+          "spelling": "computedPromptTokens"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "fullPromptTokens"
+        },
+        {
+          "kind": "identifier",
+          "spelling": "promptTokensProcessed"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "timestamp"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "token"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "func"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sd",
+          "spelling": "Double"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "docComment": {
+        "lines": [
+          {
+            "text": "Records cumulative prompt progress for a request. Repeated calls must"
+          },
+          {
+            "text": "provide totals observed so far; observers account only for positive deltas."
+          }
+        ],
+        "module": "AFMKitCore"
+      },
+      "functionSignature": {
+        "parameters": [
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "computedPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "computedPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "fullPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "fullPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "timestamp"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Sd",
+                "spelling": "Double"
+              }
+            ],
+            "internalName": "timestamp",
+            "name": "at"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "token"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+                "spelling": "AFMInferenceRequestToken"
+              }
+            ],
+            "name": "token"
+          }
+        ],
+        "returns": [
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore30AFMInferenceTelemetryObservingP21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF"
+      },
+      "kind": {
+        "displayName": "Instance Method",
+        "identifier": "swift.method"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "externalParam",
+            "spelling": "at"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "computedPromptTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "fullPromptTokens"
+          },
+          {
+            "kind": "identifier",
+            "spelling": "promptTokensProcessed"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "func"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sd",
+            "spelling": "Double"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      },
+      "pathComponents": [
+        "AFMInferenceTelemetryObserving",
+        "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "externalParam",
+          "spelling": "_"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "at"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "computedPromptTokens"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "fullPromptTokens"
+        },
+        {
+          "kind": "identifier",
+          "spelling": "promptTokensProcessed"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "timestamp"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "token"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "func"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sd",
+          "spelling": "Double"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "functionSignature": {
+        "parameters": [
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "computedPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "computedPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "fullPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "fullPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "timestamp"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Sd",
+                "spelling": "Double"
+              }
+            ],
+            "internalName": "timestamp",
+            "name": "at"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "token"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+                "spelling": "AFMInferenceRequestToken"
+              }
+            ],
+            "name": "token"
+          }
+        ],
+        "returns": [
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore30AFMInferenceTelemetryObservingPAAE21promptTokensProcessed_010fullPromptG008computedjG02atyAA0C12RequestTokenV_S2iSdtF"
+      },
+      "kind": {
+        "displayName": "Instance Method",
+        "identifier": "swift.method"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "externalParam",
+            "spelling": "at"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "computedPromptTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "fullPromptTokens"
+          },
+          {
+            "kind": "identifier",
+            "spelling": "promptTokensProcessed"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "func"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sd",
+            "spelling": "Double"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      },
+      "pathComponents": [
+        "AFMInferenceTelemetryObserving",
+        "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      ],
+      "swiftExtension": {
+        "extendedModule": "AFMKitCore",
+        "typeKind": "swift.protocol"
+      }
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "externalParam",
+          "spelling": "_"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "at"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "computedPromptTokens"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "fullPromptTokens"
+        },
+        {
+          "kind": "identifier",
+          "spelling": "promptTokensProcessed"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "timestamp"
+        },
+        {
+          "kind": "internalParam",
+          "spelling": "token"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "func"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "text",
+          "spelling": ")"
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Sd",
+          "spelling": "Double"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "functionSignature": {
+        "parameters": [
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "computedPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "computedPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "fullPromptTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "fullPromptTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "timestamp"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Sd",
+                "spelling": "Double"
+              }
+            ],
+            "internalName": "timestamp",
+            "name": "at"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "token"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+                "spelling": "AFMInferenceRequestToken"
+              }
+            ],
+            "name": "token"
+          }
+        ],
+        "returns": [
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore33AFMNoopInferenceTelemetryObserverV21promptTokensProcessed_010fullPromptH008computedkH02atyAA24AFMInferenceRequestTokenV_S2iSdtF"
+      },
+      "kind": {
+        "displayName": "Instance Method",
+        "identifier": "swift.method"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "externalParam",
+            "spelling": "at"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "computedPromptTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "fullPromptTokens"
+          },
+          {
+            "kind": "identifier",
+            "spelling": "promptTokensProcessed"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "func"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Sd",
+            "spelling": "Double"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      },
+      "pathComponents": [
+        "AFMNoopInferenceTelemetryObserver",
+        "promptTokensProcessed(_:fullPromptTokens:computedPromptTokens:at:)"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "externalParam",
+          "spelling": "_"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "at"
+        },
+        {
+          "kind": "externalParam",
           "spelling": "reason"
         },
         {
@@ -10256,6 +11157,18 @@
         },
         {
           "kind": "externalParam",
+          "spelling": "maximumContextTokens"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "maximumGeneratedTokens"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "maximumOutputTokens"
+        },
+        {
+          "kind": "externalParam",
           "spelling": "memoryCacheUsage"
         },
         {
@@ -10357,6 +11270,10 @@
         {
           "kind": "keyword",
           "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": " = 0, "
         },
         {
           "kind": "text",
@@ -10628,7 +11545,15 @@
         },
         {
           "kind": "text",
-          "spelling": ": ["
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
         },
         {
           "kind": "text",
@@ -10645,6 +11570,18 @@
         {
           "kind": "text",
           "spelling": ": ["
+        },
+        {
+          "kind": "text",
+          "spelling": ": ["
+        },
+        {
+          "kind": "text",
+          "spelling": "? = nil, "
+        },
+        {
+          "kind": "text",
+          "spelling": "? = nil, "
         },
         {
           "kind": "text",
@@ -10761,6 +11698,16 @@
         },
         {
           "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+          "spelling": "AFMHistogramSnapshot"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+          "spelling": "AFMHistogramSnapshot"
+        },
+        {
+          "kind": "typeIdentifier",
           "preciseIdentifier": "s:10AFMKitCore20AFMNamedIntegerGaugeV",
           "spelling": "AFMNamedIntegerGauge"
         },
@@ -10788,6 +11735,11 @@
           "kind": "typeIdentifier",
           "preciseIdentifier": "s:Sd",
           "spelling": "Double"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
         },
         {
           "kind": "typeIdentifier",
@@ -11127,6 +12079,68 @@
               }
             ],
             "name": "maximumConcurrentRequests"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "maximumContextTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "maximumContextTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "maximumGeneratedTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "text",
+                "spelling": "?"
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+                "spelling": "AFMHistogramSnapshot"
+              }
+            ],
+            "name": "maximumGeneratedTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "maximumOutputTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "text",
+                "spelling": "?"
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+                "spelling": "AFMHistogramSnapshot"
+              }
+            ],
+            "name": "maximumOutputTokens"
           },
           {
             "declarationFragments": [
@@ -11606,7 +12620,7 @@
       },
       "identifier": {
         "interfaceLanguage": "swift",
-        "precise": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV21timestampMilliseconds24processStartEpochSeconds9modelName25maximumConcurrentRequests07runningP007waitingP0011peakRunningP017logicalCacheUsage06memoryvW006prefixV4Fill20generatedTokensTotal21fullPromptTokensTotal25computedPromptTokensTotal08acceptedP5Total08terminalP5Total16preemptionsTotal0yV12QueriesTotal0yV9HitsTotal27speculativeDraftRoundsTotal27speculativeDraftTokensTotal30speculativeAcceptedTokensTotal14terminalCounts13failureCounts18supplementalCounts25supplementalIntegerGauges24supplementalDoubleGauges15endToEndLatency12queueLatency16inferenceLatency14prefillLatency13decodeLatency16timeToFirstToken18timePerOutputToken17interTokenLatency16fullPromptTokens20computedPromptTokens15generatedTokens9samplingN14samplingBestOfACs5Int64V_SdSSS4iS2dSgA17_s6UInt64VA19_A19_A19_A19_A19_A19_A19_A19_A19_A19_SayAA13AFMNamedCountVGA22_A22_SayAA20AFMNamedIntegerGaugeVGSayAA19AFMNamedDoubleGaugeVGAA012AFMHistogramE0VA30_A30_A30_A30_A30_A30_A30_A30_A30_A30_A30_A30_tcfc"
+        "precise": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV21timestampMilliseconds24processStartEpochSeconds9modelName25maximumConcurrentRequests0N13ContextTokens07runningP007waitingP0011peakRunningP017logicalCacheUsage06memoryxY006prefixX4Fill09generatedR5Total010fullPromptR5Total014computedPromptR5Total08acceptedP5Total08terminalP5Total16preemptionsTotal06prefixX12QueriesTotal06prefixX9HitsTotal27speculativeDraftRoundsTotal016speculativeDraftR5Total019speculativeAcceptedR5Total14terminalCounts13failureCounts18supplementalCounts25supplementalIntegerGauges24supplementalDoubleGauges15endToEndLatency12queueLatency16inferenceLatency14prefillLatency13decodeLatency16timeToFirstToken18timePerOutputToken17interTokenLatency010fullPromptR0014computedPromptR009generatedR00n9GeneratedR00n6OutputR09samplingN14samplingBestOfACs5Int64V_SdSSS5iS2dSgA20_s6UInt64VA22_A22_A22_A22_A22_A22_A22_A22_A22_A22_SayAA13AFMNamedCountVGA25_A25_SayAA20AFMNamedIntegerGaugeVGSayAA19AFMNamedDoubleGaugeVGAA012AFMHistogramE0VA33_A33_A33_A33_A33_A33_A33_A33_A33_A33_A33_SgA34_A33_A33_tcfc"
       },
       "kind": {
         "displayName": "Initializer",
@@ -11669,6 +12683,18 @@
           {
             "kind": "externalParam",
             "spelling": "maximumConcurrentRequests"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "maximumContextTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "maximumGeneratedTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "maximumOutputTokens"
           },
           {
             "kind": "externalParam",
@@ -11908,6 +12934,22 @@
           },
           {
             "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
             "spelling": ": "
           },
           {
@@ -12061,6 +13103,14 @@
           {
             "kind": "text",
             "spelling": ": ["
+          },
+          {
+            "kind": "text",
+            "spelling": "?, "
+          },
+          {
+            "kind": "text",
+            "spelling": "?, "
           },
           {
             "kind": "text",
@@ -12109,6 +13159,16 @@
             "kind": "typeIdentifier",
             "preciseIdentifier": "s:10AFMKitCore19AFMNamedDoubleGaugeV",
             "spelling": "AFMNamedDoubleGauge"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+            "spelling": "AFMHistogramSnapshot"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+            "spelling": "AFMHistogramSnapshot"
           },
           {
             "kind": "typeIdentifier",
@@ -12227,6 +13287,11 @@
           },
           {
             "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          },
+          {
+            "kind": "typeIdentifier",
             "preciseIdentifier": "s:s5Int64V",
             "spelling": "Int64"
           },
@@ -12286,11 +13351,11 @@
             "spelling": "UInt64"
           }
         ],
-        "title": "init(timestampMilliseconds:processStartEpochSeconds:modelName:maximumConcurrentRequests:runningRequests:waitingRequests:peakRunningRequests:logicalCacheUsage:memoryCacheUsage:prefixCacheFill:generatedTokensTotal:fullPromptTokensTotal:computedPromptTokensTotal:acceptedRequestsTotal:terminalRequestsTotal:preemptionsTotal:prefixCacheQueriesTotal:prefixCacheHitsTotal:speculativeDraftRoundsTotal:speculativeDraftTokensTotal:speculativeAcceptedTokensTotal:terminalCounts:failureCounts:supplementalCounts:supplementalIntegerGauges:supplementalDoubleGauges:endToEndLatency:queueLatency:inferenceLatency:prefillLatency:decodeLatency:timeToFirstToken:timePerOutputToken:interTokenLatency:fullPromptTokens:computedPromptTokens:generatedTokens:samplingN:samplingBestOf:)"
+        "title": "init(timestampMilliseconds:processStartEpochSeconds:modelName:maximumConcurrentRequests:maximumContextTokens:runningRequests:waitingRequests:peakRunningRequests:logicalCacheUsage:memoryCacheUsage:prefixCacheFill:generatedTokensTotal:fullPromptTokensTotal:computedPromptTokensTotal:acceptedRequestsTotal:terminalRequestsTotal:preemptionsTotal:prefixCacheQueriesTotal:prefixCacheHitsTotal:speculativeDraftRoundsTotal:speculativeDraftTokensTotal:speculativeAcceptedTokensTotal:terminalCounts:failureCounts:supplementalCounts:supplementalIntegerGauges:supplementalDoubleGauges:endToEndLatency:queueLatency:inferenceLatency:prefillLatency:decodeLatency:timeToFirstToken:timePerOutputToken:interTokenLatency:fullPromptTokens:computedPromptTokens:generatedTokens:maximumGeneratedTokens:maximumOutputTokens:samplingN:samplingBestOf:)"
       },
       "pathComponents": [
         "AFMInferenceMetricsSnapshot",
-        "init(timestampMilliseconds:processStartEpochSeconds:modelName:maximumConcurrentRequests:runningRequests:waitingRequests:peakRunningRequests:logicalCacheUsage:memoryCacheUsage:prefixCacheFill:generatedTokensTotal:fullPromptTokensTotal:computedPromptTokensTotal:acceptedRequestsTotal:terminalRequestsTotal:preemptionsTotal:prefixCacheQueriesTotal:prefixCacheHitsTotal:speculativeDraftRoundsTotal:speculativeDraftTokensTotal:speculativeAcceptedTokensTotal:terminalCounts:failureCounts:supplementalCounts:supplementalIntegerGauges:supplementalDoubleGauges:endToEndLatency:queueLatency:inferenceLatency:prefillLatency:decodeLatency:timeToFirstToken:timePerOutputToken:interTokenLatency:fullPromptTokens:computedPromptTokens:generatedTokens:samplingN:samplingBestOf:)"
+        "init(timestampMilliseconds:processStartEpochSeconds:modelName:maximumConcurrentRequests:maximumContextTokens:runningRequests:waitingRequests:peakRunningRequests:logicalCacheUsage:memoryCacheUsage:prefixCacheFill:generatedTokensTotal:fullPromptTokensTotal:computedPromptTokensTotal:acceptedRequestsTotal:terminalRequestsTotal:preemptionsTotal:prefixCacheQueriesTotal:prefixCacheHitsTotal:speculativeDraftRoundsTotal:speculativeDraftTokensTotal:speculativeAcceptedTokensTotal:terminalCounts:failureCounts:supplementalCounts:supplementalIntegerGauges:supplementalDoubleGauges:endToEndLatency:queueLatency:inferenceLatency:prefillLatency:decodeLatency:timeToFirstToken:timePerOutputToken:interTokenLatency:fullPromptTokens:computedPromptTokens:generatedTokens:maximumGeneratedTokens:maximumOutputTokens:samplingN:samplingBestOf:)"
       ]
     },
     {
@@ -15378,6 +16443,10 @@
         },
         {
           "kind": "externalParam",
+          "spelling": "maximumOutputTokens"
+        },
+        {
+          "kind": "externalParam",
           "spelling": "reason"
         },
         {
@@ -15391,6 +16460,10 @@
         {
           "kind": "keyword",
           "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": " = 0, "
         },
         {
           "kind": "text",
@@ -15453,6 +16526,10 @@
           "spelling": ": "
         },
         {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
           "kind": "typeIdentifier",
           "preciseIdentifier": "s:10AFMKitCore24AFMInferenceFinishReasonO",
           "spelling": "AFMInferenceFinishReason"
@@ -15461,6 +16538,11 @@
           "kind": "typeIdentifier",
           "preciseIdentifier": "s:Sd",
           "spelling": "Double"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
         },
         {
           "kind": "typeIdentifier",
@@ -15566,6 +16648,24 @@
             "declarationFragments": [
               {
                 "kind": "identifier",
+                "spelling": "maximumOutputTokens"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:Si",
+                "spelling": "Int"
+              }
+            ],
+            "name": "maximumOutputTokens"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
                 "spelling": "reason"
               },
               {
@@ -15620,7 +16720,7 @@
       },
       "identifier": {
         "interfaceLanguage": "swift",
-        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL09samplingN0O6BestOfAcA0cE6ReasonO_SdS5itcfc"
+        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS6itcfc"
       },
       "kind": {
         "displayName": "Initializer",
@@ -15643,6 +16743,10 @@
           {
             "kind": "externalParam",
             "spelling": "generatedTokens"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "maximumOutputTokens"
           },
           {
             "kind": "externalParam",
@@ -15691,6 +16795,14 @@
           {
             "kind": "text",
             "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
           },
           {
             "kind": "text",
@@ -15754,13 +16866,18 @@
             "kind": "typeIdentifier",
             "preciseIdentifier": "s:Si",
             "spelling": "Int"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
           }
         ],
-        "title": "init(reason:completedAt:fullPromptTokens:computedPromptTokens:generatedTokens:samplingN:samplingBestOf:)"
+        "title": "init(reason:completedAt:fullPromptTokens:computedPromptTokens:generatedTokens:maximumOutputTokens:samplingN:samplingBestOf:)"
       },
       "pathComponents": [
         "AFMInferenceRequestFinishObservation",
-        "init(reason:completedAt:fullPromptTokens:computedPromptTokens:generatedTokens:samplingN:samplingBestOf:)"
+        "init(reason:completedAt:fullPromptTokens:computedPromptTokens:generatedTokens:maximumOutputTokens:samplingN:samplingBestOf:)"
       ]
     },
     {
@@ -42902,6 +44019,198 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "maximumContextTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV20maximumContextTokensSivp"
+      },
+      "kind": {
+        "displayName": "Instance Property",
+        "identifier": "swift.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "maximumContextTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "maximumContextTokens"
+      },
+      "pathComponents": [
+        "AFMInferenceMetricsSnapshot",
+        "maximumContextTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "maximumGeneratedTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+          "spelling": "AFMHistogramSnapshot"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV22maximumGeneratedTokensAA012AFMHistogramE0Vvp"
+      },
+      "kind": {
+        "displayName": "Instance Property",
+        "identifier": "swift.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "maximumGeneratedTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+            "spelling": "AFMHistogramSnapshot"
+          }
+        ],
+        "title": "maximumGeneratedTokens"
+      },
+      "pathComponents": [
+        "AFMInferenceMetricsSnapshot",
+        "maximumGeneratedTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "maximumOutputTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+          "spelling": "AFMHistogramSnapshot"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore27AFMInferenceMetricsSnapshotV19maximumOutputTokensAA012AFMHistogramE0Vvp"
+      },
+      "kind": {
+        "displayName": "Instance Property",
+        "identifier": "swift.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "maximumOutputTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore20AFMHistogramSnapshotV",
+            "spelling": "AFMHistogramSnapshot"
+          }
+        ],
+        "title": "maximumOutputTokens"
+      },
+      "pathComponents": [
+        "AFMInferenceMetricsSnapshot",
+        "maximumOutputTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "maximumOutputTokens"
         },
         {
@@ -42966,6 +44275,70 @@
       },
       "pathComponents": [
         "AFMRawTextGenerationRequest",
+        "maximumOutputTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "maximumOutputTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSivp"
+      },
+      "kind": {
+        "displayName": "Instance Property",
+        "identifier": "swift.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "maximumOutputTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "maximumOutputTokens"
+      },
+      "pathComponents": [
+        "AFMInferenceRequestFinishObservation",
         "maximumOutputTokens"
       ]
     },

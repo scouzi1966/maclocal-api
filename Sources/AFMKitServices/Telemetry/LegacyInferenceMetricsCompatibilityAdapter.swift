@@ -55,7 +55,8 @@ public final class LegacyInferenceMetricsCompatibilityAdapter: @unchecked Sendab
     }
 
     public func reset() {
-        collector.reset()
+        // vLLM counters exposed by /metrics are process-lifetime values. The
+        // deprecated compatibility reset is therefore limited to its own peak.
         callbacks.withLock { $0.legacyBatchSizePeak = 0 }
     }
 
@@ -162,6 +163,7 @@ public final class LegacyInferenceMetricsCompatibilityAdapter: @unchecked Sendab
             processStartEpochSeconds: snapshot.processStartEpochSeconds,
             modelName: snapshot.modelName,
             maximumConcurrentRequests: snapshot.maximumConcurrentRequests,
+            maximumContextTokens: snapshot.maximumContextTokens,
             runningRequests: max(0, running),
             waitingRequests: max(0, waiting),
             peakRunningRequests: max(0, peak),
@@ -195,6 +197,8 @@ public final class LegacyInferenceMetricsCompatibilityAdapter: @unchecked Sendab
             fullPromptTokens: snapshot.fullPromptTokens,
             computedPromptTokens: snapshot.computedPromptTokens,
             generatedTokens: snapshot.generatedTokens,
+            maximumGeneratedTokens: snapshot.maximumGeneratedTokens,
+            maximumOutputTokens: snapshot.maximumOutputTokens,
             samplingN: snapshot.samplingN,
             samplingBestOf: snapshot.samplingBestOf
         )

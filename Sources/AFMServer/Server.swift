@@ -522,7 +522,8 @@ public class Server: @unchecked Sendable {
             // the first scrape.
             telemetry.configure(
                 modelName: mlxModelID,
-                maximumConcurrentRequests: mlxChatService.maxConcurrent
+                maximumConcurrentRequests: mlxChatService.maxConcurrent,
+                maximumContextTokens: contextWindow ?? 0
             )
         } else {
             let chatController = ChatCompletionsController(

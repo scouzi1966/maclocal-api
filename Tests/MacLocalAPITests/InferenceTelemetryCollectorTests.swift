@@ -33,7 +33,8 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
                     completedAt: 98,
                     fullPromptTokens: 10,
                     computedPromptTokens: 4,
-                    generatedTokens: 2
+                    generatedTokens: 2,
+                    maximumOutputTokens: 64
                 )
             )
         )
@@ -56,12 +57,100 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
         XCTAssertEqual(snapshot.fullPromptTokensTotal, 10)
         XCTAssertEqual(snapshot.computedPromptTokensTotal, 4)
         XCTAssertEqual(snapshot.generatedTokensTotal, 2)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.sum, 2)
+        XCTAssertEqual(snapshot.maximumOutputTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumOutputTokens.sum, 64)
         XCTAssertEqual(snapshot.prefixCacheQueriesTotal, 10)
         XCTAssertEqual(snapshot.prefixCacheHitsTotal, 6)
         XCTAssertEqual(snapshot.interTokenLatency.count, 1)
         XCTAssertEqual(snapshot.interTokenLatency.sum, 2, accuracy: 0.0001)
         XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "stop" }?.count, 1)
         XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "error" }?.count, 0)
+    }
+
+    func testTokenCountersAdvanceDuringRequestAndTerminalDoesNotDoubleCount() {
+        let collector = InferenceTelemetryCollector(now: { 110 }, wallTime: { 1_000 })
+        let token = collector.requestAccepted(at: 100)
+        collector.requestStarted(token, at: 101)
+
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 10,
+            computedPromptTokens: 4,
+            at: 102
+        )
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 12,
+            computedPromptTokens: 5,
+            at: 103
+        )
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 11,
+            computedPromptTokens: 4,
+            at: 103.5
+        )
+        collector.outputToken(token, at: 104)
+        collector.outputToken(token, at: 105)
+
+        var snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 12)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 5)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 2)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 0)
+        XCTAssertEqual(snapshot.maximumOutputTokens.count, 0)
+
+        XCTAssertTrue(
+            collector.requestFinished(
+                token,
+                observation: AFMInferenceRequestFinishObservation(
+                    reason: .stop,
+                    completedAt: 109,
+                    fullPromptTokens: 12,
+                    computedPromptTokens: 5,
+                    generatedTokens: 2,
+                    maximumOutputTokens: 64
+                )
+            )
+        )
+
+        snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 12)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 5)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 2)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.sum, 2)
+        XCTAssertEqual(snapshot.maximumOutputTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumOutputTokens.sum, 64)
+
+        let repeatedSnapshot = collector.metricsSnapshot()
+        XCTAssertEqual(repeatedSnapshot.fullPromptTokensTotal, 12)
+        XCTAssertEqual(repeatedSnapshot.computedPromptTokensTotal, 5)
+        XCTAssertEqual(repeatedSnapshot.generatedTokensTotal, 2)
+    }
+
+    func testFailedRequestRetainsAlreadyProcessedTokenCounters() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let token = collector.requestAccepted(at: 10)
+        collector.requestStarted(token, at: 11)
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 7,
+            computedPromptTokens: 7,
+            at: 12
+        )
+        collector.outputToken(token, at: 13)
+
+        XCTAssertTrue(collector.requestFailed(token, reason: .inference, at: 14))
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 7)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 7)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "error" }?.count, 1)
     }
 
     func testFailureAndIngressWritesHaveDisjointOwnership() {

@@ -54,6 +54,7 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
     public var fullPromptTokens: Int
     public var computedPromptTokens: Int
     public var generatedTokens: Int
+    public var maximumOutputTokens: Int
     public var samplingN: Int
     public var samplingBestOf: Int
 
@@ -63,6 +64,7 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
+        maximumOutputTokens: Int = 0,
         samplingN: Int = 1,
         samplingBestOf: Int = 1
     ) {
@@ -71,6 +73,7 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
         self.fullPromptTokens = fullPromptTokens
         self.computedPromptTokens = computedPromptTokens
         self.generatedTokens = generatedTokens
+        self.maximumOutputTokens = maximumOutputTokens
         self.samplingN = samplingN
         self.samplingBestOf = samplingBestOf
     }
@@ -80,6 +83,14 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
 public protocol AFMInferenceTelemetryObserving: Sendable {
     func requestAccepted(at timestamp: Double) -> AFMInferenceRequestToken
     func requestStarted(_ token: AFMInferenceRequestToken, at timestamp: Double)
+    /// Records cumulative prompt progress for a request. Repeated calls must
+    /// provide totals observed so far; observers account only for positive deltas.
+    func promptTokensProcessed(
+        _ token: AFMInferenceRequestToken,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        at timestamp: Double
+    )
     func outputToken(_ token: AFMInferenceRequestToken, at timestamp: Double)
     func prefixCacheObserved(queriedTokens: Int, hitTokens: Int)
     func speculativeRound(draftTokens: Int, acceptedTokens: Int)
@@ -100,6 +111,15 @@ public protocol AFMInferenceTelemetryObserving: Sendable {
     ) -> Bool
 }
 
+public extension AFMInferenceTelemetryObserving {
+    func promptTokensProcessed(
+        _ token: AFMInferenceRequestToken,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        at timestamp: Double
+    ) {}
+}
+
 public struct AFMNoopInferenceTelemetryObserver: AFMInferenceTelemetryObserving {
     public init() {}
 
@@ -108,6 +128,12 @@ public struct AFMNoopInferenceTelemetryObserver: AFMInferenceTelemetryObserving 
     }
 
     public func requestStarted(_ token: AFMInferenceRequestToken, at timestamp: Double) {}
+    public func promptTokensProcessed(
+        _ token: AFMInferenceRequestToken,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        at timestamp: Double
+    ) {}
     public func outputToken(_ token: AFMInferenceRequestToken, at timestamp: Double) {}
     public func prefixCacheObserved(queriedTokens: Int, hitTokens: Int) {}
     public func speculativeRound(draftTokens: Int, acceptedTokens: Int) {}

@@ -78,26 +78,42 @@ struct MetricsController: RouteCollection {
 
     static func renderPrometheus(_ snapshot: AFMInferenceMetricsSnapshot) -> String {
         let modelLabelOnly = "model_name=\"\(labelEscape(snapshot.modelName))\""
-        let modelLabel = "{\(modelLabelOnly)}"
+        let vLLMLabelOnly = "\(modelLabelOnly),engine=\"0\""
 
         var output = ""
         output.reserveCapacity(16_384)
 
-        func gauge(_ name: String, _ help: String, _ value: String) {
+        func gauge(
+            _ name: String,
+            _ help: String,
+            _ value: String,
+            labels: String = modelLabelOnly
+        ) {
             output += "# HELP \(name) \(help)\n"
             output += "# TYPE \(name) gauge\n"
-            output += "\(name)\(modelLabel) \(value)\n"
+            output += "\(name){\(labels)} \(value)\n"
         }
 
-        func counter(_ name: String, _ help: String, _ value: UInt64) {
+        func counter(
+            _ name: String,
+            _ help: String,
+            _ value: UInt64,
+            labels: String = modelLabelOnly
+        ) {
             output += "# HELP \(name) \(help)\n"
             output += "# TYPE \(name) counter\n"
-            output += "\(name)\(modelLabel) \(value)\n"
+            output += "\(name){\(labels)} \(value)\n"
         }
 
-        // Existing AFM families. The AFM prompt counter and histogram retain
-        // their computed-prefill semantics rather than aliasing vLLM's full
-        // prompt accounting.
+        func vLLMGauge(_ name: String, _ help: String, _ value: String) {
+            gauge(name, help, value, labels: vLLMLabelOnly)
+        }
+
+        func vLLMCounter(_ name: String, _ help: String, _ value: UInt64) {
+            counter(name, help, value, labels: vLLMLabelOnly)
+        }
+
+        // Existing AFM families retain their computed-prefill semantics.
         gauge(
             "afm:num_requests_running",
             "Number of requests currently generating on the GPU (active batch size).",
@@ -203,44 +219,81 @@ struct MetricsController: RouteCollection {
         renderHistogram(into: &output, name: "afm:request_params_n", help: "Distribution of the n sampling parameter per request.", labels: modelLabelOnly, histogram: snapshot.samplingN)
         renderHistogram(into: &output, name: "afm:request_params_best_of", help: "Distribution of the best_of sampling parameter per request.", labels: modelLabelOnly, histogram: snapshot.samplingBestOf)
 
-        // Pinned vLLM/Playground compatibility families.
-        gauge("vllm:num_requests_running", "Number of requests currently running on the engine.", String(snapshot.runningRequests))
-        gauge("vllm:num_requests_waiting", "Number of requests waiting to be processed.", String(snapshot.waitingRequests))
-        gauge("vllm:kv_cache_usage_perc", "Logical KV cache occupancy as a fraction in [0, 1].", formatDouble(snapshot.logicalCacheUsage))
-        gauge("vllm:avg_prompt_throughput_toks_per_s", "Average computed prompt throughput over AFM's 10-second rolling window.", formatDouble(doubleGauge("computed_prompt_throughput", in: snapshot)))
-        gauge("vllm:avg_generation_throughput_toks_per_s", "Average generation throughput over AFM's 10-second rolling window.", formatDouble(doubleGauge("generation_throughput", in: snapshot)))
+        // Pinned vLLM compatibility families. HELP text, metric types, and
+        // bounded label values match the pinned vLLM exposition contract.
+        vLLMGauge("vllm:num_requests_running", "Number of requests in model execution batches.", String(snapshot.runningRequests))
+        vLLMGauge("vllm:num_requests_waiting", "Number of requests waiting to be processed.", String(snapshot.waitingRequests))
+        let waitingReasonHelp = "Number of waiting requests by reason. Reason labels: 'capacity' = waiting for scheduling capacity; 'deferred' = deferred by transient constraints (LoRA budget, KV transfer, blocked status). Sum of all reasons equals vllm:num_requests_waiting."
+        output += "# HELP vllm:num_requests_waiting_by_reason \(waitingReasonHelp)\n"
+        output += "# TYPE vllm:num_requests_waiting_by_reason gauge\n"
+        output += "vllm:num_requests_waiting_by_reason{\(vLLMLabelOnly),reason=\"capacity\"} \(snapshot.waitingRequests)\n"
+        output += "vllm:num_requests_waiting_by_reason{\(vLLMLabelOnly),reason=\"deferred\"} 0\n"
+
+        let sleepStateHelp = "Engine sleep state; awake = 0 means engine is sleeping; awake = 1 means engine is awake; weights_offloaded = 1 means sleep level 1; discard_all = 1 means sleep level 2."
+        output += "# HELP vllm:engine_sleep_state \(sleepStateHelp)\n"
+        output += "# TYPE vllm:engine_sleep_state gauge\n"
+        output += "vllm:engine_sleep_state{\(vLLMLabelOnly),sleep_state=\"awake\"} 1\n"
+        output += "vllm:engine_sleep_state{\(vLLMLabelOnly),sleep_state=\"weights_offloaded\"} 0\n"
+        output += "vllm:engine_sleep_state{\(vLLMLabelOnly),sleep_state=\"discard_all\"} 0\n"
+
+        vLLMGauge("vllm:kv_cache_usage_perc", "KV-cache usage. 1 means 100 percent usage.", formatDouble(snapshot.logicalCacheUsage))
+
+        // Legacy vLLM gauges retained for the pinned vLLM Playground. Current
+        // vLLM removed them, but their historical HELP contract is stable.
+        vLLMGauge("vllm:avg_prompt_throughput_toks_per_s", "Average prefill throughput in tokens/s.", formatDouble(doubleGauge("computed_prompt_throughput", in: snapshot)))
+        vLLMGauge("vllm:avg_generation_throughput_toks_per_s", "Average generation throughput in tokens/s.", formatDouble(doubleGauge("generation_throughput", in: snapshot)))
 
         let prefixHitRate = snapshot.prefixCacheQueriesTotal == 0
             ? 0
             : Double(snapshot.prefixCacheHitsTotal) / Double(snapshot.prefixCacheQueriesTotal)
-        gauge("vllm:prefix_cache_hit_rate", "Fraction of eligible prompt tokens reused from the prefix cache.", formatDouble(prefixHitRate))
+        vLLMGauge("vllm:prefix_cache_hit_rate", "Fraction of eligible prompt tokens reused from the prefix cache.", formatDouble(prefixHitRate))
 
         let speculativeAcceptanceRate = snapshot.speculativeDraftTokensTotal == 0
             ? 0
             : Double(snapshot.speculativeAcceptedTokensTotal) / Double(snapshot.speculativeDraftTokensTotal)
-        gauge("vllm:spec_decode_acceptance_rate", "Fraction of speculative draft tokens accepted.", formatDouble(speculativeAcceptanceRate))
+        vLLMGauge("vllm:spec_decode_acceptance_rate", "Fraction of speculative draft tokens accepted.", formatDouble(speculativeAcceptanceRate))
 
-        counter("vllm:num_preemptions_total", "Cumulative number of engine preemptions.", snapshot.preemptionsTotal)
-        counter("vllm:prompt_tokens_total", "Cumulative number of full prompt tokens received.", snapshot.fullPromptTokensTotal)
-        counter("vllm:generation_tokens_total", "Cumulative number of generated output tokens.", snapshot.generatedTokensTotal)
-        counter("vllm:prefix_cache_queries_total", "Cumulative number of prompt tokens eligible for prefix-cache lookup.", snapshot.prefixCacheQueriesTotal)
-        counter("vllm:prefix_cache_hits_total", "Cumulative number of prompt tokens reused from the prefix cache.", snapshot.prefixCacheHitsTotal)
-        counter("vllm:spec_decode_num_draft_tokens_total", "Cumulative number of speculative draft tokens.", snapshot.speculativeDraftTokensTotal)
-        counter("vllm:spec_decode_num_accepted_tokens_total", "Cumulative number of accepted speculative draft tokens.", snapshot.speculativeAcceptedTokensTotal)
-        counter("vllm:spec_decode_num_drafts_total", "Cumulative number of speculative decode rounds.", snapshot.speculativeDraftRoundsTotal)
+        vLLMCounter("vllm:num_preemptions_total", "Cumulative number of preemption from the engine.", snapshot.preemptionsTotal)
+        vLLMCounter("vllm:prompt_tokens_total", "Number of prefill tokens processed.", snapshot.fullPromptTokensTotal)
 
-        output += "# HELP vllm:request_success_total Count of successfully processed requests by canonical vLLM finished_reason.\n"
+        output += "# HELP vllm:prompt_tokens_by_source_total Number of prompt tokens by source.\n"
+        output += "# TYPE vllm:prompt_tokens_by_source_total counter\n"
+        output += "vllm:prompt_tokens_by_source_total{\(vLLMLabelOnly),source=\"local_compute\"} \(snapshot.computedPromptTokensTotal)\n"
+        output += "vllm:prompt_tokens_by_source_total{\(vLLMLabelOnly),source=\"local_cache_hit\"} \(snapshot.prefixCacheHitsTotal)\n"
+        output += "vllm:prompt_tokens_by_source_total{\(vLLMLabelOnly),source=\"external_kv_transfer\"} 0\n"
+
+        vLLMCounter("vllm:prompt_tokens_cached_total", "Number of cached prompt tokens (local + external).", snapshot.prefixCacheHitsTotal)
+        vLLMCounter("vllm:generation_tokens_total", "Number of generation tokens processed.", snapshot.generatedTokensTotal)
+        vLLMCounter("vllm:prefix_cache_queries_total", "Prefix cache queries, in terms of number of queried tokens.", snapshot.prefixCacheQueriesTotal)
+        vLLMCounter("vllm:prefix_cache_hits_total", "Prefix cache hits, in terms of number of cached tokens.", snapshot.prefixCacheHitsTotal)
+        vLLMCounter("vllm:external_prefix_cache_queries_total", "External prefix cache queries from KV connector cross-instance cache sharing, in terms of number of queried tokens.", 0)
+        vLLMCounter("vllm:external_prefix_cache_hits_total", "External prefix cache hits from KV connector cross-instance cache sharing, in terms of number of cached tokens.", 0)
+        vLLMCounter("vllm:mm_cache_queries_total", "Multi-modal cache queries, in terms of number of queried items.", 0)
+        vLLMCounter("vllm:mm_cache_hits_total", "Multi-modal cache hits, in terms of number of cached items.", 0)
+        vLLMCounter("vllm:spec_decode_num_draft_tokens_total", "Number of draft tokens.", snapshot.speculativeDraftTokensTotal)
+        vLLMCounter("vllm:spec_decode_num_accepted_tokens_total", "Number of accepted tokens.", snapshot.speculativeAcceptedTokensTotal)
+        vLLMCounter("vllm:spec_decode_num_drafts_total", "Number of spec decoding drafts.", snapshot.speculativeDraftRoundsTotal)
+
+        output += "# HELP vllm:request_success_total Count of successfully processed requests.\n"
         output += "# TYPE vllm:request_success_total counter\n"
         for reason in ["stop", "length", "abort", "error", "repetition"] {
-            output += "vllm:request_success_total{\(modelLabelOnly),finished_reason=\"\(reason)\"} \(terminalCount(reason, in: snapshot))\n"
+            output += "vllm:request_success_total{\(vLLMLabelOnly),finished_reason=\"\(reason)\"} \(terminalCount(reason, in: snapshot))\n"
         }
 
-        renderHistogram(into: &output, name: "vllm:e2e_request_latency_seconds", help: "End-to-end request latency in seconds.", labels: modelLabelOnly, histogram: snapshot.endToEndLatency)
-        renderHistogram(into: &output, name: "vllm:time_to_first_token_seconds", help: "Time from request acceptance to first output token in seconds.", labels: modelLabelOnly, histogram: snapshot.timeToFirstToken)
-        renderHistogram(into: &output, name: "vllm:request_time_per_output_token_seconds", help: "Decode duration per output-token interval in seconds.", labels: modelLabelOnly, histogram: snapshot.timePerOutputToken)
-        renderHistogram(into: &output, name: "vllm:inter_token_latency_seconds", help: "Latency between adjacent output tokens in seconds.", labels: modelLabelOnly, histogram: snapshot.interTokenLatency)
-        renderHistogram(into: &output, name: "vllm:request_prompt_tokens", help: "Number of full prompt tokens per request.", labels: modelLabelOnly, histogram: snapshot.fullPromptTokens)
-        renderHistogram(into: &output, name: "vllm:request_generation_tokens", help: "Number of generated tokens per request.", labels: modelLabelOnly, histogram: snapshot.generatedTokens)
+        renderHistogram(into: &output, name: "vllm:e2e_request_latency_seconds", help: "Histogram of e2e request latency in seconds.", labels: vLLMLabelOnly, histogram: snapshot.endToEndLatency)
+        renderHistogram(into: &output, name: "vllm:request_queue_time_seconds", help: "Histogram of time spent in WAITING phase for request.", labels: vLLMLabelOnly, histogram: snapshot.queueLatency)
+        renderHistogram(into: &output, name: "vllm:request_inference_time_seconds", help: "Histogram of time spent in RUNNING phase for request.", labels: vLLMLabelOnly, histogram: snapshot.inferenceLatency)
+        renderHistogram(into: &output, name: "vllm:request_prefill_time_seconds", help: "Histogram of time spent in PREFILL phase for request.", labels: vLLMLabelOnly, histogram: snapshot.prefillLatency)
+        renderHistogram(into: &output, name: "vllm:request_decode_time_seconds", help: "Histogram of time spent in DECODE phase for request.", labels: vLLMLabelOnly, histogram: snapshot.decodeLatency)
+        renderHistogram(into: &output, name: "vllm:time_to_first_token_seconds", help: "Histogram of time to first token in seconds.", labels: vLLMLabelOnly, histogram: snapshot.timeToFirstToken)
+        renderHistogram(into: &output, name: "vllm:request_time_per_output_token_seconds", help: "Histogram of time_per_output_token_seconds per request.", labels: vLLMLabelOnly, histogram: snapshot.timePerOutputToken)
+        renderHistogram(into: &output, name: "vllm:inter_token_latency_seconds", help: "Histogram of inter-token latency in seconds.", labels: vLLMLabelOnly, histogram: snapshot.interTokenLatency)
+        renderHistogram(into: &output, name: "vllm:request_prompt_tokens", help: "Number of prefill tokens processed.", labels: vLLMLabelOnly, histogram: snapshot.fullPromptTokens)
+        renderHistogram(into: &output, name: "vllm:request_generation_tokens", help: "Number of generation tokens processed.", labels: vLLMLabelOnly, histogram: snapshot.generatedTokens)
+        renderHistogram(into: &output, name: "vllm:request_max_num_generation_tokens", help: "Histogram of maximum number of requested generation tokens.", labels: vLLMLabelOnly, histogram: snapshot.maximumGeneratedTokens)
+        renderHistogram(into: &output, name: "vllm:request_params_max_tokens", help: "Histogram of the max_tokens request parameter.", labels: vLLMLabelOnly, histogram: snapshot.maximumOutputTokens)
+        renderHistogram(into: &output, name: "vllm:request_params_n", help: "Histogram of the n request parameter.", labels: vLLMLabelOnly, histogram: snapshot.samplingN)
+        renderHistogram(into: &output, name: "vllm:request_prefill_kv_computed_tokens", help: "Histogram of new KV tokens computed during prefill (excluding cached tokens).", labels: vLLMLabelOnly, histogram: snapshot.computedPromptTokens)
 
         let rejectedSpeculativeTokens = snapshot.speculativeDraftTokensTotal
             &- min(snapshot.speculativeDraftTokensTotal, snapshot.speculativeAcceptedTokensTotal)

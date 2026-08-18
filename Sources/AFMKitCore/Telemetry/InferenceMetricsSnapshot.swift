@@ -68,6 +68,7 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
     public let processStartEpochSeconds: Double
     public let modelName: String
     public let maximumConcurrentRequests: Int
+    public let maximumContextTokens: Int
 
     public let runningRequests: Int
     public let waitingRequests: Int
@@ -105,6 +106,8 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
     public let fullPromptTokens: AFMHistogramSnapshot
     public let computedPromptTokens: AFMHistogramSnapshot
     public let generatedTokens: AFMHistogramSnapshot
+    public let maximumGeneratedTokens: AFMHistogramSnapshot
+    public let maximumOutputTokens: AFMHistogramSnapshot
     public let samplingN: AFMHistogramSnapshot
     public let samplingBestOf: AFMHistogramSnapshot
 
@@ -113,6 +116,7 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
         processStartEpochSeconds: Double,
         modelName: String = "",
         maximumConcurrentRequests: Int = 0,
+        maximumContextTokens: Int = 0,
         runningRequests: Int = 0,
         waitingRequests: Int = 0,
         peakRunningRequests: Int = 0,
@@ -146,6 +150,8 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
         fullPromptTokens: AFMHistogramSnapshot,
         computedPromptTokens: AFMHistogramSnapshot,
         generatedTokens: AFMHistogramSnapshot,
+        maximumGeneratedTokens: AFMHistogramSnapshot? = nil,
+        maximumOutputTokens: AFMHistogramSnapshot? = nil,
         samplingN: AFMHistogramSnapshot,
         samplingBestOf: AFMHistogramSnapshot
     ) {
@@ -153,6 +159,7 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
         self.processStartEpochSeconds = processStartEpochSeconds
         self.modelName = modelName
         self.maximumConcurrentRequests = maximumConcurrentRequests
+        self.maximumContextTokens = maximumContextTokens
         self.runningRequests = runningRequests
         self.waitingRequests = waitingRequests
         self.peakRunningRequests = peakRunningRequests
@@ -186,6 +193,10 @@ public struct AFMInferenceMetricsSnapshot: Hashable, Sendable {
         self.fullPromptTokens = fullPromptTokens
         self.computedPromptTokens = computedPromptTokens
         self.generatedTokens = generatedTokens
+        self.maximumGeneratedTokens = maximumGeneratedTokens ?? generatedTokens
+        self.maximumOutputTokens = maximumOutputTokens ?? AFMHistogramSnapshot(
+            buckets: generatedTokens.buckets
+        )
         self.samplingN = samplingN
         self.samplingBestOf = samplingBestOf
     }

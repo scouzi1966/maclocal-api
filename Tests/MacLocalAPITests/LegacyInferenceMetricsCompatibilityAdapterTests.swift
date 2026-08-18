@@ -77,4 +77,26 @@ final class LegacyInferenceMetricsCompatibilityAdapterTests: XCTestCase {
         adapter.reset()
         XCTAssertEqual(adapter.metricsSnapshotWithLegacyGauges().peakRunningRequests, 1)
     }
+
+    func testResetDoesNotResetProcessLifetimeMetrics() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let adapter = LegacyInferenceMetricsCompatibilityAdapter(collector: collector)
+        adapter.addGeneratedTokens(3)
+        adapter.addComputedPromptTokens(5)
+        adapter.requestStarted()
+        adapter.requestCompleted()
+        adapter.requestSucceeded(reason: "stop")
+
+        adapter.reset()
+
+        let snapshot = adapter.metricsSnapshotWithLegacyGauges()
+        XCTAssertEqual(snapshot.generatedTokensTotal, 3)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 5)
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(
+            snapshot.supplementalCounts.first { $0.name == "legacy_finish:stop" }?.count,
+            1
+        )
+    }
 }

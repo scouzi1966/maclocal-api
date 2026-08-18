@@ -1419,6 +1419,12 @@ actor BatchScheduler {
             queriedTokens: inputTokens.count,
             hitTokens: cachedTokens
         )
+        telemetryObserver.promptTokensProcessed(
+            req.telemetryToken,
+            fullPromptTokens: inputTokens.count,
+            computedPromptTokens: max(0, inputTokens.count - cachedTokens),
+            at: Date().timeIntervalSince1970
+        )
 
         let unsupportedCacheTypes = cache.compactMap { layerCache -> String? in
             Self.supportsDenseBatchMerge(layerCache)
@@ -1629,7 +1635,8 @@ actor BatchScheduler {
                 completedAt: Date().timeIntervalSince1970,
                 fullPromptTokens: inputTokens.count,
                 computedPromptTokens: max(0, inputTokens.count - cachedTokens),
-                generatedTokens: tokenCount
+                generatedTokens: tokenCount,
+                maximumOutputTokens: maxTokens
             )
         )
         _inFlightCount.withLock { $0 = max(0, $0 - 1) }
@@ -1881,10 +1888,16 @@ actor BatchScheduler {
         let totalInputTokens = lengths.reduce(0, +)
         print("[\(batchTs())] [BatchScheduler] Batched prefill: B=\(B), maxLen=\(maxLen), totalTokens=\(totalInputTokens), leftPads=\(leftPads), time=\(String(format: "%.3f", prefillTime))s (\(String(format: "%.0f", Double(totalInputTokens) / prefillTime)) tok/s)")
         DebugLogger.log("[BatchScheduler] Batched prefill complete: B=\(B), \(String(format: "%.0f", prefillTime * 1000))ms")
-        for tokens in allInputTokens {
+        for (index, tokens) in allInputTokens.enumerated() {
             telemetryObserver.prefixCacheObserved(
                 queriedTokens: tokens.count,
                 hitTokens: 0
+            )
+            telemetryObserver.promptTokensProcessed(
+                requests[index].telemetryToken,
+                fullPromptTokens: tokens.count,
+                computedPromptTokens: tokens.count,
+                at: Date().timeIntervalSince1970
             )
         }
     }
@@ -2105,7 +2118,8 @@ actor BatchScheduler {
                         0,
                         slot.promptTokenCount - slot.cachedTokens
                     ),
-                    generatedTokens: slot.tokenCount
+                    generatedTokens: slot.tokenCount,
+                    maximumOutputTokens: slot.maxTokens ?? 0
                 )
             )
         }

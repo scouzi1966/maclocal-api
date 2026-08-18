@@ -333,6 +333,9 @@ let package = Package(
                 // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
                 .product(name: "MLXLLM", package: "mlx-swift-lm")
             ],
+            resources: [
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 // Xcode 27 Beta 3 reports a false circular reference while
                 // optimizing the combined release test module. Product targets

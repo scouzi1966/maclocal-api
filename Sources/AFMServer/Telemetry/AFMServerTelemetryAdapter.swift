@@ -10,7 +10,7 @@ public struct AFMServerTelemetryAdapter:
 {
     private let snapshotSource: any AFMInferenceMetricsSnapshotSource
     private let ingressRecorder: any AFMIngressTelemetryRecording
-    private let configureHandler: @Sendable (String, Int) -> Void
+    private let configureHandler: @Sendable (String, Int, Int) -> Void
 
     public init(
         snapshotSource: any AFMInferenceMetricsSnapshotSource,
@@ -18,16 +18,20 @@ public struct AFMServerTelemetryAdapter:
     ) {
         self.snapshotSource = snapshotSource
         self.ingressRecorder = ingressRecorder
-        self.configureHandler = { _, _ in }
+        self.configureHandler = { _, _, _ in }
     }
 
     public init(collector: InferenceTelemetryCollector) {
         self.snapshotSource = collector
         self.ingressRecorder = collector
-        self.configureHandler = { modelName, maximumConcurrentRequests in
+        self.configureHandler = {
+            modelName,
+            maximumConcurrentRequests,
+            maximumContextTokens in
             collector.configure(
                 modelName: modelName,
-                maximumConcurrentRequests: maximumConcurrentRequests
+                maximumConcurrentRequests: maximumConcurrentRequests,
+                maximumContextTokens: maximumContextTokens
             )
         }
     }
@@ -36,8 +40,12 @@ public struct AFMServerTelemetryAdapter:
         Self(collector: InferenceTelemetryCollector())
     }
 
-    public func configure(modelName: String, maximumConcurrentRequests: Int) {
-        configureHandler(modelName, maximumConcurrentRequests)
+    public func configure(
+        modelName: String,
+        maximumConcurrentRequests: Int,
+        maximumContextTokens: Int = 0
+    ) {
+        configureHandler(modelName, maximumConcurrentRequests, maximumContextTokens)
     }
 
     public func metricsSnapshot() -> AFMInferenceMetricsSnapshot {

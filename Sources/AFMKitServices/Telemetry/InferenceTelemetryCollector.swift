@@ -40,6 +40,9 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         var firstTokenAt: Double?
         var previousTokenAt: Double?
         var outputTokenTimestamps: [Double]
+        var recordedFullPromptTokens: UInt64
+        var recordedComputedPromptTokens: UInt64
+        var recordedGeneratedTokens: UInt64
     }
 
     private struct TimedAmount: Sendable {
@@ -51,6 +54,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         let processStartEpochSeconds: Double
         var modelName = ""
         var maximumConcurrentRequests = 0
+        var maximumContextTokens: Int
 
         var runningRequests = 0
         var waitingRequests = 0
@@ -99,14 +103,44 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         var timeToFirstToken = MutableHistogram(buckets: Buckets.timeToFirstToken)
         var timePerOutputToken = MutableHistogram(buckets: Buckets.timePerOutputToken)
         var interTokenLatency = MutableHistogram(buckets: Buckets.timePerOutputToken)
-        var fullPromptTokens = MutableHistogram(buckets: Buckets.tokenCount)
-        var computedPromptTokens = MutableHistogram(buckets: Buckets.tokenCount)
-        var generatedTokens = MutableHistogram(buckets: Buckets.tokenCount)
+        var fullPromptTokens: MutableHistogram
+        var computedPromptTokens: MutableHistogram
+        var generatedTokens: MutableHistogram
+        var maximumGeneratedTokens: MutableHistogram
+        var maximumOutputTokens: MutableHistogram
         var samplingN = MutableHistogram(buckets: Buckets.samplingParam)
         var samplingBestOf = MutableHistogram(buckets: Buckets.samplingParam)
 
-        init(processStartEpochSeconds: Double) {
+        init(
+            processStartEpochSeconds: Double,
+            maximumContextTokens: Int = Buckets.defaultMaximumContextTokens
+        ) {
             self.processStartEpochSeconds = processStartEpochSeconds
+            self.maximumContextTokens = max(1, maximumContextTokens)
+            let tokenBuckets = Buckets.tokenCount(maximum: self.maximumContextTokens)
+            self.fullPromptTokens = MutableHistogram(buckets: tokenBuckets)
+            self.computedPromptTokens = MutableHistogram(buckets: tokenBuckets)
+            self.generatedTokens = MutableHistogram(buckets: tokenBuckets)
+            self.maximumGeneratedTokens = MutableHistogram(buckets: tokenBuckets)
+            self.maximumOutputTokens = MutableHistogram(buckets: tokenBuckets)
+        }
+
+        mutating func configureMaximumContextTokens(_ maximum: Int) {
+            guard maximum > 0, maximum != maximumContextTokens else { return }
+            guard fullPromptTokens.count == 0,
+                  computedPromptTokens.count == 0,
+                  generatedTokens.count == 0,
+                  maximumGeneratedTokens.count == 0,
+                  maximumOutputTokens.count == 0 else {
+                return
+            }
+            maximumContextTokens = maximum
+            let tokenBuckets = Buckets.tokenCount(maximum: maximum)
+            fullPromptTokens = MutableHistogram(buckets: tokenBuckets)
+            computedPromptTokens = MutableHistogram(buckets: tokenBuckets)
+            generatedTokens = MutableHistogram(buckets: tokenBuckets)
+            maximumGeneratedTokens = MutableHistogram(buckets: tokenBuckets)
+            maximumOutputTokens = MutableHistogram(buckets: tokenBuckets)
         }
     }
 
@@ -114,19 +148,34 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         static let requestLatency: [Double] = [
             0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0,
             10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0,
+            120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0,
         ]
         static let timeToFirstToken: [Double] = [
             0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1,
             0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
+            20.0, 40.0, 80.0, 160.0, 640.0, 2560.0,
         ]
         static let timePerOutputToken: [Double] = [
             0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2,
-            0.3, 0.4, 0.5, 0.75, 1.0, 2.5,
+            0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5,
+            10.0, 20.0, 40.0, 80.0,
         ]
-        static let tokenCount: [Double] = [
-            1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
-            2000, 5000, 10000, 20000, 50000, 100000,
-        ]
+        static let defaultMaximumContextTokens = 100_000
+
+        static func tokenCount(maximum: Int) -> [Double] {
+            guard maximum > 0 else { return [] }
+            var buckets: [Double] = []
+            var magnitude = 1
+            while true {
+                for mantissa in [1, 2, 5] {
+                    let value = mantissa * magnitude
+                    if value > maximum { return buckets }
+                    buckets.append(Double(value))
+                }
+                guard magnitude <= Int.max / 10 else { return buckets }
+                magnitude *= 10
+            }
+        }
         static let samplingParam: [Double] = [1, 2, 5, 10, 20]
     }
 
@@ -147,10 +196,15 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         )
     }
 
-    public func configure(modelName: String, maximumConcurrentRequests: Int) {
+    public func configure(
+        modelName: String,
+        maximumConcurrentRequests: Int,
+        maximumContextTokens: Int = 0
+    ) {
         state.withLock { state in
             state.modelName = modelName
             state.maximumConcurrentRequests = max(0, maximumConcurrentRequests)
+            state.configureMaximumContextTokens(maximumContextTokens)
         }
     }
 
@@ -159,9 +213,13 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             let start = current.processStartEpochSeconds
             let modelName = current.modelName
             let capacity = current.maximumConcurrentRequests
+            let maximumContextTokens = current.maximumContextTokens
             let connections = current.activeConnections
             let connectionPeak = current.activeConnectionsPeak
-            current = State(processStartEpochSeconds: start)
+            current = State(
+                processStartEpochSeconds: start,
+                maximumContextTokens: maximumContextTokens
+            )
             current.modelName = modelName
             current.maximumConcurrentRequests = capacity
             current.activeConnections = connections
@@ -237,6 +295,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
                 fullPromptTokens: 0,
                 computedPromptTokens: promptTokens,
                 generatedTokens: generationTokens,
+                maximumOutputTokens: 0,
                 samplingN: samplingN,
                 samplingBestOf: samplingBestOf
             )
@@ -290,6 +349,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
+        maximumOutputTokens: Int,
         samplingN: Int,
         samplingBestOf: Int
     ) {
@@ -319,6 +379,12 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             state.computedPromptTokens.observe(Double(computedPromptTokens))
         }
         if generatedTokens >= 0 { state.generatedTokens.observe(Double(generatedTokens)) }
+        if generatedTokens >= 0 {
+            state.maximumGeneratedTokens.observe(Double(generatedTokens))
+        }
+        if maximumOutputTokens > 0 {
+            state.maximumOutputTokens.observe(Double(maximumOutputTokens))
+        }
         state.samplingN.observe(Double(max(1, samplingN)))
         state.samplingBestOf.observe(Double(max(1, samplingBestOf)))
     }
@@ -350,7 +416,10 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
             state.acceptedRequestsTotal &+= 1
             state.requests[token] = RequestState(
                 acceptedAt: timestamp,
-                outputTokenTimestamps: []
+                outputTokenTimestamps: [],
+                recordedFullPromptTokens: 0,
+                recordedComputedPromptTokens: 0,
+                recordedGeneratedTokens: 0
             )
         }
         return token
@@ -364,12 +433,42 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
         }
     }
 
+    public func promptTokensProcessed(
+        _ token: AFMInferenceRequestToken,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        at timestamp: Double
+    ) {
+        state.withLock { state in
+            guard var request = state.requests[token] else { return }
+            let full = UInt64(max(0, fullPromptTokens))
+            let computed = UInt64(min(max(0, computedPromptTokens), max(0, fullPromptTokens)))
+            let fullDelta = full > request.recordedFullPromptTokens
+                ? full - request.recordedFullPromptTokens
+                : 0
+            let computedDelta = computed > request.recordedComputedPromptTokens
+                ? computed - request.recordedComputedPromptTokens
+                : 0
+            state.fullPromptTokensTotal &+= fullDelta
+            state.computedPromptTokensTotal &+= computedDelta
+            if computedDelta > 0 {
+                state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: computedDelta))
+            }
+            request.recordedFullPromptTokens = max(request.recordedFullPromptTokens, full)
+            request.recordedComputedPromptTokens = max(request.recordedComputedPromptTokens, computed)
+            state.requests[token] = request
+        }
+    }
+
     public func outputToken(_ token: AFMInferenceRequestToken, at timestamp: Double) {
         state.withLock { state in
             guard var request = state.requests[token] else { return }
             if request.firstTokenAt == nil { request.firstTokenAt = timestamp }
             request.previousTokenAt = timestamp
             request.outputTokenTimestamps.append(timestamp)
+            request.recordedGeneratedTokens &+= 1
+            state.generatedTokensTotal &+= 1
+            state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
             state.requests[token] = request
         }
     }
@@ -428,15 +527,30 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
         return state.withLock { state in
             guard let request = state.requests.removeValue(forKey: token) else { return false }
             let full = UInt64(max(0, observation.fullPromptTokens))
-            let computed = UInt64(max(0, observation.computedPromptTokens))
+            let computed = UInt64(
+                min(max(0, observation.computedPromptTokens), max(0, observation.fullPromptTokens))
+            )
             let generated = UInt64(max(0, observation.generatedTokens))
-            state.fullPromptTokensTotal &+= full
-            state.computedPromptTokensTotal &+= computed
-            state.generatedTokensTotal &+= generated
+            let remainingFull = full > request.recordedFullPromptTokens
+                ? full - request.recordedFullPromptTokens
+                : 0
+            let remainingComputed = computed > request.recordedComputedPromptTokens
+                ? computed - request.recordedComputedPromptTokens
+                : 0
+            let remainingGenerated = generated > request.recordedGeneratedTokens
+                ? generated - request.recordedGeneratedTokens
+                : 0
+            state.fullPromptTokensTotal &+= remainingFull
+            state.computedPromptTokensTotal &+= remainingComputed
+            state.generatedTokensTotal &+= remainingGenerated
             state.terminalRequestsTotal &+= 1
             state.terminalCounts[observation.reason.rawValue, default: 0] &+= 1
-            state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: computed))
-            state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: generated))
+            if remainingComputed > 0 {
+                state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: remainingComputed))
+            }
+            if remainingGenerated > 0 {
+                state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: remainingGenerated))
+            }
             state.terminalWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
             Self.observeLatency(
                 state: &state,
@@ -448,6 +562,7 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
                 fullPromptTokens: observation.fullPromptTokens,
                 computedPromptTokens: observation.computedPromptTokens,
                 generatedTokens: observation.generatedTokens,
+                maximumOutputTokens: observation.maximumOutputTokens,
                 samplingN: observation.samplingN,
                 samplingBestOf: observation.samplingBestOf
             )
@@ -515,6 +630,7 @@ extension InferenceTelemetryCollector: AFMInferenceMetricsSnapshotSource {
                 processStartEpochSeconds: state.processStartEpochSeconds,
                 modelName: state.modelName,
                 maximumConcurrentRequests: state.maximumConcurrentRequests,
+                maximumContextTokens: state.maximumContextTokens,
                 runningRequests: state.runningRequests,
                 waitingRequests: state.waitingRequests,
                 peakRunningRequests: state.peakRunningRequests,
@@ -569,6 +685,8 @@ extension InferenceTelemetryCollector: AFMInferenceMetricsSnapshotSource {
                 fullPromptTokens: state.fullPromptTokens.snapshot,
                 computedPromptTokens: state.computedPromptTokens.snapshot,
                 generatedTokens: state.generatedTokens.snapshot,
+                maximumGeneratedTokens: state.maximumGeneratedTokens.snapshot,
+                maximumOutputTokens: state.maximumOutputTokens.snapshot,
                 samplingN: state.samplingN.snapshot,
                 samplingBestOf: state.samplingBestOf.snapshot
             )

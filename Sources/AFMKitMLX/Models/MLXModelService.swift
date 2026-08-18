@@ -605,6 +605,7 @@ public final class MLXModelService: @unchecked Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
+        maximumOutputTokens: Int = 0,
         firstTokenAt: Double? = nil
     ) -> Bool {
         if let firstTokenAt, generatedTokens > 0 {
@@ -617,7 +618,8 @@ public final class MLXModelService: @unchecked Sendable {
                 completedAt: Date().timeIntervalSince1970,
                 fullPromptTokens: fullPromptTokens,
                 computedPromptTokens: computedPromptTokens,
-                generatedTokens: generatedTokens
+                generatedTokens: generatedTokens,
+                maximumOutputTokens: maximumOutputTokens
             )
         )
     }
@@ -2270,7 +2272,8 @@ public final class MLXModelService: @unchecked Sendable {
                     reason: reason,
                     fullPromptTokens: result.1,
                     computedPromptTokens: result.1,
-                    generatedTokens: result.2
+                    generatedTokens: result.2,
+                    maximumOutputTokens: effectiveMaxTokens
                 )
                 return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
             }
@@ -2317,7 +2320,8 @@ public final class MLXModelService: @unchecked Sendable {
                     reason: reason,
                     fullPromptTokens: mtpResult.1,
                     computedPromptTokens: mtpResult.1,
-                    generatedTokens: mtpResult.2
+                    generatedTokens: mtpResult.2,
+                    maximumOutputTokens: effectiveMaxTokens
                 )
                 return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
             }
@@ -2367,7 +2371,8 @@ public final class MLXModelService: @unchecked Sendable {
                     reason: reason,
                     fullPromptTokens: e3Result.1,
                     computedPromptTokens: e3Result.1,
-                    generatedTokens: e3Result.2
+                    generatedTokens: e3Result.2,
+                    maximumOutputTokens: effectiveMaxTokens
                 )
                 return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
             }
@@ -2559,6 +2564,7 @@ public final class MLXModelService: @unchecked Sendable {
                 fullPromptTokens: promptTokens,
                 computedPromptTokens: promptTokens,
                 generatedTokens: completionTokens,
+                maximumOutputTokens: effectiveMaxTokens,
                 firstTokenAt: firstTokenAt?.timeIntervalSince1970
             )
 
@@ -2825,6 +2831,12 @@ public final class MLXModelService: @unchecked Sendable {
             self.telemetryObserver.prefixCacheObserved(
                 queriedTokens: inputTokens.count,
                 hitTokens: cachedTokenCount
+            )
+            self.telemetryObserver.promptTokensProcessed(
+                serialTelemetryToken,
+                fullPromptTokens: inputTokens.count,
+                computedPromptTokens: max(0, inputTokens.count - cachedTokenCount),
+                at: Date().timeIntervalSince1970
             )
 
             let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
@@ -3101,6 +3113,7 @@ public final class MLXModelService: @unchecked Sendable {
                 fullPromptTokens: promptTokens,
                 computedPromptTokens: max(0, promptTokens - cachedTokenCount),
                 generatedTokens: completionTokens,
+                maximumOutputTokens: effectiveMaxTokens,
                 firstTokenAt: firstTokenAt?.timeIntervalSince1970
             )
 
@@ -3422,7 +3435,8 @@ public final class MLXModelService: @unchecked Sendable {
                                 reason: outCount >= maxTok ? .length : .stop,
                                 fullPromptTokens: promptIds.count,
                                 computedPromptTokens: promptIds.count,
-                                generatedTokens: outCount
+                                generatedTokens: outCount,
+                                maximumOutputTokens: maxTok
                             )
                             continuation.finish()
                         } catch {
@@ -3667,6 +3681,12 @@ public final class MLXModelService: @unchecked Sendable {
                             queriedTokens: inputTokens.count,
                             hitTokens: streamCachedTokens
                         )
+                        self.telemetryObserver.promptTokensProcessed(
+                            streamTelemetryToken,
+                            fullPromptTokens: inputTokens.count,
+                            computedPromptTokens: max(0, inputTokens.count - streamCachedTokens),
+                            at: Date().timeIntervalSince1970
+                        )
 
                         // Emit cached token count so the controller can include it in usage
                         continuation.yield(StreamChunk(text: "", cachedTokens: streamCachedTokens))
@@ -3705,6 +3725,10 @@ public final class MLXModelService: @unchecked Sendable {
                                 if case .tokenLogprobs(let lps) = piece {
                                     pendingLogprobs = lps
                                 } else if case .chunk(let rawText) = piece {
+                                    self.telemetryObserver.outputToken(
+                                        streamTelemetryToken,
+                                        at: Date().timeIntervalSince1970
+                                    )
                                     if firstTokenTime == nil { firstTokenTime = Date() }
                                     var resolved: [ResolvedLogprob]?
                                     if let lps = pendingLogprobs {
@@ -3926,9 +3950,6 @@ public final class MLXModelService: @unchecked Sendable {
                     // /metrics: serial-streaming observation. Mirrors the
                     // non-streaming generate() path; queue time ≈ 0 in
                     // serial mode so queuedAt == startedAt.
-                    let streamFirstTokenAt: Date? = (streamStatCompletionTokens > 0 && streamStatPromptTime >= 0)
-                        ? streamQueuedAt.addingTimeInterval(streamStatPromptTime)
-                        : nil
                     let streamReason: AFMInferenceFinishReason
                     if streamStatStoppedBySequence {
                         streamReason = .stop
@@ -3946,7 +3967,7 @@ public final class MLXModelService: @unchecked Sendable {
                             streamStatPromptTokens - streamStatCachedTokens
                         ),
                         generatedTokens: streamStatCompletionTokens,
-                        firstTokenAt: streamFirstTokenAt?.timeIntervalSince1970
+                        maximumOutputTokens: effectiveMaxTokens
                     )
 
                     continuation.finish()
