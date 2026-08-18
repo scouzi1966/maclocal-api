@@ -15,9 +15,14 @@ import Foundation
 struct MetricsController: RouteCollection {
 
     let aggregator: StatsAggregator
+    let connectionTracker: ActiveConnectionTracker
 
-    init(aggregator: StatsAggregator = .shared) {
+    init(
+        aggregator: StatsAggregator = .shared,
+        connectionTracker: ActiveConnectionTracker = .shared
+    ) {
         self.aggregator = aggregator
+        self.connectionTracker = connectionTracker
     }
 
     func boot(routes: RoutesBuilder) throws {
@@ -25,7 +30,10 @@ struct MetricsController: RouteCollection {
     }
 
     func metrics(req: Request) async throws -> Response {
-        let body = Self.renderPrometheus(aggregator.snapshot())
+        let body = Self.renderPrometheus(
+            aggregator.snapshot(),
+            connections: connectionTracker.snapshot()
+        )
         let response = Response(status: .ok)
         response.headers.replaceOrAdd(
             name: .contentType,
@@ -62,7 +70,10 @@ struct MetricsController: RouteCollection {
         return String(d)
     }
 
-    static func renderPrometheus(_ s: StatsAggregator.Snapshot) -> String {
+    static func renderPrometheus(
+        _ s: StatsAggregator.Snapshot,
+        connections: ActiveConnectionSnapshot = .init(activeConnections: 0, activeConnectionsPeak: 0)
+    ) -> String {
         let modelLabelOnly = "model_name=\"\(labelEscape(s.modelName))\""
         let modelLabel = "{\(modelLabelOnly)}"
 
@@ -118,12 +129,12 @@ struct MetricsController: RouteCollection {
         gauge(
             "afm:num_active_connections",
             "Number of HTTP client connections currently being served (excludes /metrics scrapes).",
-            String(s.activeConnections)
+            String(connections.activeConnections)
         )
         gauge(
             "afm:active_connections_peak",
             "All-time-high number of concurrent HTTP client connections since server start.",
-            String(s.activeConnectionsPeak)
+            String(connections.activeConnectionsPeak)
         )
 
         // ─── Counters ───────────────────────────────────────────────────────

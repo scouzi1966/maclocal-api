@@ -516,8 +516,8 @@ struct MLXChatCompletionsController: RouteCollection {
             // afm:num_active_connections — ActiveConnectionsMiddleware filters
             // them because its defer fires when the controller returns, not
             // when the SSE body finishes.
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            ActiveConnectionTracker.shared.connectionStarted()
+            defer { ActiveConnectionTracker.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()

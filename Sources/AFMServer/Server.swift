@@ -158,8 +158,8 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let track = Self.shouldTrackInMiddleware(path: request.url.path)
-        if track { StatsAggregator.shared.connectionStarted() }
-        defer { if track { StatsAggregator.shared.connectionEnded() } }
+        if track { ActiveConnectionTracker.shared.connectionStarted() }
+        defer { if track { ActiveConnectionTracker.shared.connectionEnded() } }
         return try await next.respond(to: request)
     }
 }

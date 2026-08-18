@@ -12,6 +12,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
     private let fixedMaxConcurrent: Int
+    private let mlxServing: (any AFMMLXOpenAIChatServing)?
 
     init(
         model: AFMMLXModel,
@@ -20,10 +21,11 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     ) {
         fixedModel = AnyAFMModel(model)
         fixedModelID = model.descriptor.modelID.rawValue
-        fixedServingConfiguration = Self.configuration(for: model.descriptor)
+        fixedServingConfiguration = Self.configuration(for: model.servingConfiguration)
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
-        fixedMaxConcurrent = Self.maximumConcurrency(for: model.descriptor)
+        fixedMaxConcurrent = model.maxConcurrent
+        mlxServing = model
     }
 
     init(
@@ -38,14 +40,15 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = Self.maximumConcurrency(for: model.descriptor)
+        mlxServing = nil
     }
 
-    var maxConcurrent: Int { fixedMaxConcurrent }
+    var maxConcurrent: Int { mlxServing?.maxConcurrent ?? fixedMaxConcurrent }
     var servingConfiguration: AFMChatServingConfiguration { fixedServingConfiguration }
-    var defaultGuidedJsonSchema: ResponseFormat? { nil }
+    var defaultGuidedJsonSchema: ResponseFormat? { mlxServing?.defaultGuidedJsonSchema }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        requestFormat
+        mlxServing?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
     }
 
     func normalizeModel(_ raw: String) -> String {
@@ -53,32 +56,46 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     }
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
-        nil
+        mlxServing?.resolvedToolCallParser(logBypass: logBypass)
     }
 
-    /// Admission is provider-owned. The HTTP layer no longer reserves MLX
-    /// scheduler slots independently before asking the model to execute.
+    /// Admission is provider-owned. Concrete MLX models delegate to their
+    /// scheduler; generic AFMKit models remain serial and always accept here.
     func tryReserveSlot() -> Bool {
-        return true
+        mlxServing?.tryReserveSlot() ?? true
     }
 
     func waitForSlot(timeout: TimeInterval) async -> Bool {
-        !Task.isCancelled
+        if let mlxServing {
+            return await mlxServing.waitForSlot(timeout: timeout)
+        }
+        return !Task.isCancelled
     }
 
-    func releaseSlot() {}
+    func releaseSlot() {
+        mlxServing?.releaseSlot()
+    }
 
     func tokenize(text: String) async throws -> [Int] {
         try await fixedModel.tokenize(text: text)
     }
 
-    func ensureBatchMode(concurrency: Int) async throws {}
+    func ensureBatchMode(concurrency: Int) async throws {
+        guard let mlxServing else { return }
+        try await mlxServing.ensureBatchMode(concurrency: concurrency)
+    }
 
-    func releaseBatchReference() {}
+    func releaseBatchReference() {
+        mlxServing?.releaseBatchReference()
+    }
 
-    func cancelBatchSlots(ids: Set<UUID>) async {}
+    func cancelBatchSlots(ids: Set<UUID>) async {
+        await mlxServing?.cancelBatchSlots(ids: ids)
+    }
 
-    func startAPIProfile() {}
+    func startAPIProfile() {
+        mlxServing?.startAPIProfile()
+    }
 
     func stopAPIProfile(
         promptTokens: Int,
@@ -86,6 +103,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfile {
+        if let mlxServing {
+            return mlxServing.stopAPIProfile(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime
+            )
+        }
         return Self.profile(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
@@ -99,6 +124,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         promptTime: Double,
         generateTime: Double
     ) -> AFMProfileExtended {
+        if let mlxServing {
+            return mlxServing.stopAPIProfileExtended(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime
+            )
+        }
         return AFMProfileExtended(
             summary: Self.profile(
                 promptTokens: promptTokens,
@@ -106,6 +139,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
                 promptTime: promptTime,
                 generateTime: generateTime),
             samples: [])
+    }
+
+    func resetRequestPeakMemory() {
+        mlxServing?.resetRequestPeakMemory()
+    }
+
+    func currentRequestPeakMemoryGib() -> Double? {
+        mlxServing?.currentRequestPeakMemoryGib()
     }
 
     func generate(
@@ -426,6 +467,24 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         return AFMChatServingConfiguration(
             thinkStartTag: reasoning ? "<think>" : nil,
             thinkEndTag: reasoning ? "</think>" : nil
+        )
+    }
+
+    private static func configuration(
+        for configuration: AFMMLXServingConfiguration
+    ) -> AFMChatServingConfiguration {
+        AFMChatServingConfiguration(
+            toolCallParser: configuration.toolCallParser,
+            supportsStrictToolGrammar: configuration.supportsStrictToolGrammar,
+            thinkStartTag: configuration.thinkStartTag,
+            thinkEndTag: configuration.thinkEndTag,
+            harmonyChannels: configuration.harmonyChannels,
+            responseChannelFormat: AFMResponseChannelFormat(
+                rawValue: configuration.responseChannelFormat.rawValue
+            ) ?? .none,
+            structuralStripTags: configuration.structuralStripTags,
+            fixToolArguments: configuration.fixToolArguments,
+            grammarConstraintsEnabled: configuration.grammarConstraintsEnabled
         )
     }
 
