@@ -694,14 +694,27 @@ struct MlxCommand: ParsableCommand {
             forceDisableThinking: noThink,
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
+        let telemetryCollector = InferenceTelemetryCollector()
+        let compatibilityTarget = StatsAggregatorServicesCompatibilityTarget(
+            collector: telemetryCollector
+        )
+        if !StatsAggregator.installCompatibilityTarget(compatibilityTarget), verbose {
+            print("Telemetry compatibility facade was already bound; continuing with injected telemetry.")
+        }
         let runtime = AFMMLXRuntime(
             modelID: resolvedModel,
             configuration: runtimeConfiguration,
+            telemetryObserver: telemetryCollector,
             resolver: resolver
         )
         let selectedModel = runtime.modelID
         let service = runtime.service
         service.kernelEngine = kernelEngine
+        telemetryCollector.configure(
+            modelName: selectedModel,
+            maximumConcurrentRequests: service.maxConcurrent
+        )
+        let serverTelemetry = AFMServerTelemetryAdapter(collector: telemetryCollector)
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -839,7 +852,8 @@ struct MlxCommand: ParsableCommand {
                     mlxPresencePenalty: presencePenalty,
                     mlxSeed: seed,
                     mlxMaxLogprobs: maxLogprobs,
-                    contextWindow: contextWindow
+                    contextWindow: contextWindow,
+                    telemetry: serverTelemetry
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
@@ -1065,6 +1079,18 @@ struct MlxCommand: ParsableCommand {
             replyFormat: telegramFormat,
             requirePrefix: telegramRequirePrefix)
 
+        let telemetryCollector = InferenceTelemetryCollector()
+        let compatibilityTarget = StatsAggregatorServicesCompatibilityTarget(
+            collector: telemetryCollector
+        )
+        if !StatsAggregator.installCompatibilityTarget(compatibilityTarget), verbose {
+            print("Telemetry compatibility facade was already bound; continuing with injected telemetry.")
+        }
+        telemetryCollector.configure(
+            modelName: modelID,
+            maximumConcurrentRequests: residentSessions
+        )
+        let serverTelemetry = AFMServerTelemetryAdapter(collector: telemetryCollector)
         let model = AnyAFMModel(AFMDwarfStarModel(
             modelID: AFMModelID(rawValue: modelID),
             modelPath: checkpointPath,
@@ -1107,7 +1133,8 @@ struct MlxCommand: ParsableCommand {
                     mlxMinP: minP,
                     mlxSeed: seed,
                     mlxMaxLogprobs: maxLogprobs,
-                    contextWindow: 32_768)
+                    contextWindow: 32_768,
+                    telemetry: serverTelemetry)
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
                     print("DwarfStar API URL: http://\(hostname):\(chosenPort)")

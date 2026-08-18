@@ -148,6 +148,8 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
         "/v1/batch/completions"
     ]
 
+    let telemetry: AFMServerTelemetryAdapter
+
     static func shouldTrackInMiddleware(path: String) -> Bool {
         if nonStreamingExcluded.contains(path) { return false }
         // Filter the streaming chat path — its controller handles its own counting.
@@ -157,8 +159,12 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let track = Self.shouldTrackInMiddleware(path: request.url.path)
-        if track { StatsAggregator.shared.connectionStarted() }
-        defer { if track { StatsAggregator.shared.connectionEnded() } }
+        let token = track ? telemetry.connectionOpened() : nil
+        defer {
+            if let token {
+                telemetry.connectionClosed(token)
+            }
+        }
         return try await next.respond(to: request)
     }
 }
@@ -202,6 +208,7 @@ public class Server: @unchecked Sendable {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
+    private let telemetry: AFMServerTelemetryAdapter
     private var telegramBridge: TelegramBridge?
 
     private static let audioAvailable: Bool = {
@@ -209,7 +216,7 @@ public class Server: @unchecked Sendable {
         return false
     }()
 
-    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -243,6 +250,9 @@ public class Server: @unchecked Sendable {
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
+        self.telemetry = telemetry ?? AFMServerTelemetryAdapter(
+            collector: InferenceTelemetryCollector()
+        )
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -287,7 +297,7 @@ public class Server: @unchecked Sendable {
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
         // Track concurrent client connections for /metrics' afm:num_active_connections gauge.
-        app.middleware.use(ActiveConnectionsMiddleware())
+        app.middleware.use(ActiveConnectionsMiddleware(telemetry: telemetry))
 
         try routes()
     }
@@ -513,9 +523,9 @@ public class Server: @unchecked Sendable {
             // Seed the metrics aggregator with the live model id and the
             // configured concurrency so /metrics labels are correct from
             // the first scrape.
-            StatsAggregator.shared.setModel(
-                mlxModelID,
-                maxConcurrent: mlxChatService.maxConcurrent
+            telemetry.configure(
+                modelName: mlxModelID,
+                maximumConcurrentRequests: mlxChatService.maxConcurrent
             )
         } else {
             let chatController = ChatCompletionsController(
@@ -534,7 +544,7 @@ public class Server: @unchecked Sendable {
 
         // Prometheus metrics — always on, regardless of backend.
         // GET /metrics returns afm:* counters/gauges modelled after vLLM.
-        try app.register(collection: MetricsController())
+        try app.register(collection: MetricsController(snapshotSource: telemetry))
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in

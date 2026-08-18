@@ -377,6 +377,11 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
     public func prefixCacheObserved(queriedTokens: Int, hitTokens: Int) {
         guard queriedTokens > 0 else { return }
         state.withLock { state in
+            if hitTokens > 0 {
+                state.legacyCacheHitsTotal &+= 1
+            } else {
+                state.legacyCacheMissesTotal &+= 1
+            }
             state.prefixCacheQueriesTotal &+= UInt64(queriedTokens)
             state.prefixCacheHitsTotal &+= UInt64(min(max(0, hitTokens), queriedTokens))
         }
