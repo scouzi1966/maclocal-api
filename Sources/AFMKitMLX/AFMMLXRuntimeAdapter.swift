@@ -11,12 +11,14 @@ public enum AFMMLXSpeculativeRuntime {
     case mtpLLM(Qwen3_5MoEMTPGenerator)
     case mtpVLM(MTPGenerator)
     case eagle3(Gemma4Eagle3Drafter)
+    case dflash2(DFlash2DraftModel, blockSize: Int)
 
     public var kind: AFMMLXSpeculativeRuntimeKind {
         switch self {
         case .none: return .none
         case .mtpLLM, .mtpVLM: return .mtp
         case .eagle3: return .eagle3
+        case .dflash2: return .dflash2
         }
     }
 }
@@ -464,13 +466,22 @@ public struct AFMMLXRuntimeAdapter: Sendable {
         return .eagle3(drafter)
     }
 
+    public nonisolated func makeDFlash2Runtime(
+        drafterDirectory: URL,
+        blockSize: Int
+    ) throws -> AFMMLXSpeculativeRuntime {
+        let draft = try DFlash2DraftModel.load(directory: drafterDirectory.path)
+        return .dflash2(draft, blockSize: blockSize)
+    }
+
     @MainActor public func runSpeculativeGeneration(
         container: ModelContainer,
         userInput: UserInput,
         runtime: AFMMLXSpeculativeRuntime,
         maxTokens: Int,
         shouldStop: @escaping @Sendable () -> Bool,
-        onChunk: @escaping @Sendable (String) -> Void
+        onChunk: @escaping @Sendable (String) -> Void,
+        onTelemetry: @escaping @Sendable (AFMMLXSpeculativeTelemetry) -> Void = { _ in }
     ) async throws -> Int {
         try await container.perform { context -> Int in
             let input = try await context.processor.prepare(input: userInput)
@@ -515,6 +526,26 @@ public struct AFMMLXRuntimeAdapter: Sendable {
                     blockSize: 2,
                     onToken: emit
                 )
+            case .dflash2(let draft, let blockSize):
+                guard let target = context.model as? any DFlash2Target else { return 0 }
+                let generator = try DFlash2Generator(
+                    target: target, draft: draft, blockSize: blockSize)
+                let result = generator.generate(
+                    promptIDs: promptIds,
+                    maxTokens: maxTokens,
+                    stopTokenIDs: eos,
+                    shouldStop: { Task.isCancelled || shouldStop() },
+                    onToken: emit)
+                let stats = result.statistics
+                onTelemetry(AFMMLXSpeculativeTelemetry(
+                    strategy: "dflash2",
+                    draftedTokens: stats.draftedTokens,
+                    acceptedDraftTokens: stats.acceptedDraftTokens,
+                    emittedTokens: stats.emittedTokens,
+                    verificationCycles: stats.verificationCycles,
+                    draftTime: stats.draftSeconds,
+                    verificationTime: stats.verificationSeconds,
+                    rollbackTime: stats.rollbackSeconds))
             case .none:
                 return 0
             }

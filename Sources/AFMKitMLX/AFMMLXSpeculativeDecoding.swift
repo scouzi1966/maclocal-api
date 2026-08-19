@@ -6,6 +6,7 @@ public enum AFMMLXSpeculativeDecodingMode: String, Codable, CaseIterable, Identi
     case auto
     case mtp
     case eagle3
+    case dflash2
 
     public var id: String { rawValue }
 
@@ -15,6 +16,7 @@ public enum AFMMLXSpeculativeDecodingMode: String, Codable, CaseIterable, Identi
         case .auto: return "Auto"
         case .mtp: return "MTP"
         case .eagle3: return "EAGLE3"
+        case .dflash2: return "DFlash 2"
         }
     }
 }
@@ -37,9 +39,10 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
     public static func evaluate(
         modelLoaded: Bool,
         mtpCompatible: Bool,
-        denseGemma4Verifier: Bool
+        denseGemma4Verifier: Bool,
+        dflash2Compatible: Bool = false
     ) -> [AFMMLXSpeculativeDecodingMode: AFMMLXSpeculativeModeAvailability] {
-        let hasAccelerationPath = mtpCompatible || denseGemma4Verifier
+        let hasAccelerationPath = mtpCompatible || denseGemma4Verifier || dflash2Compatible
 
         return [
             .off: AFMMLXSpeculativeModeAvailability(
@@ -67,6 +70,13 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
                 reason: modelLoaded
                     ? "EAGLE3 requires a loaded dense Gemma4 verifier model."
                     : "Load a dense Gemma4 model before selecting EAGLE3."
+            ),
+            .dflash2: AFMMLXSpeculativeModeAvailability(
+                mode: .dflash2,
+                isSelectable: modelLoaded && dflash2Compatible,
+                reason: modelLoaded
+                    ? "DFlash 2 requires a compatible metadata-validated drafter."
+                    : "Load a compatible Qwen 3.8 or Muse Glimmer target before selecting DFlash 2."
             )
         ]
     }
@@ -79,9 +89,10 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
 
     public static func pendingSelection(
         mtpCompatible: Bool,
-        denseGemma4Verifier: Bool
+        denseGemma4Verifier: Bool,
+        dflash2Compatible: Bool = false
     ) -> [AFMMLXSpeculativeDecodingMode: AFMMLXSpeculativeModeAvailability] {
-        let hasAccelerationPath = mtpCompatible || denseGemma4Verifier
+        let hasAccelerationPath = mtpCompatible || denseGemma4Verifier || dflash2Compatible
 
         return [
             .off: AFMMLXSpeculativeModeAvailability(
@@ -109,6 +120,13 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
                 reason: denseGemma4Verifier
                     ? "Use EAGLE3 after loading the selected dense Gemma4 model."
                     : "Select a dense Gemma4 model before selecting EAGLE3."
+            ),
+            .dflash2: AFMMLXSpeculativeModeAvailability(
+                mode: .dflash2,
+                isSelectable: dflash2Compatible,
+                reason: dflash2Compatible
+                    ? "Use DFlash 2 after loading the selected target and drafter."
+                    : "Select a metadata-compatible Qwen 3.8 or Muse Glimmer target and DFlash 2 drafter."
             )
         ]
     }
@@ -178,12 +196,14 @@ public enum AFMMLXSpeculativeRuntimeKind: Equatable, Sendable {
     case none
     case mtp
     case eagle3
+    case dflash2
 }
 
 public enum AFMMLXSpeculativeGenerationPath: String, Equatable, Sendable {
     case normal = "Normal MLX"
     case mtp = "MTP"
     case eagle3 = "EAGLE3"
+    case dflash2 = "DFlash 2"
     case fallback = "Fallback"
 }
 
@@ -242,7 +262,9 @@ public struct AFMMLXSpeculativeGenerationDecision: Equatable, Sendable {
             return AFMMLXSpeculativeGenerationDecision(path: .mtp, reason: nil)
         case (.auto, .eagle3), (.eagle3, .eagle3):
             return AFMMLXSpeculativeGenerationDecision(path: .eagle3, reason: nil)
-        case (.mtp, _), (.eagle3, _), (.auto, .none):
+        case (.auto, .dflash2), (.dflash2, .dflash2):
+            return AFMMLXSpeculativeGenerationDecision(path: .dflash2, reason: nil)
+        case (.mtp, _), (.eagle3, _), (.dflash2, _), (.auto, .none):
             return AFMMLXSpeculativeGenerationDecision(path: .fallback, reason: .runtimeUnavailable)
         case (.off, _):
             return AFMMLXSpeculativeGenerationDecision(path: .normal, reason: .modeOff)
@@ -253,7 +275,9 @@ public struct AFMMLXSpeculativeGenerationDecision: Equatable, Sendable {
         initialDecision: AFMMLXSpeculativeGenerationDecision,
         emittedChunkCount: Int
     ) -> AFMMLXSpeculativeGenerationDecision {
-        guard (initialDecision.path == .mtp || initialDecision.path == .eagle3),
+        guard (initialDecision.path == .mtp
+                || initialDecision.path == .eagle3
+                || initialDecision.path == .dflash2),
               emittedChunkCount <= 0 else {
             return initialDecision
         }

@@ -22,6 +22,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var mtpDepth: Int
     public var mtpModelID: String?
     public var eagle3DrafterPath: String?
+    public var dflash2Drafter: String?
+    public var dflash2BlockSize: Int
+    public var dflash2Requirement: AFMMLXDFlash2Requirement
     public var maxConcurrent: Int
     public var toolCallParser: String?
     public var enableGrammarConstraints: Bool
@@ -47,6 +50,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         mtpDepth: Int = 3,
         mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
+        dflash2Drafter: String? = nil,
+        dflash2BlockSize: Int = 5,
+        dflash2Requirement: AFMMLXDFlash2Requirement = .preferred,
         maxConcurrent: Int = 0,
         toolCallParser: String? = nil,
         enableGrammarConstraints: Bool = false,
@@ -71,6 +77,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.mtpDepth = mtpDepth
         self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
+        self.dflash2Drafter = dflash2Drafter
+        self.dflash2BlockSize = dflash2BlockSize
+        self.dflash2Requirement = dflash2Requirement
         self.maxConcurrent = max(0, maxConcurrent)
         self.toolCallParser = toolCallParser
         self.enableGrammarConstraints = enableGrammarConstraints
@@ -95,6 +104,17 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     }
 
     public mutating func apply(_ configuration: AFMProviderConfiguration) {
+        if let speculative = configuration.object("speculativeDecoding"),
+           speculative.string("mode")?.lowercased() == "dflash2" {
+            dflash2Drafter = speculative.string("drafter")
+            if let maxDraftTokens = speculative.integer("maxDraftTokens") {
+                dflash2BlockSize = maxDraftTokens + 1
+            }
+            if let value = speculative.string("requirement"),
+               let requirement = AFMMLXDFlash2Requirement(rawValue: value.lowercased()) {
+                dflash2Requirement = requirement
+            }
+        }
         if let value = configuration.integer("kvBits") {
             kvBits = value
         }
@@ -115,6 +135,16 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
         if let value = configuration.string("eagle3DrafterPath") {
             eagle3DrafterPath = value
+        }
+        if let value = configuration.string("dflash2Drafter") {
+            dflash2Drafter = value
+        }
+        if let value = configuration.integer("dflash2BlockSize") {
+            dflash2BlockSize = value
+        }
+        if let value = configuration.string("dflash2Requirement"),
+           let requirement = AFMMLXDFlash2Requirement(rawValue: value.lowercased()) {
+            dflash2Requirement = requirement
         }
         if let value = configuration.integer("maxConcurrent") {
             maxConcurrent = max(0, value)
@@ -168,6 +198,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         service.mtpDepth = mtpDepth
         service.mtpModelID = mtpModelID
         service.eagle3DrafterPath = eagle3DrafterPath
+        service.dflash2Drafter = dflash2Drafter
+        service.dflash2BlockSize = dflash2BlockSize
+        service.dflash2Requirement = dflash2Requirement
         service.maxConcurrent = maxConcurrent >= 2 ? maxConcurrent : 0
         service.toolCallParser = toolCallParser
         service.enableGrammarConstraints = enableGrammarConstraints
@@ -247,6 +280,9 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             mtpEnabled: service.mtpEnabled,
             mtpDepth: service.mtpDepth,
             mtpModelID: service.mtpModelID,
+            dflash2Drafter: service.dflash2Drafter,
+            dflash2BlockSize: service.dflash2BlockSize,
+            dflash2Requirement: service.dflash2Requirement,
             maxConcurrent: service.maxConcurrent,
             enableGrammarConstraints: service.enableGrammarConstraints,
             forceDisableThinking: service.forceDisableThinking,
@@ -319,6 +355,11 @@ public final class AFMMLXRuntime: @unchecked Sendable {
 }
 
 extension AFMProviderConfiguration {
+    func object(_ key: String) -> [String: AFMJSONValue]? {
+        guard case .object(let value) = values[key] else { return nil }
+        return value
+    }
+
     func bool(_ key: String) -> Bool? {
         guard case .bool(let value) = values[key] else { return nil }
         return value
@@ -331,6 +372,18 @@ extension AFMProviderConfiguration {
 
     func string(_ key: String) -> String? {
         guard case .string(let value) = values[key] else { return nil }
+        return value
+    }
+}
+
+private extension Dictionary where Key == String, Value == AFMJSONValue {
+    func integer(_ key: String) -> Int? {
+        guard case .integer(let value) = self[key] else { return nil }
+        return value
+    }
+
+    func string(_ key: String) -> String? {
+        guard case .string(let value) = self[key] else { return nil }
         return value
     }
 }

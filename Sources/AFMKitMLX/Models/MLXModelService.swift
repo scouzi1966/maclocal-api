@@ -54,6 +54,27 @@ final class Eagle3Runtime: @unchecked Sendable {
     var active: Gemma4Eagle3Drafter? { lock.withLock { drafter } }
 }
 
+final class DFlash2Runtime: @unchecked Sendable {
+    static let shared = DFlash2Runtime()
+    private let lock = NSLock()
+    private var value: (draft: DFlash2DraftModel, blockSize: Int)?
+
+    func install(draft: DFlash2DraftModel, blockSize: Int) {
+        lock.withLock { value = (draft, blockSize) }
+    }
+    func clear() { lock.withLock { value = nil } }
+    var active: (draft: DFlash2DraftModel, blockSize: Int)? {
+        lock.withLock { value }
+    }
+}
+
+private struct DFlash2RequestPolicy {
+    let permitsRuntime: Bool
+    let requiresRuntime: Bool
+    let requestedBlockSize: Int?
+    let denialReason: String?
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 public struct ResolvedLogprob: Sendable {
     public let token: String
@@ -251,6 +272,10 @@ public final class MLXModelService: @unchecked Sendable {
     /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
     /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
     public var eagle3DrafterPath: String?
+    /// Opt-in DFlash 2 checkpoint directory or Hugging Face repository.
+    public var dflash2Drafter: String?
+    public var dflash2BlockSize: Int = 5
+    public var dflash2Requirement: AFMMLXDFlash2Requirement = .preferred
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     public var defaultGuidedJsonSchema: ResponseFormat?
@@ -1434,6 +1459,68 @@ public final class MLXModelService: @unchecked Sendable {
         return sidecar
     }
 
+    private func resolveDFlash2Directory(
+        progress: (@Sendable (Progress) -> Void)?,
+        stage: (@Sendable (MLXLoadStage) -> Void)?
+    ) async throws -> URL? {
+        guard let resource = dflash2Drafter?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !resource.isEmpty else { return nil }
+        if let local = resolver.localFilesystemURLIfExists(
+            NSString(string: resource).expandingTildeInPath) {
+            guard FileManager.default.fileExists(
+                atPath: local.appendingPathComponent("config.json").path) else {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 drafter directory has no config.json: \(local.path)")
+            }
+            return local
+        }
+        if let cached = resolver.localModelDirectory(repoId: resource) {
+            return cached
+        }
+        stage?(.downloading)
+        print("[\(ts())] [DFlash2] downloading drafter: \(resource)")
+        try await downloadModel(modelID: resource, progress: progress)
+        guard let downloaded = resolver.localModelDirectory(repoId: resource) else {
+            throw MLXServiceError.modelNotFoundInCache(resource)
+        }
+        return downloaded
+    }
+
+    private func dflash2RequestPolicy(
+        _ options: SpeculativeDecodingOptions?
+    ) throws -> DFlash2RequestPolicy {
+        let requirement = options?.requirement?.lowercased()
+        guard requirement == nil || requirement == "preferred" || requirement == "required" else {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.requirement must be preferred or required")
+        }
+        if let maxDraftTokens = options?.maxDraftTokens, maxDraftTokens < 1 {
+            let required = dflash2Requirement == .required || requirement == "required"
+            return DFlash2RequestPolicy(
+                permitsRuntime: false,
+                requiresRuntime: required,
+                requestedBlockSize: nil,
+                denialReason: "max_draft_tokens must be at least 1")
+        }
+
+        let mode = options?.mode?.lowercased()
+        let modePermits = mode == nil || mode == "auto" || mode == "dflash2"
+        let drafterMatches = options?.drafter == nil || options?.drafter == dflash2Drafter
+        let reason: String?
+        if !modePermits {
+            reason = "request selected speculative mode \(mode ?? "off")"
+        } else if !drafterMatches {
+            reason = "per-request drafter does not match the server-loaded drafter"
+        } else {
+            reason = nil
+        }
+        return DFlash2RequestPolicy(
+            permitsRuntime: reason == nil,
+            requiresRuntime: dflash2Requirement == .required || requirement == "required",
+            requestedBlockSize: options?.maxDraftTokens.map { $0 + 1 },
+            denialReason: reason)
+    }
+
     private func mtpQuantization(for sidecarPath: String) -> (
         groupSize: Int, bits: Int, mode: QuantizationMode
     ) {
@@ -1475,6 +1562,18 @@ public final class MLXModelService: @unchecked Sendable {
         guard !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MLXServiceError.invalidModel(rawModel)
         }
+        let speculativeSelections = [
+            mtpEnabled,
+            eagle3DrafterPath?.isEmpty == false,
+            dflash2Drafter?.isEmpty == false,
+        ].filter { $0 }.count
+        guard speculativeSelections <= 1 else {
+            throw MLXServiceError.loadFailed(
+                "Choose only one speculative runtime: MTP, EAGLE3, or DFlash2")
+        }
+        guard dflash2Drafter == nil || dflash2BlockSize >= 2 else {
+            throw MLXServiceError.loadFailed("DFlash2 block size must be at least 2")
+        }
         stage?(.checkingCache)
 
         if let cached = withStateLock({ () -> (String, ModelContainer)? in
@@ -1490,6 +1589,8 @@ public final class MLXModelService: @unchecked Sendable {
             stage?(.ready)
             return cached.0
         }
+        DFlash2Runtime.shared.clear()
+        Eagle3Runtime.shared.clear()
 
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
@@ -1723,6 +1824,46 @@ public final class MLXModelService: @unchecked Sendable {
                     }
                 } else {
                     print("[\(ts())] [EAGLE3] no config.json at \(drafterPath) — EAGLE3 disabled (AR decode)")
+                }
+            }
+            if dflash2Drafter != nil {
+                do {
+                    guard maxConcurrent < 2 else {
+                        throw MLXServiceError.loadFailed(
+                            "DFlash2 currently requires serial scheduling; remove --concurrent")
+                    }
+                    guard !enablePrefixCaching else {
+                        throw MLXServiceError.loadFailed(
+                            "DFlash2 prefix snapshots are not yet integrated; disable --enable-prefix-caching")
+                    }
+                    guard let draftDirectory = try await resolveDFlash2Directory(
+                        progress: progress, stage: stage) else {
+                        throw MLXServiceError.loadFailed("DFlash2 drafter was not resolved")
+                    }
+                    let draftConfig = try AFMMLXDFlash2Configuration(directory: draftDirectory)
+                    let targetData = try Data(contentsOf: directory.appendingPathComponent("config.json"))
+                    guard let targetMetadata = try JSONSerialization.jsonObject(
+                        with: targetData) as? [String: Any] else {
+                        throw MLXServiceError.loadFailed("Target config.json is not an object")
+                    }
+                    try draftConfig.validateTarget(metadata: targetMetadata)
+                    let block = try draftConfig.effectiveBlockSize(requested: dflash2BlockSize)
+                    let draft = try DFlash2DraftModel.load(directory: draftDirectory.path)
+                    let targetCompatible = try await loaded.perform { context in
+                        guard let target = context.model as? any DFlash2Target else { return false }
+                        _ = try DFlash2Generator(target: target, draft: draft, blockSize: block)
+                        return true
+                    }
+                    guard targetCompatible else {
+                        throw MLXServiceError.loadFailed(
+                            "Loaded target runtime does not expose DFlash2 hidden-state and rollback hooks")
+                    }
+                    DFlash2Runtime.shared.install(draft: draft, blockSize: block)
+                    print("[\(ts())] [DFlash2] ready from \(draftDirectory.path) (block \(block))")
+                } catch {
+                    DFlash2Runtime.shared.clear()
+                    if dflash2Requirement == .required { throw error }
+                    print("[\(ts())] [DFlash2] unavailable (\(error)); using autoregressive decoding")
                 }
             }
             // Detect think start/end tags from tokenizer vocabulary
@@ -2086,7 +2227,8 @@ public final class MLXModelService: @unchecked Sendable {
         parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool) {
         try beginOperation()
         defer { endOperation() }
@@ -2177,6 +2319,73 @@ public final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
                 return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+            }
+        }
+
+
+        // ---- DFlash2 one-pass parallel draft/verify path ----
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let dflash2Active = dflash2Policy.permitsRuntime
+            ? DFlash2Runtime.shared.active : nil
+        let dflash2Eligible = dflash2Active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+            && (stop?.isEmpty ?? true)
+        if requestRequiresDFlash2, dflash2Active == nil {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "no compatible runtime is active")")
+        }
+        if requestRequiresDFlash2, dflash2Active != nil, !dflash2Eligible {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but this request uses sampling, tools, grammar, logprobs, or stop sequences")
+        }
+        if dflash2Eligible, let installed = dflash2Active {
+            if let result = try await container.perform({ context -> (String, Int, Int)? in
+                guard let target = context.model as? any DFlash2Target else { return nil }
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                let promptIDs = self.extractTokenArray(lmInput)
+                guard !promptIDs.isEmpty else { return nil }
+                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let generator = try DFlash2Generator(
+                    target: target,
+                    draft: installed.draft,
+                    blockSize: dflash2Policy.requestedBlockSize.map {
+                        min(installed.blockSize, $0)
+                    } ?? installed.blockSize)
+                let generated = generator.generate(
+                    promptIDs: promptIDs,
+                    maxTokens: effectiveMaxTokens,
+                    stopTokenIDs: eos,
+                    shouldStop: { Task.isCancelled })
+                let ids = generated.tokenIDs
+                let textIDs = (ids.last.map { eos.contains($0) } ?? false)
+                    ? Array(ids.dropLast()) : ids
+                let stats = generated.statistics
+                StatsAggregator.shared.addSpeculative(
+                    strategy: "dflash2",
+                    draftedTokens: stats.draftedTokens,
+                    acceptedDraftTokens: stats.acceptedDraftTokens,
+                    verificationCycles: stats.verificationCycles,
+                    draftSeconds: stats.draftSeconds,
+                    verificationSeconds: stats.verificationSeconds,
+                    rollbackSeconds: stats.rollbackSeconds)
+                if debugLogging {
+                    print("[\(ts())] [DFlash2] \(ids.count) tokens, \(stats.verificationCycles) cycles, mean acceptance \(String(format: "%.2f", stats.meanAcceptanceLength))")
+                }
+                return (context.tokenizer.decode(tokens: textIDs), promptIDs.count, ids.count)
+            }) {
+                serialRequestRecorded = true
+                StatsAggregator.shared.requestSucceeded(reason: "stop")
+                StatsAggregator.shared.requestCompleted()
+                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+            }
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but the prepared input is empty, multimodal, or target-incompatible")
             }
         }
 
@@ -3034,6 +3243,7 @@ public final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil,
         preserveStructuralTags: Bool = false,
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
@@ -3227,9 +3437,19 @@ public final class MLXModelService: @unchecked Sendable {
             loadedSupportsDSpark = false
         }
         let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let dflash2StreamEligible = specGreedyStream
+            && dflash2Policy.permitsRuntime
+            && DFlash2Runtime.shared.active != nil
         let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
         let mtpStreamEligible = specGreedyStream && mtpBinding != nil
-        if dsparkStreamEligible || eagle3StreamEligible || mtpStreamEligible {
+        if requestRequiresDFlash2,
+           !dflash2StreamEligible {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "streaming request modifiers require autoregressive decoding")")
+        }
+        if dsparkStreamEligible || dflash2StreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
             // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
             // thinking models whose chat template begins reasoning in the prompt, the generated
@@ -3242,6 +3462,7 @@ public final class MLXModelService: @unchecked Sendable {
                     && !((context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true)
                 { return nil }
                 if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
+                if dflash2StreamEligible && !(context.model is any DFlash2Target) { return nil }
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
                 var opened = false
@@ -3259,7 +3480,8 @@ public final class MLXModelService: @unchecked Sendable {
                 let promptIds = prep.ids
                 let openedThink = prep.openedThink
                 let useDSpark = dsparkStreamEligible
-                let useEagle3 = !useDSpark && eagle3StreamEligible
+                let useDFlash2 = !useDSpark && dflash2StreamEligible
+                let useEagle3 = !useDSpark && !useDFlash2 && eagle3StreamEligible
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
@@ -3295,6 +3517,30 @@ public final class MLXModelService: @unchecked Sendable {
                                     _ = generator.generate(
                                         promptIds: promptIds, maxTokens: maxTok,
                                         eosIds: eos, onToken: emit)
+                                } else if useDFlash2,
+                                          let installed = DFlash2Runtime.shared.active,
+                                          let target = context.model as? any DFlash2Target {
+                                    let generator = try DFlash2Generator(
+                                        target: target,
+                                        draft: installed.draft,
+                                        blockSize: dflash2Policy.requestedBlockSize.map {
+                                            min(installed.blockSize, $0)
+                                        } ?? installed.blockSize)
+                                    let result = generator.generate(
+                                        promptIDs: promptIds,
+                                        maxTokens: maxTok,
+                                        stopTokenIDs: eos,
+                                        shouldStop: { Task.isCancelled },
+                                        onToken: emit)
+                                    let stats = result.statistics
+                                    StatsAggregator.shared.addSpeculative(
+                                        strategy: "dflash2",
+                                        draftedTokens: stats.draftedTokens,
+                                        acceptedDraftTokens: stats.acceptedDraftTokens,
+                                        verificationCycles: stats.verificationCycles,
+                                        draftSeconds: stats.draftSeconds,
+                                        verificationSeconds: stats.verificationSeconds,
+                                        rollbackSeconds: stats.rollbackSeconds)
                                 } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
@@ -3311,7 +3557,8 @@ public final class MLXModelService: @unchecked Sendable {
                             let gt = Date.timeIntervalSinceReferenceDate - t0
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
-                                let engine = useDSpark ? "DSpARK" : (useEagle3 ? "EAGLE3" : "MTP")
+                                let engine = useDSpark ? "DSpARK"
+                                    : (useDFlash2 ? "DFlash2" : (useEagle3 ? "EAGLE3" : "MTP"))
                                 print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
@@ -3334,6 +3581,10 @@ public final class MLXModelService: @unchecked Sendable {
                 streamOwnsTempFiles = true
                 endOperationOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
+            }
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but the prepared streaming input is empty, multimodal, or target-incompatible")
             }
         }
 
@@ -3905,6 +4156,8 @@ public final class MLXModelService: @unchecked Sendable {
                 currentMTPBinding = nil
             }
         }
+        DFlash2Runtime.shared.clear()
+        Eagle3Runtime.shared.clear()
 
         if gpuInitialized {
             // Ensure queued GPU work is complete before clearing recycled buffers.

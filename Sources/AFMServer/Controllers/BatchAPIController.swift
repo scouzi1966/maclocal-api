@@ -294,10 +294,14 @@ struct BatchAPIController: RouteCollection {
                 logprobs: chatReq.logprobs,
                 topLogprobs: chatReq.topLogprobs,
                 tools: chatReq.tools,
+                toolChoice: chatReq.toolChoice,
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: chatReq.responseFormat,
-                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs,
+                speculativeDecoding: chatReq.speculativeDecoding,
+                preserveStructuralTags: false,
+                requestId: nil
             )
             reservationTransferred = true
 

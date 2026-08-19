@@ -485,6 +485,15 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, quality-preserving (near-greedy output). No-op if the verifier is not a dense Gemma4 text model.")
     var eagle3: String?
 
+    @Option(name: .customLong("dflash2"), help: "Enable DFlash 2 with a metadata-compatible Hugging Face repository or local drafter directory. Opt-in; target and drafter configs are validated before inference.")
+    var dflash2: String?
+
+    @Option(name: .customLong("dflash2-block"), help: "DFlash 2 verification block size, including the verifier token (2...checkpoint limit; default: 5).")
+    var dflash2Block: Int = 5
+
+    @Flag(name: .customLong("dflash2-required"), help: "Fail instead of using autoregressive decoding when DFlash 2 cannot be used for a request.")
+    var dflash2Required: Bool = false
+
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
 
@@ -618,6 +627,16 @@ struct MlxCommand: ParsableCommand {
             parsedKwargs["enable_thinking"] = false
             parsedKwargs.removeValue(forKey: "reasoning_effort")
         }
+        guard dflash2Block >= 2 else {
+            throw ValidationError("--dflash2-block must be at least 2")
+        }
+        let speculativeSelections = [mtp, eagle3 != nil, dflash2 != nil].filter { $0 }.count
+        guard speculativeSelections <= 1 else {
+            throw ValidationError("Choose only one of --mtp, --eagle3, or --dflash2")
+        }
+        if dflash2Required, dflash2 == nil {
+            throw ValidationError("--dflash2-required requires --dflash2")
+        }
 
         var defaultGuidedJsonSchema: ResponseFormat?
         if let guidedJson {
@@ -675,6 +694,9 @@ struct MlxCommand: ParsableCommand {
             mtpDepth: mtpDepth,
             mtpModelID: mtpModel,
             eagle3DrafterPath: eagle3,
+            dflash2Drafter: dflash2,
+            dflash2BlockSize: dflash2Block,
+            dflash2Requirement: dflash2Required ? .required : .preferred,
             maxConcurrent: concurrent ?? 0,
             toolCallParser: toolCallParser,
             enableGrammarConstraints: enableGrammarConstraints,
@@ -991,7 +1013,7 @@ struct MlxCommand: ParsableCommand {
         if !media.isEmpty || vlm {
             throw ValidationError("The DwarfStar runtime currently supports text input only")
         }
-        if kvBits != nil || mtp || eagle3 != nil {
+        if kvBits != nil || mtp || eagle3 != nil || dflash2 != nil {
             throw ValidationError(
                 "KV quantization and speculative decoding are unavailable in the DwarfStar runtime")
         }
@@ -1192,6 +1214,13 @@ struct MlxCommand: ParsableCommand {
                     mtpDepth: self.mtpDepth,
                     mtpModelID: self.mtpModel,
                     eagle3DrafterPath: self.eagle3,
+                    speculativeDecoding: self.dflash2.map {
+                        AFMSpeculativeDecodingConfiguration(
+                            mode: "dflash2",
+                            drafter: $0,
+                            maxDraftTokens: self.dflash2Block - 1,
+                            requirement: self.dflash2Required ? "required" : "preferred")
+                    },
                     enableGrammarConstraints: self.enableGrammarConstraints,
                     toolCallParser: self.toolCallParser,
                     prefillStepSize: self.prefillStepSize,

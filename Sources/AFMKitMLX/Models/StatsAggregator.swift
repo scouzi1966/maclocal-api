@@ -130,6 +130,13 @@ public final class StatsAggregator: @unchecked Sendable {
         public var requestsCompletedTotal: UInt64 = 0
         public var cacheHitsTotal: UInt64 = 0
         public var cacheMissesTotal: UInt64 = 0
+        public var speculativeDraftedTokensTotal: UInt64 = 0
+        public var speculativeAcceptedTokensTotal: UInt64 = 0
+        public var speculativeVerificationCyclesTotal: UInt64 = 0
+        public var speculativeDraftSecondsTotal: Double = 0
+        public var speculativeVerificationSecondsTotal: Double = 0
+        public var speculativeRollbackSecondsTotal: Double = 0
+        public var speculativeCyclesByStrategy: [String: UInt64] = [:]
         /// vLLM's `request_success_total{finished_reason=...}`. Keyed by
         /// the finished_reason string ("stop", "length", "abort", "error").
         public var requestSuccessByReason: [String: UInt64] = [:]
@@ -256,6 +263,27 @@ public final class StatsAggregator: @unchecked Sendable {
     public func addPromptTokens(_ n: Int) {
         guard n > 0 else { return }
         counters.withLock { $0.promptTokensTotal &+= UInt64(n) }
+    }
+
+    public func addSpeculative(
+        strategy: String,
+        draftedTokens: Int,
+        acceptedDraftTokens: Int,
+        verificationCycles: Int,
+        draftSeconds: Double,
+        verificationSeconds: Double,
+        rollbackSeconds: Double
+    ) {
+        counters.withLock { counters in
+            counters.speculativeDraftedTokensTotal &+= UInt64(max(0, draftedTokens))
+            counters.speculativeAcceptedTokensTotal &+= UInt64(max(0, acceptedDraftTokens))
+            counters.speculativeVerificationCyclesTotal &+= UInt64(max(0, verificationCycles))
+            counters.speculativeDraftSecondsTotal += max(0, draftSeconds)
+            counters.speculativeVerificationSecondsTotal += max(0, verificationSeconds)
+            counters.speculativeRollbackSecondsTotal += max(0, rollbackSeconds)
+            counters.speculativeCyclesByStrategy[strategy, default: 0] &+= UInt64(
+                max(0, verificationCycles))
+        }
     }
 
     public func requestStarted() {
@@ -414,6 +442,13 @@ public final class StatsAggregator: @unchecked Sendable {
         public let requestsCompletedTotal: UInt64
         public let cacheHitsTotal: UInt64
         public let cacheMissesTotal: UInt64
+        public let speculativeDraftedTokensTotal: UInt64
+        public let speculativeAcceptedTokensTotal: UInt64
+        public let speculativeVerificationCyclesTotal: UInt64
+        public let speculativeDraftSecondsTotal: Double
+        public let speculativeVerificationSecondsTotal: Double
+        public let speculativeRollbackSecondsTotal: Double
+        public let speculativeCyclesByStrategy: [String: UInt64]
         public let requestSuccessByReason: [String: UInt64]
         public let e2eLatency: Histogram
         public let queueTime: Histogram
@@ -461,6 +496,13 @@ public final class StatsAggregator: @unchecked Sendable {
             requestsCompletedTotal: c.requestsCompletedTotal,
             cacheHitsTotal: c.cacheHitsTotal,
             cacheMissesTotal: c.cacheMissesTotal,
+            speculativeDraftedTokensTotal: c.speculativeDraftedTokensTotal,
+            speculativeAcceptedTokensTotal: c.speculativeAcceptedTokensTotal,
+            speculativeVerificationCyclesTotal: c.speculativeVerificationCyclesTotal,
+            speculativeDraftSecondsTotal: c.speculativeDraftSecondsTotal,
+            speculativeVerificationSecondsTotal: c.speculativeVerificationSecondsTotal,
+            speculativeRollbackSecondsTotal: c.speculativeRollbackSecondsTotal,
+            speculativeCyclesByStrategy: c.speculativeCyclesByStrategy,
             requestSuccessByReason: c.requestSuccessByReason,
             e2eLatency: h.e2eLatency,
             queueTime: h.queueTime,

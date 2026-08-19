@@ -123,7 +123,17 @@ struct OpenAPIController: RouteCollection {
               "tools": { "type": "array", "items": { "$ref": "#/components/schemas/Tool" } },
               "tool_choice": { "description": "auto | none | required | { type: 'function', function: { name } }" },
               "parallel_tool_calls": { "type": "boolean", "description": "When false, the server emits at most one tool call per assistant turn." },
-              "response_format": { "$ref": "#/components/schemas/ResponseFormat" }
+              "response_format": { "$ref": "#/components/schemas/ResponseFormat" },
+              "speculative_decoding": {
+                "type": "object",
+                "description": "Optional provider-neutral speculative decoding controls. Preferred mode may fall back; required mode returns an error when unavailable or incompatible.",
+                "properties": {
+                  "mode": { "type": "string", "description": "Provider/runtime mode such as auto, off, or dflash2." },
+                  "requirement": { "type": "string", "enum": ["preferred", "required"] },
+                  "drafter": { "type": "string", "description": "Drafter resource identifier or server-local path." },
+                  "max_draft_tokens": { "type": "integer", "minimum": 1 }
+                }
+              }
             }
           },
           "Message": {
