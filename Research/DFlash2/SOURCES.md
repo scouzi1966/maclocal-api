@@ -53,10 +53,15 @@ Inspected 2026-08-19. Primary and official sources are listed first.
    - It pins DFlash MLX implementation commit
      `415cc48d83846cfcd0d5b9da3c83e4f1478acda6`.
    - The pinned `z-lab/dflash-mlx` repository returned 404 during inspection.
-     The implementation source is therefore unavailable through that pin; no
-     production code will assume undocumented behavior from the binary release.
    - Release DMG SHA-256 from GitHub metadata:
      `94f56e14bfa8188d47e187f571bc61244a65010fb23d3601a28a2e22d5e5bd21`.
+   - The release DMG was downloaded to the ignored research build directory,
+     hash-verified, and mounted read-only. Its signed app contains the complete
+     Apache-2.0 `dflash_mlx` Python package, version `0.1.10+omlx.5`.
+   - `model.py`, `draft_backend.py`, and `engine/spec_epoch.py` confirmed exact
+     selector keys, convolution math, staged verifier-token semantics, target
+     feature context, greedy verification, sampling support, cache snapshots,
+     and phase telemetry.
 
 ## Current Repository Sources
 
@@ -78,6 +83,8 @@ Inspected 2026-08-19. Primary and official sources are listed first.
 - `Sources/AFMServer/Services/AFMLocalClient.swift`
 - `Sources/AFMCLI/main.swift`
 - `Scripts/apply-mlx-patches.sh`
+- `Scripts/check-dflash2-vendor-patch.sh`
+- `Scripts/patches/DFlash2.swift`
 - `Scripts/build-mlx-swift-lm-fork.sh`
 - `Scripts/check-mlx-source-selection.sh`
 - existing speculative, MTP, EAGLE3, DSpARK, Qwen 3.8, Muse, streaming,
@@ -92,4 +99,3 @@ Inspected 2026-08-19. Primary and official sources are listed first.
 - No source changes will be made in oMLX, MLX, or other upstream worktrees.
 - Dependency changes must be represented by maclocal-api patch inputs with an
   upstream revision/hash guard and clean-application test.
-

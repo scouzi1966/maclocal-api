@@ -82,29 +82,31 @@ It can reuse orchestration concepts: auxiliary resource resolution, model load
 progress, serial generation ownership, token callbacks, cancellation, output
 parsers, fallback policy, and telemetry aggregation.
 
-The new AFMKitMLX primitive needs these internal interfaces:
+The implemented vendor/AFMKitMLX primitive uses these internal interfaces:
 
 ```swift
-struct DFlashDraftDescriptor
-struct DFlashTargetDescriptor
-struct DFlashCompatibilityReport
-struct DFlashCycleTelemetry
+struct AFMMLXDFlash2Configuration
+struct AFMMLXSpeculativeTelemetry
 
-protocol DFlashTargetAdapter {
-    func prefillAndCapture(...)
-    func verify(...)
-    func commit(...)
-    func rollback(...)
+protocol DFlash2Target {
+    func dflash2Forward(...)
+    func dflash2CaptureCache(...)
+    func dflash2RestoreCache(...)
 }
 
-protocol DFlashDraftRuntime {
-    func draftOnePass(...)
-}
+final class DFlash2DraftModel
+final class DFlash2Generator
 ```
 
-Qwen and Muse adapters may be separate concrete types. Selector, convolution,
-draft attention/MLP, tensor loading, and lossless verification stay inside
-AFMKitMLX or its patched MLX dependency.
+Qwen and Muse adapters are model extensions in the supported MLX vendor patch.
+Selector, convolution, draft attention/MLP, tensor loading, and lossless greedy
+verification stay inside that patch; orchestration stays in AFMKitMLX.
+
+The current correctness-first generator snapshots target cache state before
+verification, restores it, and replays only the committed verifier token plus
+accepted draft prefix. It recomputes draft context instead of maintaining the
+reference runtime's optimized draft KV cache. This establishes correctness but
+is not evidence of the article's cycle-latency result.
 
 ## AFMKit Boundary
 
@@ -126,7 +128,22 @@ AFMKitMLX or its patched MLX dependency.
 - Hugging Face repository IDs or download/cache policy.
 - MLX arrays, caches, model protocols, or scheduling details.
 
-### Proposed AFMKitCore API delta
+### Implemented source-compatible API delta
+
+- `AFMKit.AFMSpeculativeDecodingConfiguration`: provider-neutral startup mode,
+  drafter resource, maximum draft tokens, and requirement.
+- `AFMOpenAICompat.SpeculativeDecodingOptions`: the same request concepts under
+  `speculative_decoding`.
+- `AFMKitMLX.AFMMLXSpeculativeTelemetry`: provider-neutral counts and phase
+  timing returned by the MLX bridge.
+- `StatsAggregator`/Prometheus: neutral drafted, accepted, cycle, strategy, and
+  phase-time counters.
+
+No source in `AFMKitCore` was changed. The concrete DFlash descriptor, config,
+runtime enum, target adapters, model, and generator remain in AFMKitMLX or the
+patched MLX dependency.
+
+### Proposed future AFMKitCore API delta
 
 This is a proposed source-compatible addition; implementing it in a separately
 versioned AFMKit release should include a public API baseline update.
@@ -177,7 +194,8 @@ downstream switches would be source-breaking even though the enum is not frozen.
 
 - Config parsing, compatibility reports, runtime strategy selection.
 - DFlash 2 model/tensor implementation and target adapters.
-- Draft/verify loop, cache state, lossless sampling, cancellation checkpoints.
+- Draft/verify loop, cache state, lossless greedy verification, and cancellation
+  checkpoints. Distribution-preserving sampling is deferred.
 - Translation from internal cycle records to neutral AFM telemetry.
 
 ### maclocal-api server/CLI responsibilities
@@ -190,12 +208,15 @@ downstream switches would be source-breaking even though the enum is not frozen.
 ## Request and Fallback Semantics
 
 - Startup default: disabled.
-- Explicit startup enable + missing/incompatible drafter: fail startup.
+- Explicit preferred startup + missing/incompatible drafter: log the diagnostic
+  and keep AR available; `--dflash2-required` fails startup.
 - Request `disabled`: use normal generation even when a runtime is loaded.
 - Request `preferred`: use DFlash 2 if eligible; otherwise fall back before
   emitting output and report the reason.
 - Request `required`: reject before generation when ineligible.
-- Runtime failure before output: preferred may fall back once; required errors.
+- Setup or request ineligibility before output: preferred may fall back once;
+  required errors. A generator execution failure is surfaced rather than
+  replayed through AR.
 - Runtime failure after output: error/cancel the request; never restart with AR.
 - Batch/concurrent scheduler: AR fallback for preferred, deterministic conflict
   for required, until a batch primitive is implemented.
@@ -210,8 +231,8 @@ downstream switches would be source-breaking even though the enum is not frozen.
 - `emittedTokens`: accepted draft tokens plus target verifier/bonus tokens that
   become output.
 - `verificationCycles`: target verification passes.
-- `acceptanceLength`: `emittedTokens / verificationCycles`; report as derived
-  floating point, not as accepted draft tokens.
+- `meanAcceptedDraftLength`: `acceptedDraftTokens / verificationCycles`.
+- `meanCommittedTokensPerCycle`: `emittedTokens / verificationCycles`, when an
+  event consumer needs verifier-token-inclusive throughput.
 - Timings use monotonic clocks and synchronize only at existing correctness
   boundaries. Instrumentation must not add per-token host synchronization.
-

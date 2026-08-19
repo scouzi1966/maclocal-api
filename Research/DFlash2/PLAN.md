@@ -1,6 +1,6 @@
 # DFlash 2 Implementation Plan
 
-Status: research checkpoint, 2026-08-19
+Status: implementation and compile/unit checkpoint complete; live model matrix pending coordination, 2026-08-19
 
 ## Objective
 
@@ -9,6 +9,25 @@ existing autoregressive, MTP, EAGLE3, DSpARK, Qwen 3.8, and Muse Glimmer paths.
 The implementation must detect and validate checkpoints from metadata, expose
 deterministic fallback/error behavior, and report provider-neutral speculative
 telemetry without putting DFlash 2 model or kernel details in AFMKitCore.
+
+## Implementation Status
+
+Implemented and pushed:
+
+- strict `DFlash2DraftModel` metadata/config and target-shape validation;
+- Qwen 3.8 and Muse Glimmer target hidden-state/cache adapters;
+- one-pass draft, selector, block-local two-tap dynamic convolutions, greedy
+  target verification, rollback/replay, cancellation, and monotonic phase timing;
+- local/Hub drafter resolution with existing download progress;
+- `--dflash2`, `--dflash2-block`, and `--dflash2-required` startup controls;
+- provider-neutral AFMKit startup/request contracts and OpenAPI schema;
+- serial streaming/non-streaming service integration and neutral metrics;
+- reproducible vendor overlay/drift checks and focused losslessness tests.
+
+Deliberately deferred behind deterministic fallback/error policy: sampling,
+explicit string stops, tools/grammar/logprobs, speculative prefix snapshots, and
+concurrent/batched DFlash 2. No heavy live model run or local speed claim has
+been made.
 
 ## Current Inventory
 
@@ -47,8 +66,8 @@ contracts, but not the MTP, EAGLE3, or DSpARK draft/verify implementation.
 - Match target and drafter by architecture/config dimensions, tokenizer IDs,
   vocabulary, target layer count, hidden size, context/rope contract, and target
   feature taps. Repository names are diagnostics only.
-- Keep DFlash 2 opt-in. Explicit mode fails closed; auto/disabled mode never
-  downloads or activates it.
+- Keep DFlash 2 opt-in. Required mode fails closed; preferred mode may fall back
+  before emission; disabled mode never downloads or activates it.
 
 ### 2. Stable AFMKit boundary
 
@@ -76,8 +95,8 @@ contracts, but not the MTP, EAGLE3, or DSpARK draft/verify implementation.
 
 ### 4. Orchestration
 
-- Add `--dflash2` and `--dflash2-model <repo-or-path>` with an optional validated
-  runtime draft-token limit. Keep the default off.
+- Add `--dflash2 <repo-or-path>`, `--dflash2-block`, and
+  `--dflash2-required`. Keep the default off.
 - Resolve explicit local paths and Hub repositories with normal progress/stage
   reporting. Do not infer a drafter repository from the target name.
 - Add OpenAI-compatible extension controls under a structured
@@ -124,9 +143,9 @@ contracts, but not the MTP, EAGLE3, or DSpARK draft/verify implementation.
   intentionally mismatched fixtures fail before allocating model weights.
 - Existing MTP, EAGLE3, DSpARK, normal MLX, Qwen 3.8, and Muse tests pass.
 - Streaming and non-streaming produce target-equivalent output under the
-  documented greedy and seeded-sampling methodology.
+  documented greedy methodology. Seeded sampling remains gated until rejection
+  sampling is ported and distribution-tested.
 - Telemetry reports counts and timings without a speedup claim.
 - Live performance claims, if any, compare the same target checkpoint,
   quantization, prompt set, generation parameters, and concurrency on the same
   machine, with warmups and raw evidence retained.
-

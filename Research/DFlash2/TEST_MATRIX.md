@@ -14,6 +14,15 @@ Run before any large model inference:
 No long Qwen or Muse generation is authorized by this gate. Report readiness
 and coordinate with the AFMKit usability study first.
 
+Current gate result (2026-08-19):
+
+- `swift build --target AFMKitMLX`: pass;
+- `swift build --target AFMCLI`: pass;
+- `swift test --filter AFMMLXDFlash2ConfigurationTests`: 12 pass;
+- `swift test --filter AFMMLXSpeculativeDecodingTests`: 22 pass;
+- `./Scripts/check-dflash2-vendor-patch.sh`: pass;
+- no Qwen/Muse weights downloaded and no heavy inference run.
+
 ## Fixture Matrix
 
 | Area | Cases | Expected result |
@@ -27,6 +36,13 @@ and coordinate with the AFMKit usability study first.
 | Request controls | omitted, disabled, preferred, required, wrong strategy, invalid draft limit | Off default; stable decoding/errors |
 | Fallback timing | unavailable before output; runtime error before output; runtime error after output | Preferred may pre-output fallback only; no replay after output |
 | Telemetry | zero cycles, partial acceptance, full acceptance, cancellation, fallback | Counts and timing definitions remain consistent |
+
+Implemented fixture coverage includes exact released Qwen/Muse metadata,
+name-only rejection, target shape mismatch, provider-neutral startup mapping,
+OpenAI request decoding, nested selector weight keys, greedy target equivalence,
+cancellation, stop/sampling fallback, OpenAPI schema, and existing speculative
+policy regression. Remaining fixture rows should be added before live defaults
+or sampling support changes.
 
 ## Live Target Matrix
 
@@ -52,6 +68,16 @@ and concurrency. Record revisions and hardware.
 | Drafter state | valid local; valid Hub download with progress; missing; incomplete; Qwen/Muse swapped; corrupt tensor shape |
 | Runtime control | startup off; startup on/request omitted; request disabled; preferred; required |
 | Completion | EOS; maximum tokens; stop sequence; cancellation |
+
+Current expected routing:
+
+- Greedy, serial, text-only, no tools/grammar/logprobs/string stops: DFlash 2.
+- Sampling, tools, grammar, logprobs, or string stops: preferred AR fallback;
+  required error before emission.
+- Prefix cache or `--concurrent`: preferred startup fallback to AR; required
+  startup error.
+- Reasoning remains downstream token parsing and must be checked live for both
+  targets before claiming support beyond token-equivalent greedy output.
 
 ## Output Equivalence
 
@@ -88,4 +114,3 @@ Sampling correctness:
    scheduler behavior; an AR-batched result cannot be labeled DFlash 2.
 7. A speedup claim is allowed only from same-machine, same-model evidence in
    this matrix. Upstream H200/oMLX claims remain citations only.
-

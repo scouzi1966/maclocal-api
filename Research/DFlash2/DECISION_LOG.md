@@ -21,8 +21,9 @@ for imported or renamed checkpoints.
 
 ## D003: Opt-in and fail-closed startup
 
-Decision: DFlash 2 remains disabled by default. Explicit startup enablement
-requires a resolved, compatible auxiliary checkpoint and errors otherwise.
+Decision: DFlash 2 remains disabled by default. Explicit preferred enablement
+falls back to AR before emission with a diagnostic; `required` fails startup or
+the request when the checkpoint/runtime/request is incompatible.
 
 Reason: correctness and Apple-Silicon performance are not yet established, and
 silent startup fallback hides deployment mistakes.
@@ -36,11 +37,11 @@ in AFMKitMLX; server orchestration stays outside AFMKitCore.
 Reason: AFMKitCore is dependency-free and shared across providers. DFlash 2 is
 an MLX implementation detail, not a universal provider contract.
 
-## D005: Use existing metadata event before adding an enum case
+## D005: Keep telemetry structured and neutral before adding an event case
 
-Decision: initially transport versioned speculative status/telemetry through
-`AFMGenerationEvent.metadata` and response metadata. Propose dedicated public
-types for the next AFMKit API revision, but defer a new event enum case.
+Decision: use a neutral AFMKitMLX telemetry value and neutral StatsAggregator /
+Prometheus counters. Propose dedicated AFMKitCore public types for the next API
+revision, but defer a new generation-event enum case.
 
 Reason: adding an enum case can break exhaustive downstream switches. Versioned
 metadata is already stable and lets the implementation prove the shape first.
@@ -80,13 +81,29 @@ not advertise a speedup until the same-target live matrix passes.
 Reason: upstream results use H200/SGLang or a different oMLX implementation;
 they do not establish maclocal-api performance.
 
-## D010: Inaccessible reference dependency is not copied or guessed
+## D010: Audit the signed release artifact when the public pin is unavailable
 
-Decision: use the public article, configs, tensor headers, oMLX integration, and
-original paper as contracts. Do not recreate undocumented behavior from the
-unavailable `z-lab/dflash-mlx` pin.
+Decision: hash-verify and inspect the signed oMLX release DMG read-only. Use its
+bundled Apache-2.0 Python sources as the reference contract; do not alter or
+publish changes to upstream oMLX/MLX repositories.
 
-Reason: both the final and intermediate DFlash MLX repositories returned 404.
-The oMLX release is still useful behavioral evidence, but not auditable source
-for a production port.
+Reason: both repository pins returned 404, but the official release contains
+auditable source and its SHA-256 matches GitHub release metadata.
 
+## D011: Start with correctness-first restore/replay
+
+Decision: snapshot target cache before verification, restore, and replay the
+committed verifier token plus accepted prefix. Defer optimized partial commit,
+draft KV caching, and prefix snapshots.
+
+Reason: this is simple to audit for greedy token equivalence. It may cost more
+than the signed reference and therefore cannot support a performance claim.
+
+## D012: Greedy only until rejection sampling is verified
+
+Decision: DFlash 2 runs only for greedy requests. Preferred sampled requests
+fall back before emission; required sampled requests fail.
+
+Reason: the signed reference implements selector sampling plus target rejection
+sampling. Porting only selector sampling would not preserve the target
+distribution.

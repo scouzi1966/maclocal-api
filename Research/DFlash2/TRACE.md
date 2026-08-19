@@ -72,9 +72,32 @@ Findings:
   `z-lab/dflash-mlx@415cc48d83846cfcd0d5b9da3c83e4f1478acda6`.
 
 Failure: the final and intermediate DFlash MLX dependency repositories returned
-GitHub 404 / `Repository not found`. Rejected approach: do not guess or copy an
-undocumented implementation from the release binary. Continue from auditable
-primary model/config/tensor contracts and existing Swift model primitives.
+GitHub 404 / `Repository not found`.
+
+The official release artifact resolved that blocker:
+
+```text
+curl -L <release DMG URL> -o .build/dflash2-reference/oMLX-0.6.2-dflash2.dmg
+shasum -a 256 .build/dflash2-reference/oMLX-0.6.2-dflash2.dmg
+hdiutil attach -readonly .build/dflash2-reference/oMLX-0.6.2-dflash2.dmg
+rg -n 'candidate_selector|base_kernel|accepted|rollback' \
+  /Volumes/oMLX/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/dflash_mlx
+```
+
+Finding: SHA-256 matched
+`94f56e14bfa8188d47e187f571bc61244a65010fb23d3601a28a2e22d5e5bd21`.
+The mounted signed app contains `dflash_mlx 0.1.10+omlx.5`, including complete
+Apache-2.0 Python source. Inspection confirmed:
+
+- stateless grouped dynamic causal convolution with base shape
+  `[2, kernel, hidden]` and `hidden -> 2*kernel*groups` projection;
+- selector top-k, hidden/predecessor/successor rank embeddings, and path walk;
+- the staged verifier token is included in each target block but excluded from
+  the proposal count;
+- longest target-matching prefix is committed, then the target verifier token
+  at the first mismatch becomes the next staged output;
+- the optimized reference maintains draft context caches and complete prefix
+  snapshots, and implements target-distribution-preserving rejection sampling.
 
 ## Current Repository Inspection
 
@@ -126,6 +149,60 @@ Findings:
   current cache/scheduler contracts are insufficient.
 - Repeating upstream speed claims as local results: no same-model local evidence.
 
+## Implementation Commands and Findings
+
+```text
+git submodule update --init vendor/mlx-swift-lm vendor/ds4
+./Scripts/apply-mlx-patches.sh
+./Scripts/apply-mlx-deepseek-v4-kernels.sh
+./Scripts/apply-mlx-official-fp8-loader.sh
+./Scripts/check-dflash2-vendor-patch.sh
+swift build --target AFMKitMLX
+swift build --target AFMCLI
+swift test --filter AFMMLXDFlash2ConfigurationTests
+swift test --filter AFMMLXSpeculativeDecodingTests
+```
+
+Build failures encountered and resolved:
+
+1. The worktree's declared vendor submodules were initially uninitialized.
+   They were initialized at their pinned commits; no upstream worktree or
+   repository was modified.
+2. The first AFMKitMLX build failed because the existing DeepSeek V4 source
+   overlay requires the repository's declared MLXFast kernel patch. Running the
+   supported `apply-mlx-deepseek-v4-kernels.sh` and official FP8 loader scripts
+   restored the expected pinned build state.
+3. The first focused test compile found two missing `try` markers in new test
+   assertions; corrected before the test checkpoint.
+4. Weight-tree inspection found dotted selector `@ModuleInfo` keys were not an
+   established MLX Swift pattern. Replaced with a nested candidate-selector
+   module and added an exact parameter-key test.
+
+Implemented runtime findings:
+
+- DFlash 2 needs its own MLX primitive. Existing DFlash/DSpark concepts are
+  reusable only for orchestration, fallback, streaming, cancellation, model
+  download, and neutral telemetry.
+- Greedy verification is target-lossless in the tiny deterministic fixture.
+- The correctness-first loop restores and replays committed target state. It
+  does not yet implement the reference draft KV cache, prefix snapshots,
+  rejection sampling, or batched row-aligned verification.
+- Existing 22-case speculative policy suite remains green.
+- No heavy Qwen/Muse inference was started. Compile/unit work is ready for the
+  requested coordination point.
+
+Pushed checkpoints:
+
+```text
+00c6191 Document DFlash 2 integration plan
+bb44f0b Add DFlash 2 MLX vendor primitive
+be00de3 Fix DFlash 2 selector weight hierarchy
+d15cd5d Integrate opt-in DFlash 2 runtime
+a07a795 Use monotonic DFlash 2 phase timings
+75f9bb0 Expose DFlash 2 request policy to tests
+158e3f5 Test DFlash 2 contracts and losslessness
+```
+
 ## Exact Performance Methodology
 
 The live methodology is normative in `TEST_MATRIX.md`. Raw run records must
@@ -133,4 +210,3 @@ include command, git revision, target/draft Hub revisions, config hash, hardware
 OS/power/thermal state, warmups, prompt bytes, seed/sampling, cache state,
 concurrency, token outputs, acceptance/cycle counters, timings, and memory.
 Compare AR and DFlash 2 only with the same target checkpoint and request matrix.
-
