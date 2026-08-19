@@ -17,15 +17,28 @@ if let localMLXSwiftPath = ProcessInfo.processInfo.environment["AFMKIT_MLX_SWIFT
     )
     mlxSwiftPackageIdentity = "mlx-swift-afm"
 }
-let vendoredMLXSwiftLMPath = "\(packageDir)/vendor/mlx-swift-lm"
-let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
-    atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
-) ? .package(path: vendoredMLXSwiftLMPath) : .package(
-    url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-    revision: "6bab4f5ac55e81903dd74090244c25feb3233338"
-)
-let afmKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_PATH"]
-    ?? "../../../AFMKit"
+let mlxSwiftLMDependency: Package.Dependency
+if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_SWIFT_LM_PATH"],
+   !localMLXSwiftLMPath.isEmpty {
+    mlxSwiftLMDependency = .package(path: localMLXSwiftLMPath)
+} else {
+    mlxSwiftLMDependency = .package(
+        url: "https://github.com/scouzi1966/mlx-swift-lm.git",
+        exact: "0.31.6-afm.3"
+    )
+}
+let afmKitDependency: Package.Dependency
+if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_PATH"],
+   !localAFMKitPath.isEmpty {
+    afmKitDependency = .package(path: localAFMKitPath)
+} else {
+    // Private pre-tag checkpoint. Replace the revision with an exact AFMKit
+    // version after its first release tag is approved.
+    afmKitDependency = .package(
+        url: "https://github.com/scouzi1966/AFMKit.git",
+        revision: "1786f1dd0efe5753eae1c458b1db2d18fd5a8b1d"
+    )
+}
 
 let package = Package(
     name: "MacLocalAPI",
@@ -68,31 +81,19 @@ let package = Package(
         )
     ],
     dependencies: [
-        // During the private transition, maclocal-api consumes the standalone
-        // AFMKit checkout through a configurable path. This becomes a tagged
-        // URL dependency after the first AFMKit release.
-        .package(path: afmKitPath),
+        // Normal builds consume the immutable AFMKit checkpoint above. Local
+        // AFMKit development can opt into MACLOCAL_AFMKIT_PATH explicitly.
+        afmKitDependency,
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        // Development checkouts compile the patched vendor directly so local source edits
-        // cannot be mistaken for successful stale builds. A plain downstream clone without
-        // initialized submodules falls back to the pre-patched URL fork and remains portable.
+        // Normal builds consume the immutable AFM compatibility tag. Developers
+        // can opt into a local checkout with MACLOCAL_MLX_SWIFT_LM_PATH.
         mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(
             url: "https://github.com/huggingface/swift-huggingface.git",
             from: "0.8.1",
             traits: ["Xet"]
-        ),
-        // AFMKitDwarfStar uses the public byte-range API directly so very large
-        // GGUF downloads can resume without discarding completed Xet ranges.
-        .package(url: "https://github.com/huggingface/swift-xet.git", exact: "0.2.3"),
-        // Share the official XGrammar product with host applications such as Vesta.
-        // Compiling the vendored implementation here as well as in coreai-models
-        // produces duplicate native symbols when both libraries are linked.
-        .package(
-            url: "https://github.com/mlc-ai/xgrammar",
-            revision: "c1570cdb4f8c867a4dbd07b7ff90581f4a2a432b"
         ),
         // All AFMKit consumers share one tagged MLX fork identity. This avoids
         // duplicate MLX modules while preserving the kernels required by AFM.
