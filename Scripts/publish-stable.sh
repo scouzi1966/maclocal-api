@@ -301,6 +301,7 @@ if [ -z "$STABLE_WHEEL" ]; then
   log_error "Stable wheel was not produced"
   exit 1
 fi
+"$SCRIPT_DIR/verify-native-wheel.sh" "$STABLE_WHEEL" macafm
 WHEEL_WEBUI="$ROOT_DIR/.build/afm-stable-wheel-webui.html.gz"
 unzip -p "$STABLE_WHEEL" macafm/share/webui/index.html.gz > "$WHEEL_WEBUI"
 "$SCRIPT_DIR/verify-webui.sh" "$WHEEL_WEBUI"

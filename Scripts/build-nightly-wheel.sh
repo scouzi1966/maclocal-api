@@ -5,13 +5,28 @@
 # Usage:
 #   ./Scripts/build-nightly-wheel.sh [--version BASE_VERSION]
 #
-# The wheel is written to dist/macafm_next-VERSION-py3-none-macosx_14_0_arm64.whl
+# The wheel is written to dist/macafm_next-VERSION-py3-none-macosx_26_0_arm64.whl
 # VERSION defaults to <BuildInfo version>.dev<YYYYMMDD> (PEP 440 dev release).
 #
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+BACKUP_DIR="$REPO_ROOT/.build/nightly-wheel-source-backup"
+rm -rf "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR"
+cp macafm_next/__init__.py "$BACKUP_DIR/__init__.py"
+cp pyproject-next.toml "$BACKUP_DIR/pyproject-next.toml"
+cp pyproject.toml "$BACKUP_DIR/pyproject.toml"
+
+cleanup() {
+    cp "$BACKUP_DIR/__init__.py" macafm_next/__init__.py
+    cp "$BACKUP_DIR/pyproject-next.toml" pyproject-next.toml
+    cp "$BACKUP_DIR/pyproject.toml" pyproject.toml
+    rm -rf macafm_next/bin macafm_next/share "$BACKUP_DIR"
+}
+trap cleanup EXIT
 
 # ---------- parse args ----------
 BASE_VERSION=""
@@ -73,20 +88,13 @@ cp Resources/webui/index.html.gz macafm_next/share/webui/
 echo "[INFO] Included webui"
 
 # ---------- build wheel ----------
-# Use pyproject-next.toml by temporarily swapping it in
-cp pyproject.toml pyproject.toml.bak
+# Use pyproject-next.toml by temporarily swapping it in. The EXIT trap restores
+# the source metadata even when the build is interrupted.
 cp pyproject-next.toml pyproject.toml
 
 echo "[INFO] Building wheel..."
 rm -rf dist/macafm_next-*
 uv build --wheel 2>&1
-
-# Restore original pyproject.toml
-mv pyproject.toml.bak pyproject.toml
-
-# ---------- clean staged assets ----------
-rm -rf macafm_next/bin macafm_next/share
-echo "[INFO] Cleaned staged assets"
 
 # ---------- verify ----------
 WHL=$(ls dist/macafm_next-*.whl 2>/dev/null | head -1)
@@ -101,9 +109,12 @@ if [ "$WHL_SIZE" -lt 1 ]; then
     exit 1
 fi
 
+"$REPO_ROOT/Scripts/verify-native-wheel.sh" "$WHL" macafm_next
+
 WHEEL_WEBUI="$REPO_ROOT/.build/afm-next-wheel-webui.html.gz"
 unzip -p "$WHL" macafm_next/share/webui/index.html.gz > "$WHEEL_WEBUI"
 "$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI"
 rm -f "$WHEEL_WEBUI"
 
 echo "[INFO] Done. Wheel ready: $WHL"
+echo "[INFO] Source metadata and staged assets will be restored"
