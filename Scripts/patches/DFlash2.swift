@@ -406,6 +406,10 @@ public final class DFlash2Generator {
         argMax(logits[0, position, 0...], axis: -1).item(Int.self)
     }
 
+    private func elapsedSeconds(since start: UInt64) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+    }
+
     public func generate(
         promptIDs: [Int],
         maxTokens: Int,
@@ -451,7 +455,7 @@ public final class DFlash2Generator {
             let cycleBlock = min(blockSize, remaining + 1)
             let noiseIDs = [staged] + Array(
                 repeating: draft.config.maskTokenID, count: cycleBlock - 1)
-            let draftStart = Date.timeIntervalSinceReferenceDate
+            let draftStart = DispatchTime.now().uptimeNanoseconds
             let draftHidden = draft(
                 noiseEmbedding: target.dflash2Embed(array(noiseIDs)),
                 targetHidden: context)
@@ -460,16 +464,16 @@ public final class DFlash2Generator {
             let proposal = draft.select(
                 hidden: proposalHidden, logits: proposalLogits, anchor: staged)
             eval(proposalLogits)
-            draftTime += Date.timeIntervalSinceReferenceDate - draftStart
+            draftTime += elapsedSeconds(since: draftStart)
             draftedCount += proposal.count
 
             let candidate = [staged] + proposal
             let snapshot = target.dflash2CaptureCache(cache)
-            let verifyStart = Date.timeIntervalSinceReferenceDate
+            let verifyStart = DispatchTime.now().uptimeNanoseconds
             let verified = target.dflash2Forward(
                 array(candidate), captureLayerIDs: draft.config.targetLayerIDs, cache: cache)
             eval(verified.logits, verified.hidden)
-            verifyTime += Date.timeIntervalSinceReferenceDate - verifyStart
+            verifyTime += elapsedSeconds(since: verifyStart)
             cycles += 1
 
             var accepted = 0
@@ -480,13 +484,13 @@ public final class DFlash2Generator {
             acceptedCount += accepted
             let committed = Array(candidate.prefix(accepted + 1))
 
-            let rollbackStart = Date.timeIntervalSinceReferenceDate
+            let rollbackStart = DispatchTime.now().uptimeNanoseconds
             target.dflash2RestoreCache(snapshot, into: cache)
             let replay = target.dflash2Forward(
                 array(committed), captureLayerIDs: draft.config.targetLayerIDs, cache: cache)
             eval(replay.hidden)
             context = concatenated([context, replay.hidden], axis: 1)
-            rollbackTime += Date.timeIntervalSinceReferenceDate - rollbackStart
+            rollbackTime += elapsedSeconds(since: rollbackStart)
 
             for token in proposal.prefix(accepted) {
                 if !emit(token) {
