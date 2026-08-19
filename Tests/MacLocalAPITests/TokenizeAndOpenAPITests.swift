@@ -105,6 +105,24 @@ struct TokenizeAndOpenAPITests {
         }
     }
 
+    @Test("T1.7 chat schema declares neutral speculative decoding controls")
+    func openAPIDeclaresSpeculativeDecodingControls() throws {
+        let parsed = try JSONSerialization.jsonObject(
+            with: Data(OpenAPIController.specJSON.utf8)) as? [String: Any]
+        let components = parsed?["components"] as? [String: Any]
+        let schemas = components?["schemas"] as? [String: Any]
+        let chat = schemas?["ChatCompletionRequest"] as? [String: Any]
+        let properties = chat?["properties"] as? [String: Any]
+        let speculative = properties?["speculative_decoding"] as? [String: Any]
+        let speculativeProperties = speculative?["properties"] as? [String: Any]
+
+        #expect(speculative?["type"] as? String == "object")
+        #expect(speculativeProperties?["mode"] != nil)
+        #expect(speculativeProperties?["requirement"] != nil)
+        #expect(speculativeProperties?["drafter"] != nil)
+        #expect(speculativeProperties?["max_draft_tokens"] != nil)
+    }
+
     @Test("T1.7 docs page references /openapi.json on same origin")
     func docsHTMLReferencesSpec() {
         let html = OpenAPIController.docsHTML
