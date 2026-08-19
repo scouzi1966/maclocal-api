@@ -286,46 +286,25 @@ private final class DFlash2DecoderLayer: Module {
     }
 }
 
-public final class DFlash2DraftModel: Module {
-    public let config: DFlash2DraftConfiguration
-    @ModuleInfo private var layers: [DFlash2DecoderLayer]
-    @ModuleInfo private var norm: RMSNorm
-    @ModuleInfo private var fc: Linear
-    @ModuleInfo(key: "hidden_norm") private var hiddenNorm: RMSNorm
-    @ModuleInfo(key: "candidate_selector.hidden_projection") private var selectorHidden: Linear
-    @ModuleInfo(key: "candidate_selector.predecessor_codebook") private var predecessor: Embedding
-    @ModuleInfo(key: "candidate_selector.successor_codebook") private var successor: Embedding
+private final class DFlash2CandidateSelector: Module {
+    let topK: Int
+    @ModuleInfo(key: "hidden_projection") var hiddenProjection: Linear
+    @ModuleInfo(key: "predecessor_codebook") var predecessor: Embedding
+    @ModuleInfo(key: "successor_codebook") var successor: Embedding
 
-    public init(_ config: DFlash2DraftConfiguration) {
-        self.config = config
-        _layers.wrappedValue = (0 ..< config.hiddenLayers).map { _ in DFlash2DecoderLayer(config) }
-        _norm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
-        _fc.wrappedValue = Linear(
-            config.targetLayerIDs.count * config.hiddenSize, config.hiddenSize, bias: false)
-        _hiddenNorm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
-        _selectorHidden.wrappedValue = Linear(config.hiddenSize, config.selectorRank, bias: false)
+    init(_ config: DFlash2DraftConfiguration) {
+        topK = config.selectorTopK
+        _hiddenProjection.wrappedValue = Linear(config.hiddenSize, config.selectorRank, bias: false)
         _predecessor.wrappedValue = Embedding(
             embeddingCount: config.vocabularySize, dimensions: config.selectorRank)
         _successor.wrappedValue = Embedding(
             embeddingCount: config.vocabularySize, dimensions: config.selectorRank)
     }
 
-    public func callAsFunction(noiseEmbedding: MLXArray, targetHidden: MLXArray) -> MLXArray {
-        let context = hiddenNorm(fc(targetHidden))
-        var hidden = noiseEmbedding
-        for layer in layers {
-            hidden = layer(hidden, targetContext: context)
-        }
-        return norm(hidden)
-    }
-
-    /// DFlash2's selector greedily walks adjacent candidate pairs. The target
-    /// verifier still decides every emitted token.
-    public func select(hidden: MLXArray, logits: MLXArray, anchor: Int) -> [Int] {
-        let topK = config.selectorTopK
+    func select(hidden: MLXArray, logits: MLXArray, anchor: Int) -> [Int] {
         let candidates = argPartition(logits, kth: -topK, axis: -1)[.ellipsis, (-topK)...]
         let unary = takeAlong(logits, candidates, axis: -1)
-        let projected = selectorHidden(hidden)
+        let projected = hiddenProjection(hidden)
         var previous = MLXArray([Int32(anchor)])
         var path: [Int] = []
         for position in 0 ..< hidden.dim(1) {
@@ -340,6 +319,40 @@ public final class DFlash2DraftModel: Module {
             path.append(previous.item(Int.self))
         }
         return path
+    }
+}
+
+public final class DFlash2DraftModel: Module {
+    public let config: DFlash2DraftConfiguration
+    @ModuleInfo private var layers: [DFlash2DecoderLayer]
+    @ModuleInfo private var norm: RMSNorm
+    @ModuleInfo private var fc: Linear
+    @ModuleInfo(key: "hidden_norm") private var hiddenNorm: RMSNorm
+    @ModuleInfo(key: "candidate_selector") private var candidateSelector: DFlash2CandidateSelector
+
+    public init(_ config: DFlash2DraftConfiguration) {
+        self.config = config
+        _layers.wrappedValue = (0 ..< config.hiddenLayers).map { _ in DFlash2DecoderLayer(config) }
+        _norm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+        _fc.wrappedValue = Linear(
+            config.targetLayerIDs.count * config.hiddenSize, config.hiddenSize, bias: false)
+        _hiddenNorm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+        _candidateSelector.wrappedValue = DFlash2CandidateSelector(config)
+    }
+
+    public func callAsFunction(noiseEmbedding: MLXArray, targetHidden: MLXArray) -> MLXArray {
+        let context = hiddenNorm(fc(targetHidden))
+        var hidden = noiseEmbedding
+        for layer in layers {
+            hidden = layer(hidden, targetContext: context)
+        }
+        return norm(hidden)
+    }
+
+    /// DFlash2's selector greedily walks adjacent candidate pairs. The target
+    /// verifier still decides every emitted token.
+    public func select(hidden: MLXArray, logits: MLXArray, anchor: Int) -> [Int] {
+        candidateSelector.select(hidden: hidden, logits: logits, anchor: anchor)
     }
 
     public static func load(directory: String) throws -> DFlash2DraftModel {
