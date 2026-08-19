@@ -68,7 +68,7 @@ final class DFlash2Runtime: @unchecked Sendable {
     }
 }
 
-private struct DFlash2RequestPolicy {
+struct DFlash2RequestPolicy {
     let permitsRuntime: Bool
     let requiresRuntime: Bool
     let requestedBlockSize: Int?
@@ -1486,7 +1486,7 @@ public final class MLXModelService: @unchecked Sendable {
         return downloaded
     }
 
-    private func dflash2RequestPolicy(
+    func dflash2RequestPolicy(
         _ options: SpeculativeDecodingOptions?
     ) throws -> DFlash2RequestPolicy {
         let requirement = options?.requirement?.lowercased()
