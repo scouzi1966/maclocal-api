@@ -32,11 +32,11 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_PA
    !localAFMKitPath.isEmpty {
     afmKitDependency = .package(path: localAFMKitPath)
 } else {
-    // Private pre-tag checkpoint. Replace the revision with an exact AFMKit
-    // version after its first release tag is approved.
+    // Private pre-tag checkpoint shared with Vesta. Replace this immutable
+    // revision with an exact AFMKit version after its first release tag.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        revision: "1786f1dd0efe5753eae1c458b1db2d18fd5a8b1d"
+        revision: "dfeab23e95ea1979432958e3f9b002beb5685191"
     )
 }
 

@@ -241,23 +241,7 @@ if [[ "$INSTRUCTIONS_OVERRIDDEN" != "1" && "$PARITY_CASE" == "tools" ]]; then
 fi
 
 if [[ -z "${MACAFM_MLX_METALLIB:-}" ]]; then
-  for candidate in \
-    "$ROOT_DIR/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
-    "$ROOT_DIR/.build/out/Products/Release/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib" \
-    "$ROOT_DIR/.build/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
-    "$ROOT_DIR/.build/release/MacLocalAPI_AFMKitMLX.bundle/default.metallib" \
-    "$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib"
-  do
-    if [[ -f "$candidate" ]]; then
-      export MACAFM_MLX_METALLIB="$candidate"
-      break
-    fi
-  done
-fi
-
-if [[ -z "${MACAFM_MLX_METALLIB:-}" ]]; then
-  echo "error: default.metallib not found; set MACAFM_MLX_METALLIB=/path/to/default.metallib" >&2
-  exit 1
+  export MACAFM_MLX_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --source)"
 fi
 
 PARITY_WORK_ROOT="${AFM_PARITY_WORK_ROOT:-$ROOT_DIR/test-reports/afmkit-http-parity}"

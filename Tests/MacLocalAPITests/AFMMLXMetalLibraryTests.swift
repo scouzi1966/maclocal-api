@@ -20,7 +20,7 @@ final class AFMMLXMetalLibraryTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let resourceDirectory = root
-            .appendingPathComponent("MacLocalAPI_AFMKitMLX.bundle/Contents/Resources")
+            .appendingPathComponent("AFMKit_AFMKitMLX.bundle/Contents/Resources")
         try FileManager.default.createDirectory(
             at: resourceDirectory,
             withIntermediateDirectories: true

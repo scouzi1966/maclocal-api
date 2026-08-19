@@ -9,10 +9,10 @@
 # Steps:
 #   0) Verify / install toolchain dependencies (git, Swift/Xcode CLT, Node + npm)
 #   1) Initialize git submodules (mlx-swift-lm, llama.cpp, ...)
-#   2) Apply the DwarfStar, MLX, and xgrammar patch sets (Scripts/patches)
+#   2) Optionally apply the legacy local dependency patch stack
 #   3) Build the llama.cpp webui assets and embed them
 #   4) Clean + resolve Swift packages
-#   4b) Rebuild the MLX Metal shader library (default.metallib) from the kernel sources
+#   4b) Optionally rebuild AFMKit's MLX Metal library during local AFMKit development
 #   5) Build the `afm` binary (release by default) and verify the artifact
 #
 # Usage:
@@ -33,12 +33,12 @@ BUILD_CONFIG="release"
 INCLUDE_BUILD_COMMIT=true
 DO_CLEAN=true
 DO_SUBMODULES=true
-DO_PATCHES=true
+DO_PATCHES=false
 DO_WEBUI=true
-DO_METALLIB=true
+DO_METALLIB=false
 ASSUME_YES=false
 DO_INSTALL=false
-INSTALL_PREFIX="/usr/local"
+INSTALL_PREFIX="${INSTALL_PREFIX:-/usr/local}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -60,15 +60,17 @@ Options:
   --stable             Build a stable binary without a commit suffix
   --no-clean           Skip clean step before build
   --skip-submodules    Skip git submodule init/update
-  --skip-patches       Skip DwarfStar, MLX, and xgrammar patch application
+  --legacy-patches     Apply the legacy local dependency patch stack
+  --skip-patches       Compatibility alias for the default immutable build
   --skip-webui         Skip llama.cpp webui build
-  --skip-metallib      Skip rebuilding default.metallib (use the committed prebuilt one)
+  --rebuild-metallib   Rebuild default.metallib in MACLOCAL_AFMKIT_PATH
+  --skip-metallib      Compatibility alias for the default immutable build
   --yes, -y            Assume "yes" for dependency-install prompts (non-interactive)
-  --install            After building, install afm to $INSTALL_PREFIX/bin (uses sudo if needed)
+  --install            Install afm under INSTALL_PREFIX (default: $INSTALL_PREFIX)
   -h, --help           Show help
 
 Default behavior:
-  check deps + submodules + patches + webui + clean + metallib + release build
+  check deps + submodules + webui + clean + immutable AFMKit + release build
 USAGE
 }
 
@@ -78,8 +80,10 @@ for arg in "$@"; do
     --stable) INCLUDE_BUILD_COMMIT=false ;;
     --no-clean) DO_CLEAN=false ;;
     --skip-submodules) DO_SUBMODULES=false ;;
+    --legacy-patches) DO_PATCHES=true ;;
     --skip-patches) DO_PATCHES=false ;;
     --skip-webui) DO_WEBUI=false ;;
+    --rebuild-metallib) DO_METALLIB=true ;;
     --skip-metallib) DO_METALLIB=false ;;
     --yes|-y) ASSUME_YES=true ;;
     --install) DO_INSTALL=true ;;
@@ -277,14 +281,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4: Resource validation + Swift build
+# Step 4: Resolve AFMKit resources + Swift build
 # ---------------------------------------------------------------------------
-log_step "Validating required resources"
-if [ ! -f "$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib" ]; then
-  log_error "Missing metallib: Sources/AFMKitMLX/Resources/default.metallib"
-  exit 1
-fi
-
 if $DO_CLEAN; then
   log_step "Cleaning previous Swift build artifacts"
   swift package clean
@@ -292,6 +290,13 @@ fi
 
 log_step "Resolving Swift packages"
 swift package resolve
+
+log_step "Validating AFMKit-owned resources"
+if ! AFMKIT_SOURCE_METALLIB="$($SCRIPTS_DIR/resolve-afmkit-resource.sh --source)"; then
+  log_error "The resolved AFMKit package does not contain its MLX metallib"
+  exit 1
+fi
+log_info "AFMKit MLX metallib: $AFMKIT_SOURCE_METALLIB"
 
 if $DO_PATCHES; then
   log_step "Applying persistent DeepSeek V4 MLX primitive"
@@ -334,34 +339,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4b: Rebuild the MLX Metal shader library (default.metallib) from source
+# Step 4b: Optional AFMKit metallib maintenance
 # ---------------------------------------------------------------------------
-# IMPORTANT: `swift build` does NOT compile any Metal — it only copies the committed
-# Sources/AFMKitMLX/Resources/default.metallib into the app bundle. The kernel *sources*
-# live in the resolved mlx-swift dependency (.build/checkouts/mlx-swift), so this step
-# regenerates that binary from source — ensuring the shipped kernels actually match the
-# (possibly patched) kernel tree rather than a stale prebuilt blob.
-#
-# Requires the Metal Toolchain, which Xcode 26 ships as a SEPARATE downloadable component.
-# If it isn't installed we fall back to the committed prebuilt metallib (offering to
-# download the toolchain first). Must run AFTER `swift package resolve` (needs the sources)
-# and BEFORE `swift build` (which copies the result into the bundle).
+# Normal builds consume AFMKit's immutable prebuilt resource. Rebuilding is an
+# explicit AFMKit-maintainer action and is permitted only with a local AFMKit
+# checkout, so a consumer never mutates a resolved package checkout.
 if $DO_METALLIB; then
-  log_step "Rebuilding MLX metallib from kernel sources"
-  if "$SCRIPTS_DIR/rebuild-metallib.sh" --check >/dev/null 2>&1; then
-    "$SCRIPTS_DIR/rebuild-metallib.sh"
-  else
-    log_warn "Metal Toolchain not installed — cannot compile the metallib from source."
-    if confirm "Download the Metal Toolchain now? (~688 MB one-time: xcodebuild -downloadComponent MetalToolchain)"; then
-      xcodebuild -downloadComponent MetalToolchain
-      "$SCRIPTS_DIR/rebuild-metallib.sh"
-    else
-      log_warn "Falling back to the committed prebuilt metallib (Sources/AFMKitMLX/Resources/default.metallib)."
-      log_warn "To build it from source later: xcodebuild -downloadComponent MetalToolchain && ./Scripts/rebuild-metallib.sh"
-    fi
+  if [ -z "${MACLOCAL_AFMKIT_PATH:-}" ]; then
+    log_error "--rebuild-metallib requires MACLOCAL_AFMKIT_PATH; resolved package checkouts are immutable"
+    exit 1
   fi
+  AFMKIT_REBUILD_SCRIPT="$MACLOCAL_AFMKIT_PATH/Scripts/rebuild-mlx-metallib.sh"
+  if [ ! -x "$AFMKIT_REBUILD_SCRIPT" ]; then
+    log_error "AFMKit metallib build tool not found: $AFMKIT_REBUILD_SCRIPT"
+    exit 1
+  fi
+  log_step "Rebuilding the local AFMKit MLX metallib"
+  "$AFMKIT_REBUILD_SCRIPT"
 else
-  log_warn "Skipping metallib rebuild (--skip-metallib): using committed prebuilt metallib"
+  log_info "Using AFMKit's immutable prebuilt metallib"
 fi
 
 BUILDINFO="$ROOT_DIR/Sources/AFMKit/BuildInfo.swift"
@@ -419,18 +415,11 @@ FINAL_DIR="$(dirname "$FINAL_BIN")"
 
 # Verify the MLX metallib resource bundle is present. SwiftPM uses a flat bundle
 # with some toolchains and a macOS Contents/Resources bundle with Xcode 27.
-METALLIB_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKitMLX.bundle"
-if [ -f "$METALLIB_BUNDLE_DIR/default.metallib" ]; then
-  METALLIB_BUNDLE="$METALLIB_BUNDLE_DIR/default.metallib"
-elif [ -f "$METALLIB_BUNDLE_DIR/Contents/Resources/default.metallib" ]; then
-  METALLIB_BUNDLE="$METALLIB_BUNDLE_DIR/Contents/Resources/default.metallib"
-else
-  METALLIB_BUNDLE=""
-fi
-if [ -n "$METALLIB_BUNDLE" ]; then
+if METALLIB_BUNDLE_DIR="$($SCRIPTS_DIR/resolve-afmkit-resource.sh --bundle-dir "$FINAL_DIR")" &&
+   METALLIB_BUNDLE="$($SCRIPTS_DIR/resolve-afmkit-resource.sh --metallib "$FINAL_DIR")"; then
   log_info "MLX metallib bundle OK ($(du -h "$METALLIB_BUNDLE" | cut -f1 | xargs))"
 else
-  log_error "Missing MLX metallib bundle under: $METALLIB_BUNDLE_DIR"
+  log_error "Missing AFMKit MLX resource bundle beside: $FINAL_BIN"
   exit 1
 fi
 
@@ -479,7 +468,6 @@ log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle)"
 # root-owned, so writes escalate with sudo only when it isn't already writable.
 if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
-  BUNDLE_SRC="$METALLIB_BUNDLE_DIR"
   WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
 
   SUDO=""
@@ -491,14 +479,20 @@ if $DO_INSTALL; then
   $SUDO install -d "$INSTALL_PREFIX/bin" "$INSTALL_PREFIX/libexec/afm" "$INSTALL_PREFIX/share/afm/webui"
   $SUDO install -m 755 "$FINAL_BIN" "$INSTALL_PREFIX/bin/afm"
 
-  # afm resolves its Metal shader library as a sibling bundle of the binary.
-  # Keep the bundle in libexec and symlink it next to the binary — this mirrors
-  # the Homebrew formula and avoids macOS code-signing stripping a bundle placed
-  # directly in bin.
-  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
-  $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
-  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle" \
-    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKitMLX.bundle"
+  # Provider resources must remain beside the relocated executable. Keep both
+  # immutable SwiftPM bundles in libexec and expose sibling symlinks, matching
+  # the Homebrew, tarball, and wheel layouts.
+  for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+    BUNDLE_SRC="$FINAL_DIR/$BUNDLE_NAME"
+    if [ ! -d "$BUNDLE_SRC" ]; then
+      log_error "Required AFMKit provider bundle missing: $BUNDLE_SRC"
+      exit 1
+    fi
+    $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
+    $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
+    $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME" \
+      "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
+  done
 
   if [ -f "$WEBUI_SRC" ]; then
     $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"

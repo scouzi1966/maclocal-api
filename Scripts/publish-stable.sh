@@ -137,7 +137,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Runtime resource bundles. Both must remain beside the relocated executable.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -269,7 +269,7 @@ log_info "Staging assets into macafm/ for Python package..."
 mkdir -p "$ROOT_DIR/macafm/bin"
 cp "$BIN" "$ROOT_DIR/macafm/bin/"
 
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -280,7 +280,7 @@ for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bund
 done
 
 # Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/default.metallib"
 if [ -f "$METALLIB" ]; then
   cp "$METALLIB" "$ROOT_DIR/macafm/bin/"
   log_info "  Staged default.metallib"

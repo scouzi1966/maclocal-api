@@ -96,7 +96,7 @@ fi
 DIRNAME="afm-${VERSION}-${ARCH}"
 mkdir -p "$STAGING/$DIRNAME/Resources/webui"
 cp "$BIN" "$STAGING/$DIRNAME/"
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"

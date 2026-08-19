@@ -30,7 +30,7 @@ Sources/
 │   │   ├── OpenAIResponse.swift        # Response types
 │   │   └── ...
 │   ├── BuildInfo.swift                 # version string (SHA injected by build.sh)
-│   └── Resources/default.metallib      # MLX Metal kernels → bundle MacLocalAPI_AFMKitMLX.bundle
+│   └── Resources/default.metallib      # MLX Metal kernels → bundle AFMKit_AFMKitMLX.bundle
 ├── AFMCLI/                             # EXECUTABLE target (product name: afm)
 │   ├── main.swift                      # CLI entry point (ArgumentParser)
 │   ├── {Mlx,Serve,Vision,Speech,Embeddings}Command.swift
@@ -63,9 +63,9 @@ Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 `vendor/ds4` is pinned directly to canonical `https://github.com/antirez/ds4.git`.
 Do not point the submodule at an AFM fork, patch its loader, sampler, cache, or
 Metal kernels, or require a DS4 pull request for AFM integration. Keep interface
-adaptations in `Sources/CDwarfStar` and `Sources/AFMKitDwarfStar` using the
-public upstream C API. `Scripts/swiftpm-reliable.sh` fingerprints the pinned
-submodule revision to prevent Xcode's native driver from reusing stale C objects.
+adaptations in AFMKit's `Sources/CDwarfStar` and `Sources/AFMKitDwarfStar`
+using the public upstream C API. `Scripts/swiftpm-reliable.sh` fingerprints the
+pinned submodule revision to prevent Xcode's native driver from reusing stale C objects.
 
 ### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
 
@@ -95,26 +95,27 @@ patch it, applied by `build.sh` after `swift package resolve` and before the met
 
 ## Build
 
-**IMPORTANT:** Always run the full build with ALL steps (submodules, patches, webui, metallib) unless the user explicitly asks to skip a step. Never add `--skip-webui`, `--skip-patches`, `--skip-submodules`, or `--skip-metallib` on your own.
+**IMPORTANT:** Normal and release builds consume immutable AFMKit and AFM-compatible
+MLX dependencies. Do not apply the legacy patch stack or rebuild a resolved
+package checkout. `--legacy-patches` is restricted to explicit dependency
+maintenance, and `--rebuild-metallib` requires a writable `MACLOCAL_AFMKIT_PATH`.
 
 ```bash
 swift build                              # Debug build
 swift build -c release                   # Release build
-./Scripts/build-from-scratch.sh          # Full build (submodules + patches + webui + clean + metallib + build)
+./Scripts/build-from-scratch.sh          # Full consumer build (submodules + webui + clean + immutable packages)
 ```
 
 ### MLX Metal shader library (`default.metallib`)
 
-`swift build` does **NOT** compile any Metal. The MLX kernels ship as a prebuilt
-`Sources/AFMKitMLX/Resources/default.metallib` (committed to git) that `swift build` only
-copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift` dependency
-(`.build/checkouts/mlx-swift/.../kernels/*.metal`), so editing a kernel (e.g. `sdpa_vector.h`)
-has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in
-`scaled_dot_product_attention.cpp` *does* recompile — so a kernel/dispatch mismatch silently
-produces garbage at every context length.)
+`swift build` does **NOT** compile any Metal. AFMKit owns and ships the prebuilt
+`Sources/AFMKitMLX/Resources/default.metallib`; maclocal-api resolves that resource
+from its AFMKit dependency and packages `AFMKit_AFMKitMLX.bundle` unchanged.
+Metallib maintenance is performed in the AFMKit repository with
+`Scripts/rebuild-mlx-metallib.sh`, never against `.build/checkouts` in this consumer.
 
 All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
-wrapper stages this canonical committed metallib beside every XCTest executable
+wrapper stages the resolved AFMKit metallib beside every XCTest executable
 before each build/run attempt, which is where MLX's C++ runtime searches. It
 also exports `MACAFM_MLX_METALLIB` for AFMKit's locator.
 The same wrapper fingerprints `vendor/mlx-swift-lm` and removes stale compiled
