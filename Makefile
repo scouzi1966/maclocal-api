@@ -49,7 +49,7 @@ submodule-status:
 	@git submodule status
 
 # Build the webui from llama.cpp
-webui: submodules
+webui:
 	@echo "🌐 Building webui..."
 	@if [ ! -d "vendor/llama.cpp/tools/server/webui" ]; then \
 		echo "❌ Error: webui source not found. Run 'make submodules' first."; \

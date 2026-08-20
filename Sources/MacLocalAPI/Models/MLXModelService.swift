@@ -223,49 +223,43 @@ final class MLXModelService: @unchecked Sendable {
         var resolvedLogprobs: [ResolvedLogprob]? = nil
         var collectedToolCalls = [ToolCall]()
         var completionInfo: GenerateCompletionInfo? = nil
-        let generated: String = try await container.perform { context in
-            let input = try await context.processor.prepare(input: userInput)
-
-            // If the chat template appended <think>, prepend it so extractors can detect it
-            let tokens = input.text.tokens
-            let ndim = tokens.ndim
-            let seqLen = tokens.dim(ndim - 1)
-            var out = ""
-            if seqLen >= 2 {
-                let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = context.tokenizer.decode(tokens: lastTwo)
-                if decoded.contains("<think>") {
-                    out = "<think>"
-                }
+        let input = try await container.prepare(input: userInput)
+        let tokens = input.text.tokens
+        let ndim = tokens.ndim
+        let seqLen = tokens.dim(ndim - 1)
+        var generated = ""
+        if seqLen >= 2 {
+            let flat = tokens.reshaped(-1)
+            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+            let decoded = await container.decode(tokens: lastTwo)
+            if decoded.contains("<think>") {
+                generated = "<think>"
             }
+        }
 
-            let activeStops = stop?.filter { !$0.isEmpty } ?? []
-            for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
-                if case .chunk(let text) = piece {
-                    out += text
-                    if !activeStops.isEmpty, let match = activeStops.first(where: { out.contains($0) }) {
-                        if let range = out.range(of: match) {
-                            out = String(out[..<range.lowerBound])
-                        }
-                        break
+        let activeStops = stop?.filter { !$0.isEmpty } ?? []
+        let generation = try await container.generate(input: input, parameters: params)
+        for await piece in generation {
+            if case .chunk(let text) = piece {
+                generated += text
+                if !activeStops.isEmpty, let match = activeStops.first(where: { generated.contains($0) }) {
+                    if let range = generated.range(of: match) {
+                        generated = String(generated[..<range.lowerBound])
                     }
-                } else if case .tokenLogprobs(let lps) = piece {
-                    collectedLogprobs.append(contentsOf: lps)
-                } else if case .toolCall(let tc) = piece {
-                    collectedToolCalls.append(tc)
-                } else if case .info(let info) = piece {
-                    completionInfo = info
+                    break
                 }
+            } else if case .tokenLogprobs(let lps) = piece {
+                collectedLogprobs.append(contentsOf: lps)
+            } else if case .toolCall(let tc) = piece {
+                collectedToolCalls.append(tc)
+            } else if case .info(let info) = piece {
+                completionInfo = info
             }
+        }
 
-            Stream.gpu.synchronize()
-
-            if wantLogprobs && !collectedLogprobs.isEmpty {
-                resolvedLogprobs = self.resolveLogprobs(collectedLogprobs, tokenizer: context.tokenizer)
-            }
-
-            return out
+        Stream.gpu.synchronize()
+        if wantLogprobs && !collectedLogprobs.isEmpty {
+            resolvedLogprobs = await resolveLogprobs(collectedLogprobs, container: container)
         }
 
         let responseToolCalls: [ResponseToolCall]? = collectedToolCalls.isEmpty ? nil : collectedToolCalls.enumerated().map { (i, tc) in
@@ -325,84 +319,82 @@ final class MLXModelService: @unchecked Sendable {
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 do {
-                    try await container.perform { context in
-                        let input = try await context.processor.prepare(input: userInput)
+                    let input = try await container.prepare(input: userInput)
 
-                        // If the chat template appended <think> to the prompt, inject it
-                        // into the stream so the reasoning extractor can detect it.
-                        let tokens = input.text.tokens
-                        let ndim = tokens.ndim
-                        let seqLen = tokens.dim(ndim - 1)
-                        if seqLen >= 2 {
-                            let flat = tokens.reshaped(-1)
-                            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                            let decoded = context.tokenizer.decode(tokens: lastTwo)
-                            if decoded.contains("<think>") {
-                                continuation.yield(StreamChunk(text: "<think>"))
-                            }
+                    // If the chat template appended <think> to the prompt, inject it
+                    // into the stream so the reasoning extractor can detect it.
+                    let tokens = input.text.tokens
+                    let ndim = tokens.ndim
+                    let seqLen = tokens.dim(ndim - 1)
+                    if seqLen >= 2 {
+                        let flat = tokens.reshaped(-1)
+                        let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
+                        let decoded = await container.decode(tokens: lastTwo)
+                        if decoded.contains("<think>") {
+                            continuation.yield(StreamChunk(text: "<think>"))
                         }
-
-                        let activeStops = stop?.filter { !$0.isEmpty } ?? []
-                        // Buffer to handle stop strings that span chunk boundaries
-                        let maxStopLen = activeStops.map(\.count).max() ?? 0
-                        var stopBuffer = ""
-
-                        var pendingLogprobs: [TokenLogprobData]? = nil
-                        for await piece in try MLXLMCommon.generate(input: input, parameters: params, context: context) {
-                            if Task.isCancelled {
-                                print("[MLX] Generation cancelled by client")
-                                break
-                            }
-                            if case .tokenLogprobs(let lps) = piece {
-                                pendingLogprobs = lps
-                            } else if case .chunk(let text) = piece {
-                                let resolved: [ResolvedLogprob]?
-                                if let lps = pendingLogprobs {
-                                    resolved = self.resolveLogprobs(lps, tokenizer: context.tokenizer)
-                                } else {
-                                    resolved = nil
-                                }
-
-                                if !activeStops.isEmpty {
-                                    stopBuffer += text
-                                    // Check for a complete stop string match
-                                    if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
-                                        // Emit text up to the stop string
-                                        if let range = stopBuffer.range(of: match) {
-                                            let before = String(stopBuffer[..<range.lowerBound])
-                                            if !before.isEmpty {
-                                                continuation.yield(StreamChunk(text: before, logprobs: resolved))
-                                            }
-                                        }
-                                        break
-                                    }
-                                    // Flush safe portion of the buffer (keep tail that could be partial stop match)
-                                    if stopBuffer.count > maxStopLen {
-                                        let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
-                                        let flushText = String(stopBuffer[..<flushEnd])
-                                        stopBuffer = String(stopBuffer[flushEnd...])
-                                        continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
-                                    }
-                                } else {
-                                    continuation.yield(StreamChunk(text: text, logprobs: resolved))
-                                }
-                                pendingLogprobs = nil
-                            } else if case .toolCall(let tc) = piece {
-                                // Emit tool call as a stream chunk with empty text
-                                let responseTC = Self.convertToolCall(tc, index: 0)
-                                continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
-                            } else if case .info(let info) = piece {
-                                // Emit real token counts as a final info chunk
-                                continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount))
-                            }
-                        }
-                        // Flush any remaining buffered text (no stop match found)
-                        if !activeStops.isEmpty && !stopBuffer.isEmpty {
-                            continuation.yield(StreamChunk(text: stopBuffer))
-                        }
-                        // Synchronize GPU after generation completes (or breaks early).
-                        Stream.gpu.synchronize()
                     }
+
+                    let activeStops = stop?.filter { !$0.isEmpty } ?? []
+                    // Buffer to handle stop strings that span chunk boundaries
+                    let maxStopLen = activeStops.map(\.count).max() ?? 0
+                    var stopBuffer = ""
+                    var pendingLogprobs: [TokenLogprobData]? = nil
+
+                    let mlxStream = try await container.generate(input: input, parameters: params)
+                    for await piece in mlxStream {
+                        if Task.isCancelled {
+                            print("[MLX] Generation cancelled by client")
+                            break
+                        }
+                        if case .tokenLogprobs(let lps) = piece {
+                            pendingLogprobs = lps
+                        } else if case .chunk(let text) = piece {
+                            let resolved: [ResolvedLogprob]?
+                            if let lps = pendingLogprobs {
+                                resolved = await self.resolveLogprobs(lps, container: container)
+                            } else {
+                                resolved = nil
+                            }
+                            if !activeStops.isEmpty {
+                                stopBuffer += text
+                                // Check for a complete stop string match
+                                if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
+                                    // Emit text up to the stop string
+                                    if let range = stopBuffer.range(of: match) {
+                                        let before = String(stopBuffer[..<range.lowerBound])
+                                        if !before.isEmpty {
+                                            continuation.yield(StreamChunk(text: before, logprobs: resolved))
+                                        }
+                                    }
+                                    break
+                                }
+                                // Flush safe portion of the buffer (keep tail that could be partial stop match)
+                                if stopBuffer.count > maxStopLen {
+                                    let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
+                                    let flushText = String(stopBuffer[..<flushEnd])
+                                    stopBuffer = String(stopBuffer[flushEnd...])
+                                    continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
+                                }
+                            } else {
+                                continuation.yield(StreamChunk(text: text, logprobs: resolved))
+                            }
+                            pendingLogprobs = nil
+                        } else if case .toolCall(let tc) = piece {
+                            // Emit tool call as a stream chunk with empty text
+                            let responseTC = Self.convertToolCall(tc, index: 0)
+                            continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
+                        } else if case .info(let info) = piece {
+                            // Emit real token counts as a final info chunk
+                            continuation.yield(StreamChunk(text: "", promptTokens: info.promptTokenCount, completionTokens: info.generationTokenCount))
+                        }
+                    }
+                    // Flush any remaining buffered text (no stop match found)
+                    if !activeStops.isEmpty && !stopBuffer.isEmpty {
+                        continuation.yield(StreamChunk(text: stopBuffer))
+                    }
+                    // Synchronize GPU after generation completes (or breaks early).
+                    Stream.gpu.synchronize()
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -544,6 +536,10 @@ final class MLXModelService: @unchecked Sendable {
         let modelType = (json["model_type"] as? String ?? "").lowercased()
         if modelType.contains("vl") || modelType.contains("vision") {
             return true
+        }
+        // gemma3n text checkpoints can contain vision token ids but are served by LLMModelFactory.
+        if modelType == "gemma3n" {
+            return false
         }
         // Multimodal models (e.g. gemma3) have both text_config and vision_config
         if json["text_config"] != nil && json["vision_config"] != nil {
@@ -694,19 +690,26 @@ final class MLXModelService: @unchecked Sendable {
         return Int(max(charBased, wordBased))
     }
 
-    private func resolveLogprobs(_ data: [TokenLogprobData], tokenizer: any Tokenizer) -> [ResolvedLogprob] {
-        data.map { entry in
-            let token = tokenizer.decode(tokens: [entry.tokenId])
-            let topTokens = zip(entry.topTokenIds, entry.topLogprobs).map { (id, lp) in
-                (token: tokenizer.decode(tokens: [id]), tokenId: id, logprob: lp)
+    private func resolveLogprobs(_ data: [TokenLogprobData], container: ModelContainer) async -> [ResolvedLogprob] {
+        var resolved = [ResolvedLogprob]()
+        resolved.reserveCapacity(data.count)
+        for entry in data {
+            let token = await container.decode(tokens: [entry.tokenId])
+            var topTokens = [(token: String, tokenId: Int, logprob: Float)]()
+            topTokens.reserveCapacity(entry.topTokenIds.count)
+            for (id, lp) in zip(entry.topTokenIds, entry.topLogprobs) {
+                let topToken = await container.decode(tokens: [id])
+                topTokens.append((token: topToken, tokenId: id, logprob: lp))
             }
-            return ResolvedLogprob(
-                token: token,
-                tokenId: entry.tokenId,
-                logprob: entry.logprob,
-                topTokens: topTokens
-            )
+            resolved.append(
+                ResolvedLogprob(
+                    token: token,
+                    tokenId: entry.tokenId,
+                    logprob: entry.logprob,
+                    topTokens: topTokens
+                ))
         }
+        return resolved
     }
 
     private func normalizedRepetitionPenalty(_ value: Double?) -> Float? {

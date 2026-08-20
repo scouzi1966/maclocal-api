@@ -1089,6 +1089,16 @@ public func generate(
     return stream
 }
 
+// Compatibility overload for newer ModelContainer API. Patched Evaluate does not
+// currently use wired memory tickets directly, so this forwards to the base path.
+public func generate(
+    input: LMInput, cache: [KVCache]? = nil, parameters: GenerateParameters, context: ModelContext,
+    wiredMemoryTicket: WiredMemoryTicket? = nil
+) throws -> AsyncStream<Generation> {
+    _ = wiredMemoryTicket
+    return try generate(input: input, cache: cache, parameters: parameters, context: context)
+}
+
 @available(
     *, deprecated,
     message: "use a higher level generate() call or use generateTask() for fine grained control"
