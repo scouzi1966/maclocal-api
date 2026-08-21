@@ -36,7 +36,8 @@ extension ModelContainer {
                 promptTokenCount: promptTokenCount,
                 modelConfiguration: context.configuration,
                 tokenizer: context.tokenizer,
-                iterator: iterator)
+                iterator: iterator,
+                ignoreEndOfSequence: parameters.ignoreEndOfSequence)
         }
     }
 }

@@ -2553,6 +2553,7 @@ public final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: false,
                 topLogprobsCount: 0,
+                ignoreEndOfSequence: ignoreEndOfSequence,
                 prefillStepSize: self.prefillStepSize
             )
             params.extraProcessor = nil
@@ -2737,6 +2738,7 @@ public final class MLXModelService: @unchecked Sendable {
                 seed: normalizedSeed(seed),
                 computeLogprobs: wantLogprobs,
                 topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                ignoreEndOfSequence: ignoreEndOfSequence,
                 prefillStepSize: self.prefillStepSize
             )
             var collectedLogprobs = [TokenLogprobData]()
@@ -3362,6 +3364,7 @@ public final class MLXModelService: @unchecked Sendable {
             seed: normalizedSeed(seed),
             computeLogprobs: wantLogprobs,
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+            ignoreEndOfSequence: ignoreEndOfSequence,
             prefillStepSize: self.prefillStepSize
         )
 
@@ -3659,6 +3662,7 @@ public final class MLXModelService: @unchecked Sendable {
                             seed: normalizedSeed(seed),
                             computeLogprobs: wantLogprobs,
                             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
+                            ignoreEndOfSequence: ignoreEndOfSequence,
                             prefillStepSize: self.prefillStepSize
                         )
                         // Grammar constraint setup — see non-streaming path for details.

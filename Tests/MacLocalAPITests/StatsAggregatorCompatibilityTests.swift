@@ -1,6 +1,8 @@
 import XCTest
 
+@testable import AFMKit
 @testable import AFMKitMLX
+@testable import AFMKitServices
 
 final class StatsAggregatorCompatibilityTests: XCTestCase {
     private final class Box: @unchecked Sendable {
@@ -93,5 +95,50 @@ final class StatsAggregatorCompatibilityTests: XCTestCase {
         XCTAssertTrue(unbound.installCompatibilityTarget(
             DefaultStatsAggregatorCompatibilityTarget()
         ))
+    }
+
+    func testBoundServicesFacadeResetPreservesLegacyResetContract() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let aggregator = StatsAggregator()
+        XCTAssertTrue(aggregator.installCompatibilityTarget(
+            StatsAggregatorServicesCompatibilityTarget(collector: collector)
+        ))
+
+        aggregator.setModel("bound-model", maxConcurrent: 8)
+        aggregator.connectionStarted()
+        aggregator.addGenTokens(7)
+        aggregator.addPromptTokens(11)
+        aggregator.requestStarted()
+        aggregator.requestCompleted()
+        aggregator.cacheHit()
+        aggregator.cacheMiss()
+        aggregator.requestSucceeded(reason: "stop")
+        aggregator.observeRequest(.init(
+            queuedAt: 1,
+            startedAt: 2,
+            firstTokenAt: 3,
+            completedAt: 5,
+            promptTokens: 11,
+            generationTokens: 7
+        ))
+
+        aggregator.reset()
+
+        let snapshot = aggregator.snapshot()
+        XCTAssertEqual(snapshot.modelName, "bound-model")
+        XCTAssertEqual(snapshot.maxConcurrent, 8)
+        XCTAssertEqual(snapshot.activeConnections, 1)
+        XCTAssertEqual(snapshot.activeConnectionsPeak, 1)
+        XCTAssertEqual(snapshot.genTokensTotal, 0)
+        XCTAssertEqual(snapshot.promptTokensTotal, 0)
+        XCTAssertEqual(snapshot.requestsStartedTotal, 0)
+        XCTAssertEqual(snapshot.requestsCompletedTotal, 0)
+        XCTAssertEqual(snapshot.cacheHitsTotal, 0)
+        XCTAssertEqual(snapshot.cacheMissesTotal, 0)
+        XCTAssertTrue(snapshot.requestSuccessByReason.isEmpty)
+        XCTAssertEqual(snapshot.e2eLatency.count, 0)
+        XCTAssertEqual(snapshot.timeToFirstToken.count, 0)
+        XCTAssertEqual(snapshot.promptTokens.count, 0)
+        XCTAssertEqual(snapshot.generationTokens.count, 0)
     }
 }

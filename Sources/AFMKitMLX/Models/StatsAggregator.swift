@@ -268,7 +268,9 @@ public final class StatsAggregator: @unchecked Sendable {
             return (String(metric.name.dropFirst(prefix.count)), metric.count)
         }
         let reasons = legacyReasons.isEmpty
-            ? Dictionary(uniqueKeysWithValues: snapshot.terminalCounts.map { ($0.name, $0.count) })
+            ? Dictionary(uniqueKeysWithValues: snapshot.terminalCounts.compactMap { metric in
+                metric.count > 0 ? (metric.name, metric.count) : nil
+            })
             : Dictionary(uniqueKeysWithValues: legacyReasons)
         return Snapshot(
             timestampMs: snapshot.timestampMilliseconds,

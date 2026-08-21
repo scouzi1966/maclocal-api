@@ -40,7 +40,6 @@ struct MLXChatCompletionsController: RouteCollection {
     private struct GenerationAdmission: @unchecked Sendable {
         let lease: AFMGenerationLease
         let acceptedAt: Double
-        let providerOwnsStreamingRelease: Bool
     }
 
     init(
@@ -118,8 +117,7 @@ struct MLXChatCompletionsController: RouteCollection {
             )
             return GenerationAdmission(
                 lease: lease,
-                acceptedAt: acceptedAt,
-                providerOwnsStreamingRelease: true
+                acceptedAt: acceptedAt
             )
         }
         if let providing = service as? any AFMMLXGenerationAdmitterProviding,
@@ -129,8 +127,7 @@ struct MLXChatCompletionsController: RouteCollection {
             )
             return GenerationAdmission(
                 lease: lease,
-                acceptedAt: acceptedAt,
-                providerOwnsStreamingRelease: true
+                acceptedAt: acceptedAt
             )
         }
 
@@ -139,8 +136,7 @@ struct MLXChatCompletionsController: RouteCollection {
             lease: try await adapter.admitGeneration(
                 timeout: .seconds(Self.slotQueueTimeout)
             ),
-            acceptedAt: acceptedAt,
-            providerOwnsStreamingRelease: false
+            acceptedAt: acceptedAt
         )
     }
 
@@ -262,10 +258,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, admission: admission, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
-            // In concurrent mode, non-streaming requests currently bypass the
-            // BatchScheduler decode loop, so the controller must release the
-            // reservation itself. Streaming requests are released by the
-            // scheduler when the stream finishes.
+            // The controller releases serial reservations. A successfully
+            // enqueued batch stream transfers release ownership to its scheduler,
+            // making this defer a no-op for that path.
             defer { admission.lease.release() }
 
             // AFM Profile: start GPU monitoring if client requests it
@@ -330,10 +325,6 @@ struct MLXChatCompletionsController: RouteCollection {
                         requestId: reqId
                     )
                 }
-                if admission.providerOwnsStreamingRelease {
-                    admission.lease.transferReleaseToProvider()
-                }
-
                 // Collect stream into complete response
                 var fullText = ""
                 var allLogprobs: [ResolvedLogprob] = []
@@ -701,9 +692,6 @@ struct MLXChatCompletionsController: RouteCollection {
                         preserveStructuralTags: !extractThinking,
                         requestId: streamReqId
                     )
-                }
-                if admission.providerOwnsStreamingRelease {
-                    admission.lease.transferReleaseToProvider()
                 }
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(

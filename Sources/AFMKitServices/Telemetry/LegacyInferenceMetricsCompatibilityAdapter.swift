@@ -55,8 +55,11 @@ public final class LegacyInferenceMetricsCompatibilityAdapter: @unchecked Sendab
     }
 
     public func reset() {
-        // vLLM counters exposed by /metrics are process-lifetime values. The
-        // deprecated compatibility reset is therefore limited to its own peak.
+        // Preserve the public StatsAggregator reset contract for callers bound
+        // through the compatibility facade. Collector reset intentionally keeps
+        // model configuration and active connections while clearing request
+        // counters, token totals, windows, and histograms.
+        collector.reset()
         callbacks.withLock { $0.legacyBatchSizePeak = 0 }
     }
 

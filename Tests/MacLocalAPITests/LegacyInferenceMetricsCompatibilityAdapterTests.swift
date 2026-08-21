@@ -78,25 +78,44 @@ final class LegacyInferenceMetricsCompatibilityAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.metricsSnapshotWithLegacyGauges().peakRunningRequests, 1)
     }
 
-    func testResetDoesNotResetProcessLifetimeMetrics() {
+    func testResetClearsLegacyCountersAndHistogramsButPreservesConfiguration() {
         let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
         let adapter = LegacyInferenceMetricsCompatibilityAdapter(collector: collector)
+        adapter.setModel("reset-model", maxConcurrent: 4)
+        adapter.connectionStarted()
         adapter.addGeneratedTokens(3)
         adapter.addComputedPromptTokens(5)
         adapter.requestStarted()
         adapter.requestCompleted()
+        adapter.cacheHit()
+        adapter.cacheMiss()
         adapter.requestSucceeded(reason: "stop")
+        adapter.observeEndToEndLatency(1.5)
+        adapter.observeTimeToFirstToken(0.25)
+        adapter.observeTimePerOutputToken(0.05)
+        adapter.observeComputedPromptTokens(5)
+        adapter.observeGeneratedTokens(3)
 
         adapter.reset()
 
         let snapshot = adapter.metricsSnapshotWithLegacyGauges()
-        XCTAssertEqual(snapshot.generatedTokensTotal, 3)
-        XCTAssertEqual(snapshot.computedPromptTokensTotal, 5)
-        XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
-        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.modelName, "reset-model")
+        XCTAssertEqual(snapshot.maximumConcurrentRequests, 4)
         XCTAssertEqual(
-            snapshot.supplementalCounts.first { $0.name == "legacy_finish:stop" }?.count,
+            snapshot.supplementalIntegerGauges.first { $0.name == "active_connections" }?.value,
             1
         )
+        XCTAssertEqual(snapshot.generatedTokensTotal, 0)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 0)
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 0)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 0)
+        XCTAssertEqual(snapshot.prefixCacheQueriesTotal, 0)
+        XCTAssertEqual(snapshot.prefixCacheHitsTotal, 0)
+        XCTAssertNil(snapshot.supplementalCounts.first { $0.name == "legacy_finish:stop" })
+        XCTAssertEqual(snapshot.endToEndLatency.count, 0)
+        XCTAssertEqual(snapshot.timeToFirstToken.count, 0)
+        XCTAssertEqual(snapshot.timePerOutputToken.count, 0)
+        XCTAssertEqual(snapshot.computedPromptTokens.count, 0)
+        XCTAssertEqual(snapshot.generatedTokens.count, 0)
     }
 }

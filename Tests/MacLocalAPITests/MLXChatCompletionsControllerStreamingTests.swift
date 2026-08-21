@@ -93,6 +93,58 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(snapshot.generatedTokensTotal, 3)
     }
 
+    func testTwoConsecutiveSerialStreamsReleaseAdmissionCapacity() async throws {
+        let admitter = SerialGenerationAdmitterProbe()
+        let service = FakeMLXChatService(
+            streamingHandler: { _ in
+                // MLX serial generation owns terminal telemetry, while the
+                // controller remains responsible for releasing serial capacity.
+                admitter.finishProviderTelemetry()
+                return Self.makeDelayedStreamingResult(
+                    modelID: "test-model",
+                    chunks: [
+                        StreamChunk(text: "ok"),
+                        StreamChunk(
+                            text: "",
+                            promptTokens: 1,
+                            completionTokens: 1,
+                            cachedTokens: 0,
+                            promptTime: 0.01,
+                            generateTime: 0.01
+                        ),
+                    ],
+                    delayNanoseconds: nil
+                )
+            }
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter(admitter)
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let testable = try app.testable(method: .running(port: 0))
+        for _ in 0..<2 {
+            let body = try requestBody(stream: true)
+            try await testable.test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { response async in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertContains(response.body.string, "data: [DONE]")
+            }
+        }
+
+        XCTAssertEqual(admitter.admissionCount, 2)
+        XCTAssertEqual(admitter.releaseCount, 2)
+        XCTAssertEqual(admitter.terminalTelemetryCount, 2)
+        XCTAssertFalse(admitter.isOccupied)
+    }
+
     func testAdmissionCancellationIsNonRetryableAndNotIngressCapacity() async throws {
         let collector = InferenceTelemetryCollector()
         let service = FakeMLXChatService(
@@ -1456,4 +1508,70 @@ private final class FakeMLXChatService:
         thinkStartTag: nil,
         thinkEndTag: nil
     )
+}
+
+private final class SerialGenerationAdmitterProbe: AFMGenerationAdmitting, @unchecked Sendable {
+    private struct State {
+        var occupied = false
+        var admissions = 0
+        var releases = 0
+    }
+
+    private let lock = NSLock()
+    private let collector = InferenceTelemetryCollector()
+    private var state = State()
+
+    var admissionCount: Int { lock.withLock { state.admissions } }
+    var releaseCount: Int { lock.withLock { state.releases } }
+    var isOccupied: Bool { lock.withLock { state.occupied } }
+    var terminalTelemetryCount: UInt64 { collector.metricsSnapshot().terminalRequestsTotal }
+
+    func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        let admitted = lock.withLock { () -> Bool in
+            guard !state.occupied else { return false }
+            state.occupied = true
+            state.admissions += 1
+            return true
+        }
+        guard admitted else { throw AFMGenerationAdmissionError.capacity }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let token = collector.requestAccepted(at: now)
+        collector.requestStarted(token, at: now)
+        return AFMGenerationLease(
+            telemetryToken: token,
+            release: { [weak self] in
+                self?.releaseCapacity()
+            }
+        )
+    }
+
+    func finishProviderTelemetry() {
+        guard
+            let lease = AFMGenerationContext.admissionLease,
+            let token = AFMGenerationContext.telemetryToken
+        else {
+            preconditionFailure("serial provider did not receive its admitted telemetry context")
+        }
+        lease.transferTelemetryToProvider()
+        _ = collector.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .stop,
+                completedAt: ProcessInfo.processInfo.systemUptime,
+                fullPromptTokens: 1,
+                computedPromptTokens: 1,
+                generatedTokens: 1,
+                maximumOutputTokens: 1
+            )
+        )
+    }
+
+    private func releaseCapacity() {
+        lock.withLock {
+            precondition(state.occupied, "serial generation capacity released twice")
+            state.occupied = false
+            state.releases += 1
+        }
+    }
 }
