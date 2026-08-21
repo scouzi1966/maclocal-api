@@ -65,6 +65,10 @@ TAG="v${VERSION}"
 
 cd "$ROOT_DIR"
 
+# Authentication is valid for development builds, but production artifacts
+# must remain buildable by downstream users without repository credentials.
+"$SCRIPT_DIR/check-public-release-eligibility.sh"
+
 # Verify prerequisites
 if ! command -v gh >/dev/null 2>&1; then
   log_error "gh CLI not found. Install with: brew install gh"

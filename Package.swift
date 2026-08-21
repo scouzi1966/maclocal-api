@@ -28,8 +28,10 @@ if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_S
     )
 }
 let afmKitDependency: Package.Dependency
-if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_PATH"],
+if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"],
    !localAFMKitPath.isEmpty {
+    // Internal to Scripts/swiftpm-reliable.sh's generated package workspace.
+    // MACLOCAL_AFMKIT_PATH never changes the tracked release manifest directly.
     afmKitDependency = .package(path: localAFMKitPath)
 } else {
     // Private pre-tag checkpoint shared with Vesta. Replace this immutable
@@ -81,8 +83,9 @@ let package = Package(
         )
     ],
     dependencies: [
-        // Normal builds consume the immutable AFMKit checkpoint above. Local
-        // AFMKit development can opt into MACLOCAL_AFMKIT_PATH explicitly.
+        // Normal builds consume the immutable AFMKit checkpoint above. The
+        // local-development wrapper stages a disposable manifest before using
+        // the internal workspace-only path override.
         afmKitDependency,
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),

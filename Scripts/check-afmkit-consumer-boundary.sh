@@ -68,6 +68,7 @@ for pin in pins:
 manifest_environment = os.environ.copy()
 for name in (
     "MACLOCAL_AFMKIT_PATH",
+    "MACLOCAL_AFMKIT_WORKSPACE_PATH",
     "MACLOCAL_MLX_SWIFT_LM_PATH",
     "AFMKIT_MLX_SWIFT_PATH",
     "AFMKIT_MLX_SWIFT_LM_PATH",
@@ -131,6 +132,12 @@ for line in declared_paths:
         fail(f"declared submodule is not pinned by a gitlink: {path}")
 PY
 
+if grep -Fq 'environment["MACLOCAL_AFMKIT_PATH"]' Package.swift; then
+  fail "MACLOCAL_AFMKIT_PATH must not alter the tracked release manifest"
+fi
+grep -Fq 'environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"]' Package.swift || \
+  fail "generated local AFMKit workspace hook is missing from Package.swift"
+
 if grep -Eq '^(build|debug):.*(PATCH_STAMP|patch)' Makefile; then
   fail "normal Make targets must not depend on the legacy patch stack"
 fi
@@ -156,7 +163,39 @@ for workflow in .github/workflows/nightly.yml .github/workflows/release.yml; do
     fail "$workflow does not run the complete local release gate"
   grep -Fq 'AFMKIT_READ_TOKEN' "$workflow" || \
     fail "$workflow does not declare authenticated private AFMKit access"
+  grep -Fq 'Scripts/check-public-release-eligibility.sh' "$workflow" || \
+    fail "$workflow can publish without proving anonymous dependency access"
 done
+
+for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
+  grep -Fq 'check-public-release-eligibility.sh' "$publisher" || \
+    fail "$publisher can publish without proving anonymous dependency access"
+done
+
+grep -Fq 'Scripts/resolve-release-dependencies.sh' .github/workflows/codeql-analysis.yml || \
+  fail "CodeQL does not use the authenticated transition resolver"
+grep -Fq 'AFMKIT_READ_TOKEN' .github/workflows/codeql-analysis.yml || \
+  fail "CodeQL does not declare private AFMKit authentication"
+grep -Fq 'head.repo.fork' .github/workflows/codeql-analysis.yml || \
+  fail "CodeQL does not isolate private credentials from fork pull requests"
+if grep -Eq '^[[:space:]]*swift package resolve[[:space:]]*$' .github/workflows/codeql-analysis.yml; then
+  fail "CodeQL still performs a bare unauthenticated dependency resolve"
+fi
+
+example_manifest=Examples/AFMKitCoreOnlyConsumer/Package.swift
+grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" || \
+  fail "independent core consumer does not use AFMKit's package contract"
+if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
+  fail "independent core consumer still relies on a removed maclocal compatibility product"
+fi
+afmkit_revision="$(python3 - <<'PY'
+import json
+lock = json.load(open("Package.resolved"))
+print(next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")["state"]["revision"])
+PY
+)"
+grep -Fq "revision: \"$afmkit_revision\"" "$example_manifest" || \
+  fail "independent core consumer revision differs from the tracked AFMKit lock"
 
 for project in pyproject.toml pyproject-next.toml; do
   grep -Fq '"bin/*/*/*/*/*"' "$project" || \

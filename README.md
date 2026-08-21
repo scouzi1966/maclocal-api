@@ -239,17 +239,22 @@ afm mlx -m <model> --no-thinking
 afm mlx -m <model> --chat-template-kwargs '{"enable_thinking":false}'
 ```
 
-## Use AFM as a Swift package
+## Use AFMKit and AFM as Swift packages
 
-The repository defines focused Swift Package Manager products:
+The independent `scouzi1966/AFMKit` package defines the provider products:
 
 - `AFMKitCore` — provider contracts and core types
 - `AFMOpenAICompat` — OpenAI-compatible request/response types
 - `AFMKitMLX` — MLX model loading and inference
-- `AFMKitFoundationModels` — Apple Foundation Models backend
-- `AFMKitFoundationModels27` — macOS 27 provider protocol adapters
-- `AFMKitFoundationModels27DwarfStar` — opt-in DwarfStar macOS 27 adapter
+- `AFMKitApple` — Apple Foundation Models backend
+- `AFMKitFoundationModelsMLX` — macOS 27 MLX executor bridge
 - `AFMKitDwarfStar` — DwarfStar runtime integration
+
+This maclocal-api consumer package separately defines its application adapters:
+
+- `AFMKitFoundationModels` — compatibility re-export of `AFMKitApple`
+- `AFMKitFoundationModels27` — macOS 27 application adapters
+- `AFMKitFoundationModels27DwarfStar` — opt-in DwarfStar macOS 27 adapter
 - `AFMKitServices` — vision, speech, and embedding services
 - `AFMKit` — high-level headless inference facade
 - `AFMServer` — Vapor HTTP layer
@@ -263,7 +268,8 @@ for the immutable revision and CI authentication contract. Do not publish or
 production-merge this dependency graph until AFMKit is public or an approved
 public immutable artifact replaces it.
 
-Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the [consumer examples](Examples/).
+Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the
+[independent AFMKitCore consumer](Examples/AFMKitCoreOnlyConsumer/).
 
 ## Build from source
 

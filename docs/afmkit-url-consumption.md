@@ -28,6 +28,12 @@ readiness. As observed on 2026-08-20, GitHub Actions are also disabled for the
 maclocal-api repository. The workflow definitions are complete, but hosted
 enforcement requires a repository administrator to re-enable Actions.
 
+Every tag, nightly, and manual publishing entry point runs
+`Scripts/check-public-release-eligibility.sh` before building or uploading. The
+gate removes ambient credentials and proves that the exact AFMKit revision in
+the tracked lock can be fetched anonymously. Authentication can therefore keep
+development CI working, but it cannot make a private dependency publishable.
+
 ## Authenticated Resolution
 
 Local developers must authenticate a GitHub identity with read access:
@@ -43,6 +49,11 @@ read access. The resolver uses an ephemeral `GIT_ASKPASS` helper containing no
 credential material, never writes the token to the manifest or lock, and emits
 an actionable error when access is missing. GitHub's default repository token
 does not grant cross-repository access to a separate private dependency.
+
+The Swift CodeQL job uses that same authenticated resolver on trusted branches.
+Fork and Dependabot pull requests never receive the secret: their analysis job
+is skipped with an explicit transition notice, and maintainers must run CodeQL
+from a trusted branch until AFMKit is publicly resolvable.
 
 ## Immutable Release Graph
 
@@ -69,7 +80,11 @@ beside `afm`; it does not rebuild or rename them.
 ## Local Development Overrides
 
 Normal builds leave all overrides unset. AFMKit development may opt into a
-writable checkout with `MACLOCAL_AFMKIT_PATH`. Compatibility-package maintenance
+writable checkout with `MACLOCAL_AFMKIT_PATH` when invoking
+`Scripts/swiftpm-reliable.sh`. The wrapper copies the consumer manifest and
+sources into an ignored `.build-local-afmkit-workspace`, applies the local path
+only there, and keeps the tracked release manifest and `Package.resolved`
+byte-for-byte unchanged. Compatibility-package maintenance
 may additionally set `MACLOCAL_MLX_SWIFT_LM_PATH`,
 `AFMKIT_MLX_SWIFT_PATH`, and `MACLOCAL_USE_LEGACY_MLX_PATCH_STACK=1`.
 These variables are build-only maintenance controls and are not supported

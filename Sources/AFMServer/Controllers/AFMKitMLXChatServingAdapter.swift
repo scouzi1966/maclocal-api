@@ -1,6 +1,51 @@
 import Foundation
 import AFMKit
 import AFMKitMLX
+import os
+
+private final class GenericAFMAdmissionGate: @unchecked Sendable {
+    private let limit: Int
+    private let activeReservations = OSAllocatedUnfairLock(initialState: 0)
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func tryReserve() -> Bool {
+        activeReservations.withLock { active in
+            guard active < limit else { return false }
+            active += 1
+            return true
+        }
+    }
+
+    func wait(timeout: TimeInterval) async -> Bool {
+        if Task.isCancelled { return false }
+        if timeout <= 0 { return tryReserve() }
+        if tryReserve() { return true }
+
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        var delay: UInt64 = 10_000_000
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return false
+            }
+            if tryReserve() { return true }
+            delay = min(delay * 2, 100_000_000)
+        }
+        return false
+    }
+
+    func release() {
+        activeReservations.withLock { active in
+            if active > 0 {
+                active -= 1
+            }
+        }
+    }
+}
 
 /// Bridges the OpenAI-compatible HTTP controllers onto AFMKit's neutral model
 /// and event contracts. Provider scheduler and parser internals stay inside
@@ -13,6 +58,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     private let forceDisableThinking: Bool
     private let fixedMaxConcurrent: Int
     private let mlxServing: (any AFMMLXOpenAIChatServing)?
+    private let genericAdmission: GenericAFMAdmissionGate?
 
     init(
         model: AFMMLXModel,
@@ -26,6 +72,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = model.maxConcurrent
         mlxServing = model
+        genericAdmission = nil
     }
 
     init(
@@ -39,8 +86,10 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         fixedServingConfiguration = Self.configuration(for: model.descriptor)
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
-        fixedMaxConcurrent = Self.maximumConcurrency(for: model.descriptor)
+        let maxConcurrent = Self.maximumConcurrency(for: model.descriptor)
+        fixedMaxConcurrent = maxConcurrent
         mlxServing = nil
+        genericAdmission = GenericAFMAdmissionGate(limit: maxConcurrent)
     }
 
     var maxConcurrent: Int { mlxServing?.maxConcurrent ?? fixedMaxConcurrent }
@@ -59,21 +108,26 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         mlxServing?.resolvedToolCallParser(logBypass: logBypass)
     }
 
-    /// Admission is provider-owned. Concrete MLX models delegate to their
-    /// scheduler; generic AFMKit models remain serial and always accept here.
+    /// Concrete MLX models delegate to their provider scheduler. Generic
+    /// providers use this server-owned bounded gate because the HTTP contract
+    /// transfers streaming reservations until the returned stream terminates.
     func tryReserveSlot() -> Bool {
-        mlxServing?.tryReserveSlot() ?? true
+        mlxServing?.tryReserveSlot() ?? genericAdmission?.tryReserve() ?? false
     }
 
     func waitForSlot(timeout: TimeInterval) async -> Bool {
         if let mlxServing {
             return await mlxServing.waitForSlot(timeout: timeout)
         }
-        return !Task.isCancelled
+        return await genericAdmission?.wait(timeout: timeout) ?? false
     }
 
     func releaseSlot() {
-        mlxServing?.releaseSlot()
+        if let mlxServing {
+            mlxServing.releaseSlot()
+        } else {
+            genericAdmission?.release()
+        }
     }
 
     func tokenize(text: String) async throws -> [Int] {
@@ -325,27 +379,33 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> AFMChatStreamingResult {
-        let request = try AFMRequest(
-            openAIMessages: messages,
-            generationConfig: generationConfig(
-                temperature: temperature,
-                maxTokens: maxTokens,
-                topP: topP,
-                repetitionPenalty: repetitionPenalty,
-                topK: topK,
-                minP: minP,
-                presencePenalty: presencePenalty,
-                seed: seed,
-                logprobs: logprobs,
-                topLogprobs: topLogprobs,
-                tools: tools,
-                toolChoice: toolChoice,
-                parallelToolCalls: parallelToolCalls,
-                stop: stop,
-                responseFormat: responseFormat,
-                chatTemplateKwargs: chatTemplateKwargs
+        let request: AFMRequest
+        do {
+            request = try AFMRequest(
+                openAIMessages: messages,
+                generationConfig: generationConfig(
+                    temperature: temperature,
+                    maxTokens: maxTokens,
+                    topP: topP,
+                    repetitionPenalty: repetitionPenalty,
+                    topK: topK,
+                    minP: minP,
+                    presencePenalty: presencePenalty,
+                    seed: seed,
+                    logprobs: logprobs,
+                    topLogprobs: topLogprobs,
+                    tools: tools,
+                    toolChoice: toolChoice,
+                    parallelToolCalls: parallelToolCalls,
+                    stop: stop,
+                    responseFormat: responseFormat,
+                    chatTemplateKwargs: chatTemplateKwargs
+                )
             )
-        )
+        } catch {
+            genericAdmission?.release()
+            throw error
+        }
         let modelID = normalizeModel(model)
         let eventStream = afmModel(for: model).streamResponse(to: request)
         let startTag = thinkStartTag
@@ -353,6 +413,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
 
         let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             let task = Task {
+                defer { self.genericAdmission?.release() }
                 var promptTokens = 0
                 var completionTokens = 0
                 var cachedTokens = 0

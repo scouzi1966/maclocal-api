@@ -43,6 +43,18 @@ if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
 fi
 shift
 
+LOCAL_PACKAGE_ROOT=""
+if [[ -n "${MACLOCAL_AFMKIT_WORKSPACE_PATH:-}" ]]; then
+    echo "[swiftpm-reliable] MACLOCAL_AFMKIT_WORKSPACE_PATH is reserved for the generated workspace." >&2
+    exit 2
+fi
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    LOCAL_PACKAGE_ROOT="$($ROOT_DIR/Scripts/prepare-local-afmkit-workspace.sh)" || exit $?
+    export MACLOCAL_AFMKIT_WORKSPACE_PATH="$(cd "$MACLOCAL_AFMKIT_PATH" && pwd)"
+    set -- --package-path "$LOCAL_PACKAGE_ROOT" "$@"
+    echo "[swiftpm-reliable] Using isolated local AFMKit workspace: $LOCAL_PACKAGE_ROOT" >&2
+fi
+
 if [[ -z "${MACLOCAL_AFMKIT_PATH:-}" && ! -f "$ROOT_DIR/.build/checkouts/AFMKit/Package.swift" ]]; then
     echo "[swiftpm-reliable] Resolving the authenticated release dependency graph." >&2
     "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" || exit $?
@@ -105,6 +117,17 @@ test_scratch_path() {
         previous="$argument"
     done
     printf '%s\n' "$ROOT_DIR/.build"
+}
+
+swift_package_clean() {
+    if [[ -n "$LOCAL_PACKAGE_ROOT" ]]; then
+        swift package \
+            --package-path "$LOCAL_PACKAGE_ROOT" \
+            --scratch-path "${SCRATCH_PATH:-$ROOT_DIR/.build}" \
+            clean
+    else
+        swift package clean
+    fi
 }
 
 stage_xctest_metallib() {
@@ -335,7 +358,7 @@ if [[ "$DRIVER" == "native" ]] ||
     fi
     if has_recoverable_xcode_failure "$PRIMARY_LOG"; then
         echo "[swiftpm-reliable] Native generated build state is invalid; cleaning products and retrying once." >&2
-        swift package clean
+        swift_package_clean
         if run_native "$RETRY_LOG" "$@"; then
             exit 0
         else
@@ -373,7 +396,7 @@ fi
 
 echo "[swiftpm-reliable] Recoverable Xcode generated-build-state failure detected." >&2
 echo "[swiftpm-reliable] Cleaning build products and retrying with the native driver." >&2
-swift package clean
+swift_package_clean
 
 if run_native "$RETRY_LOG" "$@"; then
     STATUS=0

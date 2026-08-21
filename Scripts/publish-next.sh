@@ -65,6 +65,10 @@ done
 
 cd "$ROOT_DIR"
 
+# Nightly publication has the same downstream availability requirement as a
+# stable release. A valid development token must not bypass this gate.
+"$SCRIPT_DIR/check-public-release-eligibility.sh"
+
 # Verify prerequisites
 if ! command -v gh >/dev/null 2>&1; then
   log_error "gh CLI not found. Install with: brew install gh"

@@ -10,8 +10,18 @@ on:
   workflow_dispatch:  # Enables manual trigger from GitHub UI
 
 jobs:
+  private-dependency-notice:
+    name: Private dependency notice
+    if: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.actor == 'dependabot[bot]') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Explain unavailable Swift analysis
+      run: |
+        echo "::notice::Swift CodeQL is skipped for fork and Dependabot pull requests while AFMKit is private. Secrets are never exposed to untrusted pull request code; a maintainer must run the authenticated workflow on a trusted branch."
+
   analyze:
     name: Analyze Swift
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.fork == false && github.actor != 'dependabot[bot]') }}
     runs-on: macos-latest
     permissions:
       actions: read
@@ -43,9 +53,15 @@ jobs:
         languages: swift
         queries: security-and-quality
 
-    - name: Resolve dependencies
+    - name: Resolve authenticated private AFMKit graph
+      env:
+        AFMKIT_READ_TOKEN: ${{ secrets.AFMKIT_READ_TOKEN }}
       run: |
-        swift package resolve
+        if [[ -z "$AFMKIT_READ_TOKEN" ]]; then
+          echo "::error::AFMKIT_READ_TOKEN is required while AFMKit is private. Configure the read-only repository secret for trusted branches; fork PRs are intentionally skipped."
+          exit 1
+        fi
+        Scripts/resolve-release-dependencies.sh
 
     - name: Manual Build
       run: |

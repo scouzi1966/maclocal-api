@@ -14,6 +14,8 @@ export AFM_RELEASE_MODE=1
 echo "[release-gate] Validating release tooling and authenticated dependency graph"
 Scripts/tests/test-release-tooling.sh
 Scripts/resolve-release-dependencies.sh
+Scripts/check-afmkit-core-graph.sh
+Scripts/tests/test-local-afmkit-override.sh
 
 echo "[release-gate] Running the complete Release test suite"
 Scripts/swiftpm-reliable.sh test -c release \

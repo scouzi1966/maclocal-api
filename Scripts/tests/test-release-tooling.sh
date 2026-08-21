@@ -40,6 +40,37 @@ if grep -Fq 'must-not-appear' "$auth_log"; then
   fail "private AFMKit token leaked into diagnostics"
 fi
 
+public_gate_log="$WORK_ROOT/public-release-error.log"
+if (
+  export AFMKIT_READ_TOKEN="public-gate-secret"
+  source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
+  probe_public_afmkit_source() {
+    [[ -z "${AFMKIT_READ_TOKEN:-}" ]] || return 9
+    return 1
+  }
+  check_public_release_eligibility
+) >"$public_gate_log" 2>&1; then
+  fail "production public-release gate accepted a private dependency"
+fi
+grep -Fq 'Production publishing is blocked' "$public_gate_log" || \
+  fail "public-release failure is not actionable"
+grep -Fq 'cannot satisfy the public distribution requirement' "$public_gate_log" || \
+  fail "public-release failure does not distinguish development authentication"
+if grep -Fq 'public-gate-secret' "$public_gate_log"; then
+  fail "public-release gate leaked a development token"
+fi
+
+if ! (
+  export AFMKIT_READ_TOKEN="public-gate-secret"
+  source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
+  probe_public_afmkit_source() {
+    [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
+  }
+  check_public_release_eligibility
+) >"$WORK_ROOT/public-release-success.log" 2>&1; then
+  fail "production public-release gate rejected an anonymous immutable source"
+fi
+
 prefix="$WORK_ROOT/custom-prefix"
 mkdir -p \
   "$prefix/bin/AFMKit_AFMKitMLX.bundle" \
@@ -66,4 +97,4 @@ for project in "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/pyproject-next.toml"; do
     fail "$(basename "$project") does not include nested Xcode 27 bundle resources"
 done
 
-echo "[release-tooling-test] release lock, auth failure, nested resources, and uninstall verified"
+echo "[release-tooling-test] release lock, authentication boundaries, nested resources, and uninstall verified"

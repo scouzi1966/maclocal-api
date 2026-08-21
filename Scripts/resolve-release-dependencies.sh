@@ -36,10 +36,14 @@ if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
     echo "[afmkit-auth] Invalid MACLOCAL_AFMKIT_PATH: $MACLOCAL_AFMKIT_PATH" >&2
     exit 1
   }
-  echo "[afmkit-auth] Using explicit local AFMKit development checkout: $MACLOCAL_AFMKIT_PATH"
-  $CHECK_ONLY && exit 0
-  swift package resolve
+  echo "[afmkit-auth] Local AFMKit development uses an isolated generated package workspace."
+  echo "[afmkit-auth] Invoke Scripts/swiftpm-reliable.sh with MACLOCAL_AFMKIT_PATH set; the tracked lock is not resolved or changed here."
   exit 0
+fi
+
+if [[ -n "${MACLOCAL_AFMKIT_WORKSPACE_PATH:-}" ]]; then
+  echo "[afmkit-auth] MACLOCAL_AFMKIT_WORKSPACE_PATH is an internal wrapper variable and is not a release input." >&2
+  exit 2
 fi
 
 read -r AFMKIT_URL AFMKIT_REVISION < <(python3 - <<'PY'

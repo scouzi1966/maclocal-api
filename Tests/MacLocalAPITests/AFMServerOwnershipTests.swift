@@ -1,5 +1,7 @@
 @testable import AFMKitMLX
 @testable import AFMServer
+import AFMKit
+import os
 import XCTest
 
 final class AFMServerOwnershipTests: XCTestCase {
@@ -62,5 +64,143 @@ final class AFMServerOwnershipTests: XCTestCase {
         XCTAssertTrue(adapter.servingConfiguration.fixToolArguments)
         XCTAssertTrue(adapter.tryReserveSlot())
         adapter.releaseSlot()
+    }
+
+    func testGenericAdapterEnforcesConfiguredAdmissionLimitConcurrently() {
+        let adapter = makeGenericAdapter(maxConcurrent: 4)
+        let accepted = OSAllocatedUnfairLock(initialState: 0)
+
+        DispatchQueue.concurrentPerform(iterations: 64) { _ in
+            if adapter.tryReserveSlot() {
+                accepted.withLock { $0 += 1 }
+            }
+        }
+
+        XCTAssertEqual(accepted.withLock { $0 }, 4)
+        XCTAssertFalse(adapter.tryReserveSlot())
+
+        for _ in 0..<4 {
+            adapter.releaseSlot()
+        }
+        XCTAssertEqual((0..<4).filter { _ in adapter.tryReserveSlot() }.count, 4)
+        XCTAssertFalse(adapter.tryReserveSlot())
+        for _ in 0..<4 {
+            adapter.releaseSlot()
+        }
+    }
+
+    func testGenericAdapterWaitsForCapacityAndTimesOutWhenFull() async {
+        let adapter = makeGenericAdapter(maxConcurrent: 1)
+        XCTAssertTrue(adapter.tryReserveSlot())
+
+        let waiter = Task { await adapter.waitForSlot(timeout: 1) }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        adapter.releaseSlot()
+        let admittedAfterRelease = await waiter.value
+        XCTAssertTrue(admittedAfterRelease)
+
+        let admittedWhileFull = await adapter.waitForSlot(timeout: 0.03)
+        XCTAssertFalse(admittedWhileFull)
+        adapter.releaseSlot()
+    }
+
+    func testGenericAdapterReleasesTransferredStreamingReservation() async throws {
+        let adapter = makeGenericAdapter(maxConcurrent: 1)
+        XCTAssertTrue(adapter.tryReserveSlot())
+
+        let result = try await genericStream(
+            adapter: adapter,
+            messages: [Message(role: "user", content: "hello")]
+        )
+        for try await _ in result.stream {}
+
+        let admittedAfterStream = await adapter.waitForSlot(timeout: 0.5)
+        XCTAssertTrue(admittedAfterStream)
+        adapter.releaseSlot()
+    }
+
+    func testGenericAdapterReleasesReservationWhenStreamingRequestIsInvalid() async {
+        let adapter = makeGenericAdapter(maxConcurrent: 1)
+        XCTAssertTrue(adapter.tryReserveSlot())
+
+        do {
+            _ = try await genericStream(
+                adapter: adapter,
+                messages: [Message(role: "unsupported", content: "hello")]
+            )
+            XCTFail("invalid OpenAI message role unexpectedly produced a stream")
+        } catch {}
+
+        XCTAssertTrue(adapter.tryReserveSlot())
+        adapter.releaseSlot()
+    }
+
+    private func genericStream(
+        adapter: AFMKitMLXChatServingAdapter,
+        messages: [Message]
+    ) async throws -> AFMChatStreamingResult {
+        try await adapter.generateStreaming(
+            model: "test/generic-admission",
+            messages: messages,
+            temperature: nil,
+            maxTokens: nil,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: nil,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            preserveStructuralTags: false,
+            requestId: nil
+        )
+    }
+
+    private func makeGenericAdapter(maxConcurrent: Int) -> AFMKitMLXChatServingAdapter {
+        let model = GenericAdmissionTestModel(maxConcurrent: maxConcurrent)
+        return AFMKitMLXChatServingAdapter(
+            model: AnyAFMModel(model),
+            modelID: model.descriptor.modelID.rawValue
+        )
+    }
+}
+
+private struct GenericAdmissionTestModel: AFMModel {
+    let descriptor: AFMModelDescriptor
+
+    init(maxConcurrent: Int) {
+        descriptor = AFMModelDescriptor(
+            providerID: "test",
+            modelID: "test/generic-admission",
+            displayName: "Generic admission test",
+            capabilities: [.text, .streaming],
+            metadata: ["maxConcurrent": .integer(maxConcurrent)]
+        )
+    }
+
+    func availability() async -> AFMModelAvailability { .available }
+
+    func load(progress: (@Sendable (Double) -> Void)?) async throws -> AFMModelDescriptor {
+        descriptor
+    }
+
+    func respond(to request: AFMRequest) async throws -> AFMModelResponse {
+        AFMModelResponse(text: "ok")
+    }
+
+    func streamResponse(
+        to request: AFMRequest
+    ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.responseText(action: .append, text: "ok", tokenCount: 1))
+            continuation.yield(.completed(.stop))
+            continuation.finish()
+        }
     }
 }
