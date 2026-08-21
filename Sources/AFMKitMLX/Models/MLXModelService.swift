@@ -1693,9 +1693,24 @@ public final class MLXModelService: @unchecked Sendable {
             if mtpEnabled {
                 if let sidecar = resolvedMTPSidecar {
                     do {
+                        guard let runtimeModelKind = AFMMLXMTPRuntimePolicy.compatibleModelKind(
+                            mtpEnabled: mtpEnabled,
+                            factory: actualFactory,
+                            canonicalModelType: modelArchitecture.canonicalModelType
+                        ) else {
+                            throw MLXServiceError.loadFailed(
+                                "MTP head requires a compatible Qwen text or vision architecture"
+                            )
+                        }
                         let quantization = mtpQuantization(for: sidecar)
                         loadedMTPBinding = try await loaded.perform { context in
-                            if let qwen = context.model as? Qwen3_5MoEModel {
+                            switch runtimeModelKind {
+                            case .qwenText:
+                                guard let qwen = context.model as? Qwen3_5MoEModel else {
+                                    throw MLXServiceError.loadFailed(
+                                        "Qwen text MTP selected, but loaded \(type(of: context.model))"
+                                    )
+                                }
                                 let head = try qwen.loadMTPHead(
                                     sidecarPath: sidecar,
                                     groupSize: quantization.groupSize,
@@ -1715,7 +1730,12 @@ public final class MLXModelService: @unchecked Sendable {
                                     modelID: modelID,
                                     generator: .llm(generator)
                                 )
-                            } else if let qwen = context.model as? Qwen3_5MoEVL {
+                            case .qwenVision:
+                                guard let qwen = context.model as? Qwen3_5MoEVL else {
+                                    throw MLXServiceError.loadFailed(
+                                        "Qwen vision MTP selected, but loaded \(type(of: context.model))"
+                                    )
+                                }
                                 let head = try qwen.loadMTPHead(
                                     sidecarPath: sidecar,
                                     groupSize: quantization.groupSize,
@@ -1734,10 +1754,6 @@ public final class MLXModelService: @unchecked Sendable {
                                 return MTPGeneratorBinding(
                                     modelID: modelID,
                                     generator: .vlm(generator)
-                                )
-                            } else {
-                                throw MLXServiceError.loadFailed(
-                                    "MTP head requires a compatible Qwen text or vision model; loaded \(type(of: context.model))"
                                 )
                             }
                         }
