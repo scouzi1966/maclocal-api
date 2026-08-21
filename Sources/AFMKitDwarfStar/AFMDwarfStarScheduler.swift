@@ -130,6 +130,48 @@ enum AFMDwarfStarStoppingPolicy {
     }
 }
 
+struct AFMDwarfStarOutputAccounting {
+    enum Disposition: Equatable {
+        case stop
+        case suppress
+        case expose
+    }
+
+    let maximumTokens: Int
+    private(set) var consumedTokens = 0
+
+    init(maximumTokens: Int) {
+        self.maximumTokens = max(0, maximumTokens)
+    }
+
+    var isExhausted: Bool {
+        consumedTokens >= maximumTokens
+    }
+
+    func disposition(
+        isEndOfSequence: Bool,
+        isRuntimeStop: Bool,
+        ignoreEndOfSequence: Bool
+    ) -> Disposition {
+        if AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: isEndOfSequence,
+            isRuntimeStop: isRuntimeStop,
+            ignoreEndOfSequence: ignoreEndOfSequence
+        ) {
+            return .stop
+        }
+        return AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: isEndOfSequence,
+            ignoreEndOfSequence: ignoreEndOfSequence
+        ) ? .expose : .suppress
+    }
+
+    mutating func recordConsumed(_ onConsumed: () -> Void) {
+        consumedTokens += 1
+        onConsumed()
+    }
+}
+
 enum AFMDwarfStarRawStopPolicy {
     struct Result: Equatable {
         var visibleText: String
@@ -224,7 +266,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         var toolCalls: [AFMToolCall] = []
         var toolParser: AFMDwarfStarToolCodec.StreamParser
         var pendingUTF8 = Data()
-        var outputTokens = 0
+        var outputAccounting: AFMDwarfStarOutputAccounting
         var randomState: UInt64
         var peakBatchSize = 1
         let reasoningMode: AFMDwarfStarReasoningMode
@@ -250,13 +292,20 @@ public actor AFMDwarfStarRuntimeCoordinator {
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
             reasoningMode = .resolve(metadata: request.metadata)
+            outputAccounting = AFMDwarfStarOutputAccounting(
+                maximumTokens: request.options.maximumResponseTokens ?? 512
+            )
             toolParser = AFMDwarfStarToolCodec.StreamParser(
                 startsInReasoning: reasoningMode != .chat
             )
         }
 
         var maximumTokens: Int {
-            max(0, request.options.maximumResponseTokens ?? 512)
+            outputAccounting.maximumTokens
+        }
+
+        var outputTokens: Int {
+            outputAccounting.consumedTokens
         }
 
         var requestedMaximumTokens: Int? {
@@ -815,7 +864,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func emit(token: Int32, engine: OpaquePointer, slotIndex: Int) {
         guard let job = slots[slotIndex].job else { return }
         let isEOS = token == ds4_token_eos(engine)
-        if AFMDwarfStarStoppingPolicy.shouldStop(
+        let disposition = job.outputAccounting.disposition(
             isEndOfSequence: isEOS,
             isRuntimeStop: ds4_token_is_stop_for_think_mode(
                 engine,
@@ -823,14 +872,17 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 job.reasoningMode.thinkMode
             ),
             ignoreEndOfSequence: job.request.options.ignoreEndOfSequence
-        ) {
+        )
+        if disposition == .stop {
             finish(slotIndex: slotIndex, reason: .stop)
             return
         }
-        if !AFMDwarfStarStoppingPolicy.shouldExposeToken(
-            isEndOfSequence: isEOS,
-            ignoreEndOfSequence: job.request.options.ignoreEndOfSequence
-        ) {
+
+        if disposition == .suppress {
+            recordOutputToken(for: job)
+            if job.outputAccounting.isExhausted {
+                finish(slotIndex: slotIndex, reason: .length)
+            }
             return
         }
 
@@ -846,11 +898,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
             count: byteCount)
         afm_ds4_free(bytes)
-        job.outputTokens += 1
-        job.telemetryObserver.outputToken(
-            job.telemetryToken,
-            at: ProcessInfo.processInfo.systemUptime
-        )
+        recordOutputToken(for: job)
 
         if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
             job.pendingUTF8.removeAll(keepingCapacity: true)
@@ -884,6 +932,15 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
         if job.outputTokens >= job.maximumTokens {
             finish(slotIndex: slotIndex, reason: .length)
+        }
+    }
+
+    private func recordOutputToken(for job: GenerationJob) {
+        job.outputAccounting.recordConsumed {
+            job.telemetryObserver.outputToken(
+                job.telemetryToken,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
     }
 

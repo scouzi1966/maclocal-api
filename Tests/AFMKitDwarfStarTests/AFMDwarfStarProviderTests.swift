@@ -35,6 +35,53 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         ))
     }
 
+    func testStreamingIgnoreEOSConsumesRepeatedEOSBudgetWithoutEmittingText() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 3)
+        var telemetryTokens = 0
+        var streamedText = ""
+
+        while !accounting.isExhausted {
+            let disposition = accounting.disposition(
+                isEndOfSequence: true,
+                isRuntimeStop: true,
+                ignoreEndOfSequence: true
+            )
+            if disposition == .expose {
+                streamedText += "<eos>"
+            }
+            XCTAssertEqual(disposition, .suppress)
+            accounting.recordConsumed { telemetryTokens += 1 }
+        }
+
+        XCTAssertEqual(streamedText, "")
+        XCTAssertEqual(accounting.consumedTokens, 3)
+        XCTAssertEqual(telemetryTokens, 3)
+    }
+
+    func testNonStreamingIgnoreEOSReportsRepeatedEOSInUsageAtLengthBoundary() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 4)
+        var telemetryTokens = 0
+        var responseText = ""
+
+        while !accounting.isExhausted {
+            let disposition = accounting.disposition(
+                isEndOfSequence: true,
+                isRuntimeStop: true,
+                ignoreEndOfSequence: true
+            )
+            if disposition == .expose {
+                responseText += "<eos>"
+            }
+            accounting.recordConsumed { telemetryTokens += 1 }
+        }
+
+        let usage = AFMUsage(outputTokens: accounting.consumedTokens)
+        XCTAssertEqual(responseText, "")
+        XCTAssertEqual(usage.outputTokens, 4)
+        XCTAssertEqual(telemetryTokens, 4)
+        XCTAssertTrue(accounting.isExhausted)
+    }
+
     func testRawStopPolicyWithholdsStopAcrossTokenPieces() {
         var buffer = ""
         let first = AFMDwarfStarRawStopPolicy.consume(
