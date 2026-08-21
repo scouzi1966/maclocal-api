@@ -64,13 +64,13 @@ PY
 promtool check metrics --extended --lint=none < /Volumes/edata/afm-metrics.prom
 ```
 
-Current `promtool check metrics` style lint exits 3 for every colon-qualified
-metric name, including official `vllm:*` names, with only `metric names should
-not contain ':'` diagnostics. The qualification harness requires the strict
+Current `promtool check metrics` style lint exits 3 for colon-qualified metric
+names, including official `vllm:*` names. It also reports abbreviated-unit
+style diagnostics for vLLM's official `*_toks_per_s` names and AFM's
+`snapshot_timestamp_ms`. The qualification harness requires the strict
 `--extended --lint=none` parser/cardinality pass, runs the default linter as
-well, and permits only
-that unavoidable AFM/vLLM prefix diagnostic. Any HELP/TYPE, syntax,
-consistency, or unrelated lint problem fails qualification.
+well, and permits only those exact compatibility-style diagnostics. Any
+HELP/TYPE, syntax, consistency, or unrelated lint problem fails qualification.
 
 The pinned, unmodified vLLM Playground always scrapes `<server-root>/metrics`
 and filters for `vllm:` names. Start it, select Remote mode, and enter
@@ -136,8 +136,13 @@ Scripts/test-vllm-guidellm-compat.py guidellm-report \
   --json "$OUT/benchmarks.json" \
   --csv "$OUT/benchmarks.csv" \
   --html "$OUT/benchmarks.html" \
-  --artifact-dir "$OUT/qualification"
+  --artifact-dir "$OUT/qualification" \
+  --streaming
 ```
+
+Pass `--streaming` for streaming runs so qualification requires positive TTFT
+and inter-token latency. Omit it for non-streaming runs, where pinned GuideLLM
+truthfully reports both stream-only measurements as zero.
 
 Run the direct HTTP, SSE, Prometheus, parity, and concurrency contract against
 the same server:
@@ -181,6 +186,8 @@ the stream. They do not emit generated success text, finish usage, or `[DONE]`.
 The executable contract fails on protocol errors, unstable discovery,
 non-atomic AFM/vLLM values, missing SSE termination, repeated or estimated
 usage chunks, early EOS under fixed-output generation, and zero GuideLLM
-latency, TTFT, ITL, throughput, or token metrics. A runtime is not qualified
-merely because the source supports it; retain the JSON summary and raw outputs
-from a successful run.
+latency, throughput, or token metrics. Streaming qualification additionally
+requires positive TTFT and ITL; non-streaming qualification requires the
+pinned tool's stream-only zero values. A runtime is not qualified merely
+because the source supports it; retain the JSON summary and raw outputs from a
+successful run.

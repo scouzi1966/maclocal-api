@@ -17,6 +17,82 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testProviderAdmissionTokenRecordsStreamingTelemetryInSharedCollector() async throws {
+        let collector = InferenceTelemetryCollector()
+        collector.configure(modelName: "test-model", maximumConcurrentRequests: 1)
+        let service = FakeMLXChatService(
+            streamingHandler: { _ in
+                guard let token = AFMGenerationContext.telemetryToken else {
+                    preconditionFailure(
+                        "provider generation did not receive the admission telemetry token"
+                    )
+                }
+                let now = Date().timeIntervalSince1970
+                collector.promptTokensProcessed(
+                    token,
+                    fullPromptTokens: 7,
+                    computedPromptTokens: 7,
+                    at: now
+                )
+                collector.outputToken(token, at: now + 0.01)
+                _ = collector.requestFinished(
+                    token,
+                    observation: AFMInferenceRequestFinishObservation(
+                        reason: .length,
+                        completedAt: now + 0.02,
+                        fullPromptTokens: 7,
+                        computedPromptTokens: 7,
+                        generatedTokens: 3,
+                        maximumOutputTokens: 3
+                    )
+                )
+                return Self.makeDelayedStreamingResult(
+                    modelID: "test-model",
+                    chunks: [
+                        StreamChunk(text: "ok"),
+                        StreamChunk(
+                            text: "",
+                            promptTokens: 7,
+                            completionTokens: 3,
+                            cachedTokens: 0,
+                            promptTime: 0.01,
+                            generateTime: 0.02
+                        ),
+                    ],
+                    delayNanoseconds: nil
+                )
+            }
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter { _ in
+            let now = Date().timeIntervalSince1970
+            let token = collector.requestAccepted(at: now)
+            collector.requestStarted(token, at: now)
+            return AFMGenerationLease(telemetryToken: token) {}
+        }
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, "data: [DONE]")
+        }
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "length" }?.count, 1)
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 7)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 3)
+    }
+
     func testStreamingControllerParsesRawToolCallTextIntoSSEToolCalls() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
@@ -1001,7 +1077,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Sendable {
+private final class FakeMLXChatService:
+    AFMMLXOpenAIChatServing,
+    AFMMLXGenerationAdmitterProviding,
+    @unchecked Sendable
+{
     let maxConcurrent: Int
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
@@ -1028,6 +1108,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private(set) var recordedGenerateToolChoices: [String] = []
     private(set) var recordedStreamingToolChoices: [String] = []
     private(set) var recordedPreserveStructuralTags: [Bool] = []
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter?
 
     init(
         maxConcurrent: Int = 1,

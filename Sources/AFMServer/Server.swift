@@ -1715,8 +1715,12 @@ public class Server: @unchecked Sendable {
         print("")
         print("  📡 Endpoints:")
         print("     • POST   /v1/chat/completions    - Chat completion (streaming supported)")
+        if mlxModelID != nil {
+            print("     • POST   /v1/completions         - Raw text completion (streaming supported)")
+        }
         print("     • GET    /v1/models              - List available models")
         print("     • GET    /health                 - Health check")
+        print("     • GET    /metrics                - Prometheus metrics (AFM and vLLM families)")
         print("")
         print("  ⚙️  Configuration:")
         print("     • Streaming:          \(streamingEnabled ? "✓ enabled" : "✗ disabled")")

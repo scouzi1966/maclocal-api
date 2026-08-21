@@ -122,6 +122,17 @@ struct MLXChatCompletionsController: RouteCollection {
                 providerOwnsStreamingRelease: true
             )
         }
+        if let providing = service as? any AFMMLXGenerationAdmitterProviding,
+           let admitter = providing.providerGenerationAdmitter {
+            let lease = try await admitter.admitGeneration(
+                timeout: .seconds(Self.slotQueueTimeout)
+            )
+            return GenerationAdmission(
+                lease: lease,
+                acceptedAt: acceptedAt,
+                providerOwnsStreamingRelease: true
+            )
+        }
 
         let adapter = LegacyAFMMLXAdmissionAdapter(scheduler: service)
         return GenerationAdmission(
