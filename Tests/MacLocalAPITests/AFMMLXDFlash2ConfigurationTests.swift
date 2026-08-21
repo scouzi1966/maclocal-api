@@ -164,6 +164,21 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             topK: 0, minP: 0, presencePenalty: 0.4,
             hasTools: false, hasResponseFormat: false,
             wantsLogprobs: false, hasStopSequences: false).denialReason, "penalties")
+        XCTAssertEqual(service.speculativeRequestCompatibility(
+            temperature: 0, topP: nil, repetitionPenalty: nil,
+            topK: 20, minP: nil, presencePenalty: nil,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).denialReason, "sampling")
+        XCTAssertEqual(service.speculativeRequestCompatibility(
+            temperature: 0, topP: nil, repetitionPenalty: nil,
+            topK: nil, minP: 0.05, presencePenalty: nil,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).denialReason, "sampling")
+        XCTAssertEqual(service.speculativeRequestCompatibility(
+            temperature: 0, topP: nil, repetitionPenalty: nil,
+            topK: nil, minP: nil, presencePenalty: 0.4,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).denialReason, "penalties")
     }
 
     func testExplicitPreferredAndOffDoNotSelectOtherSpeculativeRuntimes() throws {

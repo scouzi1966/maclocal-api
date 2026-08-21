@@ -1562,12 +1562,12 @@ public final class MLXModelService: @unchecked Sendable {
         guard let temperature, temperature <= 0 else {
             return SpeculativeRequestCompatibility(denialReason: "sampling")
         }
-        if let topP, topP < 1
+        if (topP ?? 1) < 1
             || (topK ?? 0) > 0
             || (minP ?? 0) > 0 {
             return SpeculativeRequestCompatibility(denialReason: "sampling")
         }
-        if let repetitionPenalty, abs(repetitionPenalty - 1) > 0.000_001
+        if abs((repetitionPenalty ?? 1) - 1) > 0.000_001
             || abs(presencePenalty ?? 0) > 0.000_001 {
             return SpeculativeRequestCompatibility(denialReason: "penalties")
         }

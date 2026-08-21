@@ -150,11 +150,20 @@ afm mlx -m mlx-community/Muse-Glimmer-30B-4bit \
   --dflash2 incoai/Muse-Glimmer-30B-DFlash2 --port 9999
 ```
 
-The supported fast path is greedy, serial, text-only generation without tools,
-grammar, logprobs, or string stop sequences. Streaming and non-streaming use
-the same draft/verify generator. Prefix-cache and concurrent/batch execution
-remain autoregressive in preferred mode. `--dflash2-required` converts any
-unsupported request or runtime conflict into an error before output begins.
+The supported fast path is explicit-greedy (`"temperature": 0`), serial,
+text-only generation without sampling controls, non-neutral repetition or
+presence penalties, tools, grammar, logprobs, or string stop sequences. An
+omitted temperature retains AFM's normal `0.6` default and is therefore a
+sampling request; preferred mode uses AR and required mode rejects it before
+output. Streaming and non-streaming use the same draft/verify generator and
+the complete configured/tokenizer EOS set; terminal EOS tokens are not emitted
+or counted as completion tokens.
+
+Prefix-cache, concurrent, and multiplex/job batch execution remain
+autoregressive in preferred mode. Batch requests never run serial DFlash2.
+`--dflash2-required` converts any unsupported request or runtime conflict into
+an error before output begins. Cancellation propagates through the generator;
+cancelled work is not recorded as a successful partial completion.
 
 Requests may explicitly disable a loaded runtime or require it:
 
@@ -171,17 +180,20 @@ Requests may explicitly disable a loaded runtime or require it:
 }
 ```
 
-Use `"mode": "off"` for per-request autoregressive decoding. A request cannot
-load or switch drafters; an optional `drafter` value must match the resource
-selected at startup. AFM exports neutral draft, accepted, emitted, cycle, and
-phase-time counters under `/metrics`, and AFMKit receives the same summary in
+Use `"mode": "off"` for per-request autoregressive decoding. It suppresses all
+loaded speculative runtimes, including DFlash2, DSpARK, MTP, and EAGLE3. An
+explicit preferred/required DFlash2 request also cannot silently fall through
+to another speculative runtime. A request cannot load or switch drafters; an
+optional `drafter` value must match the resource selected at startup. AFM
+exports neutral draft, accepted, emitted, cycle, and phase-time counters under
+`/metrics`, and AFMKit receives the same summary in
 `afm.speculative_decoding.v1` response metadata/events.
 
 The current generator is correctness-first: greedy output is target-equivalent
 in synthetic qualification and bounded live smoke tests on both released pairs,
-but draft KV caching, speculative prefix snapshots, sampling rejection, and
-batched verification are deferred. No local Qwen/Muse speedup claim has been
-qualified.
+but draft KV caching, speculative prefix snapshots, sampling support, and
+batched verification are deferred behind the fallback/error policy above. No
+local Qwen/Muse speedup claim has been qualified.
 
 ---
 

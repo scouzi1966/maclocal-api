@@ -126,7 +126,7 @@ struct OpenAPIController: RouteCollection {
               "response_format": { "$ref": "#/components/schemas/ResponseFormat" },
               "speculative_decoding": {
                 "type": "object",
-                "description": "Optional provider-neutral speculative decoding controls. Preferred mode may fall back; required mode returns an error when unavailable or incompatible.",
+                "description": "Optional provider-neutral speculative decoding controls. DFlash 2 requires explicit temperature 0 and serial text generation without sampling modifiers or non-neutral penalties. Omitted temperature retains the normal sampling default. Preferred mode falls back to autoregressive decoding for incompatible, prefix-cache, concurrent, or batch requests; required mode returns an error before output. Mode off disables every speculative runtime for the request.",
                 "properties": {
                   "mode": { "type": "string", "enum": ["auto", "off", "dflash2"] },
                   "requirement": { "type": "string", "enum": ["preferred", "required"] },

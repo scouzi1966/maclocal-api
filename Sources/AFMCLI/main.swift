@@ -243,7 +243,7 @@ struct MlxCommand: ParsableCommand {
           --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
           --dflash2: DFlash 2 drafter repository or local directory for a compatible Qwen 3.8 or Muse Glimmer target
           --dflash2-block: Verification block size including the verifier token (default: 5)
-          --dflash2-required: Fail when DFlash 2 cannot serve an eligible request instead of falling back to AR
+          --dflash2-required: Reject requests that cannot use explicit-greedy serial DFlash 2 instead of falling back to AR
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
@@ -494,7 +494,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .customLong("dflash2-block"), help: "DFlash 2 verification block size, including the verifier token (2...checkpoint limit; default: 5).")
     var dflash2Block: Int = 5
 
-    @Flag(name: .customLong("dflash2-required"), help: "Fail instead of using autoregressive decoding when DFlash 2 cannot be used for a request.")
+    @Flag(name: .customLong("dflash2-required"), help: "Reject requests that cannot use explicit-greedy serial DFlash 2 instead of falling back to autoregressive decoding.")
     var dflash2Required: Bool = false
 
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
