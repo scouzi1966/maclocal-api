@@ -1,4 +1,5 @@
 import Foundation
+import MLXVLM
 
 public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
     private struct SnapshotFingerprint: Hashable {
@@ -122,12 +123,22 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         let selectedURL = FileManager.default.fileExists(atPath: preprocessor.path)
             ? preprocessor
             : processor
-        guard let config = jsonObject(at: selectedURL) else { return nil }
+        guard let data = try? Data(contentsOf: selectedURL),
+              let baseConfig = try? JSONDecoder().decode(
+                  BaseProcessorConfiguration.self,
+                  from: data
+              ),
+              !baseConfig.processorClass.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
 
         if canonicalModelType == "qwen3_5" || canonicalModelType == "qwen3_5_moe" {
+            guard (try? JSONDecoder().decode(
+                Qwen3VLProcessorConfiguration.self,
+                from: data
+            )) != nil else { return nil }
             return "Qwen3VLProcessor"
         }
-        return config["processor_class"] as? String
+        return baseConfig.processorClass
     }
 
     private static func visionTensorNames(in modelDirectory: URL) -> Set<String> {

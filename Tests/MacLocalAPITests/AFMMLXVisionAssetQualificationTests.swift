@@ -75,6 +75,20 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
     }
 
+    func testMalformedQwenProcessorMetadataIsNotUsable() throws {
+        let directory = try makeModelDirectory()
+        try Self.writeJSON(
+            ["processor_class": "Qwen3VLProcessor"],
+            to: directory.appendingPathComponent("preprocessor_config.json")
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertNil(qualification.processorClass)
+        XCTAssertTrue(qualification.missingAssets.contains(.processorConfiguration))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
     func testStandaloneSafetensorHeaderQualifiesVisionWeights() throws {
         let directory = try makeModelDirectory(indexed: false)
         try Self.writeSafetensorHeader(
@@ -144,7 +158,15 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             to: directory.appendingPathComponent("config.json")
         )
         try Self.writeJSON(
-            ["processor_class": "Qwen3VLProcessor"],
+            [
+                "processor_class": "Qwen3VLProcessor",
+                "image_processor_type": "Qwen2VLImageProcessorFast",
+                "image_mean": [0.5, 0.5, 0.5],
+                "image_std": [0.5, 0.5, 0.5],
+                "merge_size": 2,
+                "patch_size": 16,
+                "temporal_patch_size": 2,
+            ],
             to: directory.appendingPathComponent("preprocessor_config.json")
         )
         if indexed {

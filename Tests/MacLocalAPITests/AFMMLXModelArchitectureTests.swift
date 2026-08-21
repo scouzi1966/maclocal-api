@@ -225,6 +225,18 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertTrue(AFMMLXModelArchitecture.isDualModeConfiguration(config))
     }
 
+    func testQwen38ArchitectureDetectionDoesNotDependOnRepositoryName() throws {
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            Qwen38PublishedConfigFixture.mxfp8,
+            modelID: "local/unrelated-checkpoint-name"
+        )
+
+        XCTAssertEqual(preflight.modelID, "local/unrelated-checkpoint-name")
+        XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertFalse(preflight.requiresVisionModelFactory)
+    }
+
     func testQwen38PublishedConfigurationDecodesWithQwen35VLMFactoryConfiguration() throws {
         let data = try JSONSerialization.data(withJSONObject: Qwen38PublishedConfigFixture.mxfp8)
         XCTAssertNoThrow(try JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: data))

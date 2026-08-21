@@ -868,6 +868,70 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(service.generateCallCount, 0)
     }
 
+    func testOpenAIMultipartImageIsForwardedInStreamingAndNonStreamingModes() async throws {
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: "NON_STREAM_IMAGE_OK",
+                promptTokens: 10,
+                completionTokens: 3,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "STREAM_IMAGE_OK"),
+                StreamChunk(
+                    text: "",
+                    promptTokens: 10,
+                    completionTokens: 3,
+                    cachedTokens: 0,
+                    promptTime: 0.01,
+                    generateTime: 0.01
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        for stream in [false, true] {
+            let body = imageRequestBody(stream: stream)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { res async in
+                XCTAssertEqual(res.status, .ok)
+                XCTAssertContains(
+                    res.body.string,
+                    stream ? "STREAM_IMAGE_OK" : "NON_STREAM_IMAGE_OK"
+                )
+            }
+        }
+
+        XCTAssertEqual(service.preflightCallCount, 2)
+        XCTAssertEqual(service.generateCallCount, 1)
+        XCTAssertEqual(service.generateStreamingCallCount, 1)
+        for messages in service.recordedPreflightMessages
+            + service.recordedGenerateMessages
+            + service.recordedStreamingMessages
+        {
+            guard case .parts(let parts)? = messages.first?.content else {
+                return XCTFail("Expected multipart OpenAI message content.")
+            }
+            XCTAssertEqual(parts.map(\.type), ["text", "image_url"])
+            XCTAssertEqual(parts.last?.image_url?.url, "data:image/png;base64,iVBORw0KGgo=")
+        }
+    }
+
     private func requestBody(
         stream: Bool = true,
         prompt: String = "What is the weather in Berlin?",
@@ -1117,6 +1181,9 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private(set) var recordedGenerateToolChoices: [String] = []
     private(set) var recordedStreamingToolChoices: [String] = []
     private(set) var recordedPreserveStructuralTags: [Bool] = []
+    private(set) var recordedPreflightMessages: [[Message]] = []
+    private(set) var recordedGenerateMessages: [[Message]] = []
+    private(set) var recordedStreamingMessages: [[Message]] = []
     private(set) var preflightCallCount = 0
     private(set) var reserveSlotCallCount = 0
     private(set) var generateCallCount = 0
@@ -1194,6 +1261,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     func preflightMediaRequest(model: String, messages: [Message]) throws {
         let failure = stateLock.withLock {
             preflightCallCount += 1
+            recordedPreflightMessages.append(messages)
             return preflightFailure
         }
         if let failure { throw failure }
@@ -1233,7 +1301,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
-        stateLock.withLock { generateCallCount += 1 }
+        stateLock.withLock {
+            generateCallCount += 1
+            recordedGenerateMessages.append(messages)
+        }
         recordGenerateTools(tools)
         return generateResult
     }
@@ -1299,7 +1370,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatStreamingResult {
-        stateLock.withLock { generateStreamingCallCount += 1 }
+        stateLock.withLock {
+            generateStreamingCallCount += 1
+            recordedStreamingMessages.append(messages)
+        }
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }
