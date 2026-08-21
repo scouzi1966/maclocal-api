@@ -46,6 +46,10 @@ private final class AFMEvaluationSignalMonitor {
                 if controller.requestInterruption() {
                     FileHandle.standardError.write(Data(
                         "\nEvaluation interruption requested; preserving partial results…\n".utf8))
+                } else {
+                    FileHandle.standardError.write(Data(
+                        "\nSecond interruption received; exiting immediately.\n".utf8))
+                    Darwin._exit(signalNumber == SIGINT ? 130 : 143)
                 }
             }
             source.resume()
