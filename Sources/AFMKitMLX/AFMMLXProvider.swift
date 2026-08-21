@@ -263,6 +263,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         responseFormat: request.openAIResponseFormat(),
                         chatTemplateKwargs: request.chatTemplateKwargs(),
                         speculativeDecoding: request.speculativeDecodingOptions(),
+                        preserveStructuralTags: request.preserveStructuralTags,
                         requestId: nil
                     )
                     ownsReservation = false
@@ -754,6 +755,13 @@ public enum AFMMLXModelDescriptor {
 }
 
 extension AFMRequest {
+    var preserveStructuralTags: Bool {
+        guard case .bool(let value)? =
+            metadata[AFMMLXRequestMetadata.preserveStructuralTags]
+        else { return false }
+        return value
+    }
+
     func speculativeDecodingOptions() -> SpeculativeDecodingOptions? {
         guard case .object(let values)? = metadata["speculativeDecoding"] else {
             return nil

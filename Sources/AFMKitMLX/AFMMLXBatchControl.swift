@@ -11,6 +11,10 @@ public enum AFMMLXSchedulerAdmissionOwnership: Sendable {
     case callerReserved
 }
 
+public enum AFMMLXRequestMetadata {
+    public static let preserveStructuralTags = "preserveStructuralTags"
+}
+
 /// Controls admission to an MLX runtime's concurrent request slots.
 ///
 /// Server and app consumers use this contract without depending on the

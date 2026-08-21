@@ -467,7 +467,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 stop: stop,
                 responseFormat: responseFormat,
                 chatTemplateKwargs: chatTemplateKwargs,
-                speculativeDecoding: speculativeDecoding
+                speculativeDecoding: speculativeDecoding,
+                preserveStructuralTags: preserveStructuralTags
             )
         )
         let modelID = normalizeModel(model)
@@ -631,7 +632,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         stop: [String]?,
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
-        speculativeDecoding: SpeculativeDecodingOptions?
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool? = nil
     ) -> GenerationConfig {
         var metadata = [String: AFMJSONValue]()
         switch toolChoice {
@@ -669,6 +671,10 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 speculative["forceAutoregressiveReason"] = .string(forceAutoregressiveReason)
             }
             metadata["speculativeDecoding"] = .object(speculative)
+        }
+        if let preserveStructuralTags {
+            metadata[AFMMLXRequestMetadata.preserveStructuralTags] =
+                .bool(preserveStructuralTags)
         }
         return GenerationConfig(
             temperature: temperature,

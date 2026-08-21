@@ -11,6 +11,22 @@ enum AFMMLXGenerationRoute: Equatable {
     }
 }
 
+public enum AFMMLXGPUCapturePolicy {
+    public static let concurrentIncompatibility =
+        "--gpu-capture cannot be combined with --concurrent values greater than 1; GPU capture requires serial generation"
+
+    public static func incompatibility(
+        maxConcurrent: Int,
+        capturePath: String?
+    ) -> String? {
+        guard maxConcurrent > 1,
+              let capturePath,
+              !capturePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return concurrentIncompatibility
+    }
+}
+
 public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
     case native
     case ds4

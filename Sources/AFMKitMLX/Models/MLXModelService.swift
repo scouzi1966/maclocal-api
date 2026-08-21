@@ -2444,6 +2444,7 @@ public final class MLXModelService: @unchecked Sendable {
         requiresFixedDecodeCohorts: Bool?
     ) async throws {
         guard maxConcurrent >= 2 else { return }
+        try validateGPUCaptureCompatibility(maxConcurrent: maxConcurrent)
         if forceSerialGeneration {
             print("[\(ts())] Concurrent mode requested but model requires serial generation — running serially (correct output, requests serialized through model lock)")
             return
@@ -2478,6 +2479,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Waits for active serial generations to leave the model before publishing
     /// the scheduler, and blocks new serial generations while promotion runs.
     public func ensureBatchMode(concurrency: Int) async throws {
+        try validateGPUCaptureCompatibility(maxConcurrent: max(concurrency, 8))
         // Models that require serial generation never get a scheduler. Still increment the
         // batch reference so the caller's matching releaseBatchReference() stays balanced;
         // per-request generateStreaming() routes to the serial path when scheduler == nil.
@@ -3828,7 +3830,10 @@ public final class MLXModelService: @unchecked Sendable {
         }
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
-        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let requestedMaxTokens = maxTokens ?? 2000
+        let effectiveMaxTokens = hasSerialExecutionLease
+            ? capMaxTokensForCapture(requestedMaxTokens)
+            : requestedMaxTokens
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -3870,6 +3875,7 @@ public final class MLXModelService: @unchecked Sendable {
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if case .scheduler = executionLease {
+            try validateGPUCaptureCompatibility(maxConcurrent: maxConcurrent)
             guard let scheduler = withStateLock({ self.scheduler }) else {
                 throw MLXServiceError.noModelLoaded
             }
@@ -4855,6 +4861,17 @@ public final class MLXModelService: @unchecked Sendable {
         withStateLock {
             isShuttingDown = true
             return scheduler
+        }
+    }
+
+    private func validateGPUCaptureCompatibility(
+        maxConcurrent: Int
+    ) throws {
+        if let incompatibility = AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: maxConcurrent,
+            capturePath: gpuCapturePath
+        ) {
+            throw MLXServiceError.loadFailed(incompatibility)
         }
     }
 

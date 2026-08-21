@@ -7,6 +7,20 @@ import XCTest
 final class AFMMLXRuntimeTests: XCTestCase {
     private struct ExpectedFailure: Error {}
 
+    func testGPUCapturePolicyRejectsConcurrentModeOnly() {
+        XCTAssertEqual(
+            AFMMLXGPUCapturePolicy.incompatibility(
+                maxConcurrent: 8,
+                capturePath: "/tmp/capture.gputrace"),
+            AFMMLXGPUCapturePolicy.concurrentIncompatibility)
+        XCTAssertNil(AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: 1,
+            capturePath: "/tmp/capture.gputrace"))
+        XCTAssertNil(AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: 8,
+            capturePath: nil))
+    }
+
     func testConcurrentRuntimeRoutesNonStreamingAndPrewarmThroughSchedulerStream() {
         XCTAssertEqual(
             AFMMLXGenerationRoute.resolve(maxConcurrent: 8),

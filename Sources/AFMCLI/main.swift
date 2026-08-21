@@ -252,7 +252,7 @@ struct MlxCommand: ParsableCommand {
           --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
           --cache-profile-path: Write cache timing profile records as JSONL
-          --gpu-capture <path>: Capture Metal GPU trace to .gputrace file for Xcode analysis (auto-limits to 5 tokens)
+          --gpu-capture <path>: Capture a serial Metal GPU trace to .gputrace (auto-limits to 5 tokens)
           --gpu-trace <seconds>: Record Metal System Trace via xctrace for N seconds (lightweight per-kernel timing)
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --gpu-profile-bw: Also sample DRAM bandwidth with mactop
@@ -515,7 +515,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
 
-    @Option(name: .long, help: "Capture a Metal GPU trace to the given path (e.g. /tmp/afm-trace.gputrace). Opens in Xcode for per-kernel analysis. Auto-limits to 5 tokens to keep trace small.")
+    @Option(name: .long, help: "Capture a serial Metal GPU trace to the given path (e.g. /tmp/afm-trace.gputrace). Opens in Xcode for per-kernel analysis. Auto-limits to 5 tokens to keep trace small.")
     var gpuCapture: String?
 
     @Option(name: .long, help: "Record a Metal System Trace for N seconds using Instruments xctrace (e.g. --gpu-trace 10). Lightweight per-kernel GPU timing without massive trace files. Output: /tmp/afm-metal.trace")
@@ -542,6 +542,13 @@ struct MlxCommand: ParsableCommand {
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
             throw ExitCode.failure
+        }
+
+        if let incompatibility = AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: concurrent ?? 0,
+            capturePath: gpuCapture
+        ) {
+            throw ValidationError(incompatibility)
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created

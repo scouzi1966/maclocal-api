@@ -91,6 +91,25 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         await service.shutdownAndReleaseResources(timeoutSeconds: 1)
     }
 
+    func testGPUCaptureRejectsSchedulerInstallationWithoutConsumingCapture() async throws {
+        let service = makeLoadedService()
+        service.maxConcurrent = 2
+        service.gpuCapturePath = "/tmp/should-not-capture.gputrace"
+
+        do {
+            try await service.initScheduler()
+            XCTFail("concurrent GPU capture should be rejected")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains(
+                AFMMLXGPUCapturePolicy.concurrentIncompatibility))
+        }
+
+        XCTAssertNil(service.installedScheduler)
+        XCTAssertEqual(
+            service.gpuCapturePath,
+            "/tmp/should-not-capture.gputrace")
+    }
+
     func testSchedulerShutdownBalancesPendingAndActiveRequestAccounting() async throws {
         StatsAggregator.shared.reset()
         defer { StatsAggregator.shared.reset() }
@@ -140,6 +159,14 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         maxConcurrent: Int,
         requiresFixedDecodeCohorts: Bool? = nil
     ) async throws -> MLXModelService {
+        let service = makeLoadedService()
+        service.maxConcurrent = maxConcurrent
+        try await service.initScheduler(
+            requiresFixedDecodeCohorts: requiresFixedDecodeCohorts)
+        return service
+    }
+
+    private func makeLoadedService() -> MLXModelService {
         let fixture = makeModelFixture()
         let container = ModelContainer(context: .init(
             configuration: fixture.configuration,
@@ -152,15 +179,11 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             canonicalModelType: "llama",
             isVisionConfiguration: false,
             requiresVisionModelFactory: false)
-        let service = MLXModelService(
+        return MLXModelService(
             resolver: MLXCacheResolver(),
             testingModelID: Self.modelID,
             container: container,
             architecture: architecture)
-        service.maxConcurrent = maxConcurrent
-        try await service.initScheduler(
-            requiresFixedDecodeCohorts: requiresFixedDecodeCohorts)
-        return service
     }
 
     private func makeModelFixture() -> (

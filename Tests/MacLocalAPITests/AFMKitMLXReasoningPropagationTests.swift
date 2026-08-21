@@ -16,14 +16,18 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
     }
 
     private struct CapturingModel: AFMModel {
-        let descriptor = AFMModelDescriptor(
-            providerID: "test.capture",
-            modelID: "capture",
-            displayName: "Capture",
-            capabilities: [.text, .reasoning],
-            metadata: ["maxConcurrent": .integer(1)]
-        )
         let capture: RequestCapture
+        let maxConcurrent: Int
+
+        var descriptor: AFMModelDescriptor {
+            AFMModelDescriptor(
+                providerID: "test.capture",
+                modelID: "capture",
+                displayName: "Capture",
+                capabilities: [.text, .reasoning],
+                metadata: ["maxConcurrent": .integer(maxConcurrent)]
+            )
+        }
 
         func availability() async -> AFMModelAvailability { .available }
 
@@ -187,15 +191,69 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             request.metadata["speculativeDecoding"],
             .object(["mode": .string("off")])
         )
+        XCTAssertEqual(
+            request.metadata[AFMMLXRequestMetadata.preserveStructuralTags],
+            .bool(false))
         XCTAssertEqual(streamedTelemetry, CapturingModel.telemetry)
+    }
+
+    func testStreamingStructuralTagsHaveSerialConcurrentParity() async throws {
+        let serialCapture = RequestCapture()
+        let concurrentCapture = RequestCapture()
+        let serial = makeAdapter(
+            capture: serialCapture,
+            defaults: [:],
+            maxConcurrent: 1)
+        let concurrent = makeAdapter(
+            capture: concurrentCapture,
+            defaults: [:],
+            maxConcurrent: 4)
+
+        for adapter in [serial, concurrent] {
+            let result = try await adapter.generateStreaming(
+                model: "capture",
+                messages: [Message(role: "user", content: "hello")],
+                temperature: nil,
+                maxTokens: 8,
+                topP: nil,
+                repetitionPenalty: nil,
+                topK: nil,
+                minP: nil,
+                presencePenalty: nil,
+                seed: nil,
+                logprobs: nil,
+                topLogprobs: nil,
+                tools: nil,
+                toolChoice: nil,
+                parallelToolCalls: nil,
+                stop: nil,
+                responseFormat: nil,
+                chatTemplateKwargs: nil,
+                speculativeDecoding: nil,
+                preserveStructuralTags: true,
+                requestId: nil)
+            for try await _ in result.stream {}
+        }
+
+        let serialRequest = await serialCapture.request(at: 0)
+        let concurrentRequest = await concurrentCapture.request(at: 0)
+        XCTAssertEqual(
+            serialRequest.metadata[AFMMLXRequestMetadata.preserveStructuralTags],
+            .bool(true))
+        XCTAssertEqual(
+            concurrentRequest.metadata[AFMMLXRequestMetadata.preserveStructuralTags],
+            .bool(true))
     }
 
     private func makeAdapter(
         capture: RequestCapture,
-        defaults: [String: AnyCodable]
+        defaults: [String: AnyCodable],
+        maxConcurrent: Int = 1
     ) -> AFMKitMLXChatServingAdapter {
         AFMKitMLXChatServingAdapter(
-            model: AnyAFMModel(CapturingModel(capture: capture)),
+            model: AnyAFMModel(CapturingModel(
+                capture: capture,
+                maxConcurrent: maxConcurrent)),
             modelID: "capture",
             defaultChatTemplateKwargs: defaults
         )
