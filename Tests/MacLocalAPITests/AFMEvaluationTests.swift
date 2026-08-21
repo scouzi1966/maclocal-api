@@ -54,6 +54,63 @@ final class AFMEvaluationTests: XCTestCase {
         }
     }
 
+    func testMalformedCustomSuiteDoesNotBlockValidDiscoveryOrNamedLoad() throws {
+        let root = temporaryDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("{not-json".utf8).write(to: root.appendingPathComponent("broken.json"))
+        try Data("""
+        {
+          "schemaVersion": 1,
+          "name": "valid",
+          "description": "Still discoverable.",
+          "cases": [{"id":"one","prompt":"Say one"}]
+        }
+        """.utf8).write(to: root.appendingPathComponent("valid.json"))
+
+        let store = AFMEvaluationSuiteStore(rootDirectory: root)
+        XCTAssertEqual(try store.load(named: "valid").name, "valid")
+        XCTAssertTrue(try store.discover().contains { $0.name == "valid" })
+        XCTAssertFalse(try store.discover().contains { $0.name == "broken" })
+    }
+
+    func testMatchesCaseIsBundledOnlyAndMustReferenceEarlierCase() throws {
+        let root = temporaryDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("matching.json")
+        try Data("""
+        {
+          "schemaVersion": 1,
+          "name": "matching",
+          "description": "Cross-case matching.",
+          "cases": [
+            {"id":"first","prompt":"one"},
+            {"id":"second","prompt":"two","expectations":{"matchesCase":"first"}}
+          ]
+        }
+        """.utf8).write(to: url)
+        let store = AFMEvaluationSuiteStore(rootDirectory: root)
+
+        XCTAssertThrowsError(try store.decode(url: url, origin: .custom)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("reserved for bundled suites"))
+        }
+        XCTAssertNoThrow(try store.decode(url: url, origin: .bundled))
+
+        try Data("""
+        {
+          "schemaVersion": 1,
+          "name": "matching",
+          "description": "Invalid forward match.",
+          "cases": [
+            {"id":"first","prompt":"one","expectations":{"matchesCase":"second"}},
+            {"id":"second","prompt":"two"}
+          ]
+        }
+        """.utf8).write(to: url)
+        XCTAssertThrowsError(try store.decode(url: url, origin: .bundled)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("earlier case in the same suite"))
+        }
+    }
+
     func testSanitizationAndCollisionSafeRunPath() throws {
         XCTAssertEqual(
             AFMEvaluationSuiteStore.sanitizePathComponent("org/model name<script>"),

@@ -773,11 +773,22 @@ struct MlxCommand: ParsableCommand {
                 throw ValidationError("--eval currently supports MLX directory checkpoints; DwarfStar GGUF evaluation is not yet available")
             }
             guard singlePrompt == nil, media.isEmpty, !webui, !openclawConfig,
-                  telegramBotToken == nil, telegramAllow == nil else {
-                throw ValidationError("--eval cannot be combined with -s, --media, --webui, Telegram, or --openclaw-config")
+                  telegramBotToken == nil, telegramAllow == nil,
+                  toolsJson == nil, !raw, !json, concurrent == nil else {
+                throw ValidationError(
+                    "--eval cannot be combined with -s, --media, --webui, Telegram, " +
+                    "--openclaw-config, --tools-json, --raw, --json, or --concurrent")
             }
             try ensureMLXMetalLibraryAvailable(verbose: verbose)
-            try runEvaluation(modelID: resolvedModel, suites: suites, openReport: openReport)
+            let evaluationChatTemplateKwargs = parsedKwargs.isEmpty
+                ? nil
+                : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+            try runEvaluation(
+                modelID: resolvedModel,
+                suites: suites,
+                openReport: openReport,
+                chatTemplateKwargs: evaluationChatTemplateKwargs,
+                defaultResponseFormat: defaultGuidedJsonSchema)
             return
         }
         if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {

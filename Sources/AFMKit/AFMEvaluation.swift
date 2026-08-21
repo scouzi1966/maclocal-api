@@ -453,7 +453,7 @@ public struct AFMEvaluationSuiteStore {
         var descriptors: [AFMEvaluationSuiteDescriptor] = []
         if let urls = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Evals") {
             for url in urls {
-                let suite = try decode(url: url)
+                let suite = try decode(url: url, origin: .bundled)
                 descriptors.append(.init(
                     name: suite.name,
                     description: suite.description,
@@ -462,7 +462,7 @@ public struct AFMEvaluationSuiteStore {
                     url: url))
             }
         } else if let url = Self.bundledSuiteURL(named: "comprehensive") {
-            let suite = try decode(url: url)
+            let suite = try decode(url: url, origin: .bundled)
             descriptors.append(.init(
                 name: suite.name,
                 description: suite.description,
@@ -478,7 +478,9 @@ public struct AFMEvaluationSuiteStore {
             for url in urls where url.pathExtension.lowercased() == "json" {
                 let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
                 guard values?.isRegularFile == true else { continue }
-                let suite = try decode(url: url)
+                // Discovery is best-effort: one unrelated malformed custom file must
+                // not prevent users from listing or loading every valid suite.
+                guard let suite = try? decode(url: url, origin: .custom) else { continue }
                 descriptors.removeAll { $0.name == suite.name }
                 descriptors.append(.init(
                     name: suite.name,
@@ -495,11 +497,32 @@ public struct AFMEvaluationSuiteStore {
 
     public func load(named name: String) throws -> AFMEvaluationSuite {
         try Self.validateSafeName(name, field: "suite name")
-        if let custom = try discover().first(where: { $0.name == name && $0.origin == .custom }) {
-            return try decode(url: custom.url)
+        let directCustom = rootDirectory.appendingPathComponent("\(name).json")
+        if fileManager.fileExists(atPath: directCustom.path) {
+            let suite = try decode(url: directCustom, origin: .custom)
+            guard suite.name == name else {
+                throw AFMEvaluationError.invalidSuite(
+                    "\(directCustom.lastPathComponent) declares suite '\(suite.name)', expected '\(name)'")
+            }
+            return suite
         }
-        if let bundled = try discover().first(where: { $0.name == name }) {
-            return try decode(url: bundled.url)
+        if fileManager.fileExists(atPath: rootDirectory.path) {
+            let urls = try fileManager.contentsOfDirectory(
+                at: rootDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+                .filter { $0.pathExtension.lowercased() == "json" }
+                .sorted { $0.path < $1.path }
+            for url in urls where url != directCustom {
+                guard let suite = try? decode(url: url, origin: .custom) else { continue }
+                if suite.name == name { return suite }
+            }
+        }
+        if let url = Self.bundledSuiteURL(named: name) {
+            return try decode(url: url, origin: .bundled)
+        }
+        if let bundled = try discover().first(where: { $0.name == name && $0.origin == .bundled }) {
+            return try decode(url: bundled.url, origin: .bundled)
         }
         throw AFMEvaluationError.suiteNotFound(name)
     }
@@ -513,6 +536,13 @@ public struct AFMEvaluationSuiteStore {
     }
 
     public func decode(url: URL) throws -> AFMEvaluationSuite {
+        try decode(url: url, origin: .custom)
+    }
+
+    func decode(
+        url: URL,
+        origin: AFMEvaluationSuiteDescriptor.Origin
+    ) throws -> AFMEvaluationSuite {
         let data: Data
         do { data = try Data(contentsOf: url, options: [.mappedIfSafe]) }
         catch { throw AFMEvaluationError.invalidSuite("Cannot read \(url.path): \(error.localizedDescription)") }
@@ -522,7 +552,7 @@ public struct AFMEvaluationSuiteStore {
         try Self.validateKnownKeys(data)
         do {
             let suite = try JSONDecoder().decode(AFMEvaluationSuite.self, from: data)
-            try Self.validate(suite)
+            try Self.validate(suite, origin: origin)
             return suite
         } catch let error as AFMEvaluationError {
             throw error
@@ -587,7 +617,10 @@ public struct AFMEvaluationSuiteStore {
         return String(text.prefix(80))
     }
 
-    private static func validate(_ suite: AFMEvaluationSuite) throws {
+    private static func validate(
+        _ suite: AFMEvaluationSuite,
+        origin: AFMEvaluationSuiteDescriptor.Origin
+    ) throws {
         guard suite.schemaVersion == 1 else {
             throw AFMEvaluationError.invalidSuite("Unsupported schemaVersion \(suite.schemaVersion); expected 1")
         }
@@ -602,7 +635,7 @@ public struct AFMEvaluationSuiteStore {
         try validate(suite.defaults, context: "defaults")
         for testCase in suite.cases {
             try validateSafeName(testCase.id, field: "case id")
-            guard identifiers.insert(testCase.id).inserted else {
+            guard !identifiers.contains(testCase.id) else {
                 throw AFMEvaluationError.invalidSuite("Duplicate case id '\(testCase.id)'")
             }
             guard !testCase.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -621,7 +654,18 @@ public struct AFMEvaluationSuiteStore {
                 if let maximum = expectations.maximumCharacters, maximum < 0 {
                     throw AFMEvaluationError.invalidSuite("Case '\(testCase.id)' maximumCharacters must be >= 0")
                 }
+                if let match = expectations.matchesCase {
+                    guard origin == .bundled else {
+                        throw AFMEvaluationError.invalidSuite(
+                            "Case '\(testCase.id)' uses matchesCase, which is reserved for bundled suites")
+                    }
+                    guard identifiers.contains(match) else {
+                        throw AFMEvaluationError.invalidSuite(
+                            "Case '\(testCase.id)' matchesCase must reference an earlier case in the same suite")
+                    }
+                }
             }
+            identifiers.insert(testCase.id)
         }
     }
 

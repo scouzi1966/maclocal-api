@@ -3,11 +3,66 @@ import ArgumentParser
 import Darwin
 import Foundation
 
-nonisolated(unsafe) private var afmEvaluationInterrupted = false
+private final class AFMEvaluationInterruptController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var interrupted = false
+    private var task: Task<Void, Never>?
 
-private func handleEvaluationInterrupt(_ signal: Int32) {
-    afmEvaluationInterrupted = true
-    FileHandle.standardError.write(Data("\nEvaluation interruption requested; preserving partial results…\n".utf8))
+    var isInterrupted: Bool {
+        lock.withLock { interrupted }
+    }
+
+    func register(task: Task<Void, Never>) {
+        let cancelImmediately = lock.withLock {
+            self.task = task
+            return interrupted
+        }
+        if cancelImmediately { task.cancel() }
+    }
+
+    @discardableResult
+    func requestInterruption() -> Bool {
+        let state = lock.withLock { () -> (Bool, Task<Void, Never>?) in
+            let firstRequest = !interrupted
+            interrupted = true
+            return (firstRequest, task)
+        }
+        state.1?.cancel()
+        return state.0
+    }
+}
+
+private final class AFMEvaluationSignalMonitor {
+    private let queue = DispatchQueue(label: "afm.evaluation.signals")
+    private var sources: [DispatchSourceSignal] = []
+    private var restorations: [() -> Void] = []
+
+    init(controller: AFMEvaluationInterruptController) {
+        for signalNumber in [SIGINT, SIGTERM] {
+            let previous = Darwin.signal(signalNumber, SIG_IGN)
+            restorations.append { _ = Darwin.signal(signalNumber, previous) }
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: queue)
+            source.setEventHandler {
+                if controller.requestInterruption() {
+                    FileHandle.standardError.write(Data(
+                        "\nEvaluation interruption requested; preserving partial results…\n".utf8))
+                }
+            }
+            source.resume()
+            sources.append(source)
+        }
+    }
+
+    func stop() {
+        guard !sources.isEmpty else { return }
+        sources.forEach { $0.cancel() }
+        queue.sync {}
+        restorations.reversed().forEach { $0() }
+        sources.removeAll()
+        restorations.removeAll()
+    }
+
+    deinit { stop() }
 }
 
 private struct EvaluationGeneration {
@@ -50,7 +105,13 @@ extension MlxCommand {
         }
     }
 
-    func runEvaluation(modelID: String, suites suiteNames: [String], openReport: Bool) throws {
+    func runEvaluation(
+        modelID: String,
+        suites suiteNames: [String],
+        openReport: Bool,
+        chatTemplateKwargs: [String: AFMJSONValue]?,
+        defaultResponseFormat: ResponseFormat?
+    ) throws {
         let store = AFMEvaluationSuiteStore()
         let suites = try suiteNames.map { try store.load(named: $0) }
         let resultDirectory = try store.makeRunDirectory(model: modelID, suites: suiteNames)
@@ -75,7 +136,8 @@ extension MlxCommand {
             seed: seed ?? 42,
             logprobs: maxLogprobs != nil,
             topLogprobs: maxLogprobs,
-            stop: stop.map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } }
+            stop: stop.map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } },
+            responseFormat: defaultResponseFormat
         )
         let engine = AFMEngine(
             backend: .mlx(modelID: modelID),
@@ -112,13 +174,13 @@ extension MlxCommand {
         let group = DispatchGroup()
         group.enter()
 
-        afmEvaluationInterrupted = false
-        signal(SIGINT, handleEvaluationInterrupt)
-        signal(SIGTERM, handleEvaluationInterrupt)
+        let interruptController = AFMEvaluationInterruptController()
+        let signalMonitor = AFMEvaluationSignalMonitor(controller: interruptController)
+        defer { signalMonitor.stop() }
         print("AFM evaluation → \(resultDirectory.path)")
         print("Loading \(modelID) once for \(suites.reduce(0) { $0 + $1.cases.count }) cases…")
 
-        Task {
+        let evaluationTask = Task {
             var results: [AFMEvaluationCaseResult] = []
             do {
                 let reporter = MLXLoadReporter(modelID: modelID)
@@ -129,12 +191,14 @@ extension MlxCommand {
                     reporter.updateDownload(progress)
                 })
                 reporter.finish(success: true)
+                try Task.checkCancellation()
 
                 let total = suites.reduce(0) { $0 + $1.cases.count }
                 var index = 0
                 for suite in suites {
+                    var outputsByCaseID: [String: String] = [:]
                     for testCase in suite.cases {
-                        if afmEvaluationInterrupted { break }
+                        if interruptController.isInterrupted { break }
                         index += 1
                         print("[\(index)/\(total)] \(suite.name)/\(testCase.id)…", terminator: " ")
                         fflush(stdout)
@@ -165,7 +229,10 @@ extension MlxCommand {
                                 topLogprobs: parameters.topLogprobs,
                                 stop: parameters.stop,
                                 tools: parameters.tools,
-                                responseFormat: parameters.responseFormat)
+                                responseFormat: parameters.responseFormat,
+                                metadata: chatTemplateKwargs.map {
+                                    ["chatTemplateKwargs": .object($0)]
+                                } ?? [:])
                             let generated = try await Self.generateEvaluationResponse(
                                 engine: engine,
                                 messages: messages,
@@ -178,7 +245,7 @@ extension MlxCommand {
                                 toolCallNames: generated.toolCalls.map(\.name),
                                 expectations: testCase.expectations)
                             if let matchID = testCase.expectations?.matchesCase {
-                                let matchingOutput = results.last { $0.caseID == matchID }?.output
+                                let matchingOutput = outputsByCaseID[matchID]
                                 let passed = matchingOutput == generated.content
                                 let check = AFMEvaluationCheckResult(
                                     name: "matchesCase",
@@ -213,19 +280,21 @@ extension MlxCommand {
                                 finishReason: generated.finishReason,
                                 parameters: parameters)
                             results.append(result)
+                            outputsByCaseID[testCase.id] = generated.content
                             try Self.appendJSONLine(result, to: resultsURL)
                             try Self.persistEvaluationReport(
                                 results: results,
                                 modelID: modelID,
                                 suites: suiteNames,
                                 startedAt: startedAt,
-                                interrupted: afmEvaluationInterrupted,
+                                interrupted: interruptController.isInterrupted,
                                 reproducibilityCommand: reproducibilityCommand,
                                 systemInfo: systemInfo,
                                 runURL: runURL,
                                 reportURL: reportURL)
                             print("\(scoring.0.rawValue) · \(generated.completionTokens) tok · \(String(format: "%.1f", tokensPerSecond ?? 0)) tok/s")
                         } catch {
+                            if interruptController.isInterrupted { break }
                             let duration = Date().timeIntervalSince(caseStart)
                             let result = AFMEvaluationCaseResult(
                                 suite: suite.name,
@@ -257,7 +326,7 @@ extension MlxCommand {
                                 modelID: modelID,
                                 suites: suiteNames,
                                 startedAt: startedAt,
-                                interrupted: afmEvaluationInterrupted,
+                                interrupted: interruptController.isInterrupted,
                                 reproducibilityCommand: reproducibilityCommand,
                                 systemInfo: systemInfo,
                                 runURL: runURL,
@@ -265,14 +334,14 @@ extension MlxCommand {
                             print("error")
                         }
                     }
-                    if afmEvaluationInterrupted { break }
+                    if interruptController.isInterrupted { break }
                 }
                 try Self.persistEvaluationReport(
                     results: results,
                     modelID: modelID,
                     suites: suiteNames,
                     startedAt: startedAt,
-                    interrupted: afmEvaluationInterrupted,
+                    interrupted: interruptController.isInterrupted,
                     reproducibilityCommand: reproducibilityCommand,
                     systemInfo: systemInfo,
                     runURL: runURL,
@@ -285,16 +354,21 @@ extension MlxCommand {
                     modelID: modelID,
                     suites: suiteNames,
                     startedAt: startedAt,
-                    interrupted: afmEvaluationInterrupted,
+                    interrupted: interruptController.isInterrupted,
                     reproducibilityCommand: reproducibilityCommand,
                     systemInfo: systemInfo,
                     runURL: runURL,
                     reportURL: reportURL)
-                output.value = .failure(error)
+                if interruptController.isInterrupted {
+                    output.value = .success(results)
+                } else {
+                    output.value = .failure(error)
+                }
             }
             await engine.unload()
             group.leave()
         }
+        interruptController.register(task: evaluationTask)
         group.wait()
 
         switch output.value {
@@ -303,10 +377,10 @@ extension MlxCommand {
             let misses = results.filter { $0.outcome == .missed }.count
             print("Report: \(reportURL.path)")
             print("Completed \(results.count) cases: \(misses) quality miss(es), \(errors) infrastructure error(s).")
-            if openReport && !afmEvaluationInterrupted && errors == 0 {
+            if openReport && !interruptController.isInterrupted && errors == 0 {
                 try Self.openReport(reportURL)
             }
-            if afmEvaluationInterrupted || errors > 0 {
+            if interruptController.isInterrupted || errors > 0 {
                 throw ExitCode.failure
             }
         case .failure(let error):
@@ -329,11 +403,35 @@ extension MlxCommand {
         if !openReport { args.append("--no-open") }
         if let kvBits { args += ["--kv-bits", String(kvBits)] }
         if enablePrefixCaching { args.append("--enable-prefix-caching") }
+        if mlxKernels != "native" { args += ["--mlx-kernels", shellQuote(mlxKernels)] }
+        if let temperature { args += ["--temperature", String(temperature)] }
+        if let maxTokens { args += ["--max-tokens", String(maxTokens)] }
+        if let topP { args += ["--top-p", String(topP)] }
+        if let topK { args += ["--top-k", String(topK)] }
+        if let minP { args += ["--min-p", String(minP)] }
+        if let repetitionPenalty { args += ["--repetition-penalty", String(repetitionPenalty)] }
+        if let presencePenalty { args += ["--presence-penalty", String(presencePenalty)] }
+        if let seed { args += ["--seed", String(seed)] }
+        if let maxLogprobs { args += ["--max-logprobs", String(maxLogprobs)] }
+        if let stop { args += ["--stop", shellQuote(stop)] }
+        if instructions != "You are a helpful assistant" {
+            args += ["--instructions", shellQuote(instructions)]
+        }
         if mtp { args.append("--mtp") }
+        if mtpDepth != 1 { args += ["--mtp-depth", String(mtpDepth)] }
         if let mtpModel { args += ["--mtp-model", shellQuote(mtpModel)] }
         if let eagle3 { args += ["--eagle3", shellQuote(eagle3)] }
         if let parser = toolCallParser { args += ["--tool-call-parser", shellQuote(parser)] }
         if enableGrammarConstraints { args.append("--enable-grammar-constraints") }
+        if fixToolArgs { args.append("--fix-tool-args") }
+        if let prefillStepSize { args += ["--prefill-step-size", String(prefillStepSize)] }
+        if let kvEviction { args += ["--kv-eviction", shellQuote(kvEviction)] }
+        if let cacheProfilePath { args += ["--cache-profile-path", shellQuote(cacheProfilePath)] }
+        if let guidedJson { args += ["--guided-json", shellQuote(guidedJson)] }
+        if let defaultChatTemplateKwargs {
+            args += ["--default-chat-template-kwargs", shellQuote(defaultChatTemplateKwargs)]
+        }
+        if let reasoningEffort { args += ["--reasoning-effort", shellQuote(reasoningEffort)] }
         if noThink { args.append("--no-think") }
         return args.joined(separator: " ")
     }
