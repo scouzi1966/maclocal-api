@@ -103,7 +103,7 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertEqual(runtime.dflash2Requirement, .required)
     }
 
-    func testProviderMaxDraftTokensValidatesIntegerBoundariesBeforeAddition() {
+    func testProviderMaxDraftTokensValidatesIntegerBoundariesBeforeAddition() throws {
         let largestValid = AFMProviderConfiguration(values: [
             "speculativeDecoding": .object([
                 "mode": .string("dflash2"),
@@ -117,12 +117,37 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             ]),
         ])
 
-        XCTAssertEqual(
-            AFMMLXRuntimeConfiguration(providerConfiguration: largestValid).dflash2BlockSize,
-            Int.max)
-        XCTAssertEqual(
-            AFMMLXRuntimeConfiguration(providerConfiguration: overflowing).dflash2BlockSize,
-            5)
+        let largestValidRuntime = AFMMLXRuntimeConfiguration(
+            providerConfiguration: largestValid)
+        XCTAssertEqual(largestValidRuntime.dflash2BlockSize, Int.max)
+        XCTAssertNoThrow(try largestValidRuntime.validateForStartup())
+
+        let overflowingRuntime = AFMMLXRuntimeConfiguration(
+            providerConfiguration: overflowing)
+        XCTAssertThrowsError(try overflowingRuntime.validateForStartup()) { error in
+            XCTAssertTrue(error.localizedDescription.contains(
+                "speculative_decoding.max_draft_tokens must be less than Int.max"))
+        }
+    }
+
+    func testRuntimeLoadRejectsOverflowingProviderMaxDraftTokensBeforeModelLoad() async {
+        let configuration = AFMProviderConfiguration(values: [
+            "speculativeDecoding": .object([
+                "mode": .string("dflash2"),
+                "maxDraftTokens": .integer(Int.max),
+            ]),
+        ])
+        let runtime = AFMMLXRuntime(
+            modelID: "tests/startup-validation",
+            providerConfiguration: configuration)
+
+        do {
+            _ = try await runtime.load()
+            XCTFail("expected startup validation failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains(
+                "speculative_decoding.max_draft_tokens must be less than Int.max"))
+        }
     }
 
     func testRequestPolicyFallsBackOrRequiresBeforeEmission() throws {

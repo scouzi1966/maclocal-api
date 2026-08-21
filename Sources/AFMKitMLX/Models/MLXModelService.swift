@@ -1744,20 +1744,17 @@ public final class MLXModelService: @unchecked Sendable {
         }
         let requestedBlockSize: Int?
         if let maxDraftTokens = options?.maxDraftTokens {
-            guard maxDraftTokens >= 1 else {
-                throw MLXServiceError.loadFailed(
-                    "speculative_decoding.max_draft_tokens must be at least 1")
-            }
-            guard maxDraftTokens < Int.max else {
-                throw MLXServiceError.loadFailed(
-                    "speculative_decoding.max_draft_tokens must be less than Int.max")
+            if let message = AFMMLXDFlash2DraftTokenPolicy.validationMessage(
+                maxDraftTokens: maxDraftTokens) {
+                throw MLXServiceError.loadFailed(message)
             }
             let loadedDraftLimit = dflash2BlockSize > 1 ? dflash2BlockSize - 1 : 0
             guard maxDraftTokens <= loadedDraftLimit else {
                 throw MLXServiceError.loadFailed(
                     "speculative_decoding.max_draft_tokens exceeds the loaded DFlash2 block limit \(loadedDraftLimit)")
             }
-            requestedBlockSize = maxDraftTokens + 1
+            requestedBlockSize = AFMMLXDFlash2DraftTokenPolicy.blockSize(
+                maxDraftTokens: maxDraftTokens)
         } else {
             requestedBlockSize = nil
         }

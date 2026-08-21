@@ -39,6 +39,25 @@ public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
     }
 }
 
+enum AFMMLXDFlash2DraftTokenPolicy {
+    static func validationMessage(maxDraftTokens: Int) -> String? {
+        guard maxDraftTokens >= 1 else {
+            return "speculative_decoding.max_draft_tokens must be at least 1"
+        }
+        guard maxDraftTokens < Int.max else {
+            return "speculative_decoding.max_draft_tokens must be less than Int.max"
+        }
+        return nil
+    }
+
+    static func blockSize(maxDraftTokens: Int) -> Int? {
+        guard validationMessage(maxDraftTokens: maxDraftTokens) == nil else {
+            return nil
+        }
+        return maxDraftTokens + 1
+    }
+}
+
 public struct AFMMLXRuntimeConfiguration: Sendable {
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
@@ -66,6 +85,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var defaultChatTemplateKwargs: [String: AFMJSONValue]?
     public var forceDisableThinking: Bool
     public var defaultGuidedJsonSchema: ResponseFormat?
+    public private(set) var startupValidationError: String?
 
     public init(
         kvBits: Int? = nil,
@@ -121,6 +141,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
+        self.startupValidationError = nil
     }
 
     public init(providerConfiguration configuration: AFMProviderConfiguration) {
@@ -132,10 +153,13 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         if let speculative = configuration.object("speculativeDecoding"),
            speculative.string("mode")?.lowercased() == "dflash2" {
             dflash2Drafter = speculative.string("drafter")
-            if let maxDraftTokens = speculative.integer("maxDraftTokens"),
-               maxDraftTokens >= 1,
-               maxDraftTokens < Int.max {
-                dflash2BlockSize = maxDraftTokens + 1
+            if let maxDraftTokens = speculative.integer("maxDraftTokens") {
+                startupValidationError = AFMMLXDFlash2DraftTokenPolicy.validationMessage(
+                    maxDraftTokens: maxDraftTokens)
+                if let blockSize = AFMMLXDFlash2DraftTokenPolicy.blockSize(
+                    maxDraftTokens: maxDraftTokens) {
+                    dflash2BlockSize = blockSize
+                }
             }
             if let value = speculative.string("requirement"),
                let requirement = AFMMLXDFlash2Requirement(rawValue: value.lowercased()) {
@@ -214,6 +238,12 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
         if let value = configuration.bool("forceDisableThinking") ?? configuration.bool("noThinking") {
             forceDisableThinking = value
+        }
+    }
+
+    public func validateForStartup() throws {
+        if let startupValidationError {
+            throw MLXServiceError.loadFailed(startupValidationError)
         }
     }
 
@@ -344,6 +374,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         progress: (@Sendable (Progress) -> Void)? = nil,
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil
     ) async throws -> AFMModelDescriptor {
+        try configuration.validateForStartup()
         try MLXMetalLibrary.ensureAvailable(verbose: false)
         _ = try await service.ensureLoaded(
             model: modelID,
