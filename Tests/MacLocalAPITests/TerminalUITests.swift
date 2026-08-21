@@ -1,6 +1,6 @@
 import Darwin
 import XCTest
-import AFMKit
+@testable import AFMKit
 import AFMOpenAICompat
 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
 import FoundationModels
@@ -572,6 +572,76 @@ private actor FoundationOperationProbe {
 
     func snapshot() -> (events: [String], maximumActive: Int) {
         (events, maximumActive)
+    }
+}
+
+private actor AFMEngineOrderingProbe {
+    private var events: [String] = []
+    private var streamTaskArrived = false
+    private var streamTaskWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func holdStreamTask() async {
+        streamTaskArrived = true
+        events.append("stream-task-arrived")
+        let waiters = streamTaskWaiters
+        streamTaskWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitForStreamTask() async {
+        guard !streamTaskArrived else { return }
+        await withCheckedContinuation { streamTaskWaiters.append($0) }
+    }
+
+    func releaseStreamTask() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func record(_ event: String) {
+        events.append(event)
+    }
+
+    func snapshot() -> [String] { events }
+}
+
+final class AFMEngineFoundationOrderingTests: XCTestCase {
+    func testStreamReservesOrderBeforeReturningAndResetCannotOvertakeIt() async throws {
+        let probe = AFMEngineOrderingProbe()
+        let engine = AFMEngine(foundationDriver: AFMEngineFoundationDriver(
+            beforeStreamTask: { await probe.holdStreamTask() },
+            resetConversation: { _ in await probe.record("reset") },
+            respond: { _, _ in "unused" },
+            stream: { _, _ in
+                await probe.record("stream")
+                return AsyncThrowingStream { continuation in
+                    continuation.yield("answer")
+                    continuation.finish()
+                }
+            }
+        ))
+
+        let stream = engine.streamEvents(to: [Message(role: "user", content: "question")])
+        let resetTask = Task { try await engine.resetConversation() }
+
+        await probe.waitForStreamTask()
+        for _ in 0..<20 { await Task.yield() }
+        let blockedEvents = await probe.snapshot()
+        XCTAssertEqual(blockedEvents, ["stream-task-arrived"])
+
+        await probe.releaseStreamTask()
+        var receivedText = ""
+        for try await event in stream {
+            if case .text(let text, _) = event { receivedText += text }
+        }
+        try await resetTask.value
+
+        XCTAssertEqual(receivedText, "answer")
+        let completedEvents = await probe.snapshot()
+        XCTAssertEqual(completedEvents, ["stream-task-arrived", "stream", "reset"])
     }
 }
 
