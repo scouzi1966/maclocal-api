@@ -496,6 +496,62 @@ final class FoundationStopSequenceFilterTests: XCTestCase {
     #endif
 }
 
+private actor FoundationOperationProbe {
+    private var active = 0
+    private var maximumActive = 0
+    private var events: [String] = []
+
+    func start(_ name: String) {
+        active += 1
+        maximumActive = max(maximumActive, active)
+        events.append("start:\(name)")
+    }
+
+    func finish(_ name: String) {
+        events.append("finish:\(name)")
+        active -= 1
+    }
+
+    func snapshot() -> (events: [String], maximumActive: Int) {
+        (events, maximumActive)
+    }
+}
+
+final class FoundationSessionOperationGateTests: XCTestCase {
+    func testEarlierStreamReservationBlocksLaterResetAndExcludesConcurrentUse() async throws {
+        let gate = FoundationSessionOperationGate()
+        let streamReservation = gate.reserve()
+        let resetReservation = gate.reserve()
+        let probe = FoundationOperationProbe()
+
+        let resetTask = Task {
+            try await resetReservation.perform {
+                await probe.start("reset")
+                await probe.finish("reset")
+            }
+        }
+        for _ in 0..<10 { await Task.yield() }
+        let beforeStreamStarts = await probe.snapshot()
+        XCTAssertTrue(beforeStreamStarts.events.isEmpty)
+
+        let streamTask = Task {
+            try await streamReservation.perform {
+                await probe.start("stream")
+                try await Task.sleep(for: .milliseconds(20))
+                await probe.finish("stream")
+            }
+        }
+
+        try await streamTask.value
+        try await resetTask.value
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.maximumActive, 1)
+        XCTAssertEqual(snapshot.events, [
+            "start:stream", "finish:stream", "start:reset", "finish:reset"
+        ])
+    }
+}
+
 final class TUIConversationPolicyTests: XCTestCase {
     func testFoundationTurnsAreIncrementalWhileStatelessTurnsRetainHistory() {
         let transcript = [

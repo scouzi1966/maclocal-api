@@ -239,6 +239,70 @@ struct FoundationStopSequenceFilter {
     }
 }
 
+final class FoundationSessionOperationGate: @unchecked Sendable {
+    struct Reservation: Sendable {
+        fileprivate let predecessor: Signal?
+        fileprivate let completion: Signal
+
+        func perform<T: Sendable>(
+            _ operation: @Sendable () async throws -> T
+        ) async throws -> T {
+            if let predecessor {
+                await predecessor.wait()
+            }
+            defer { completion.signal() }
+            try Task.checkCancellation()
+            return try await operation()
+        }
+    }
+
+    fileprivate final class Signal: @unchecked Sendable {
+        private let lock = NSLock()
+        private var signalled = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if signalled {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+
+        func signal() {
+            lock.lock()
+            guard !signalled else {
+                lock.unlock()
+                return
+            }
+            signalled = true
+            let pending = waiters
+            waiters.removeAll()
+            lock.unlock()
+            for waiter in pending {
+                waiter.resume()
+            }
+        }
+    }
+
+    private let lock = NSLock()
+    private var tail: Signal?
+
+    func reserve() -> Reservation {
+        lock.lock()
+        defer { lock.unlock() }
+        let completion = Signal()
+        let reservation = Reservation(predecessor: tail, completion: completion)
+        tail = completion
+        return reservation
+    }
+}
+
 @available(macOS 26.0, *)
 public class FoundationModelService: @unchecked Sendable {
     
@@ -247,6 +311,7 @@ public class FoundationModelService: @unchecked Sendable {
     private let model: SystemLanguageModel
     private let instructions: String
     #endif
+    private let sessionOperations = FoundationSessionOperationGate()
     
     // Shared singleton instance
     nonisolated(unsafe) static var shared: FoundationModelService?
@@ -341,14 +406,17 @@ public class FoundationModelService: @unchecked Sendable {
 
     /// Replaces the stateful native session and optionally restores a saved conversation.
     /// Callers must subsequently submit only messages that are not already in `history`.
-    public func resetConversation(with history: [Message] = []) {
-        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard !history.isEmpty else {
-            session = LanguageModelSession(model: model) { instructions }
-            return
+    public func resetConversation(with history: [Message] = []) async throws {
+        let reservation = sessionOperations.reserve()
+        try await reservation.perform { [self] in
+            #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+            guard !history.isEmpty else {
+                session = LanguageModelSession(model: model) { instructions }
+                return
+            }
+            session = LanguageModelSession(model: model, transcript: transcript(from: history))
+            #endif
         }
-        session = LanguageModelSession(model: model, transcript: transcript(from: history))
-        #endif
     }
 
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
@@ -414,38 +482,41 @@ public class FoundationModelService: @unchecked Sendable {
     
     public func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard let session = session else {
-            throw FoundationModelError.sessionCreationFailed
-        }
+        let reservation = sessionOperations.reserve()
+        return try await reservation.perform { [self] in
+            guard let session = session else {
+                throw FoundationModelError.sessionCreationFailed
+            }
 
-        let prompt = formatMessagesAsPrompt(messages)
+            let prompt = formatMessagesAsPrompt(messages)
 
-        do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
-            let previousTranscript = session.transcript
-            let response = try await session.respond(to: prompt, options: options)
-            let acceptedResponse = applyStopSequences(to: response.content, stopSequences: stop)
-            if acceptedResponse != response.content {
-                restoreAcceptedResponse(
-                    previousTranscript: previousTranscript,
-                    prompt: prompt,
-                    response: acceptedResponse,
-                    options: options
-                )
+            do {
+                let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                let previousTranscript = session.transcript
+                let response = try await session.respond(to: prompt, options: options)
+                let acceptedResponse = applyStopSequences(to: response.content, stopSequences: stop)
+                if acceptedResponse != response.content {
+                    restoreAcceptedResponse(
+                        previousTranscript: previousTranscript,
+                        prompt: prompt,
+                        response: acceptedResponse,
+                        options: options
+                    )
+                }
+                return acceptedResponse
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Check for context window exceeded error and wrap it
+                if let contextError = FoundationModelError.parseContextWindowError(error) {
+                    throw contextError
+                }
+                // Check for guardrail violation
+                if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                    throw guardrailError
+                }
+                throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
             }
-            return acceptedResponse
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // Check for context window exceeded error and wrap it
-            if let contextError = FoundationModelError.parseContextWindowError(error) {
-                throw contextError
-            }
-            // Check for guardrail violation
-            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
-                throw guardrailError
-            }
-            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
         throw FoundationModelError.notAvailable
@@ -475,10 +546,13 @@ public class FoundationModelService: @unchecked Sendable {
     /// Pre-warm the session for faster first response
     public func prewarm() async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard let session = session else {
-            throw FoundationModelError.sessionCreationFailed
+        let reservation = sessionOperations.reserve()
+        try await reservation.perform { [self] in
+            guard let session = session else {
+                throw FoundationModelError.sessionCreationFailed
+            }
+            try await session.prewarm()
         }
-        try await session.prewarm()
         #endif
     }
 
@@ -490,51 +564,52 @@ public class FoundationModelService: @unchecked Sendable {
         maxTokens: Int? = nil,
         stop: [String]? = nil
     ) -> AsyncThrowingStream<String, Error> {
+        let reservation = sessionOperations.reserve()
         return AsyncThrowingStream { continuation in
             let task = Task {
                 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-                guard let session = self.session else {
-                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
-                    return
-                }
-
-                let prompt = self.formatMessagesAsPrompt(messages)
-
                 do {
-                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
-                    let previousTranscript = session.transcript
-                    // Use native streaming API — partialResponse.content is cumulative,
-                    // so we must extract only the new delta each iteration.
-                    let stream = session.streamResponse(to: prompt, options: options)
-                    var previousContent = ""
-                    var acceptedResponse = ""
-                    var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
-                    for try await partialResponse in stream {
-                        try Task.checkCancellation()
-                        if stopFilter.stopped { break }
-                        let full = partialResponse.content
-                        if full.count > previousContent.count {
-                            let delta = String(full.dropFirst(previousContent.count))
-                            let output = stopFilter.consume(delta)
-                            if !output.isEmpty {
-                                acceptedResponse += output
-                                continuation.yield(output)
-                            }
+                    try await reservation.perform { [self] in
+                        guard let session = session else {
+                            throw FoundationModelError.sessionCreationFailed
                         }
-                        previousContent = full
-                    }
-                    let finalOutput = stopFilter.finish()
-                    if !finalOutput.isEmpty {
-                        acceptedResponse += finalOutput
-                        continuation.yield(finalOutput)
-                    }
-                    if stopFilter.stopped {
-                        self.restoreAcceptedResponse(
-                            previousTranscript: previousTranscript,
-                            prompt: prompt,
-                            response: acceptedResponse,
-                            options: options
-                        )
+
+                        let prompt = formatMessagesAsPrompt(messages)
+                        let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                        let previousTranscript = session.transcript
+                        // Use native streaming API — partialResponse.content is cumulative,
+                        // so we must extract only the new delta each iteration.
+                        let stream = session.streamResponse(to: prompt, options: options)
+                        var previousContent = ""
+                        var acceptedResponse = ""
+                        var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
+                        for try await partialResponse in stream {
+                            try Task.checkCancellation()
+                            if stopFilter.stopped { break }
+                            let full = partialResponse.content
+                            if full.count > previousContent.count {
+                                let delta = String(full.dropFirst(previousContent.count))
+                                let output = stopFilter.consume(delta)
+                                if !output.isEmpty {
+                                    acceptedResponse += output
+                                    continuation.yield(output)
+                                }
+                            }
+                            previousContent = full
+                        }
+                        let finalOutput = stopFilter.finish()
+                        if !finalOutput.isEmpty {
+                            acceptedResponse += finalOutput
+                            continuation.yield(finalOutput)
+                        }
+                        if stopFilter.stopped {
+                            restoreAcceptedResponse(
+                                previousTranscript: previousTranscript,
+                                prompt: prompt,
+                                response: acceptedResponse,
+                                options: options
+                            )
+                        }
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -567,47 +642,50 @@ public class FoundationModelService: @unchecked Sendable {
         stop: [String]? = nil
     ) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-        guard let session = session else {
-            throw FoundationModelError.sessionCreationFailed
-        }
+        let reservation = sessionOperations.reserve()
+        return try await reservation.perform { [self] in
+            guard let session = session else {
+                throw FoundationModelError.sessionCreationFailed
+            }
 
-        let schema: GenerationSchema
-        do {
-            schema = try JSONSchemaConverter.convert(jsonSchema)
-        } catch {
-            throw FoundationModelError.schemaConversionFailed(error.localizedDescription)
-        }
+            let schema: GenerationSchema
+            do {
+                schema = try JSONSchemaConverter.convert(jsonSchema)
+            } catch {
+                throw FoundationModelError.schemaConversionFailed(error.localizedDescription)
+            }
 
-        let prompt = formatMessagesAsPrompt(messages)
+            let prompt = formatMessagesAsPrompt(messages)
 
-        do {
-            let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
-            let previousTranscript = session.transcript
-            let response = try await session.respond(to: prompt, schema: schema, options: options)
-            let rawResponse = response.content.jsonString
-            let acceptedResponse = applyStopSequences(to: rawResponse, stopSequences: stop)
-            if acceptedResponse != rawResponse {
-                restoreAcceptedResponse(
-                    previousTranscript: previousTranscript,
-                    prompt: prompt,
-                    response: acceptedResponse,
-                    options: options
-                )
+            do {
+                let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                let previousTranscript = session.transcript
+                let response = try await session.respond(to: prompt, schema: schema, options: options)
+                let rawResponse = response.content.jsonString
+                let acceptedResponse = applyStopSequences(to: rawResponse, stopSequences: stop)
+                if acceptedResponse != rawResponse {
+                    restoreAcceptedResponse(
+                        previousTranscript: previousTranscript,
+                        prompt: prompt,
+                        response: acceptedResponse,
+                        options: options
+                    )
+                }
+                return acceptedResponse
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if let contextError = FoundationModelError.parseContextWindowError(error) {
+                    throw contextError
+                }
+                if let guardrailError = FoundationModelError.parseGuardrailError(error) {
+                    throw guardrailError
+                }
+                if let truncationError = FoundationModelError.parseStructuredTruncationError(error, maxTokens: maxTokens) {
+                    throw truncationError
+                }
+                throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
             }
-            return acceptedResponse
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if let contextError = FoundationModelError.parseContextWindowError(error) {
-                throw contextError
-            }
-            if let guardrailError = FoundationModelError.parseGuardrailError(error) {
-                throw guardrailError
-            }
-            if let truncationError = FoundationModelError.parseStructuredTruncationError(error, maxTokens: maxTokens) {
-                throw truncationError
-            }
-            throw FoundationModelError.responseGenerationFailed(error.localizedDescription)
         }
         #else
         throw FoundationModelError.notAvailable
@@ -628,68 +706,68 @@ public class FoundationModelService: @unchecked Sendable {
         maxTokens: Int? = nil,
         stop: [String]? = nil
     ) -> AsyncThrowingStream<String, Error> {
+        let reservation = sessionOperations.reserve()
         return AsyncThrowingStream { continuation in
             let task = Task {
                 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
-                guard let session = self.session else {
-                    continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
-                    return
-                }
-
-                let schema: GenerationSchema
                 do {
-                    schema = try JSONSchemaConverter.convert(jsonSchema)
-                } catch {
-                    continuation.finish(throwing: FoundationModelError.schemaConversionFailed(error.localizedDescription))
-                    return
-                }
+                    try await reservation.perform { [self] in
+                        guard let session = session else {
+                            throw FoundationModelError.sessionCreationFailed
+                        }
 
-                let prompt = self.formatMessagesAsPrompt(messages)
+                        let schema: GenerationSchema
+                        do {
+                            schema = try JSONSchemaConverter.convert(jsonSchema)
+                        } catch {
+                            throw FoundationModelError.schemaConversionFailed(error.localizedDescription)
+                        }
 
-                do {
-                    let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
-                    let previousTranscript = session.transcript
-                    let stream = session.streamResponse(to: prompt, schema: schema, options: options)
-                    var previousJson = ""
-                    var processedPrefixCount = 0
-                    var acceptedResponse = ""
-                    var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
-                    for try await partialResponse in stream {
-                        try Task.checkCancellation()
-                        if stopFilter.stopped { break }
-                        let currentJson = partialResponse.content.jsonString
-                        let stablePrefixCount = Self.commonPrefixLength(previousJson, currentJson)
-                        if stablePrefixCount > processedPrefixCount {
-                            let stablePrefix = String(currentJson.prefix(stablePrefixCount))
-                            let delta = String(stablePrefix.dropFirst(processedPrefixCount))
-                            let output = stopFilter.consume(delta)
+                        let prompt = formatMessagesAsPrompt(messages)
+                        let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                        let previousTranscript = session.transcript
+                        let stream = session.streamResponse(to: prompt, schema: schema, options: options)
+                        var previousJson = ""
+                        var processedPrefixCount = 0
+                        var acceptedResponse = ""
+                        var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
+                        for try await partialResponse in stream {
+                            try Task.checkCancellation()
+                            if stopFilter.stopped { break }
+                            let currentJson = partialResponse.content.jsonString
+                            let stablePrefixCount = Self.commonPrefixLength(previousJson, currentJson)
+                            if stablePrefixCount > processedPrefixCount {
+                                let stablePrefix = String(currentJson.prefix(stablePrefixCount))
+                                let delta = String(stablePrefix.dropFirst(processedPrefixCount))
+                                let output = stopFilter.consume(delta)
+                                if !output.isEmpty {
+                                    acceptedResponse += output
+                                    continuation.yield(output)
+                                }
+                                processedPrefixCount = stablePrefixCount
+                            }
+                            previousJson = currentJson
+                        }
+                        if !stopFilter.stopped, previousJson.count > processedPrefixCount {
+                            let output = stopFilter.consume(String(previousJson.dropFirst(processedPrefixCount)))
                             if !output.isEmpty {
                                 acceptedResponse += output
                                 continuation.yield(output)
                             }
-                            processedPrefixCount = stablePrefixCount
                         }
-                        previousJson = currentJson
-                    }
-                    if !stopFilter.stopped, previousJson.count > processedPrefixCount {
-                        let output = stopFilter.consume(String(previousJson.dropFirst(processedPrefixCount)))
-                        if !output.isEmpty {
-                            acceptedResponse += output
-                            continuation.yield(output)
+                        let finalOutput = stopFilter.finish()
+                        if !finalOutput.isEmpty {
+                            acceptedResponse += finalOutput
+                            continuation.yield(finalOutput)
                         }
-                    }
-                    let finalOutput = stopFilter.finish()
-                    if !finalOutput.isEmpty {
-                        acceptedResponse += finalOutput
-                        continuation.yield(finalOutput)
-                    }
-                    if stopFilter.stopped {
-                        self.restoreAcceptedResponse(
-                            previousTranscript: previousTranscript,
-                            prompt: prompt,
-                            response: acceptedResponse,
-                            options: options
-                        )
+                        if stopFilter.stopped {
+                            restoreAcceptedResponse(
+                                previousTranscript: previousTranscript,
+                                prompt: prompt,
+                                response: acceptedResponse,
+                                options: options
+                            )
+                        }
                     }
                     continuation.finish()
                 } catch is CancellationError {

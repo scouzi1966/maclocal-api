@@ -339,7 +339,7 @@ public actor AFMEngine {
             guard let service = foundationService as? FoundationModelService else {
                 throw AFMEngineError.foundationModelsUnavailable
             }
-            service.resetConversation(with: history)
+            try await service.resetConversation(with: history)
         }
     }
 
