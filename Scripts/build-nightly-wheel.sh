@@ -44,19 +44,23 @@ fi
 echo "[INFO] Nightly display version: ${BUILD_VERSION}"
 echo "[INFO] Nightly Python version: ${PYTHON_VERSION}"
 
-METADATA_BACKUP="$REPO_ROOT/.build/afm-next-wheel-metadata"
-rm -rf "$METADATA_BACKUP"
-mkdir -p "$METADATA_BACKUP"
+mkdir -p "$REPO_ROOT/.build"
+METADATA_BACKUP=$(mktemp -d "$REPO_ROOT/.build/afm-next-wheel-metadata.XXXXXX")
 cp macafm_next/__init__.py "$METADATA_BACKUP/__init__.py"
 cp pyproject-next.toml "$METADATA_BACKUP/pyproject-next.toml"
 cp pyproject.toml "$METADATA_BACKUP/pyproject.toml"
-cp -R macafm_next.egg-info "$METADATA_BACKUP/macafm_next.egg-info"
+if [ -d macafm_next.egg-info ]; then
+    cp -R macafm_next.egg-info "$METADATA_BACKUP/macafm_next.egg-info"
+fi
 
 cleanup() {
     cp "$METADATA_BACKUP/__init__.py" macafm_next/__init__.py 2>/dev/null || true
     cp "$METADATA_BACKUP/pyproject-next.toml" pyproject-next.toml 2>/dev/null || true
     cp "$METADATA_BACKUP/pyproject.toml" pyproject.toml 2>/dev/null || true
-    cp -R "$METADATA_BACKUP/macafm_next.egg-info/." macafm_next.egg-info/ 2>/dev/null || true
+    if [ -d "$METADATA_BACKUP/macafm_next.egg-info" ]; then
+        mkdir -p macafm_next.egg-info
+        cp -R "$METADATA_BACKUP/macafm_next.egg-info/." macafm_next.egg-info/
+    fi
     rm -rf macafm_next/bin macafm_next/share "$WHEEL_SMOKE" "$METADATA_BACKUP"
 }
 WHEEL_SMOKE=""
@@ -134,9 +138,7 @@ unzip -p "$WHL" macafm_next/share/webui/index.html.gz > "$WHEEL_WEBUI"
 "$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI"
 rm -f "$WHEEL_WEBUI"
 
-WHEEL_SMOKE="$REPO_ROOT/.build/afm-next-wheel-smoke"
-rm -rf "$WHEEL_SMOKE"
-mkdir -p "$WHEEL_SMOKE"
+WHEEL_SMOKE=$(mktemp -d "$REPO_ROOT/.build/afm-next-wheel-smoke.XXXXXX")
 unzip -q "$WHL" -d "$WHEEL_SMOKE"
 WHEEL_METADATA=$(find "$WHEEL_SMOKE" -path '*.dist-info/METADATA' -print -quit)
 ACTUAL_PYTHON_VERSION=$(awk '/^Version: / { print $2; exit }' "$WHEEL_METADATA")

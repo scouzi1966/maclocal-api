@@ -49,7 +49,10 @@ def main():
 
     try:
         environment = os.environ.copy()
-        environment["AFM_BUILD_VERSION"] = f"v{__build_version__.removeprefix('v')}"
+        build_version = __build_version__
+        if build_version.startswith("v"):
+            build_version = build_version[1:]
+        environment["AFM_BUILD_VERSION"] = f"v{build_version}"
         result = subprocess.run([str(binary)] + sys.argv[1:], env=environment)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
