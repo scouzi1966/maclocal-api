@@ -827,6 +827,11 @@ struct MlxCommand: ParsableCommand {
                     gatewayEnabled: false,
                     prewarmEnabled: false,
                     telegramConfiguration: telegramConfiguration,
+                    defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                    defaultChatTemplateKwargs: parsedKwargs.isEmpty
+                        ? nil
+                        : parsedKwargs.mapValues { AnyCodable($0) },
+                    forceDisableThinking: noThink,
                     mlxModelID: selectedModel,
                     mlxModel: mlxModel,
                     mlxRepetitionPenalty: repetitionPenalty,

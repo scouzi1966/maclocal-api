@@ -297,6 +297,7 @@ public class Server: @unchecked Sendable {
         let mlxServiceAdapter = mlxModel.map {
             AFMKitMLXChatServingAdapter(
                 model: $0,
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema,
                 defaultChatTemplateKwargs: defaultChatTemplateKwargs,
                 forceDisableThinking: forceDisableThinking)
         }
@@ -305,6 +306,7 @@ public class Server: @unchecked Sendable {
             mlxChatService = AFMKitMLXChatServingAdapter(
                 model: afmModel,
                 modelID: mlxModelID,
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema,
                 defaultChatTemplateKwargs: defaultChatTemplateKwargs,
                 forceDisableThinking: forceDisableThinking)
         } else {

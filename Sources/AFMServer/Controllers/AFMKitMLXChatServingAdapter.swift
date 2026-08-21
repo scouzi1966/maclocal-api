@@ -54,6 +54,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     private let fixedModel: AnyAFMModel
     private let fixedModelID: String
     private let fixedServingConfiguration: AFMChatServingConfiguration
+    private let serverDefaultGuidedJsonSchema: ResponseFormat?
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
     private let fixedMaxConcurrent: Int
@@ -62,12 +63,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
 
     init(
         model: AFMMLXModel,
+        defaultGuidedJsonSchema: ResponseFormat? = nil,
         defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
         forceDisableThinking: Bool = false
     ) {
         fixedModel = AnyAFMModel(model)
         fixedModelID = model.descriptor.modelID.rawValue
         fixedServingConfiguration = Self.configuration(for: model.servingConfiguration)
+        serverDefaultGuidedJsonSchema = defaultGuidedJsonSchema
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = model.maxConcurrent
@@ -78,12 +81,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     init(
         model: AnyAFMModel,
         modelID: String,
+        defaultGuidedJsonSchema: ResponseFormat? = nil,
         defaultChatTemplateKwargs: [String: AnyCodable]? = nil,
         forceDisableThinking: Bool = false
     ) {
         fixedModel = model
         fixedModelID = modelID
         fixedServingConfiguration = Self.configuration(for: model.descriptor)
+        serverDefaultGuidedJsonSchema = defaultGuidedJsonSchema
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         let maxConcurrent = Self.maximumConcurrency(for: model.descriptor)
@@ -94,10 +99,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
 
     var maxConcurrent: Int { mlxServing?.maxConcurrent ?? fixedMaxConcurrent }
     var servingConfiguration: AFMChatServingConfiguration { fixedServingConfiguration }
-    var defaultGuidedJsonSchema: ResponseFormat? { mlxServing?.defaultGuidedJsonSchema }
+    var defaultGuidedJsonSchema: ResponseFormat? {
+        serverDefaultGuidedJsonSchema ?? mlxServing?.defaultGuidedJsonSchema
+    }
 
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat? {
-        mlxServing?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
+        requestFormat
+            ?? serverDefaultGuidedJsonSchema
+            ?? mlxServing?.effectiveResponseFormat(requestFormat: nil)
     }
 
     func normalizeModel(_ raw: String) -> String {
