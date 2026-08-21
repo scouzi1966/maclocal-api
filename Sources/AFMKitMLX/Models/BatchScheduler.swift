@@ -158,6 +158,7 @@ actor BatchScheduler {
         var processor: LogitProcessor?
         var detokenizer: NaiveStreamingDetokenizer
         let maxTokens: Int?
+        let requestedMaximumOutputTokens: Int?
         let toolRuntime: ToolCallStreamingRuntime?
         let constraintRuntime: ConstraintRuntimeConfiguration?
 
@@ -201,6 +202,7 @@ actor BatchScheduler {
             processor: LogitProcessor?,
             detokenizer: NaiveStreamingDetokenizer,
             maxTokens: Int?,
+            requestedMaximumOutputTokens: Int?,
             toolRuntime: ToolCallStreamingRuntime?,
             constraintRuntime: ConstraintRuntimeConfiguration?,
             activeStops: [String],
@@ -238,6 +240,7 @@ actor BatchScheduler {
             self.processor = processor
             self.detokenizer = detokenizer
             self.maxTokens = maxTokens
+            self.requestedMaximumOutputTokens = requestedMaximumOutputTokens
             self.toolRuntime = toolRuntime
             self.constraintRuntime = constraintRuntime
             self.activeStops = activeStops
@@ -442,6 +445,7 @@ actor BatchScheduler {
         let telemetryToken: AFMInferenceRequestToken
         let admissionLease: AFMGenerationLease?
         let ignoreEndOfSequence: Bool
+        let requestedMaximumOutputTokens: Int?
         /// Monotonic instant the request was accepted by `submit()`. Used to
         /// derive queue time, e2e latency, and TTFT in `/metrics`.
         let queuedAt: Double
@@ -518,15 +522,24 @@ actor BatchScheduler {
         let reserved = await waitForSlot(timeout: timeout)
         _admissionWaitCount.withLock { $0 = max(0, $0 - 1) }
         guard reserved else {
-            let reason: AFMInferenceFailureReason = Task.isCancelled ? .cancelled : .inference
+            let shutdown = _isShutdown.withLock { $0 }
+            let reason: AFMInferenceFailureReason = Task.isCancelled
+                ? .cancelled
+                : (shutdown ? .internal : .inference)
             _ = telemetryObserver.requestFailed(
                 token,
                 reason: reason,
                 at: ProcessInfo.processInfo.systemUptime
             )
             publishProviderState()
-            throw Task.isCancelled
-                ? AFMGenerationAdmissionError.cancelled
+            if Task.isCancelled {
+                throw AFMGenerationAdmissionError.cancelled
+            }
+            if shutdown {
+                throw AFMGenerationAdmissionError.internalFailure
+            }
+            throw timeout <= 0
+                ? AFMGenerationAdmissionError.capacity
                 : AFMGenerationAdmissionError.timedOut
         }
 
@@ -534,6 +547,12 @@ actor BatchScheduler {
         publishProviderState()
         return AFMGenerationLease(telemetryToken: token) { [weak self] in
             self?.releaseReservation()
+        } onAbandon: { [telemetryObserver] in
+            _ = telemetryObserver.requestFailed(
+                token,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
     }
 
@@ -699,10 +718,6 @@ actor BatchScheduler {
         thinkEndTag: String? = nil,
         requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
-        if _isShutdown.withLock({ $0 }) {
-            return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
-        }
-
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
         let slotID = UUID()
         let acceptedAt = AFMGenerationContext.acceptedAt ?? ProcessInfo.processInfo.systemUptime
@@ -722,17 +737,19 @@ actor BatchScheduler {
             self?.cancelSlots(ids: [slotID])
         }
 
-        // Note: slot already reserved by admission in the controller layer. Once
-        // submitted, the scheduler owns releasing that reservation on every exit.
         let admissionLease = AFMGenerationContext.admissionLease
-        admissionLease?.transferReleaseToProvider()
-        _pendingQueue.withLock {
-            $0.append(PendingRequest(
+        let enqueued = _pendingQueue.withLock { queue -> Bool in
+            guard !_isShutdown.withLock({ $0 }) else { return false }
+            // The slot was reserved by admission. Once enqueued, the scheduler
+            // owns both terminal telemetry and capacity release on every exit.
+            admissionLease?.transferReleaseToProvider()
+            queue.append(PendingRequest(
                 id: slotID,
                 requestId: requestId,
                 telemetryToken: telemetryToken,
                 admissionLease: admissionLease,
                 ignoreEndOfSequence: AFMGenerationContext.ignoreEndOfSequence,
+                requestedMaximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens,
                 queuedAt: acceptedAt,
                 input: input,
                 parameters: parameters,
@@ -744,6 +761,21 @@ actor BatchScheduler {
                 thinkEndTag: thinkEndTag,
                 continuation: continuation
             ))
+            return true
+        }
+
+        guard enqueued else {
+            if let admissionLease {
+                admissionLease.transferReleaseToProvider()
+                releaseReservation()
+            }
+            _ = telemetryObserver.requestFailed(
+                telemetryToken,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+            continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            return stream
         }
 
         publishProviderState()
@@ -1510,6 +1542,7 @@ actor BatchScheduler {
             processor: logitProcessor,
             detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
             maxTokens: req.parameters.maxTokens,
+            requestedMaximumOutputTokens: req.requestedMaximumOutputTokens,
             toolRuntime: req.toolCallRuntimeConfig.map { config in
                 ToolCallStreamingRuntime(
                     toolCallStartTag: config.startTag,
@@ -1727,7 +1760,7 @@ actor BatchScheduler {
                 fullPromptTokens: inputTokens.count,
                 computedPromptTokens: max(0, inputTokens.count - cachedTokens),
                 generatedTokens: tokenCount,
-                maximumOutputTokens: maxTokens
+                maximumOutputTokens: req.requestedMaximumOutputTokens
             )
         )
         clearCancellation(req.id)
@@ -1935,6 +1968,7 @@ actor BatchScheduler {
                 processor: logitProcessors[i],
                 detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
                 maxTokens: req.parameters.maxTokens,
+                requestedMaximumOutputTokens: req.requestedMaximumOutputTokens,
                 toolRuntime: req.toolCallRuntimeConfig.map { config in
                     ToolCallStreamingRuntime(
                         toolCallStartTag: config.startTag,
@@ -2229,7 +2263,7 @@ actor BatchScheduler {
                         slot.promptTokenCount - slot.cachedTokens
                     ),
                     generatedTokens: slot.tokenCount,
-                    maximumOutputTokens: slot.maxTokens ?? 0
+                    maximumOutputTokens: slot.requestedMaximumOutputTokens
                 )
             )
         }

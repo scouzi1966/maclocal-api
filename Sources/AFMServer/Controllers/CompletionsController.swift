@@ -146,32 +146,35 @@ struct CompletionsController: RouteCollection {
         do {
             lease = try await generationAdmitter?.admitGeneration(timeout: slotQueueTimeout)
         } catch {
-            telemetry.recordRejection(.capacity)
-            let response = try errorResponse(
-                request: req,
-                status: .serviceUnavailable,
-                message: "Server at capacity. Please retry shortly.",
-                type: "server_busy",
-                code: "server_busy"
-            )
-            response.headers.add(name: "Retry-After", value: "2")
-            return response
+            return try admissionErrorResponse(request: req, error: error)
         }
         let events: AsyncStream<AFMRawTextGenerationEvent>
         if let lease {
             events = AFMGenerationContext.$admissionLease.withValue(lease) {
                 AFMGenerationContext.$telemetryToken.withValue(lease.telemetryToken) {
                     AFMGenerationContext.$acceptedAt.withValue(acceptedAt) {
-                        AFMGenerationContext.$ignoreEndOfSequence.withValue(
-                            request.ignoreEOS ?? false
+                        AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                            request.maxTokens
                         ) {
-                            generator.rawTextGenerationEvents(for: providerRequest)
+                            AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                                request.ignoreEOS ?? false
+                            ) {
+                                generator.rawTextGenerationEvents(for: providerRequest)
+                            }
                         }
                     }
                 }
             }
         } else {
-            events = generator.rawTextGenerationEvents(for: providerRequest)
+            events = AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                request.maxTokens
+            ) {
+                AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                    request.ignoreEOS ?? false
+                ) {
+                    generator.rawTextGenerationEvents(for: providerRequest)
+                }
+            }
         }
 
         if request.stream == true {
@@ -360,6 +363,40 @@ struct CompletionsController: RouteCollection {
             requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
         ))
         return response
+    }
+
+    private func admissionErrorResponse(request: Request, error: Error) throws -> Response {
+        switch error as? AFMGenerationAdmissionError {
+        case .capacity, .timedOut:
+            let response = try errorResponse(
+                request: request,
+                status: .serviceUnavailable,
+                message: "Server at capacity. Please retry shortly.",
+                type: "server_busy",
+                code: "server_busy"
+            )
+            response.headers.add(name: "Retry-After", value: "2")
+            return response
+        case .cancelled:
+            return try errorResponse(
+                request: request,
+                status: HTTPResponseStatus(
+                    statusCode: 499,
+                    reasonPhrase: "Client Closed Request"
+                ),
+                message: "Request cancelled while waiting for generation capacity.",
+                type: "cancelled",
+                code: "cancelled"
+            )
+        case .internalFailure, .none:
+            return try errorResponse(
+                request: request,
+                status: .internalServerError,
+                message: "Generation admission failed.",
+                type: "server_error",
+                code: "internal_error"
+            )
+        }
     }
 
     private func writeEvent<Value: Encodable>(

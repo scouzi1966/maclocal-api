@@ -572,6 +572,8 @@ public final class MLXModelService: @unchecked Sendable {
     /// Number of in-flight batch operations (for auto-teardown).
     private let _activeBatchCount = OSAllocatedUnfairLock(initialState: 0)
     private let _serialTelemetryRunning = OSAllocatedUnfairLock(initialState: 0)
+    private let _serialAdmissionRunning = OSAllocatedUnfairLock(initialState: 0)
+    private let _serialAdmissionWaiting = OSAllocatedUnfairLock(initialState: 0)
 
     /// Whether a promotion is currently in progress (prevents races).
     private var promotionInProgress = false
@@ -580,14 +582,24 @@ public final class MLXModelService: @unchecked Sendable {
     private var teardownWorkItem: DispatchWorkItem?
 
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
-    public func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    public func tryReserveSlot() -> Bool {
+        scheduler?.tryReserve() ?? tryReserveSerialSlot()
+    }
     /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
     public func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
-        guard let sched = scheduler else { return true }
+        guard let sched = scheduler else {
+            return await waitForSerialSlot(timeout: timeout)
+        }
         return await sched.waitForSlot(timeout: timeout)
     }
     /// Release a reserved slot (call if request fails before generation starts).
-    public func releaseSlot() { scheduler?.releaseReservation() }
+    public func releaseSlot() {
+        if let scheduler {
+            scheduler.releaseReservation()
+        } else {
+            releaseSerialSlot()
+        }
+    }
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
@@ -621,12 +633,75 @@ public final class MLXModelService: @unchecked Sendable {
 
         let acceptedAt = ProcessInfo.processInfo.systemUptime
         let token = telemetryObserver.requestAccepted(at: acceptedAt)
-        guard !Task.isCancelled else {
-            _ = telemetryObserver.requestFailed(token, reason: .cancelled, at: acceptedAt)
-            throw AFMGenerationAdmissionError.cancelled
+        _serialAdmissionWaiting.withLock { $0 += 1 }
+        publishSerialProviderState()
+
+        let timeoutSeconds = timeout.map(Self.timeInterval) ?? 30
+        let reserved = await waitForSerialSlot(timeout: timeoutSeconds)
+        _serialAdmissionWaiting.withLock { $0 = max(0, $0 - 1) }
+
+        guard reserved else {
+            let failureReason: AFMInferenceFailureReason
+            let admissionError: AFMGenerationAdmissionError
+            if Task.isCancelled {
+                failureReason = .cancelled
+                admissionError = .cancelled
+            } else if withStateLock({ isShuttingDown }) {
+                failureReason = .internal
+                admissionError = .internalFailure
+            } else {
+                failureReason = .inference
+                admissionError = timeoutSeconds <= 0 ? .capacity : .timedOut
+            }
+            _ = telemetryObserver.requestFailed(
+                token,
+                reason: failureReason,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+            publishSerialProviderState()
+            throw admissionError
         }
-        telemetryObserver.requestStarted(token, at: acceptedAt)
-        return AFMGenerationLease(telemetryToken: token) {}
+        telemetryObserver.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
+        publishSerialProviderState()
+        return AFMGenerationLease(telemetryToken: token) { [weak self] in
+            self?.releaseSerialSlot()
+        } onAbandon: { [telemetryObserver] in
+            _ = telemetryObserver.requestFailed(
+                token,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
+    }
+
+    private func tryReserveSerialSlot() -> Bool {
+        _serialAdmissionRunning.withLock { running in
+            guard running == 0 else { return false }
+            running = 1
+            return true
+        }
+    }
+
+    private func waitForSerialSlot(timeout: TimeInterval) async -> Bool {
+        if Task.isCancelled || withStateLock({ isShuttingDown }) { return false }
+        if tryReserveSerialSlot() { return true }
+        guard timeout > 0 else { return false }
+
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        var delay: UInt64 = 10_000_000
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled || withStateLock({ isShuttingDown }) { return false }
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled || withStateLock({ isShuttingDown }) { return false }
+            if tryReserveSerialSlot() { return true }
+            delay = min(delay * 2, 500_000_000)
+        }
+        return false
+    }
+
+    private func releaseSerialSlot() {
+        _serialAdmissionRunning.withLock { $0 = max(0, $0 - 1) }
+        publishSerialProviderState()
     }
 
     private static func timeInterval(_ duration: Duration) -> TimeInterval {
@@ -640,24 +715,23 @@ public final class MLXModelService: @unchecked Sendable {
         let token: AFMInferenceRequestToken
         if let admittedToken = AFMGenerationContext.telemetryToken {
             token = admittedToken
+            AFMGenerationContext.admissionLease?.transferTelemetryToProvider()
         } else {
             token = telemetryObserver.requestAccepted(at: AFMGenerationContext.acceptedAt ?? now)
             telemetryObserver.requestStarted(token, at: now)
         }
-        let running = _serialTelemetryRunning.withLock { count -> Int in
+        _serialTelemetryRunning.withLock { count in
             count += 1
-            return count
         }
-        publishSerialProviderState(runningRequests: running)
+        publishSerialProviderState()
         return token
     }
 
     private func endSerialTelemetryRequest() {
-        let running = _serialTelemetryRunning.withLock { count -> Int in
+        _serialTelemetryRunning.withLock { count in
             count = max(0, count - 1)
-            return count
         }
-        publishSerialProviderState(runningRequests: running)
+        publishSerialProviderState()
     }
 
     @discardableResult
@@ -667,7 +741,7 @@ public final class MLXModelService: @unchecked Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
-        maximumOutputTokens: Int = 0,
+        maximumOutputTokens: Int? = nil,
         firstTokenAt: Double? = nil
     ) -> Bool {
         if let firstTokenAt, generatedTokens > 0 {
@@ -686,16 +760,29 @@ public final class MLXModelService: @unchecked Sendable {
         )
     }
 
-    private func publishSerialProviderState(runningRequests: Int) {
+    static func serialTelemetryFinishReason(
+        generatedTokens: Int,
+        maximumOutputTokens: Int,
+        stoppedBySequence: Bool = false
+    ) throws -> AFMInferenceFinishReason {
+        try Task.checkCancellation()
+        if stoppedBySequence { return .stop }
+        return generatedTokens >= maximumOutputTokens ? .length : .stop
+    }
+
+    private func publishSerialProviderState() {
         guard withStateLock({ scheduler == nil }) else { return }
+        let executionRunning = _serialTelemetryRunning.withLock { $0 }
+        let admissionRunning = _serialAdmissionRunning.withLock { $0 }
+        let waiting = _serialAdmissionWaiting.withLock { $0 }
         let maximumWorkingSet = GPU.deviceInfo().maxRecommendedWorkingSetSize
         let memoryUsage: Double? = maximumWorkingSet > 0
             ? min(1, Double(GPU.activeMemory) / Double(maximumWorkingSet))
             : nil
         telemetryObserver.updateProviderState(
             AFMInferenceProviderState(
-                runningRequests: runningRequests,
-                waitingRequests: 0,
+                runningRequests: max(executionRunning, admissionRunning),
+                waitingRequests: waiting,
                 memoryCacheUsage: memoryUsage,
                 prefixCacheFill: radixCache?.usageFraction
             )
@@ -2326,16 +2413,17 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
             }) {
-                let reason: AFMInferenceFinishReason = result.2 >= effectiveMaxTokens
-                    ? .length
-                    : .stop
+                let reason = try Self.serialTelemetryFinishReason(
+                    generatedTokens: result.2,
+                    maximumOutputTokens: effectiveMaxTokens
+                )
                 serialRequestRecorded = finishSerialTelemetryRequest(
                     serialTelemetryToken,
                     reason: reason,
                     fullPromptTokens: result.1,
                     computedPromptTokens: result.1,
                     generatedTokens: result.2,
-                    maximumOutputTokens: effectiveMaxTokens
+                    maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens
                 )
                 return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
             }
@@ -2374,16 +2462,17 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
-                let reason: AFMInferenceFinishReason = mtpResult.2 >= effectiveMaxTokens
-                    ? .length
-                    : .stop
+                let reason = try Self.serialTelemetryFinishReason(
+                    generatedTokens: mtpResult.2,
+                    maximumOutputTokens: effectiveMaxTokens
+                )
                 serialRequestRecorded = finishSerialTelemetryRequest(
                     serialTelemetryToken,
                     reason: reason,
                     fullPromptTokens: mtpResult.1,
                     computedPromptTokens: mtpResult.1,
                     generatedTokens: mtpResult.2,
-                    maximumOutputTokens: effectiveMaxTokens
+                    maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens
                 )
                 return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
             }
@@ -2425,16 +2514,17 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
-                let reason: AFMInferenceFinishReason = e3Result.2 >= effectiveMaxTokens
-                    ? .length
-                    : .stop
+                let reason = try Self.serialTelemetryFinishReason(
+                    generatedTokens: e3Result.2,
+                    maximumOutputTokens: effectiveMaxTokens
+                )
                 serialRequestRecorded = finishSerialTelemetryRequest(
                     serialTelemetryToken,
                     reason: reason,
                     fullPromptTokens: e3Result.1,
                     computedPromptTokens: e3Result.1,
                     generatedTokens: e3Result.2,
-                    maximumOutputTokens: effectiveMaxTokens
+                    maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens
                 )
                 return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
             }
@@ -2613,21 +2703,18 @@ public final class MLXModelService: @unchecked Sendable {
             let firstTokenAt: Double? = (completionTokens > 0 && promptTime >= 0)
                 ? serialQueuedAt + promptTime
                 : nil
-            let serialFinishedReason: AFMInferenceFinishReason
-            if stoppedBySequence {
-                serialFinishedReason = .stop
-            } else if completionTokens >= effectiveMaxTokens {
-                serialFinishedReason = .length
-            } else {
-                serialFinishedReason = .stop
-            }
+            let serialFinishedReason = try Self.serialTelemetryFinishReason(
+                generatedTokens: completionTokens,
+                maximumOutputTokens: effectiveMaxTokens,
+                stoppedBySequence: stoppedBySequence
+            )
             serialRequestRecorded = finishSerialTelemetryRequest(
                 serialTelemetryToken,
                 reason: serialFinishedReason,
                 fullPromptTokens: promptTokens,
                 computedPromptTokens: promptTokens,
                 generatedTokens: completionTokens,
-                maximumOutputTokens: effectiveMaxTokens,
+                maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens,
                 firstTokenAt: firstTokenAt
             )
 
@@ -3163,21 +3250,18 @@ public final class MLXModelService: @unchecked Sendable {
             let firstTokenAt: Double? = (completionTokens > 0 && promptTime >= 0)
                 ? serialQueuedAt + promptTime
                 : nil
-            let serialFinishedReason: AFMInferenceFinishReason
-            if stoppedBySequence {
-                serialFinishedReason = .stop
-            } else if completionTokens >= effectiveMaxTokens {
-                serialFinishedReason = .length
-            } else {
-                serialFinishedReason = .stop
-            }
+            let serialFinishedReason = try Self.serialTelemetryFinishReason(
+                generatedTokens: completionTokens,
+                maximumOutputTokens: effectiveMaxTokens,
+                stoppedBySequence: stoppedBySequence
+            )
             serialRequestRecorded = finishSerialTelemetryRequest(
                 serialTelemetryToken,
                 reason: serialFinishedReason,
                 fullPromptTokens: promptTokens,
                 computedPromptTokens: max(0, promptTokens - cachedTokenCount),
                 generatedTokens: completionTokens,
-                maximumOutputTokens: effectiveMaxTokens,
+                maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens,
                 firstTokenAt: firstTokenAt
             )
 
@@ -3500,15 +3584,19 @@ public final class MLXModelService: @unchecked Sendable {
                                 let engine = useDSpark ? "DSpARK" : (useEagle3 ? "EAGLE3" : "MTP")
                                 print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
+                            let finishReason = try Self.serialTelemetryFinishReason(
+                                generatedTokens: outCount,
+                                maximumOutputTokens: maxTok
+                            )
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
                                                            completionTokens: outCount, promptTime: 0, generateTime: gt))
                             _ = self.finishSerialTelemetryRequest(
                                 telemetryToken,
-                                reason: outCount >= maxTok ? .length : .stop,
+                                reason: finishReason,
                                 fullPromptTokens: promptIds.count,
                                 computedPromptTokens: promptIds.count,
                                 generatedTokens: outCount,
-                                maximumOutputTokens: maxTok
+                                maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens
                             )
                             continuation.finish()
                         } catch {
@@ -4035,14 +4123,11 @@ public final class MLXModelService: @unchecked Sendable {
                     // /metrics: serial-streaming observation. Mirrors the
                     // non-streaming generate() path; queue time ≈ 0 in
                     // serial mode so queuedAt == startedAt.
-                    let streamReason: AFMInferenceFinishReason
-                    if streamStatStoppedBySequence {
-                        streamReason = .stop
-                    } else if streamStatCompletionTokens >= effectiveMaxTokens {
-                        streamReason = .length
-                    } else {
-                        streamReason = .stop
-                    }
+                    let streamReason = try Self.serialTelemetryFinishReason(
+                        generatedTokens: streamStatCompletionTokens,
+                        maximumOutputTokens: effectiveMaxTokens,
+                        stoppedBySequence: streamStatStoppedBySequence
+                    )
                     _ = self.finishSerialTelemetryRequest(
                         streamTelemetryToken,
                         reason: streamReason,
@@ -4052,7 +4137,7 @@ public final class MLXModelService: @unchecked Sendable {
                             streamStatPromptTokens - streamStatCachedTokens
                         ),
                         generatedTokens: streamStatCompletionTokens,
-                        maximumOutputTokens: effectiveMaxTokens
+                        maximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens
                     )
 
                     continuation.finish()

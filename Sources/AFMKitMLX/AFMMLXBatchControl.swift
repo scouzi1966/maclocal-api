@@ -81,6 +81,12 @@ public final class LegacyAFMMLXAdmissionAdapter:
         observer.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
         return AFMGenerationLease(telemetryToken: token) { [scheduler] in
             scheduler.releaseSlot()
+        } onAbandon: { [observer] in
+            _ = observer.requestFailed(
+                token,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
     }
 

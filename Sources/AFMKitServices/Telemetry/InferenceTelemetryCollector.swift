@@ -63,8 +63,18 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
                 buckets[lastIndex].amount &+= amount
             } else if buckets.last.map({ bucketTimestamp > $0.timestamp }) ?? true {
                 buckets.append(TimedAmount(timestamp: bucketTimestamp, amount: amount))
+            } else if let existingIndex = buckets.firstIndex(where: {
+                $0.timestamp == bucketTimestamp
+            }) {
+                buckets[existingIndex].amount &+= amount
             } else {
-                buckets = [TimedAmount(timestamp: bucketTimestamp, amount: amount)]
+                let insertionIndex = buckets.firstIndex(where: {
+                    $0.timestamp > bucketTimestamp
+                }) ?? buckets.endIndex
+                buckets.insert(
+                    TimedAmount(timestamp: bucketTimestamp, amount: amount),
+                    at: insertionIndex
+                )
             }
             if buckets.count > Self.maximumBucketCount {
                 buckets.removeFirst(buckets.count - Self.maximumBucketCount)
@@ -335,7 +345,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
                 fullPromptTokens: 0,
                 computedPromptTokens: promptTokens,
                 generatedTokens: generationTokens,
-                maximumOutputTokens: 0,
+                maximumOutputTokens: nil,
                 samplingN: samplingN,
                 samplingBestOf: samplingBestOf
             )
@@ -388,7 +398,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
-        maximumOutputTokens: Int,
+        maximumOutputTokens: Int?,
         samplingN: Int,
         samplingBestOf: Int
     ) {
@@ -420,7 +430,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         if generatedTokens >= 0 {
             state.maximumGeneratedTokens.observe(Double(generatedTokens))
         }
-        if maximumOutputTokens > 0 {
+        if let maximumOutputTokens, maximumOutputTokens >= 0 {
             state.maximumOutputTokens.observe(Double(maximumOutputTokens))
         }
         state.samplingN.observe(Double(max(1, samplingN)))

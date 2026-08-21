@@ -2199,7 +2199,7 @@
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore18AFMGenerationLeaseC14telemetryToken7releaseAcA019AFMInferenceRequestF0V_yyYbctcfc",
+      "source": "s:10AFMKitCore18AFMGenerationLeaseC14telemetryToken7release9onAbandonAcA019AFMInferenceRequestF0V_yyYbcyyYbctcfc",
       "target": "s:10AFMKitCore18AFMGenerationLeaseC"
     },
     {
@@ -2210,6 +2210,11 @@
     {
       "kind": "memberOf",
       "source": "s:10AFMKitCore18AFMGenerationLeaseC25transferReleaseToProvideryyF",
+      "target": "s:10AFMKitCore18AFMGenerationLeaseC"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore18AFMGenerationLeaseC27transferTelemetryToProvideryyF",
       "target": "s:10AFMKitCore18AFMGenerationLeaseC"
     },
     {
@@ -2413,6 +2418,16 @@
     {
       "kind": "memberOf",
       "source": "s:10AFMKitCore20AFMGenerationContextO20$ignoreEndOfSequence12_Concurrency9TaskLocalCySbGvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO28requestedMaximumOutputTokensSiSgvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO29$requestedMaximumOutputTokens12_Concurrency9TaskLocalCySiSgGvpZ",
       "target": "s:10AFMKitCore20AFMGenerationContextO"
     },
     {
@@ -3258,6 +3273,11 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore27AFMGenerationAdmissionErrorO15internalFailureyA2CmF",
+      "target": "s:10AFMKitCore27AFMGenerationAdmissionErrorO"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore27AFMGenerationAdmissionErrorO8capacityyA2CmF",
       "target": "s:10AFMKitCore27AFMGenerationAdmissionErrorO"
     },
@@ -3778,7 +3798,7 @@
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSivp",
+      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSiSgvp",
       "target": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV"
     },
     {
@@ -3788,7 +3808,7 @@
     },
     {
       "kind": "memberOf",
-      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS6itcfc",
+      "source": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS4iSgS2itcfc",
       "target": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV"
     },
     {
@@ -4374,6 +4394,244 @@
         },
         {
           "kind": "attribute",
+          "spelling": "@Sendable"
+        },
+        {
+          "kind": "attribute",
+          "spelling": "@escaping "
+        },
+        {
+          "kind": "attribute",
+          "spelling": "@escaping "
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "onAbandon"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "release"
+        },
+        {
+          "kind": "externalParam",
+          "spelling": "telemetryToken"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "init"
+        },
+        {
+          "kind": "text",
+          "spelling": " () -> "
+        },
+        {
+          "kind": "text",
+          "spelling": " () -> "
+        },
+        {
+          "kind": "text",
+          "spelling": " = {})"
+        },
+        {
+          "kind": "text",
+          "spelling": "("
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ", "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+          "spelling": "AFMInferenceRequestToken"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:s4Voida",
+          "spelling": "Void"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:s4Voida",
+          "spelling": "Void"
+        }
+      ],
+      "functionSignature": {
+        "parameters": [
+          {
+            "declarationFragments": [
+              {
+                "kind": "attribute",
+                "spelling": "@Sendable"
+              },
+              {
+                "kind": "identifier",
+                "spelling": "onAbandon"
+              },
+              {
+                "kind": "text",
+                "spelling": " () -> "
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:s4Voida",
+                "spelling": "Void"
+              }
+            ],
+            "name": "onAbandon"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "attribute",
+                "spelling": "@Sendable"
+              },
+              {
+                "kind": "identifier",
+                "spelling": "release"
+              },
+              {
+                "kind": "text",
+                "spelling": " () -> "
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:s4Voida",
+                "spelling": "Void"
+              }
+            ],
+            "name": "release"
+          },
+          {
+            "declarationFragments": [
+              {
+                "kind": "identifier",
+                "spelling": "telemetryToken"
+              },
+              {
+                "kind": "text",
+                "spelling": ": "
+              },
+              {
+                "kind": "typeIdentifier",
+                "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+                "spelling": "AFMInferenceRequestToken"
+              }
+            ],
+            "name": "telemetryToken"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore18AFMGenerationLeaseC14telemetryToken7release9onAbandonAcA019AFMInferenceRequestF0V_yyYbcyyYbctcfc"
+      },
+      "kind": {
+        "displayName": "Initializer",
+        "identifier": "swift.init"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "externalParam",
+            "spelling": "onAbandon"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "release"
+          },
+          {
+            "kind": "externalParam",
+            "spelling": "telemetryToken"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "init"
+          },
+          {
+            "kind": "text",
+            "spelling": "("
+          },
+          {
+            "kind": "text",
+            "spelling": ")"
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ", "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": ": () -> "
+          },
+          {
+            "kind": "text",
+            "spelling": ": () -> "
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
+            "spelling": "AFMInferenceRequestToken"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:s4Voida",
+            "spelling": "Void"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:s4Voida",
+            "spelling": "Void"
+          }
+        ],
+        "title": "init(telemetryToken:release:onAbandon:)"
+      },
+      "pathComponents": [
+        "AFMGenerationLease",
+        "init(telemetryToken:release:onAbandon:)"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "attribute",
+          "spelling": "@Sendable"
+        },
+        {
+          "kind": "attribute",
           "spelling": "@escaping "
         },
         {
@@ -4724,172 +4982,6 @@
       "pathComponents": [
         "AnyAFMRawTextGenerator",
         "init(rawTextGenerationEvents:)"
-      ]
-    },
-    {
-      "accessLevel": "public",
-      "declarationFragments": [
-        {
-          "kind": "attribute",
-          "spelling": "@Sendable"
-        },
-        {
-          "kind": "attribute",
-          "spelling": "@escaping "
-        },
-        {
-          "kind": "externalParam",
-          "spelling": "release"
-        },
-        {
-          "kind": "externalParam",
-          "spelling": "telemetryToken"
-        },
-        {
-          "kind": "keyword",
-          "spelling": "init"
-        },
-        {
-          "kind": "text",
-          "spelling": " () -> "
-        },
-        {
-          "kind": "text",
-          "spelling": "("
-        },
-        {
-          "kind": "text",
-          "spelling": ")"
-        },
-        {
-          "kind": "text",
-          "spelling": ", "
-        },
-        {
-          "kind": "text",
-          "spelling": ": "
-        },
-        {
-          "kind": "text",
-          "spelling": ": "
-        },
-        {
-          "kind": "typeIdentifier",
-          "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
-          "spelling": "AFMInferenceRequestToken"
-        },
-        {
-          "kind": "typeIdentifier",
-          "preciseIdentifier": "s:s4Voida",
-          "spelling": "Void"
-        }
-      ],
-      "functionSignature": {
-        "parameters": [
-          {
-            "declarationFragments": [
-              {
-                "kind": "attribute",
-                "spelling": "@Sendable"
-              },
-              {
-                "kind": "identifier",
-                "spelling": "release"
-              },
-              {
-                "kind": "text",
-                "spelling": " () -> "
-              },
-              {
-                "kind": "text",
-                "spelling": ": "
-              },
-              {
-                "kind": "typeIdentifier",
-                "preciseIdentifier": "s:s4Voida",
-                "spelling": "Void"
-              }
-            ],
-            "name": "release"
-          },
-          {
-            "declarationFragments": [
-              {
-                "kind": "identifier",
-                "spelling": "telemetryToken"
-              },
-              {
-                "kind": "text",
-                "spelling": ": "
-              },
-              {
-                "kind": "typeIdentifier",
-                "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
-                "spelling": "AFMInferenceRequestToken"
-              }
-            ],
-            "name": "telemetryToken"
-          }
-        ]
-      },
-      "identifier": {
-        "interfaceLanguage": "swift",
-        "precise": "s:10AFMKitCore18AFMGenerationLeaseC14telemetryToken7releaseAcA019AFMInferenceRequestF0V_yyYbctcfc"
-      },
-      "kind": {
-        "displayName": "Initializer",
-        "identifier": "swift.init"
-      },
-      "names": {
-        "subHeading": [
-          {
-            "kind": "externalParam",
-            "spelling": "release"
-          },
-          {
-            "kind": "externalParam",
-            "spelling": "telemetryToken"
-          },
-          {
-            "kind": "keyword",
-            "spelling": "init"
-          },
-          {
-            "kind": "text",
-            "spelling": "("
-          },
-          {
-            "kind": "text",
-            "spelling": ")"
-          },
-          {
-            "kind": "text",
-            "spelling": ", "
-          },
-          {
-            "kind": "text",
-            "spelling": ": "
-          },
-          {
-            "kind": "text",
-            "spelling": ": () -> "
-          },
-          {
-            "kind": "typeIdentifier",
-            "preciseIdentifier": "s:10AFMKitCore24AFMInferenceRequestTokenV",
-            "spelling": "AFMInferenceRequestToken"
-          },
-          {
-            "kind": "typeIdentifier",
-            "preciseIdentifier": "s:s4Voida",
-            "spelling": "Void"
-          }
-        ],
-        "title": "init(telemetryToken:release:)"
-      },
-      "pathComponents": [
-        "AFMGenerationLease",
-        "init(telemetryToken:release:)"
       ]
     },
     {
@@ -16478,10 +16570,6 @@
         },
         {
           "kind": "text",
-          "spelling": " = 0, "
-        },
-        {
-          "kind": "text",
           "spelling": " = 1)"
         },
         {
@@ -16543,6 +16631,10 @@
         {
           "kind": "text",
           "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "? = nil, "
         },
         {
           "kind": "typeIdentifier",
@@ -16670,6 +16762,10 @@
                 "spelling": ": "
               },
               {
+                "kind": "text",
+                "spelling": "?"
+              },
+              {
                 "kind": "typeIdentifier",
                 "preciseIdentifier": "s:Si",
                 "spelling": "Int"
@@ -16735,7 +16831,7 @@
       },
       "identifier": {
         "interfaceLanguage": "swift",
-        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS6itcfc"
+        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV6reason11completedAt16fullPromptTokens08computedkL009generatedL0013maximumOutputL09samplingN0Q6BestOfAcA0cE6ReasonO_SdS4iSgS2itcfc"
       },
       "kind": {
         "displayName": "Initializer",
@@ -16813,10 +16909,6 @@
           },
           {
             "kind": "text",
-            "spelling": ", "
-          },
-          {
-            "kind": "text",
             "spelling": ": "
           },
           {
@@ -16846,6 +16938,10 @@
           {
             "kind": "text",
             "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?, "
           },
           {
             "kind": "typeIdentifier",
@@ -32043,6 +32139,112 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "$requestedMaximumOutputTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "text",
+          "spelling": "?>"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+          "spelling": "TaskLocal"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO29$requestedMaximumOutputTokens12_Concurrency9TaskLocalCySiSgGvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "$requestedMaximumOutputTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "<"
+          },
+          {
+            "kind": "text",
+            "spelling": "?>"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+            "spelling": "TaskLocal"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "$requestedMaximumOutputTokens"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "$requestedMaximumOutputTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "$telemetryToken"
         },
         {
@@ -43233,6 +43435,52 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "internalFailure"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "case"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore27AFMGenerationAdmissionErrorO15internalFailureyA2CmF"
+      },
+      "kind": {
+        "displayName": "Case",
+        "identifier": "swift.enum.case"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "internalFailure"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "case"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          }
+        ],
+        "title": "AFMGenerationAdmissionError.internalFailure"
+      },
+      "pathComponents": [
+        "AFMGenerationAdmissionError",
+        "internalFailure"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "invalidRequest"
         },
         {
@@ -44587,6 +44835,10 @@
           "spelling": ": "
         },
         {
+          "kind": "text",
+          "spelling": "?"
+        },
+        {
           "kind": "typeIdentifier",
           "preciseIdentifier": "s:Si",
           "spelling": "Int"
@@ -44594,7 +44846,7 @@
       ],
       "identifier": {
         "interfaceLanguage": "swift",
-        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSivp"
+        "precise": "s:10AFMKitCore36AFMInferenceRequestFinishObservationV19maximumOutputTokensSiSgvp"
       },
       "kind": {
         "displayName": "Instance Property",
@@ -44617,6 +44869,10 @@
           {
             "kind": "text",
             "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
           },
           {
             "kind": "typeIdentifier",
@@ -50308,6 +50564,102 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "requestedMaximumOutputTokens"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "get"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " }"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "? { "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:Si",
+          "spelling": "Int"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO28requestedMaximumOutputTokensSiSgvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "requestedMaximumOutputTokens"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:Si",
+            "spelling": "Int"
+          }
+        ],
+        "title": "requestedMaximumOutputTokens"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "requestedMaximumOutputTokens"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "requiresNetwork"
         },
         {
@@ -55162,6 +55514,79 @@
       "pathComponents": [
         "AFMGenerationLease",
         "transferReleaseToProvider()"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "transferTelemetryToProvider"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "func"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": "()"
+        }
+      ],
+      "docComment": {
+        "lines": [
+          {
+            "text": "Keeps capacity release with the caller while the provider takes"
+          },
+          {
+            "text": "responsibility for recording the request's terminal telemetry state."
+          }
+        ],
+        "module": "AFMKitCore"
+      },
+      "functionSignature": {
+        "returns": [
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ]
+      },
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore18AFMGenerationLeaseC27transferTelemetryToProvideryyF"
+      },
+      "kind": {
+        "displayName": "Instance Method",
+        "identifier": "swift.method"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "transferTelemetryToProvider"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "func"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": "()"
+          }
+        ],
+        "title": "transferTelemetryToProvider()"
+      },
+      "pathComponents": [
+        "AFMGenerationLease",
+        "transferTelemetryToProvider()"
       ]
     },
     {

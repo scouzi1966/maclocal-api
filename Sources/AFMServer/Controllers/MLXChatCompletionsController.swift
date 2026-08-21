@@ -147,16 +147,23 @@ struct MLXChatCompletionsController: RouteCollection {
     private func withGenerationContext<Value>(
         _ admission: GenerationAdmission,
         ignoreEndOfSequence: Bool,
+        requestedMaximumOutputTokens: Int?,
         operation: () async throws -> Value
     ) async rethrows -> Value {
         try await AFMGenerationContext.$telemetryToken.withValue(
             admission.lease.telemetryToken
         ) {
-            try await AFMGenerationContext.$acceptedAt.withValue(admission.acceptedAt) {
-                try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
-                    ignoreEndOfSequence,
-                    operation: operation
-                )
+            try await AFMGenerationContext.$admissionLease.withValue(admission.lease) {
+                try await AFMGenerationContext.$acceptedAt.withValue(admission.acceptedAt) {
+                    try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        requestedMaximumOutputTokens
+                    ) {
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            ignoreEndOfSequence,
+                            operation: operation
+                        )
+                    }
+                }
             }
         }
     }
@@ -241,19 +248,7 @@ struct MLXChatCompletionsController: RouteCollection {
             do {
                 admission = try await admitGeneration()
             } catch {
-                telemetry.recordRejection(.capacity)
-                let peer = req.peerAddress?.description ?? "unknown"
-                let ua = req.headers.first(name: .userAgent) ?? "unknown"
-                req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
-                let response = Response(status: .serviceUnavailable)
-                response.headers.add(name: .contentType, value: "application/json")
-                response.headers.add(name: .accessControlAllowOrigin, value: "*")
-                response.headers.add(name: "Retry-After", value: "2")
-                try response.content.encode(OpenAIError(
-                    message: "Server at capacity (\(service.maxConcurrent) concurrent requests). Please retry shortly.",
-                    type: "server_busy"
-                ))
-                return response
+                return try admissionErrorResponse(request: req, error: error)
             }
 
             // Reset peak memory before each request so usage.peak_memory_gib
@@ -309,7 +304,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Batch mode: route through scheduler for batched decode
                 let streamResult: AFMMLXChatStreamingResult = try await withGenerationContext(
                     admission,
-                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
                 ) {
                     try await service.generateStreaming(
                         model: modelID,
@@ -434,7 +430,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Serial mode: use existing generate() path
                 result = try await withGenerationContext(
                     admission,
-                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
                 ) {
                     try await service.generate(
                         model: modelID,
@@ -679,7 +676,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
                 let res = try await withGenerationContext(
                     admission,
-                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
                 ) {
                     try await service.generateStreaming(
                         model: modelID,
@@ -1753,6 +1751,49 @@ struct MLXChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: .accessControlAllowOrigin, value: "*")
         try httpResponse.content.encode(error)
         return httpResponse
+    }
+
+    private func admissionErrorResponse(request: Request, error: Error) throws -> Response {
+        let status: HTTPStatus
+        let detail: OpenAIError
+        let retryable: Bool
+
+        switch error as? AFMGenerationAdmissionError {
+        case .capacity, .timedOut:
+            status = .serviceUnavailable
+            detail = OpenAIError(
+                message: "Server at capacity (\(service.maxConcurrent) concurrent requests). Please retry shortly.",
+                type: "server_busy",
+                code: "server_busy",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = true
+        case .cancelled:
+            status = HTTPStatus(statusCode: 499, reasonPhrase: "Client Closed Request")
+            detail = OpenAIError(
+                message: "Request cancelled while waiting for generation capacity.",
+                type: "cancelled",
+                code: "cancelled",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = false
+        case .internalFailure, .none:
+            status = .internalServerError
+            detail = OpenAIError(
+                message: "Generation admission failed.",
+                type: "server_error",
+                code: "internal_error",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = false
+        }
+
+        let response = Response(status: status)
+        response.headers.add(name: .contentType, value: "application/json")
+        response.headers.add(name: .accessControlAllowOrigin, value: "*")
+        if retryable { response.headers.add(name: "Retry-After", value: "2") }
+        try response.content.encode(detail)
+        return response
     }
 
     private func estimateTokens(_ text: String) -> Int {

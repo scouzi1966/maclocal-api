@@ -171,28 +171,32 @@ public final class AFMMLXModel:
         _ = try await load(progress: nil)
         do {
             let tools = request.effectiveOpenAITools()
-            let result = try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
-                request.options.ignoreEndOfSequence
+            let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                request.options.maximumResponseTokens
             ) {
-                try await service.generate(
-                    model: modelID,
-                    messages: try request.openAIMessages(),
-                    temperature: request.options.temperature,
-                    maxTokens: request.options.maximumResponseTokens,
-                    topP: request.options.topP,
-                    repetitionPenalty: request.options.repetitionPenalty,
-                    topK: request.options.topK,
-                    minP: request.options.minP,
-                    presencePenalty: request.options.presencePenalty,
-                    seed: request.options.seed,
-                    logprobs: request.options.logprobs,
-                    topLogprobs: request.options.topLogprobs,
-                    tools: tools,
-                    parallelToolCalls: request.parallelToolCalls,
-                    stop: request.options.stopSequences,
-                    responseFormat: request.openAIResponseFormat(),
-                    chatTemplateKwargs: request.chatTemplateKwargs()
-                )
+                try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                    request.options.ignoreEndOfSequence
+                ) {
+                    try await service.generate(
+                        model: modelID,
+                        messages: try request.openAIMessages(),
+                        temperature: request.options.temperature,
+                        maxTokens: request.options.maximumResponseTokens,
+                        topP: request.options.topP,
+                        repetitionPenalty: request.options.repetitionPenalty,
+                        topK: request.options.topK,
+                        minP: request.options.minP,
+                        presencePenalty: request.options.presencePenalty,
+                        seed: request.options.seed,
+                        logprobs: request.options.logprobs,
+                        topLogprobs: request.options.topLogprobs,
+                        tools: tools,
+                        parallelToolCalls: request.parallelToolCalls,
+                        stop: request.options.stopSequences,
+                        responseFormat: request.openAIResponseFormat(),
+                        chatTemplateKwargs: request.chatTemplateKwargs()
+                    )
+                }
             }
             let split = Self.splitReasoning(
                 result.content,
@@ -262,29 +266,33 @@ public final class AFMMLXModel:
                 do {
                     _ = try await load(progress: nil)
                     let tools = request.effectiveOpenAITools()
-                    let result = try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
-                        request.options.ignoreEndOfSequence
+                    let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        request.options.maximumResponseTokens
                     ) {
-                        try await service.generateStreaming(
-                            model: modelID,
-                            messages: try request.openAIMessages(),
-                            temperature: request.options.temperature,
-                            maxTokens: request.options.maximumResponseTokens,
-                            topP: request.options.topP,
-                            repetitionPenalty: request.options.repetitionPenalty,
-                            topK: request.options.topK,
-                            minP: request.options.minP,
-                            presencePenalty: request.options.presencePenalty,
-                            seed: request.options.seed,
-                            logprobs: request.options.logprobs,
-                            topLogprobs: request.options.topLogprobs,
-                            tools: tools,
-                            parallelToolCalls: request.parallelToolCalls,
-                            stop: request.options.stopSequences,
-                            responseFormat: request.openAIResponseFormat(),
-                            chatTemplateKwargs: request.chatTemplateKwargs(),
-                            requestId: nil
-                        )
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            request.options.ignoreEndOfSequence
+                        ) {
+                            try await service.generateStreaming(
+                                model: modelID,
+                                messages: try request.openAIMessages(),
+                                temperature: request.options.temperature,
+                                maxTokens: request.options.maximumResponseTokens,
+                                topP: request.options.topP,
+                                repetitionPenalty: request.options.repetitionPenalty,
+                                topK: request.options.topK,
+                                minP: request.options.minP,
+                                presencePenalty: request.options.presencePenalty,
+                                seed: request.options.seed,
+                                logprobs: request.options.logprobs,
+                                topLogprobs: request.options.topLogprobs,
+                                tools: tools,
+                                parallelToolCalls: request.parallelToolCalls,
+                                stop: request.options.stopSequences,
+                                responseFormat: request.openAIResponseFormat(),
+                                chatTemplateKwargs: request.chatTemplateKwargs(),
+                                requestId: nil
+                            )
+                        }
                     }
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
@@ -365,24 +373,28 @@ public final class AFMMLXModel:
             let task = Task {
                 do {
                     _ = try await load(progress: nil)
-                    let result = try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
-                        request.ignoreEndOfSequence
+                    let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        request.maximumOutputTokens
                     ) {
-                        try await AFMMLXPromptContext.$rawPrompt.withValue(request.prompt) {
-                            try await service.generateStreaming(
-                                model: modelID,
-                                messages: [],
-                                temperature: request.temperature,
-                                maxTokens: request.maximumOutputTokens,
-                                topP: request.topP,
-                                repetitionPenalty: request.repetitionPenalty,
-                                topK: request.topK,
-                                minP: request.minP,
-                                presencePenalty: request.presencePenalty,
-                                seed: request.seed,
-                                stop: request.stopSequences,
-                                preserveStructuralTags: true
-                            )
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            request.ignoreEndOfSequence
+                        ) {
+                            try await AFMMLXPromptContext.$rawPrompt.withValue(request.prompt) {
+                                try await service.generateStreaming(
+                                    model: modelID,
+                                    messages: [],
+                                    temperature: request.temperature,
+                                    maxTokens: request.maximumOutputTokens,
+                                    topP: request.topP,
+                                    repetitionPenalty: request.repetitionPenalty,
+                                    topK: request.topK,
+                                    minP: request.minP,
+                                    presencePenalty: request.presencePenalty,
+                                    seed: request.seed,
+                                    stop: request.stopSequences,
+                                    preserveStructuralTags: true
+                                )
+                            }
                         }
                     }
 

@@ -259,6 +259,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
             max(0, request.options.maximumResponseTokens ?? 512)
         }
 
+        var requestedMaximumTokens: Int? {
+            request.options.maximumResponseTokens
+        }
+
         var isRawPrompt: Bool {
             if case .string = request.metadata["afm.rawPrompt"] { return true }
             return false
@@ -926,7 +930,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 fullPromptTokens: Int(job.prompt.len),
                 computedPromptTokens: max(0, Int(job.prompt.len) - job.cachedInputTokens),
                 generatedTokens: job.outputTokens,
-                maximumOutputTokens: job.maximumTokens
+                maximumOutputTokens: job.requestedMaximumTokens
             )
         )
         publishProviderState(additionalObservers: [job.telemetryObserver])

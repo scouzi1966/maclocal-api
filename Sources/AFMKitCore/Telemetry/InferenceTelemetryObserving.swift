@@ -54,7 +54,7 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
     public var fullPromptTokens: Int
     public var computedPromptTokens: Int
     public var generatedTokens: Int
-    public var maximumOutputTokens: Int
+    public var maximumOutputTokens: Int?
     public var samplingN: Int
     public var samplingBestOf: Int
 
@@ -64,7 +64,7 @@ public struct AFMInferenceRequestFinishObservation: Hashable, Sendable {
         fullPromptTokens: Int,
         computedPromptTokens: Int,
         generatedTokens: Int,
-        maximumOutputTokens: Int = 0,
+        maximumOutputTokens: Int? = nil,
         samplingN: Int = 1,
         samplingBestOf: Int = 1
     ) {
