@@ -132,6 +132,41 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertFalse(qualification.isAssetUsable)
     }
 
+    func testIndexedCheckpointFailsWhenShardContainsUnindexedTensor() throws {
+        let directory = try makeModelDirectory()
+        let names = Self.requiredVisionTensorNames(depth: 2)
+            .union(["language_model.layers.0.weight"])
+        try Self.writeSafetensorHeader(
+            tensorNames: names.union(["vision_tower.unindexed.weight"]),
+            to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testIndexedCheckpointFailsWhenTensorPayloadRangesOverlap() throws {
+        let directory = try makeModelDirectory()
+        let first = "vision_tower.patch_embed.proj.bias"
+        let second = "vision_tower.patch_embed.proj.weight"
+        try Self.writeSafetensorHeader(
+            tensorNames: Self.requiredVisionTensorNames(depth: 2)
+                .union(["language_model.layers.0.weight"]),
+            offsetOverrides: [
+                first: [0, 2],
+                second: [0, 2],
+            ],
+            to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
     func testMalformedQwenVisionConfigurationFailsQualification() throws {
         let directory = try makeModelDirectory()
         var config = Self.fixtureConfiguration()
@@ -349,6 +384,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
     private static func writeSafetensorHeader(
         tensorNames: Set<String>,
         metadata: [String: (dtype: String, shape: [Int])] = [:],
+        offsetOverrides: [String: [Int]] = [:],
         to url: URL
     ) throws {
         var offset = 0
@@ -367,7 +403,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
                 [
                     "dtype": tensor.dtype,
                     "shape": tensor.shape,
-                    "data_offsets": [offset, offset + byteCount],
+                    "data_offsets": offsetOverrides[name] ?? [offset, offset + byteCount],
                 ] as [String: Any]
             )
         })

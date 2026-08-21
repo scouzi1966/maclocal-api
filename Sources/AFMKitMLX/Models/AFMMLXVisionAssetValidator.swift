@@ -197,6 +197,14 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                 else { return [] }
                 shardEvidence[shardName] = evidence
             }
+            for (shardName, evidence) in shardEvidence {
+                let indexedNames = Set(
+                    weightMap.compactMap { name, mappedShard in
+                        mappedShard == shardName ? name : nil
+                    }
+                )
+                guard evidence.tensorNames == indexedNames else { return [] }
+            }
             guard weightMap.allSatisfy({ tensorName, shardName in
                 shardEvidence[shardName]?.tensors[tensorName] != nil
             }) else { return [] }
@@ -349,7 +357,7 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         guard payloadStart <= fileSize else { return nil }
 
         var tensors: [String: SafetensorEvidence.TensorMetadata] = [:]
-        var maximumEnd = UInt64(0)
+        var ranges: [(start: UInt64, end: UInt64)] = []
         for (name, rawMetadata) in object where name != "__metadata__" {
             guard let metadata = rawMetadata as? [String: Any],
                   let dtype = metadata["dtype"] as? String,
@@ -363,15 +371,20 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                   let expectedBytes = tensorByteCount(dtype: dtype, shape: shape),
                   end - start == expectedBytes
             else { return nil }
-            maximumEnd = max(maximumEnd, end)
+            ranges.append((start, end))
             tensors[name] = SafetensorEvidence.TensorMetadata(
                 dtype: dtype,
                 shape: shape
             )
         }
-        guard !tensors.isEmpty,
-              maximumEnd <= fileSize - payloadStart
-        else { return nil }
+        let sortedRanges = ranges.sorted {
+            $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
+        }
+        guard !tensors.isEmpty, sortedRanges.first?.start == 0 else { return nil }
+        for (previous, next) in zip(sortedRanges, sortedRanges.dropFirst()) {
+            guard previous.end == next.start else { return nil }
+        }
+        guard sortedRanges.last?.end == fileSize - payloadStart else { return nil }
         return SafetensorEvidence(tensors: tensors)
     }
 
@@ -395,7 +408,7 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
     private static func integerShape(_ values: [Any]) -> [Int]? {
         let shape = values.compactMap(integer)
         guard shape.count == values.count,
-              shape.allSatisfy({ $0 >= 0 })
+              shape.allSatisfy({ $0 > 0 })
         else { return nil }
         return shape
     }
