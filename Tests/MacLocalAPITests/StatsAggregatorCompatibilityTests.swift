@@ -141,4 +141,108 @@ final class StatsAggregatorCompatibilityTests: XCTestCase {
         XCTAssertEqual(snapshot.promptTokens.count, 0)
         XCTAssertEqual(snapshot.generationTokens.count, 0)
     }
+
+    func testBoundServicesFacadePreservesLegacyHistogramBucketIdentityAndCounts() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let aggregator = StatsAggregator()
+        XCTAssertTrue(aggregator.installCompatibilityTarget(
+            StatsAggregatorServicesCompatibilityTarget(collector: collector)
+        ))
+
+        aggregator.observeRequest(.init(
+            queuedAt: 1,
+            startedAt: 2,
+            firstTokenAt: 3,
+            completedAt: 125,
+            promptTokens: 150_000,
+            generationTokens: 150_000
+        ))
+        aggregator.observeE2eLatency(0.4)
+        aggregator.observeTimeToFirstToken(0.05)
+        aggregator.observeTimePerOutputToken(0.2)
+        aggregator.observePromptTokens(50)
+        aggregator.observeGenerationTokens(2)
+
+        let snapshot = aggregator.snapshot()
+        assertHistogram(
+            snapshot.e2eLatency,
+            hasBuckets: StatsAggregator.Buckets.requestLatency
+        )
+        assertHistogram(snapshot.queueTime, hasBuckets: StatsAggregator.Buckets.requestLatency)
+        assertHistogram(
+            snapshot.inferenceTime,
+            hasBuckets: StatsAggregator.Buckets.requestLatency
+        )
+        assertHistogram(snapshot.prefillTime, hasBuckets: StatsAggregator.Buckets.requestLatency)
+        assertHistogram(snapshot.decodeTime, hasBuckets: StatsAggregator.Buckets.requestLatency)
+        assertHistogram(
+            snapshot.timeToFirstToken,
+            hasBuckets: StatsAggregator.Buckets.timeToFirstToken
+        )
+        assertHistogram(
+            snapshot.timePerOutputToken,
+            hasBuckets: StatsAggregator.Buckets.timePerOutputToken
+        )
+        assertHistogram(snapshot.promptTokens, hasBuckets: StatsAggregator.Buckets.tokenCount)
+        assertHistogram(
+            snapshot.generationTokens,
+            hasBuckets: StatsAggregator.Buckets.tokenCount
+        )
+        assertHistogram(snapshot.paramsN, hasBuckets: StatsAggregator.Buckets.samplingParam)
+        assertHistogram(snapshot.paramsBestOf, hasBuckets: StatsAggregator.Buckets.samplingParam)
+
+        XCTAssertEqual(snapshot.e2eLatency.bucketCounts[1], 1)
+        XCTAssertEqual(snapshot.e2eLatency.bucketCounts.last, 2)
+        XCTAssertEqual(snapshot.timeToFirstToken.bucketCounts[5], 1)
+        XCTAssertEqual(snapshot.timeToFirstToken.bucketCounts.last, 2)
+        XCTAssertEqual(snapshot.timePerOutputToken.bucketCounts[6], 2)
+        XCTAssertEqual(snapshot.timePerOutputToken.bucketCounts.last, 2)
+        XCTAssertEqual(snapshot.promptTokens.bucketCounts[5], 1)
+        XCTAssertEqual(snapshot.promptTokens.bucketCounts.last, 2)
+        XCTAssertEqual(snapshot.generationTokens.bucketCounts[1], 1)
+        XCTAssertEqual(snapshot.generationTokens.bucketCounts.last, 2)
+    }
+
+    func testBoundServicesFacadeRebucketsTruncatedCollectorTokenHistograms() throws {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        collector.configure(
+            modelName: "small-context",
+            maximumConcurrentRequests: 1,
+            maximumContextTokens: 4_096
+        )
+        let aggregator = StatsAggregator()
+        XCTAssertTrue(aggregator.installCompatibilityTarget(
+            StatsAggregatorServicesCompatibilityTarget(collector: collector)
+        ))
+
+        aggregator.observePromptTokens(3_000)
+        aggregator.observeGenerationTokens(3_000)
+
+        let snapshot = aggregator.snapshot()
+        let fiveThousandIndex = try XCTUnwrap(
+            StatsAggregator.Buckets.tokenCount.firstIndex(of: 5_000)
+        )
+        assertHistogram(snapshot.promptTokens, hasBuckets: StatsAggregator.Buckets.tokenCount)
+        assertHistogram(
+            snapshot.generationTokens,
+            hasBuckets: StatsAggregator.Buckets.tokenCount
+        )
+        XCTAssertEqual(snapshot.promptTokens.bucketCounts[fiveThousandIndex], 1)
+        XCTAssertEqual(snapshot.generationTokens.bucketCounts[fiveThousandIndex], 1)
+    }
+
+    private func assertHistogram(
+        _ histogram: StatsAggregator.Histogram,
+        hasBuckets buckets: [Double],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(histogram.buckets, buckets, file: file, line: line)
+        XCTAssertEqual(
+            histogram.bucketCounts.count,
+            buckets.count + 1,
+            file: file,
+            line: line
+        )
+    }
 }

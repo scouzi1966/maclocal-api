@@ -90,6 +90,27 @@ public final class StatsAggregator: @unchecked Sendable {
             sum = snapshot.sum
             count = snapshot.count
         }
+
+        init(_ snapshot: AFMHistogramSnapshot, rebucketedTo compatibleBuckets: [Double]) {
+            buckets = compatibleBuckets
+            bucketCounts = compatibleBuckets.map { boundary in
+                if let exactIndex = snapshot.buckets.firstIndex(of: boundary),
+                   exactIndex < snapshot.bucketCounts.count {
+                    return snapshot.bucketCounts[exactIndex]
+                }
+                if let lastBoundary = snapshot.buckets.last, boundary > lastBoundary {
+                    return snapshot.count
+                }
+                guard let lowerIndex = snapshot.buckets.lastIndex(where: { $0 < boundary }),
+                      lowerIndex < snapshot.bucketCounts.count else {
+                    return 0
+                }
+                return snapshot.bucketCounts[lowerIndex]
+            }
+            bucketCounts.append(snapshot.count)
+            sum = snapshot.sum
+            count = snapshot.count
+        }
     }
 
     public struct RequestObservation: Sendable {
@@ -291,17 +312,41 @@ public final class StatsAggregator: @unchecked Sendable {
             cacheHitsTotal: supplementalCounts["legacy_cache_hits", default: 0],
             cacheMissesTotal: supplementalCounts["legacy_cache_misses", default: 0],
             requestSuccessByReason: reasons,
-            e2eLatency: Histogram(snapshot.endToEndLatency),
-            queueTime: Histogram(snapshot.queueLatency),
-            inferenceTime: Histogram(snapshot.inferenceLatency),
-            prefillTime: Histogram(snapshot.prefillLatency),
-            decodeTime: Histogram(snapshot.decodeLatency),
-            timeToFirstToken: Histogram(snapshot.timeToFirstToken),
-            timePerOutputToken: Histogram(snapshot.timePerOutputToken),
-            promptTokens: Histogram(snapshot.computedPromptTokens),
-            generationTokens: Histogram(snapshot.generatedTokens),
-            paramsN: Histogram(snapshot.samplingN),
-            paramsBestOf: Histogram(snapshot.samplingBestOf)
+            e2eLatency: Histogram(
+                snapshot.endToEndLatency,
+                rebucketedTo: Buckets.requestLatency
+            ),
+            queueTime: Histogram(snapshot.queueLatency, rebucketedTo: Buckets.requestLatency),
+            inferenceTime: Histogram(
+                snapshot.inferenceLatency,
+                rebucketedTo: Buckets.requestLatency
+            ),
+            prefillTime: Histogram(
+                snapshot.prefillLatency,
+                rebucketedTo: Buckets.requestLatency
+            ),
+            decodeTime: Histogram(snapshot.decodeLatency, rebucketedTo: Buckets.requestLatency),
+            timeToFirstToken: Histogram(
+                snapshot.timeToFirstToken,
+                rebucketedTo: Buckets.timeToFirstToken
+            ),
+            timePerOutputToken: Histogram(
+                snapshot.timePerOutputToken,
+                rebucketedTo: Buckets.timePerOutputToken
+            ),
+            promptTokens: Histogram(
+                snapshot.computedPromptTokens,
+                rebucketedTo: Buckets.tokenCount
+            ),
+            generationTokens: Histogram(
+                snapshot.generatedTokens,
+                rebucketedTo: Buckets.tokenCount
+            ),
+            paramsN: Histogram(snapshot.samplingN, rebucketedTo: Buckets.samplingParam),
+            paramsBestOf: Histogram(
+                snapshot.samplingBestOf,
+                rebucketedTo: Buckets.samplingParam
+            )
         )
     }
 }
