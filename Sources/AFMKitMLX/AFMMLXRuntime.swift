@@ -2,6 +2,15 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 
+enum AFMMLXGenerationRoute: Equatable {
+    case serial
+    case schedulerStream
+
+    static func resolve(maxConcurrent: Int) -> Self {
+        maxConcurrent >= 2 ? .schedulerStream : .serial
+    }
+}
+
 public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
     case native
     case ds4
@@ -333,7 +342,15 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         messages: [Message] = [Message(role: "user", content: "warmup")],
         maxTokens: Int = 4
     ) async throws {
-        _ = try await service.generate(
+        _ = try await load()
+        guard await service.waitForSlot(timeout: 30) else {
+            throw AFMError.unavailable("MLX scheduler is at capacity during prewarm")
+        }
+        var ownsReservation = true
+        defer {
+            if ownsReservation { service.releaseSlot() }
+        }
+        let result = try await service.generateStreaming(
             model: modelID,
             messages: messages,
             temperature: 0,
@@ -341,6 +358,10 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             topP: nil,
             repetitionPenalty: nil
         )
+        ownsReservation = false
+        for try await _ in result.stream {
+            try Task.checkCancellation()
+        }
     }
 
     public func unload(

@@ -127,6 +127,14 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     public func respond(to request: AFMRequest) async throws -> AFMModelResponse {
         _ = try await load(progress: nil)
         do {
+            if AFMMLXGenerationRoute.resolve(maxConcurrent: service.maxConcurrent)
+                == .schedulerStream {
+                var accumulator = AFMMLXResponseAccumulator(modelID: modelID)
+                for try await event in streamResponse(to: request) {
+                    accumulator.consume(event)
+                }
+                return accumulator.response
+            }
             let tools = request.effectiveOpenAITools()
             let result = try await service.generate(
                 model: modelID,
@@ -221,6 +229,13 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             let task = Task {
                 do {
                     _ = try await load(progress: nil)
+                    guard await service.waitForSlot(timeout: 30) else {
+                        throw AFMError.unavailable("MLX scheduler is at capacity")
+                    }
+                    var ownsReservation = true
+                    defer {
+                        if ownsReservation { service.releaseSlot() }
+                    }
                     let tools = request.effectiveOpenAITools()
                     let result = try await service.generateStreaming(
                         model: modelID,
@@ -243,6 +258,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         speculativeDecoding: request.speculativeDecodingOptions(),
                         requestId: nil
                     )
+                    ownsReservation = false
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
                         thinkEndTag: result.thinkEndTag,
@@ -390,6 +406,73 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             return .length
         }
         return .stop
+    }
+}
+
+struct AFMMLXResponseAccumulator {
+    private var text = ""
+    private var reasoning = ""
+    private var toolOrder: [String] = []
+    private var toolCalls: [String: AFMToolCall] = [:]
+    private var usage = AFMUsage()
+    private var finishReason = AFMFinishReason.stop
+    private var tokenLogprobs: [AFMTokenLogProbability] = []
+    private var metadata: [String: AFMJSONValue]
+
+    init(modelID: String) {
+        self.metadata = ["modelID": .string(modelID)]
+    }
+
+    mutating func consume(_ event: AFMGenerationEvent) {
+        switch event {
+        case .responseText(let action, let value, _):
+            Self.apply(action, value: value, to: &text)
+        case .reasoningText(let action, let value, _):
+            Self.apply(action, value: value, to: &reasoning)
+        case .tokenLogprobs(let values):
+            tokenLogprobs.append(contentsOf: values)
+        case .toolCall(let call, let stage):
+            switch stage {
+            case .retracted:
+                toolCalls.removeValue(forKey: call.id)
+            case .started, .argumentsDelta, .completed:
+                if !toolOrder.contains(call.id) {
+                    toolOrder.append(call.id)
+                }
+                toolCalls[call.id] = call
+            }
+        case .usage(let value):
+            usage = value
+        case .metadata(let values):
+            metadata.merge(values) { _, new in new }
+        case .completed(let reason):
+            finishReason = reason
+        case .custom:
+            break
+        }
+    }
+
+    var response: AFMModelResponse {
+        AFMModelResponse(
+            text: text,
+            reasoning: reasoning.isEmpty ? nil : reasoning,
+            toolCalls: toolOrder.compactMap { toolCalls[$0] },
+            usage: usage,
+            finishReason: finishReason,
+            tokenLogprobs: tokenLogprobs.isEmpty ? nil : tokenLogprobs,
+            metadata: metadata
+        )
+    }
+
+    private static func apply(
+        _ action: AFMTextUpdateAction,
+        value: String,
+        to destination: inout String
+    ) {
+        switch action {
+        case .append: destination += value
+        case .replace: destination = value
+        }
     }
 }
 

@@ -6,6 +6,25 @@ import MLXLMCommon
 import XCTest
 
 final class AFMMLXProviderTests: XCTestCase {
+    func testSchedulerStreamAccumulatorBuildsNonStreamingResponse() {
+        var accumulator = AFMMLXResponseAccumulator(modelID: "test/model")
+        accumulator.consume(.responseText(action: .append, text: "hello", tokenCount: 1))
+        accumulator.consume(.reasoningText(action: .append, text: "thinking", tokenCount: 1))
+        accumulator.consume(.usage(.init(inputTokens: 4, cachedInputTokens: 2, outputTokens: 2)))
+        accumulator.consume(.metadata(["promptTime": .number(0.25)]))
+        accumulator.consume(.completed(.length))
+
+        let response = accumulator.response
+        XCTAssertEqual(response.text, "hello")
+        XCTAssertEqual(response.reasoning, "thinking")
+        XCTAssertEqual(response.usage.inputTokens, 4)
+        XCTAssertEqual(response.usage.cachedInputTokens, 2)
+        XCTAssertEqual(response.usage.outputTokens, 2)
+        XCTAssertEqual(response.finishReason, .length)
+        XCTAssertEqual(response.metadata["modelID"], .string("test/model"))
+        XCTAssertEqual(response.metadata["promptTime"], .number(0.25))
+    }
+
     func testTranslatorCoercesCompleteVendorToolDeltaUsingSchema() throws {
         let tools = [
             RequestTool(

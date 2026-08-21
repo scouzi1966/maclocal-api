@@ -84,11 +84,13 @@ actor MLXModelExecutionCoordinator {
 
     struct Snapshot: Equatable, Sendable {
         let activeSerialGenerations: Int
+        let activeSchedulerUsers: Int
         let promotionInProgress: Bool
         let schedulerInstalled: Bool
     }
 
     private var activeSerialGenerations = 0
+    private var activeSchedulerUsers = 0
     private var promotionInProgress = false
     private var schedulerInstalled = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -97,7 +99,10 @@ actor MLXModelExecutionCoordinator {
         while promotionInProgress {
             await waitForChange()
         }
-        guard !schedulerInstalled else { return .scheduler }
+        if schedulerInstalled {
+            activeSchedulerUsers += 1
+            return .scheduler
+        }
         activeSerialGenerations += 1
         return .serial
     }
@@ -105,6 +110,12 @@ actor MLXModelExecutionCoordinator {
     func releaseSerialGeneration() {
         precondition(activeSerialGenerations > 0)
         activeSerialGenerations -= 1
+        signalChange()
+    }
+
+    func releaseSchedulerGeneration() {
+        precondition(activeSchedulerUsers > 0)
+        activeSchedulerUsers -= 1
         signalChange()
     }
 
@@ -128,11 +139,21 @@ actor MLXModelExecutionCoordinator {
         signalChange()
     }
 
-    func beginSchedulerRemoval() async {
+    func beginSchedulerRemoval() async -> Bool {
         while promotionInProgress {
             await waitForChange()
         }
+        guard schedulerInstalled else { return false }
         promotionInProgress = true
+        while activeSchedulerUsers > 0 {
+            await waitForChange()
+        }
+        return true
+    }
+
+    func cancelSchedulerRemoval() {
+        promotionInProgress = false
+        signalChange()
     }
 
     func finishSchedulerRemoval() {
@@ -144,6 +165,7 @@ actor MLXModelExecutionCoordinator {
     func snapshot() -> Snapshot {
         Snapshot(
             activeSerialGenerations: activeSerialGenerations,
+            activeSchedulerUsers: activeSchedulerUsers,
             promotionInProgress: promotionInProgress,
             schedulerInstalled: schedulerInstalled)
     }
@@ -2415,10 +2437,20 @@ public final class MLXModelService: @unchecked Sendable {
             guard sched.activeSlotCount == 0 else { return }
         }
 
-        await modelExecutionCoordinator.beginSchedulerRemoval()
+        guard await modelExecutionCoordinator.beginSchedulerRemoval() else { return }
+        guard _activeBatchCount.withLock({ $0 == 0 }),
+              let sched = withStateLock({ scheduler }),
+              sched.activeSlotCount == 0
+        else {
+            await modelExecutionCoordinator.cancelSchedulerRemoval()
+            return
+        }
+        await sched.shutdown()
         withStateLock {
-            self.scheduler = nil
-            self.maxConcurrent = 0
+            if self.scheduler === sched {
+                self.scheduler = nil
+                self.maxConcurrent = 0
+            }
         }
         await modelExecutionCoordinator.finishSchedulerRemoval()
         print("[\(ts())] Auto-teardown: returned to serial mode")
@@ -2478,7 +2510,8 @@ public final class MLXModelService: @unchecked Sendable {
         let mtpBinding = runtime.mtpBinding
         let dflash2State = runtime.dflash2State
         let executionLease = await modelExecutionCoordinator.acquireGeneration()
-        guard case .serial = executionLease else {
+        if case .scheduler = executionLease {
+            await modelExecutionCoordinator.releaseSchedulerGeneration()
             throw MLXServiceError.loadFailed(
                 "Direct generation is unavailable while the batch scheduler owns the model")
         }
@@ -3553,9 +3586,13 @@ public final class MLXModelService: @unchecked Sendable {
             hasSerialExecutionLease = false
         }
         var releaseSerialExecutionOnExit = hasSerialExecutionLease
+        let releaseSchedulerExecutionOnExit = !hasSerialExecutionLease
         defer {
             if releaseSerialExecutionOnExit {
                 Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+            }
+            if releaseSchedulerExecutionOnExit {
+                Task { await self.modelExecutionCoordinator.releaseSchedulerGeneration() }
             }
         }
 
@@ -4539,10 +4576,15 @@ public final class MLXModelService: @unchecked Sendable {
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
         // Shut down concurrent scheduler first (cancels pending + active)
         if let scheduler = self.scheduler {
-            await modelExecutionCoordinator.beginSchedulerRemoval()
-            await scheduler.shutdown()
-            withStateLock { self.scheduler = nil }
-            await modelExecutionCoordinator.finishSchedulerRemoval()
+            if await modelExecutionCoordinator.beginSchedulerRemoval() {
+                await scheduler.shutdown()
+                withStateLock {
+                    if self.scheduler === scheduler {
+                        self.scheduler = nil
+                    }
+                }
+                await modelExecutionCoordinator.finishSchedulerRemoval()
+            }
         }
 
         let start = Date()

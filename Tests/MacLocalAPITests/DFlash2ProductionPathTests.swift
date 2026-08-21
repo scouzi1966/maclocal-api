@@ -173,6 +173,42 @@ final class DFlash2ProductionPathTests: XCTestCase {
         snapshot = await coordinator.snapshot()
         XCTAssertEqual(snapshot.activeSerialGenerations, 0)
         XCTAssertTrue(snapshot.schedulerInstalled)
+        await coordinator.releaseSchedulerGeneration()
+    }
+
+    func testSchedulerRemovalWaitsForUsersAndBlocksSerialOverlap() async throws {
+        let coordinator = MLXModelExecutionCoordinator()
+        let ownsPromotion = await coordinator.beginPromotion()
+        XCTAssertTrue(ownsPromotion)
+        await coordinator.finishPromotion(schedulerInstalled: true)
+        guard case .scheduler = await coordinator.acquireGeneration() else {
+            return XCTFail("generation should hold a scheduler-user lease")
+        }
+
+        let removal = Task { await coordinator.beginSchedulerRemoval() }
+        try await waitUntil {
+            await coordinator.snapshot().promotionInProgress
+        }
+        let blockedGeneration = Task { await coordinator.acquireGeneration() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        var snapshot = await coordinator.snapshot()
+        XCTAssertEqual(snapshot.activeSchedulerUsers, 1)
+        XCTAssertTrue(snapshot.schedulerInstalled)
+        XCTAssertTrue(snapshot.promotionInProgress)
+
+        await coordinator.releaseSchedulerGeneration()
+        let ownsRemoval = await removal.value
+        XCTAssertTrue(ownsRemoval)
+        snapshot = await coordinator.snapshot()
+        XCTAssertEqual(snapshot.activeSchedulerUsers, 0)
+        XCTAssertTrue(snapshot.schedulerInstalled)
+
+        await coordinator.finishSchedulerRemoval()
+        guard case .serial = await blockedGeneration.value else {
+            return XCTFail("serial execution must begin only after scheduler removal finishes")
+        }
+        await coordinator.releaseSerialGeneration()
     }
 
     private func makeDFlash2Draft(

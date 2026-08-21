@@ -421,6 +421,7 @@ actor BatchScheduler {
 
     /// Thread-safe shutdown flag — accessed without actor isolation.
     private let _isShutdown = OSAllocatedUnfairLock(initialState: false)
+    private let admissionLock = NSLock()
 
     /// Thread-safe in-flight counter (pending + active). Incremented in submit(),
     /// decremented in finishSlot() and error paths. Used for capacity checks.
@@ -433,10 +434,13 @@ actor BatchScheduler {
 
     /// Atomically reserve a slot if under capacity. Returns true if reserved.
     nonisolated func tryReserve() -> Bool {
-        _inFlightCount.withLock { count in
-            if count >= maxConcurrent { return false }
-            count += 1
-            return true
+        admissionLock.withLock {
+            guard !_isShutdown.withLock({ $0 }) else { return false }
+            return _inFlightCount.withLock { count in
+                if count >= maxConcurrent { return false }
+                count += 1
+                return true
+            }
         }
     }
 
@@ -471,12 +475,15 @@ actor BatchScheduler {
     /// Atomically reserve N slots. Returns true if all N were reserved,
     /// false if insufficient capacity (no slots reserved in that case).
     nonisolated func tryReserveMultiple(count: Int) -> Bool {
-        _inFlightCount.withLock { current in
-            if current + count <= maxConcurrent {
-                current += count
-                return true
+        admissionLock.withLock {
+            guard !_isShutdown.withLock({ $0 }) else { return false }
+            return _inFlightCount.withLock { current in
+                if current + count <= maxConcurrent {
+                    current += count
+                    return true
+                }
+                return false
             }
-            return false
         }
     }
 
@@ -621,10 +628,6 @@ actor BatchScheduler {
         thinkEndTag: String? = nil,
         requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
-        if _isShutdown.withLock({ $0 }) {
-            return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
-        }
-
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
         let slotID = UUID()
 
@@ -634,21 +637,31 @@ actor BatchScheduler {
         }
 
         // Note: slot already reserved by tryReserve() in the controller layer.
-        _pendingQueue.withLock {
-            $0.append(PendingRequest(
-                id: slotID,
-                requestId: requestId,
-                queuedAt: Date(),
-                input: input,
-                parameters: parameters,
-                promptTokens: promptTokens,
-                toolCallRuntimeConfig: toolCallRuntimeConfig,
-                constraintRuntimeConfig: constraintRuntimeConfig,
-                stopSequences: stopSequences,
-                thinkStartTag: thinkStartTag,
-                thinkEndTag: thinkEndTag,
-                continuation: continuation
-            ))
+        // Serialize the shutdown check with enqueue so shutdown cannot drain the
+        // queue immediately before a late submit appends an unreachable request.
+        let accepted = admissionLock.withLock {
+            guard !_isShutdown.withLock({ $0 }) else { return false }
+            _pendingQueue.withLock {
+                $0.append(PendingRequest(
+                    id: slotID,
+                    requestId: requestId,
+                    queuedAt: Date(),
+                    input: input,
+                    parameters: parameters,
+                    promptTokens: promptTokens,
+                    toolCallRuntimeConfig: toolCallRuntimeConfig,
+                    constraintRuntimeConfig: constraintRuntimeConfig,
+                    stopSequences: stopSequences,
+                    thinkStartTag: thinkStartTag,
+                    thinkEndTag: thinkEndTag,
+                    continuation: continuation
+                ))
+            }
+            return true
+        }
+        guard accepted else {
+            continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            return stream
         }
 
         StatsAggregator.shared.requestStarted()
@@ -704,7 +717,9 @@ actor BatchScheduler {
 
     /// Gracefully shut down.
     func shutdown() async {
-        _isShutdown.withLock { $0 = true }
+        admissionLock.withLock {
+            _isShutdown.withLock { $0 = true }
+        }
 
         // Drain and cancel any pending requests
         let pending = _pendingQueue.withLock { q in

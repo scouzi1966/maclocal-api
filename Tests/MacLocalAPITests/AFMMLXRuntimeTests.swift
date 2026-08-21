@@ -5,6 +5,15 @@ import AFMOpenAICompat
 import XCTest
 
 final class AFMMLXRuntimeTests: XCTestCase {
+    func testConcurrentRuntimeRoutesNonStreamingAndPrewarmThroughSchedulerStream() {
+        XCTAssertEqual(
+            AFMMLXGenerationRoute.resolve(maxConcurrent: 8),
+            .schedulerStream
+        )
+        XCTAssertEqual(AFMMLXGenerationRoute.resolve(maxConcurrent: 1), .serial)
+        XCTAssertEqual(AFMMLXGenerationRoute.resolve(maxConcurrent: 0), .serial)
+    }
+
     func testEngineConfigurationCarriesKernelSelection() {
         XCTAssertEqual(EngineConfig(mlxKernels: "ds4").mlxKernels, "ds4")
     }
