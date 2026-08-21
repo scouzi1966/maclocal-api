@@ -952,6 +952,38 @@ final class FoundationSessionOperationGateTests: XCTestCase {
 }
 
 final class TUIConversationPolicyTests: XCTestCase {
+    func testFoundationTurnStatisticsUseClearlyMarkedEstimates() {
+        let summary = AFMTerminalChat.turnStatistics(
+            backend: .foundationModels,
+            requestMessages: [Message(role: "user", content: "Say hello")],
+            responseText: "Hello there!",
+            promptTokens: 0,
+            completionTokens: 0,
+            cachedTokens: 0,
+            elapsed: 0.5
+        )
+
+        XCTAssertEqual(AFMTerminalChat.estimatedTokenCount("Hello there!"), 3)
+        XCTAssertTrue(summary.contains("~3 input"))
+        XCTAssertTrue(summary.contains("~3 generated"))
+        XCTAssertTrue(summary.contains("~6.0 tok/s"))
+        XCTAssertTrue(summary.hasSuffix("estimated"))
+    }
+
+    func testMLXTurnStatisticsRemainExact() {
+        let summary = AFMTerminalChat.turnStatistics(
+            backend: .mlx(modelID: "test/model"),
+            requestMessages: [],
+            responseText: "ignored",
+            promptTokens: 12,
+            completionTokens: 8,
+            cachedTokens: 4,
+            elapsed: 2
+        )
+
+        XCTAssertEqual(summary, "12 prompt · 4 cached · 8 generated · 2.00s · 4.0 tok/s")
+    }
+
     func testReasoningDisplayModesAndActivityFrames() {
         var mode = TUIReasoningDisplayMode.collapsed
         mode.togglePanel()

@@ -701,11 +701,14 @@ public final class AFMTerminalChat: @unchecked Sendable {
         codeBlocks = rendered.codeBlocks
         images = rendered.images
         let elapsed = max(0.001, Date().timeIntervalSince(start))
-        let rate = Double(lastSnapshot.completionTokens) / elapsed
-        lastStatistics = String(
-            format: "%d prompt · %d cached · %d generated · %.2fs · %.1f tok/s",
-            lastSnapshot.promptTokens, lastSnapshot.cachedTokens,
-            lastSnapshot.completionTokens, elapsed, rate
+        lastStatistics = Self.turnStatistics(
+            backend: configuration.backend,
+            requestMessages: messages,
+            responseText: lastSnapshot.text,
+            promptTokens: lastSnapshot.promptTokens,
+            completionTokens: lastSnapshot.completionTokens,
+            cachedTokens: lastSnapshot.cachedTokens,
+            elapsed: elapsed
         )
         terminal.write("\(style("↳ \(lastStatistics)", "2"))\n")
         if !codeBlocks.isEmpty { terminal.write("\(style("\(codeBlocks.count) code block(s): /blocks, /copy, /save, /open", "2;36"))\n") }
@@ -721,6 +724,42 @@ public final class AFMTerminalChat: @unchecked Sendable {
             return .incomplete(snapshot.finishReason)
         }
         return .accepted
+    }
+
+    static func turnStatistics(
+        backend: AFMBackend,
+        requestMessages: [Message],
+        responseText: String,
+        promptTokens: Int,
+        completionTokens: Int,
+        cachedTokens: Int,
+        elapsed: TimeInterval
+    ) -> String {
+        let duration = max(0.001, elapsed)
+        if case .foundationModels = backend {
+            let estimatedInput = estimatedTokenCount(
+                requestMessages.map(\.textContent).joined(separator: " ")
+            )
+            let estimatedOutput = estimatedTokenCount(responseText)
+            let rate = Double(estimatedOutput) / duration
+            return String(
+                format: "~%d input · ~%d generated · %.2fs · ~%.1f tok/s · estimated",
+                estimatedInput, estimatedOutput, duration, rate
+            )
+        }
+        let rate = Double(completionTokens) / duration
+        return String(
+            format: "%d prompt · %d cached · %d generated · %.2fs · %.1f tok/s",
+            promptTokens, cachedTokens, completionTokens, duration, rate
+        )
+    }
+
+    static func estimatedTokenCount(_ text: String) -> Int {
+        guard !text.isEmpty else { return 0 }
+        let words = text.split(whereSeparator: \.isWhitespace).count
+        let characterEstimate = Double(text.count) / 4.0
+        let wordEstimate = Double(words) / 0.75
+        return max(1, Int(ceil(max(characterEstimate, wordEstimate))))
     }
 
     private func reportPersistenceResult(_ result: TUISessionPersistenceResult) {
