@@ -80,6 +80,32 @@ final class MLXCapabilityEndpointTests: XCTestCase {
             AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: inactive)
                 .contains("speculative_decoding")
         )
+
+        let concurrent = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: architecture,
+            qualification: qualification,
+            factory: .vlm,
+            mtpEnabled: true,
+            mtpBindingModelID: declared.modelID.rawValue,
+            concurrentServing: true
+        )
+        XCTAssertFalse(
+            AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: concurrent)
+                .contains("speculative_decoding"),
+            "Concurrent serving forces autoregressive decoding and must not advertise speculation."
+        )
+    }
+
+    func testCancellationGateReflectsTaskCancellation() async {
+        XCTAssertTrue(AFMMLXTaskCancellationGate.shouldContinue)
+
+        let observedCancellation = await Task { () -> Bool in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return !AFMMLXTaskCancellationGate.shouldContinue
+        }.value
+
+        XCTAssertTrue(observedCancellation)
     }
 
     private func makeDescriptor(

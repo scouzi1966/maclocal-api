@@ -620,6 +620,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     responseFormat: effectiveResponseFormat
                 )
             }
+            // The controller owns the reservation until the service returns a
+            // scheduler-backed stream. After that point the scheduler releases it.
+            var reservationTransferredToScheduler = false
 
             do {
                 let effectiveTools = try Self.resolveEffectiveTools(
@@ -655,6 +658,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
+                reservationTransferredToScheduler = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -1555,6 +1559,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             } catch {
+                if !reservationTransferredToScheduler {
+                    self.service.releaseSlot()
+                }
                 // Cleanup profile timer on error to prevent leak
                 if wantStreamProfile || wantStreamExtended {
                     _ = self.service.stopAPIProfile(promptTokens: 0, completionTokens: 0, promptTime: 0, generateTime: 0)

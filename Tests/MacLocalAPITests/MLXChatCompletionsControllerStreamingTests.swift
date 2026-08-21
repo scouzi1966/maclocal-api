@@ -962,6 +962,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertFalse(res.body.string.contains(#""role":"assistant""#))
         }
         XCTAssertEqual(service.generateStreamingCallCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
     }
 
     func testOpenAIMultipartImageIsForwardedInStreamingAndNonStreamingModes() async throws {
@@ -1285,6 +1286,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private(set) var reserveSlotCallCount = 0
     private(set) var generateCallCount = 0
     private(set) var generateStreamingCallCount = 0
+    private(set) var releaseSlotCallCount = 0
 
     init(
         maxConcurrent: Int = 1,
@@ -1371,7 +1373,9 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         stateLock.withLock { reserveSlotCallCount += 1 }
         return true
     }
-    func releaseSlot() {}
+    func releaseSlot() {
+        stateLock.withLock { releaseSlotCallCount += 1 }
+    }
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
     func cancelBatchSlots(ids: Set<UUID>) async {}

@@ -26,6 +26,10 @@ private extension Dictionary where Key == String, Value == AnyCodable {
     }
 }
 
+enum AFMMLXTaskCancellationGate {
+    static var shouldContinue: Bool { !Task.isCancelled }
+}
+
 /// Immutable request-scoped handle that keeps an MTP generator paired with
 /// the model identity and container it was created for. MLX model objects are
 /// not Sendable-audited, but use remains serialized by that ModelContainer.
@@ -1779,7 +1783,8 @@ public final class MLXModelService: @unchecked Sendable {
                 qualification: visionQualification,
                 factory: actualFactory,
                 mtpEnabled: mtpEnabled,
-                mtpBindingModelID: loadedMTPBinding?.modelID
+                mtpBindingModelID: loadedMTPBinding?.modelID,
+                concurrentServing: maxConcurrent >= 2
             )
 
             // Publish the container, capability evidence, actual factory, and
@@ -2318,7 +2323,13 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
+                let outIds = gen.generate(
+                    promptIds: promptIds,
+                    maxTokens: effectiveMaxTokens,
+                    eosIds: eos,
+                    onToken: { _ in AFMMLXTaskCancellationGate.shouldContinue }
+                )
+                try Task.checkCancellation()
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 // strip a trailing EOS for the returned text
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
