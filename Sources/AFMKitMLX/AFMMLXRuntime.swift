@@ -132,7 +132,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         if let speculative = configuration.object("speculativeDecoding"),
            speculative.string("mode")?.lowercased() == "dflash2" {
             dflash2Drafter = speculative.string("drafter")
-            if let maxDraftTokens = speculative.integer("maxDraftTokens") {
+            if let maxDraftTokens = speculative.integer("maxDraftTokens"),
+               maxDraftTokens >= 1,
+               maxDraftTokens < Int.max {
                 dflash2BlockSize = maxDraftTokens + 1
             }
             if let value = speculative.string("requirement"),
@@ -366,13 +368,14 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         defer {
             if ownsReservation { service.releaseSlot() }
         }
-        let result = try await service.generateStreaming(
+        let result = try await service.generateStreamingWithSchedulerAdmission(
             model: modelID,
             messages: messages,
             temperature: 0,
             maxTokens: maxTokens,
             topP: nil,
-            repetitionPenalty: nil
+            repetitionPenalty: nil,
+            admission: .reserved
         )
         ownsReservation = false
         for try await _ in result.stream {

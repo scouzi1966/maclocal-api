@@ -30,6 +30,11 @@ extension Gemma4VLM: FixedDecodeCohortModel {
     var requiresFixedDecodeCohorts: Bool { true }
 }
 
+enum BatchSchedulerSubmissionAdmission: Sendable {
+    case reserved
+    case unreserved
+}
+
 /// Tracks scheduler reservations separately from submitted requests so a
 /// promotion-time submit can safely perform its own capacity admission.
 final class BatchSchedulerAdmissionState: @unchecked Sendable {
@@ -78,17 +83,18 @@ final class BatchSchedulerAdmissionState: @unchecked Sendable {
         }
     }
 
-    /// Consume a controller reservation or reserve capacity at submit time.
-    ///
-    /// The submit-time fallback is required when admission raced scheduler
-    /// promotion: the earlier controller check may have observed serial mode,
-    /// while generation is routed to the scheduler after promotion completes.
-    func consumeReservationOrReserveForSubmission() -> Bool {
+    /// Transfer one caller-owned reservation to a submitted request.
+    func consumeReservationForSubmission() -> Bool {
         state.withLock { state in
-            if state.reservedCount > 0 {
-                state.reservedCount -= 1
-                return true
-            }
+            guard state.reservedCount > 0 else { return false }
+            state.reservedCount -= 1
+            return true
+        }
+    }
+
+    /// Admit a request that did not reserve capacity before submission.
+    func reserveForUnreservedSubmission() -> Bool {
+        state.withLock { state in
             guard state.inFlightCount < maxConcurrent else { return false }
             state.inFlightCount += 1
             return true
@@ -712,7 +718,8 @@ actor BatchScheduler {
         stopSequences: [String] = [],
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
-        requestId: String = ""
+        requestId: String = "",
+        admission: BatchSchedulerSubmissionAdmission = .unreserved
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
         let slotID = UUID()
@@ -733,10 +740,18 @@ actor BatchScheduler {
         // shutdown cannot drain immediately before a late enqueue.
         let admissionResult = admissionLock.withLock { () -> AdmissionResult in
             guard !_isShutdown.withLock({ $0 }) else {
-                admissionState.releaseReservation()
+                if case .reserved = admission {
+                    admissionState.releaseReservation()
+                }
                 return .shuttingDown
             }
-            guard admissionState.consumeReservationOrReserveForSubmission() else {
+            let admitted = switch admission {
+            case .reserved:
+                admissionState.consumeReservationForSubmission()
+            case .unreserved:
+                admissionState.reserveForUnreservedSubmission()
+            }
+            guard admitted else {
                 return .atCapacity
             }
             _pendingQueue.withLock {

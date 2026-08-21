@@ -93,6 +93,7 @@ actor MLXModelExecutionCoordinator {
     private var activeSchedulerUsers = 0
     private var promotionInProgress = false
     private var schedulerInstalled = false
+    private var shutdownRequested = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func acquireGeneration() async -> Lease {
@@ -124,6 +125,7 @@ actor MLXModelExecutionCoordinator {
         while promotionInProgress {
             await waitForChange()
         }
+        guard !shutdownRequested else { return false }
         guard !schedulerInstalled else { return false }
 
         promotionInProgress = true
@@ -137,6 +139,14 @@ actor MLXModelExecutionCoordinator {
         self.schedulerInstalled = schedulerInstalled
         promotionInProgress = false
         signalChange()
+    }
+
+    func beginShutdown() async {
+        shutdownRequested = true
+        signalChange()
+        while promotionInProgress {
+            await waitForChange()
+        }
     }
 
     func beginSchedulerRemoval() async -> Bool {
@@ -706,6 +716,9 @@ public final class MLXModelService: @unchecked Sendable {
     /// Prevents the scheduler and serial `container.perform` generations from
     /// owning the same model at the same time during dynamic promotion.
     private let modelExecutionCoordinator = MLXModelExecutionCoordinator()
+
+    /// Deterministic test barrier between promotion ownership and construction.
+    var schedulerPromotionBarrier: (@Sendable () async -> Void)?
 
     /// Scheduled teardown work item (cancelled if new batch arrives).
     private var teardownWorkItem: DispatchWorkItem?
@@ -1729,14 +1742,24 @@ public final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.loadFailed(
                 "speculative_decoding.requirement must be preferred or required")
         }
-        if let maxDraftTokens = options?.maxDraftTokens, maxDraftTokens < 1 {
-            throw MLXServiceError.loadFailed(
-                "speculative_decoding.max_draft_tokens must be at least 1")
-        }
-        if let maxDraftTokens = options?.maxDraftTokens,
-           maxDraftTokens + 1 > dflash2BlockSize {
-            throw MLXServiceError.loadFailed(
-                "speculative_decoding.max_draft_tokens exceeds the loaded DFlash2 block limit \(dflash2BlockSize - 1)")
+        let requestedBlockSize: Int?
+        if let maxDraftTokens = options?.maxDraftTokens {
+            guard maxDraftTokens >= 1 else {
+                throw MLXServiceError.loadFailed(
+                    "speculative_decoding.max_draft_tokens must be at least 1")
+            }
+            guard maxDraftTokens < Int.max else {
+                throw MLXServiceError.loadFailed(
+                    "speculative_decoding.max_draft_tokens must be less than Int.max")
+            }
+            let loadedDraftLimit = dflash2BlockSize > 1 ? dflash2BlockSize - 1 : 0
+            guard maxDraftTokens <= loadedDraftLimit else {
+                throw MLXServiceError.loadFailed(
+                    "speculative_decoding.max_draft_tokens exceeds the loaded DFlash2 block limit \(loadedDraftLimit)")
+            }
+            requestedBlockSize = maxDraftTokens + 1
+        } else {
+            requestedBlockSize = nil
         }
 
         let mode = options?.mode?.lowercased()
@@ -1773,7 +1796,7 @@ public final class MLXModelService: @unchecked Sendable {
             permitsOtherRuntimes: reason == nil && !explicitlyDFlash2,
             requiresRuntime: !explicitlyDisabled
                 && (dflash2Requirement == .required || requirement == "required"),
-            requestedBlockSize: options?.maxDraftTokens.map { $0 + 1 },
+            requestedBlockSize: requestedBlockSize,
             denialReason: reason)
     }
 
@@ -2451,7 +2474,13 @@ public final class MLXModelService: @unchecked Sendable {
         }
         startedInBatchMode = true
         let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
-        guard ownsPromotion else { return }
+        guard ownsPromotion else {
+            if shuttingDown { throw MLXServiceError.serviceShuttingDown }
+            return
+        }
+        if let barrier = withStateLock({ schedulerPromotionBarrier }) {
+            await barrier()
+        }
         guard let container = withStateLock({ currentContainer }) else {
             await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
             throw MLXServiceError.noModelLoaded
@@ -2470,7 +2499,16 @@ public final class MLXModelService: @unchecked Sendable {
                 requiresFixedDecodeCohorts: requiresFixedDecodeCohorts
             )
         }
-        withStateLock { self.scheduler = sched }
+        let published = withStateLock { () -> Bool in
+            guard !isShuttingDown else { return false }
+            self.scheduler = sched
+            return true
+        }
+        if !published {
+            await sched.shutdown()
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
+            throw MLXServiceError.serviceShuttingDown
+        }
         await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
     }
@@ -2491,10 +2529,14 @@ public final class MLXModelService: @unchecked Sendable {
         teardownWorkItem = nil
         let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
         if !ownsPromotion {
+            if shuttingDown { throw MLXServiceError.serviceShuttingDown }
             _activeBatchCount.withLock { $0 += 1 }
             teardownWorkItem?.cancel()
             teardownWorkItem = nil
             return
+        }
+        if let barrier = withStateLock({ schedulerPromotionBarrier }) {
+            await barrier()
         }
 
         // Promote: create scheduler
@@ -2518,8 +2560,15 @@ public final class MLXModelService: @unchecked Sendable {
             )
         }
 
-        withStateLock {
+        let published = withStateLock { () -> Bool in
+            guard !isShuttingDown else { return false }
             self.scheduler = sched
+            return true
+        }
+        if !published {
+            await sched.shutdown()
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
+            throw MLXServiceError.serviceShuttingDown
         }
         await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         _activeBatchCount.withLock { $0 += 1 }
@@ -3874,6 +3923,53 @@ public final class MLXModelService: @unchecked Sendable {
         preserveStructuralTags: Bool = false,
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
+        try await generateStreamingWithSchedulerAdmission(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId,
+            admission: .unreserved)
+    }
+
+    func generateStreamingWithSchedulerAdmission(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil,
+        preserveStructuralTags: Bool = false,
+        requestId: String? = nil,
+        admission: BatchSchedulerSubmissionAdmission
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         let reqId = requestId ?? ""
         let operation = try beginOperation()
         var operationOwnedByStream = false
@@ -4053,7 +4149,8 @@ public final class MLXModelService: @unchecked Sendable {
                 stopSequences: (stop ?? []) + self.implicitStopSequences,
                 thinkStartTag: self.thinkStartTag,
                 thinkEndTag: self.thinkEndTag,
-                requestId: reqId
+                requestId: reqId,
+                admission: admission
             )
             var effectiveStream: AsyncThrowingStream<StreamChunk, Error>
             if templateOpenedThink, let thinkStart = self.thinkStartTag {
@@ -4904,7 +5001,9 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
-        let scheduler = beginShutdown()
+        _ = beginShutdown()
+        await modelExecutionCoordinator.beginShutdown()
+        let scheduler = withStateLock { self.scheduler }
 
         // Shut down concurrent scheduler first (cancels pending + active)
         if let scheduler {

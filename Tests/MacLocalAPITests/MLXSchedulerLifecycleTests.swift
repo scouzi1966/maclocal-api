@@ -11,6 +11,115 @@ import Tokenizers
 import XCTest
 
 final class MLXSchedulerLifecycleTests: XCTestCase {
+    private struct ExpectedLoadFailure: Error {}
+
+    func testCallerReservedLoadFailureReleasesReservation() async throws {
+        let service = try await makeScheduledService(maxConcurrent: 2)
+        XCTAssertTrue(service.tryReserveSlot())
+        let model = AFMMLXModel(
+            modelID: AFMModelID(rawValue: Self.modelID),
+            attachedService: service,
+            schedulerAdmissionOwnership: .callerReserved,
+            testingStreamingLoad: { throw ExpectedLoadFailure() })
+
+        do {
+            for try await _ in model.streamResponse(to: AFMRequest(messages: [])) {}
+            XCTFail("expected load failure")
+        } catch is ExpectedLoadFailure {
+            // Expected.
+        }
+
+        XCTAssertEqual(
+            service.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 0, reservedCount: 0))
+        await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
+    func testCallerReservedRespondLoadFailureReleasesReservation() async throws {
+        let service = try await makeScheduledService(maxConcurrent: 2)
+        XCTAssertTrue(service.tryReserveSlot())
+        let model = AFMMLXModel(
+            modelID: AFMModelID(rawValue: Self.modelID),
+            attachedService: service,
+            schedulerAdmissionOwnership: .callerReserved)
+        _ = service.beginShutdown()
+
+        do {
+            _ = try await model.respond(to: AFMRequest(messages: []))
+            XCTFail("expected shutdown load failure")
+        } catch {
+            guard case .loadingFailed = error as? AFMError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+
+        XCTAssertEqual(
+            service.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 0, reservedCount: 0))
+        await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
+    func testCallerReservedLoadCancellationReleasesReservation() async throws {
+        let service = try await makeScheduledService(maxConcurrent: 2)
+        XCTAssertTrue(service.tryReserveSlot())
+        let probe = SchedulerCancellationProbe()
+        let model = AFMMLXModel(
+            modelID: AFMModelID(rawValue: Self.modelID),
+            attachedService: service,
+            schedulerAdmissionOwnership: .callerReserved,
+            testingStreamingLoad: { try await probe.run() })
+        let stream = model.streamResponse(to: AFMRequest(messages: []))
+        let consumer = Task {
+            do {
+                for try await _ in stream {}
+            } catch {
+                // Cancellation is the expected terminal state.
+            }
+        }
+
+        await probe.waitUntilEntered()
+        consumer.cancel()
+        await consumer.value
+        try await waitUntil {
+            service.schedulerAdmissionSnapshot
+                == .init(inFlightCount: 0, reservedCount: 0)
+        }
+
+        await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
+    func testUnreservedSubmissionCannotConsumeAnotherRequestsReservation() {
+        let admission = BatchSchedulerAdmissionState(maxConcurrent: 1)
+
+        XCTAssertTrue(admission.tryReserve())
+        XCTAssertFalse(admission.reserveForUnreservedSubmission())
+        XCTAssertEqual(
+            admission.snapshot,
+            .init(inFlightCount: 1, reservedCount: 1))
+        XCTAssertTrue(admission.consumeReservationForSubmission())
+        XCTAssertEqual(
+            admission.snapshot,
+            .init(inFlightCount: 1, reservedCount: 0))
+    }
+
+    func testReservedAndUnreservedSubmissionsRemainIndependentWhenInterleaved() {
+        let admission = BatchSchedulerAdmissionState(maxConcurrent: 2)
+
+        XCTAssertTrue(admission.tryReserve())
+        XCTAssertTrue(admission.reserveForUnreservedSubmission())
+        XCTAssertEqual(
+            admission.snapshot,
+            .init(inFlightCount: 2, reservedCount: 1))
+        XCTAssertTrue(admission.consumeReservationForSubmission())
+        XCTAssertEqual(
+            admission.snapshot,
+            .init(inFlightCount: 2, reservedCount: 0))
+        admission.finish(count: 2)
+        XCTAssertEqual(
+            admission.snapshot,
+            .init(inFlightCount: 0, reservedCount: 0))
+    }
+
     func testAttachedAdapterTransfersControllerReservationWithoutDuplicatingIt() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
         let adapter = AFMKitMLXChatServingAdapter(service: service)
@@ -56,6 +165,65 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         await service.shutdownAndReleaseResources(timeoutSeconds: 1)
     }
 
+    func testDirectGenerationCannotStealReservedAdapterCapacity() async throws {
+        let service = try await makeScheduledService(maxConcurrent: 2)
+        XCTAssertTrue(service.tryReserveSlot())
+        XCTAssertTrue(service.tryReserveSlot())
+
+        do {
+            _ = try await service.generate(
+                model: Self.modelID,
+                messages: [.init(role: "user", content: "direct")],
+                temperature: 0,
+                maxTokens: 1,
+                topP: nil,
+                repetitionPenalty: nil,
+                seed: 11)
+            XCTFail("unreserved generation should not consume reserved capacity")
+        } catch {
+            guard case .serverBusy = error as? MLXServiceError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        XCTAssertEqual(
+            service.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 2, reservedCount: 2))
+
+        let adapter = AFMKitMLXChatServingAdapter(service: service)
+        let result = try await adapter.generateStreaming(
+            model: Self.modelID,
+            messages: [.init(role: "user", content: "reserved")],
+            temperature: 0,
+            maxTokens: 1,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: 7,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            toolChoice: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            speculativeDecoding: nil,
+            preserveStructuralTags: false,
+            requestId: "reserved-adapter")
+        for try await _ in result.stream {}
+        XCTAssertEqual(
+            service.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 1, reservedCount: 1))
+
+        service.releaseSlot()
+        XCTAssertEqual(
+            service.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 0, reservedCount: 0))
+        await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
     func testDirectGenerateCollectsSchedulerStreamWithoutDoubleAdmission() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
 
@@ -89,6 +257,36 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         }
 
         await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
+    func testShutdownInvalidatesPromotionBeforeSchedulerPublication() async throws {
+        let service = makeLoadedService()
+        service.maxConcurrent = 2
+        let barrier = SchedulerPromotionBarrier()
+        service.schedulerPromotionBarrier = { await barrier.suspend() }
+        let promotion = Task {
+            try await service.initScheduler()
+        }
+
+        await barrier.waitUntilEntered()
+        let shutdown = Task {
+            await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+        }
+        try await waitUntil { service.shuttingDown }
+        XCTAssertNil(service.installedScheduler)
+
+        await barrier.release()
+        do {
+            try await promotion.value
+            XCTFail("promotion should be invalidated by shutdown")
+        } catch {
+            guard case MLXServiceError.serviceShuttingDown = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        await shutdown.value
+
+        XCTAssertNil(service.installedScheduler)
     }
 
     func testGPUCaptureRejectsSchedulerInstallationWithoutConsumingCapture() async throws {
@@ -235,6 +433,64 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             guard case MLXServiceError.serviceShuttingDown = error else {
                 return XCTFail("unexpected error: \(error)", file: file, line: line)
             }
+        }
+    }
+}
+
+private actor SchedulerCancellationProbe {
+    private var entered = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func run() async throws {
+        entered = true
+        let waiters = enteredWaiters
+        enteredWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        try await Task.sleep(for: .seconds(60))
+    }
+
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { continuation in
+            enteredWaiters.append(continuation)
+        }
+    }
+}
+
+private actor SchedulerPromotionBarrier {
+    private var entered = false
+    private var released = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func suspend() async {
+        entered = true
+        let waiters = enteredWaiters
+        enteredWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        if released { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { continuation in
+            enteredWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }

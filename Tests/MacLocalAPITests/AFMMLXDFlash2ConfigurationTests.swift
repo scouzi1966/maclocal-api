@@ -103,6 +103,28 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertEqual(runtime.dflash2Requirement, .required)
     }
 
+    func testProviderMaxDraftTokensValidatesIntegerBoundariesBeforeAddition() {
+        let largestValid = AFMProviderConfiguration(values: [
+            "speculativeDecoding": .object([
+                "mode": .string("dflash2"),
+                "maxDraftTokens": .integer(Int.max - 1),
+            ]),
+        ])
+        let overflowing = AFMProviderConfiguration(values: [
+            "speculativeDecoding": .object([
+                "mode": .string("dflash2"),
+                "maxDraftTokens": .integer(Int.max),
+            ]),
+        ])
+
+        XCTAssertEqual(
+            AFMMLXRuntimeConfiguration(providerConfiguration: largestValid).dflash2BlockSize,
+            Int.max)
+        XCTAssertEqual(
+            AFMMLXRuntimeConfiguration(providerConfiguration: overflowing).dflash2BlockSize,
+            5)
+    }
+
     func testRequestPolicyFallsBackOrRequiresBeforeEmission() throws {
         let service = MLXModelService(resolver: MLXCacheResolver())
         service.dflash2Drafter = "incoai/loaded"
@@ -137,6 +159,23 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             SpeculativeDecodingOptions(mode: "eagle3")))
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(mode: "off", requirement: "required")))
+    }
+
+    func testRequestPolicyValidatesIntegerBoundariesBeforeAddition() throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.dflash2Drafter = "incoai/loaded"
+        service.dflash2BlockSize = Int.max
+
+        let boundary = try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(
+                mode: "dflash2",
+                maxDraftTokens: Int.max - 1))
+        XCTAssertEqual(boundary.requestedBlockSize, Int.max)
+
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(
+                mode: "dflash2",
+                maxDraftTokens: Int.max)))
     }
 
     func testServiceSamplingCompatibilityPreservesNormalDefaultsAndPenalties() {

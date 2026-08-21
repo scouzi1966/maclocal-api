@@ -142,18 +142,19 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
     }
 
-    @Test("Scheduler submit self-reserves when promotion bypassed controller admission")
-    func promotionTimeSubmissionReservesCapacity() {
+    @Test("Scheduler submission admission keeps reserved and unreserved capacity separate")
+    func schedulerSubmissionAdmissionIsExplicit() {
         let admission = BatchSchedulerAdmissionState(maxConcurrent: 1)
 
-        #expect(admission.consumeReservationOrReserveForSubmission())
-        #expect(!admission.consumeReservationOrReserveForSubmission())
+        #expect(admission.reserveForUnreservedSubmission())
+        #expect(!admission.reserveForUnreservedSubmission())
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
 
         admission.finish()
         #expect(admission.tryReserve())
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 1))
-        #expect(admission.consumeReservationOrReserveForSubmission())
+        #expect(!admission.reserveForUnreservedSubmission())
+        #expect(admission.consumeReservationForSubmission())
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
     }
 
