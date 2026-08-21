@@ -92,6 +92,9 @@ public struct MLXStreamEventTranslator {
         if let stoppedBySequence = chunk.stoppedBySequence {
             metadata["stoppedBySequence"] = .bool(stoppedBySequence)
         }
+        if let telemetry = chunk.speculativeTelemetry {
+            metadata[AFMMLXSpeculativeTelemetry.metadataKey] = telemetry.metadataValue
+        }
         if !metadata.isEmpty {
             events.append(.metadata(metadata))
         }

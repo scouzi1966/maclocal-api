@@ -241,6 +241,9 @@ struct MlxCommand: ParsableCommand {
           --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
           --dspark-strict: Load DSpark support but use target-only decoding
           --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
+          --dflash2: DFlash 2 drafter repository or local directory for a compatible Qwen 3.8 or Muse Glimmer target
+          --dflash2-block: Verification block size including the verifier token (default: 5)
+          --dflash2-required: Fail when DFlash 2 cannot serve an eligible request instead of falling back to AR
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.

@@ -1,6 +1,8 @@
 # DFlash 2 Implementation Plan
 
-Status: implementation and compile/unit checkpoint complete; live model matrix pending coordination, 2026-08-19
+Status: takeover audit, corrective implementation, and focused qualification
+complete; bounded official-model smoke tests pass, full live matrix and
+performance qualification remain open, 2026-08-20
 
 ## Objective
 
@@ -22,11 +24,14 @@ Implemented and pushed:
 - `--dflash2`, `--dflash2-block`, and `--dflash2-required` startup controls;
 - provider-neutral AFMKit startup/request contracts and OpenAPI schema;
 - serial streaming/non-streaming service integration and neutral metrics;
+- versioned AFMKit response/stream telemetry, including explicit fallback
+  reasons and proposed/accepted/emitted/cycle/phase totals;
 - reproducible vendor overlay/drift checks and focused losslessness tests.
 
 Deliberately deferred behind deterministic fallback/error policy: sampling,
 explicit string stops, tools/grammar/logprobs, speculative prefix snapshots, and
 concurrent/batched DFlash 2. No heavy live model run or local speed claim has
+been made beyond bounded four/eight-token smoke tests; no local speed claim has
 been made.
 
 ## Current Inventory
@@ -36,22 +41,22 @@ been made.
 | Stable provider contracts | `Sources/AFMKitCore/AFMCoreTypes.swift` | Already has `.speculativeDecoding`, request/response metadata, `.metadata` events, usage, cancellation finish reason |
 | AFMKit facade | `Sources/AFMKit/AFMEngine.swift` | `EngineConfig` has MTP and EAGLE3-specific fields; maps into MLX provider configuration |
 | MLX configuration/lifecycle | `Sources/AFMKitMLX/AFMMLXRuntime.swift` | Applies provider configuration to `MLXModelService`; owns model load and scheduler startup |
-| Speculative policy | `Sources/AFMKitMLX/AFMMLXSpeculativeDecoding.swift` | Modes are off/auto/MTP/EAGLE3; fast path is greedy, text-only, no reasoning/modifiers/stops |
-| Runtime bridge | `Sources/AFMKitMLX/AFMMLXRuntimeAdapter.swift` | Runtime enum and execution bridge cover MTP and EAGLE3 only |
-| Main MLX service | `Sources/AFMKitMLX/Models/MLXModelService.swift` | Loads MTP sidecars; installs EAGLE3; has separate streaming/non-streaming speculative paths; batch scheduler uses AR |
+| Speculative policy | `Sources/AFMKitMLX/AFMMLXSpeculativeDecoding.swift` | Off/auto/MTP/EAGLE3/DFlash2 policy; DFlash2 fast path is greedy, serial, text-only, and excludes unsupported modifiers/stops |
+| Runtime bridge | `Sources/AFMKitMLX/AFMMLXRuntimeAdapter.swift` | Runtime enum and execution bridge cover MTP, EAGLE3, and DFlash2 |
+| Main MLX service | `Sources/AFMKitMLX/Models/MLXModelService.swift` | Loads MTP/DFlash2 resources; installs EAGLE3; emits DFlash2 telemetry; batch scheduler remains AR |
 | Model resolution/download | `MLXModelService.ensureLoaded`, `downloadModel`, `MLXCacheResolver` | Hub download progress/stages and resumable cache resolution already exist; MTP has an auxiliary-repository resolver |
 | CLI | `Sources/AFMCLI/main.swift` | `--mtp`, `--mtp-model`, `--eagle3`; DSpark is restricted to DwarfStar; startup config flows through `AFMMLXRuntimeConfiguration` |
-| OpenAI request | `Sources/AFMOpenAICompat/OpenAIRequest.swift` | Supports sampling, reasoning, tools, constraints, and template kwargs; no speculative request object yet |
+| OpenAI request | `Sources/AFMOpenAICompat/OpenAIRequest.swift` | Includes provider-neutral `speculative_decoding` mode, requirement, drafter, and draft-limit controls |
 | HTTP execution | `Sources/AFMServer/Controllers/MLXChatCompletionsController.swift` and `AFMLocalClient.swift` | Both streaming and non-streaming call the shared service |
 | Prefix cache | `MLXModelService` and `BatchScheduler` | Serial radix cache and batch cache are AR-oriented; speculative paths currently bypass cache reuse |
 | Batch/concurrency | `BatchScheduler.swift` | Concurrent mode routes through batched AR; existing MTP/EAGLE3 fast paths are serial only |
 | Cancellation | service speculative stream and normal generation tasks | SSE termination cancels the task; token callbacks observe cancellation |
-| Metrics | `Sources/AFMKitMLX/Models/StatsAggregator.swift` | Request/token/timing/cache metrics exist; no neutral speculative counters or phase timings |
+| Metrics | `Sources/AFMKitMLX/Models/StatsAggregator.swift` | Exports neutral drafted, accepted, emitted, cycle, strategy, and phase-time counters |
 | DSpARK | `Sources/AFMKitDwarfStar/*`, `CDwarfStar`, DS4 vendor | Different GGUF/fixed-schedule runtime with its own support model and scheduler; not a reusable DFlash runtime |
 | Vendor workflow | `Scripts/patches`, `Scripts/apply-mlx-patches.sh`, `Scripts/check-mlx-source-selection.sh` | Reproducible source overlays are applied to `vendor/mlx-swift-lm`; URL consumers use a pinned pre-patched fork |
 
-There is no existing DFlash runtime in this checkout. DFlash 2 therefore
-requires a new MLX runtime primitive. It can reuse the general auxiliary-model
+There was no DFlash runtime at the baseline revision. DFlash 2 therefore
+required a new MLX runtime primitive. It reuses the general auxiliary-model
 resolution, request orchestration, cancellation, output parsing, and telemetry
 contracts, but not the MTP, EAGLE3, or DSpARK draft/verify implementation.
 

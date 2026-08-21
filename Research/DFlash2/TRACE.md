@@ -1,6 +1,6 @@
 # DFlash 2 Research Trace
 
-Date: 2026-08-19
+Date: 2026-08-19, takeover audit updated 2026-08-20
 
 ## Workspace Verification
 
@@ -201,7 +201,97 @@ d15cd5d Integrate opt-in DFlash 2 runtime
 a07a795 Use monotonic DFlash 2 phase timings
 75f9bb0 Expose DFlash 2 request policy to tests
 158e3f5 Test DFlash 2 contracts and losslessness
+5bdd5e8 Record DFlash 2 implementation evidence
+6b28dc8 Complete DFlash2 runtime compatibility checks
 ```
+
+## 2026-08-20 Takeover Audit
+
+The eight implementation commits through `5bdd5e8` did not fully satisfy the
+released-checkpoint or AFMKit execution contracts. The corrective checkpoint
+`6b28dc8` addressed the following production gaps:
+
+- released Qwen and Muse configs place `rope_theta` under `rope_parameters`;
+  the original parser required a top-level value and rejected both drafters;
+- compatibility checks now cover architecture, target dimensions, tokenizer
+  IDs, context/RoPE, target layers/taps, sliding-window metadata, and the exact
+  81-tensor shape contract before MLX reads the weight payload;
+- draft attention now follows released `layer_types` and `sliding_window`
+  metadata instead of using unrestricted causal attention;
+- AFMKit HTTP execution now forwards request speculative controls through the
+  adapter and provider rather than dropping preferred/required/off semantics;
+- request-level `off` overrides a loaded required-by-default runtime, while
+  request-level required DFlash2 cannot be consumed by MTP, EAGLE3, or the
+  concurrent AR scheduler;
+- DFlash2 is selected ahead of other speculative runtimes when explicitly
+  requested, and request-time drafter switching is rejected.
+
+The follow-up working checkpoint adds versioned
+`afm.speculative_decoding.v1` metadata to AFMKit responses and stream events,
+preserves it through the HTTP adapter, reports explicit pre-emission fallback
+reasons, and exports emitted-token totals alongside draft/accept/cycle/timing
+metrics. It also makes runtime draft limits fail closed instead of silently
+clamping values above the loaded checkpoint limit.
+
+Official config snapshots were retained under
+`.build/qualification/dflash2-official-configs-20260820` with these SHA-256
+values:
+
+```text
+873e3556509b0da06e29654ba00d4944888d4b5e8a33afde25f7eb27d321e980  qwen-draft-config.json
+14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85  qwen-target-config.json
+cb684d6f688a22619a63ea1debe7d30c139c195bf3141fd86a763763ab34b5d9  muse-draft-config.json
+c7f48468db2ef9c3de4cb912be24ecc9fbed36d83f3b8386a0b224ee7ba876ca  muse-target-config.json
+```
+
+### Vendor materialization proof
+
+A clean local clone was created at
+`.build/qualification/dflash2-vendor-clean-6b28dc8`, reset to pinned vendor
+commit `6bab4f5ac55e81903dd74090244c25feb3233338`, then processed with the normal
+`Scripts/apply-mlx-patches.sh` workflow. Application and `--check` both passed,
+and `Scripts/patches/DFlash2.swift` was byte-identical to the clean clone's
+materialized `Libraries/MLXLMCommon/DFlash2.swift`.
+
+The clean clone and working vendor submodule produced the same status: modified
+`NemotronH.swift`, `Qwen3_5MoE.swift`, `ToolCallFormat.swift`, and
+`VLMModelFactory.swift`; new `DFlash2.swift`, `ATEMToolCallParser.swift`,
+`ToolCallFormat.swift.original`, `MuseGlimmer.swift`,
+`VLMModelFactory.swift.original`, and `Package.swift.original`. The dirty
+`vendor/mlx-swift-lm` state is therefore expected materialized patch output,
+not an unrecorded dependency edit. No dependency repository was pushed.
+
+After the static gate passed, both official draft payloads were downloaded to
+`/Volumes/edata2/models/huggingface-cache` and tested serially under the shared
+`.agent-live-test-lock`. Each run acquired the lock with atomic `mkdir`, wrote
+the owner record, installed a cleanup trap, and released the lock before the
+next model started. No live suite overlapped another agent's Release run.
+
+Retained artifacts are under
+`.build/qualification/dflash2-final-20260820`:
+
+- Qwen target revision `3e6447f082e89cc7f0bc6e5441afd38dfce760ff`
+  with draft revision `dedf8df68adfb1afeaf7b7480c0a0243108177b4`;
+- Muse target revision `3e7677d7a40d348a3daba263a2b1c0aa41910710`
+  with draft revision `8336acb8dc9b8bf9c25f12d7785ee6df26703119`;
+- both started with `--dflash2-block 5 --dflash2-required`;
+- request-level `off` and required non-streaming output matched for the same
+  greedy prompt on both pairs, comparing visible plus reasoning channels;
+- required streaming completed with usage and `[DONE]` for both pairs;
+- Qwen totals after prewarm plus two required requests were 11 drafted, 5
+  accepted, 8 emitted, and 3 cycles; Muse totals were 21 drafted, 12 accepted,
+  20 emitted, and 7 cycles.
+
+The CLI defaults to a four-token prewarm, and that work intentionally appears
+in process-lifetime Prometheus counters. A separate Qwen debug probe captured
+baseline prewarm totals of 3 drafted, 3 accepted, 4 emitted, and 1 cycle; the
+single subsequent request added 3 drafted, 1 accepted, 2 emitted, and 1 cycle.
+This ruled out telemetry double counting.
+
+These are bounded smoke results, not the full matrix. Long generation,
+reasoning-level comparisons, tools, cancellation, memory limits, statistical
+sampling, prefix snapshots, batch verification, and performance remain
+unqualified on the released checkpoints.
 
 ## Exact Performance Methodology
 

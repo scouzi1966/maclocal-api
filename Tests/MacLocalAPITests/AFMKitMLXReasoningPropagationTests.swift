@@ -35,7 +35,14 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
 
         func respond(to request: AFMRequest) async throws -> AFMModelResponse {
             await capture.append(request)
-            return AFMModelResponse(text: "captured", reasoning: "thought")
+            return AFMModelResponse(
+                text: "captured",
+                reasoning: "thought",
+                metadata: [
+                    AFMMLXSpeculativeTelemetry.metadataKey:
+                        Self.telemetry.metadataValue,
+                ]
+            )
         }
 
         func streamResponse(
@@ -44,10 +51,18 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             AsyncThrowingStream { continuation in
                 Task {
                     await capture.append(request)
+                    continuation.yield(.metadata([
+                        AFMMLXSpeculativeTelemetry.metadataKey:
+                            Self.telemetry.metadataValue,
+                    ]))
+                    continuation.yield(.completed(.stop))
                     continuation.finish()
                 }
             }
         }
+
+        static let telemetry = AFMMLXSpeculativeTelemetry.fallback(
+            strategy: "dflash2", reason: "disabled")
     }
 
     func testStartupReasoningDefaultsReachAFMRequestMetadata() async throws {
@@ -80,6 +95,7 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         XCTAssertEqual(adapter.thinkStartTag, "<think>")
         XCTAssertEqual(adapter.thinkEndTag, "</think>")
         XCTAssertEqual(result.content, "<think>thought</think>captured")
+        XCTAssertEqual(result.speculativeTelemetry, CapturingModel.telemetry)
     }
 
     func testRequestReasoningEffortOverridesStartupDefault() async throws {
@@ -161,13 +177,17 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             preserveStructuralTags: false,
             requestId: "spec-test"
         )
-        for try await _ in result.stream {}
+        var streamedTelemetry: AFMMLXSpeculativeTelemetry?
+        for try await chunk in result.stream {
+            streamedTelemetry = chunk.speculativeTelemetry ?? streamedTelemetry
+        }
 
         let request = await capture.request(at: 0)
         XCTAssertEqual(
             request.metadata["speculativeDecoding"],
             .object(["mode": .string("off")])
         )
+        XCTAssertEqual(streamedTelemetry, CapturingModel.telemetry)
     }
 
     private func makeAdapter(

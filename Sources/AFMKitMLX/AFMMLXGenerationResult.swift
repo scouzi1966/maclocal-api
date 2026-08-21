@@ -10,7 +10,8 @@ public typealias AFMMLXChatGenerationResult = (
     cachedTokens: Int,
     promptTime: Double,
     generateTime: Double,
-    stoppedBySequence: Bool
+    stoppedBySequence: Bool,
+    speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 )
 
 public typealias AFMMLXChatStreamingResult = (

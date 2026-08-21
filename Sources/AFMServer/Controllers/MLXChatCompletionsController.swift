@@ -278,6 +278,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 var promptTime: Double = 0
                 var generateTime: Double = 0
                 var stoppedBySequence = false
+                var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 
                 for try await chunk in streamResult.stream {
                     fullText += chunk.text
@@ -289,6 +290,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = chunk.promptTime { promptTime = pt }
                     if let gt = chunk.generateTime { generateTime = gt }
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
+                    if let telemetry = chunk.speculativeTelemetry {
+                        speculativeTelemetry = telemetry
+                    }
                 }
 
                 // FIX: Vendor ToolCallProcessor can append XML tag remnants to tool names
@@ -358,7 +362,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     cachedTokens: cachedTokens,
                     promptTime: promptTime,
                     generateTime: generateTime,
-                    stoppedBySequence: stoppedBySequence
+                    stoppedBySequence: stoppedBySequence,
+                    speculativeTelemetry: speculativeTelemetry
                 )
             } else {
                 // Serial mode: use existing generate() path

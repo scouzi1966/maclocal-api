@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 
 public enum AFMMLXDFlash2Requirement: String, Codable, CaseIterable, Sendable {
     case preferred
@@ -186,7 +187,11 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "runtime block size must be at least 2")
         }
-        return min(requested, checkpointBlockSize)
+        guard requested <= checkpointBlockSize else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "runtime block size \(requested) exceeds checkpoint limit \(checkpointBlockSize)")
+        }
+        return requested
     }
 
     /// Validate the released DFlash 2 tensor contract from safetensor headers
@@ -408,6 +413,8 @@ public enum AFMMLXDFlash2ConfigurationError: LocalizedError, Equatable, Sendable
 }
 
 public struct AFMMLXSpeculativeTelemetry: Equatable, Sendable {
+    public static let metadataKey = "afm.speculative_decoding.v1"
+
     public let strategy: String
     public let draftedTokens: Int
     public let acceptedDraftTokens: Int
@@ -416,6 +423,7 @@ public struct AFMMLXSpeculativeTelemetry: Equatable, Sendable {
     public let draftTime: TimeInterval
     public let verificationTime: TimeInterval
     public let rollbackTime: TimeInterval
+    public let fallbackReason: String?
 
     public init(
         strategy: String,
@@ -425,7 +433,8 @@ public struct AFMMLXSpeculativeTelemetry: Equatable, Sendable {
         verificationCycles: Int,
         draftTime: TimeInterval,
         verificationTime: TimeInterval,
-        rollbackTime: TimeInterval
+        rollbackTime: TimeInterval,
+        fallbackReason: String? = nil
     ) {
         self.strategy = strategy
         self.draftedTokens = draftedTokens
@@ -435,9 +444,80 @@ public struct AFMMLXSpeculativeTelemetry: Equatable, Sendable {
         self.draftTime = draftTime
         self.verificationTime = verificationTime
         self.rollbackTime = rollbackTime
+        self.fallbackReason = fallbackReason
     }
 
     public var meanAcceptanceLength: Double {
         verificationCycles > 0 ? Double(acceptedDraftTokens) / Double(verificationCycles) : 0
+    }
+
+    public var metadataValue: AFMJSONValue {
+        var values: [String: AFMJSONValue] = [
+            "strategy": .string(strategy),
+            "draftedTokens": .integer(draftedTokens),
+            "acceptedDraftTokens": .integer(acceptedDraftTokens),
+            "emittedTokens": .integer(emittedTokens),
+            "verificationCycles": .integer(verificationCycles),
+            "draftSeconds": .number(draftTime),
+            "verificationSeconds": .number(verificationTime),
+            "rollbackSeconds": .number(rollbackTime),
+        ]
+        if let fallbackReason {
+            values["fallbackReason"] = .string(fallbackReason)
+        }
+        return .object(values)
+    }
+
+    public init?(metadataValue: AFMJSONValue) {
+        guard case .object(let values) = metadataValue,
+              case .string(let strategy)? = values["strategy"],
+              case .integer(let draftedTokens)? = values["draftedTokens"],
+              case .integer(let acceptedDraftTokens)? = values["acceptedDraftTokens"],
+              case .integer(let emittedTokens)? = values["emittedTokens"],
+              case .integer(let verificationCycles)? = values["verificationCycles"],
+              let draftTime = Self.number(values["draftSeconds"]),
+              let verificationTime = Self.number(values["verificationSeconds"]),
+              let rollbackTime = Self.number(values["rollbackSeconds"]) else {
+            return nil
+        }
+        let fallbackReason: String?
+        if case .string(let value)? = values["fallbackReason"] {
+            fallbackReason = value
+        } else {
+            fallbackReason = nil
+        }
+        self.init(
+            strategy: strategy,
+            draftedTokens: draftedTokens,
+            acceptedDraftTokens: acceptedDraftTokens,
+            emittedTokens: emittedTokens,
+            verificationCycles: verificationCycles,
+            draftTime: draftTime,
+            verificationTime: verificationTime,
+            rollbackTime: rollbackTime,
+            fallbackReason: fallbackReason
+        )
+    }
+
+    public static func fallback(strategy: String, reason: String) -> Self {
+        Self(
+            strategy: strategy,
+            draftedTokens: 0,
+            acceptedDraftTokens: 0,
+            emittedTokens: 0,
+            verificationCycles: 0,
+            draftTime: 0,
+            verificationTime: 0,
+            rollbackTime: 0,
+            fallbackReason: reason
+        )
+    }
+
+    private static func number(_ value: AFMJSONValue?) -> Double? {
+        switch value {
+        case .number(let value): return value
+        case .integer(let value): return Double(value)
+        default: return nil
+        }
     }
 }

@@ -136,8 +136,8 @@ is not evidence of the article's cycle-latency result.
   `speculative_decoding`.
 - `AFMKitMLX.AFMMLXSpeculativeTelemetry`: provider-neutral counts and phase
   timing returned by the MLX bridge.
-- `StatsAggregator`/Prometheus: neutral drafted, accepted, cycle, strategy, and
-  phase-time counters.
+- `StatsAggregator`/Prometheus: neutral drafted, accepted, emitted, cycle,
+  strategy, and phase-time counters.
 
 No source in `AFMKitCore` was changed. The concrete DFlash descriptor, config,
 runtime enum, target adapters, model, and generator remain in AFMKitMLX or the
@@ -185,8 +185,9 @@ public struct AFMSpeculativeDecodingTelemetry: Hashable, Codable, Sendable {
 
 Add `speculativeDecoding` to `AFMGenerationOptions` only when all providers can
 ignore `.preferred` safely and reject unsupported `.required` consistently.
-Until then, maclocal-api can transport this through `AFMRequest.metadata` and
-emit telemetry through the existing `.metadata` event using versioned keys.
+Until then, maclocal-api transports this through `AFMRequest.metadata` and
+emits telemetry through the existing `.metadata` event using the versioned
+`afm.speculative_decoding.v1` key for both non-streaming responses and streams.
 Adding a new `AFMGenerationEvent` enum case is deferred because exhaustive
 downstream switches would be source-breaking even though the enum is not frozen.
 

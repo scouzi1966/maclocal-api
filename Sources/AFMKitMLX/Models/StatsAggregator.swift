@@ -132,6 +132,7 @@ public final class StatsAggregator: @unchecked Sendable {
         public var cacheMissesTotal: UInt64 = 0
         public var speculativeDraftedTokensTotal: UInt64 = 0
         public var speculativeAcceptedTokensTotal: UInt64 = 0
+        public var speculativeEmittedTokensTotal: UInt64 = 0
         public var speculativeVerificationCyclesTotal: UInt64 = 0
         public var speculativeDraftSecondsTotal: Double = 0
         public var speculativeVerificationSecondsTotal: Double = 0
@@ -269,6 +270,7 @@ public final class StatsAggregator: @unchecked Sendable {
         strategy: String,
         draftedTokens: Int,
         acceptedDraftTokens: Int,
+        emittedTokens: Int,
         verificationCycles: Int,
         draftSeconds: Double,
         verificationSeconds: Double,
@@ -277,6 +279,7 @@ public final class StatsAggregator: @unchecked Sendable {
         counters.withLock { counters in
             counters.speculativeDraftedTokensTotal &+= UInt64(max(0, draftedTokens))
             counters.speculativeAcceptedTokensTotal &+= UInt64(max(0, acceptedDraftTokens))
+            counters.speculativeEmittedTokensTotal &+= UInt64(max(0, emittedTokens))
             counters.speculativeVerificationCyclesTotal &+= UInt64(max(0, verificationCycles))
             counters.speculativeDraftSecondsTotal += max(0, draftSeconds)
             counters.speculativeVerificationSecondsTotal += max(0, verificationSeconds)
@@ -444,6 +447,7 @@ public final class StatsAggregator: @unchecked Sendable {
         public let cacheMissesTotal: UInt64
         public let speculativeDraftedTokensTotal: UInt64
         public let speculativeAcceptedTokensTotal: UInt64
+        public let speculativeEmittedTokensTotal: UInt64
         public let speculativeVerificationCyclesTotal: UInt64
         public let speculativeDraftSecondsTotal: Double
         public let speculativeVerificationSecondsTotal: Double
@@ -498,6 +502,7 @@ public final class StatsAggregator: @unchecked Sendable {
             cacheMissesTotal: c.cacheMissesTotal,
             speculativeDraftedTokensTotal: c.speculativeDraftedTokensTotal,
             speculativeAcceptedTokensTotal: c.speculativeAcceptedTokensTotal,
+            speculativeEmittedTokensTotal: c.speculativeEmittedTokensTotal,
             speculativeVerificationCyclesTotal: c.speculativeVerificationCyclesTotal,
             speculativeDraftSecondsTotal: c.speculativeDraftSecondsTotal,
             speculativeVerificationSecondsTotal: c.speculativeVerificationSecondsTotal,

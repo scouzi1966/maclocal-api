@@ -216,6 +216,9 @@ Supported checkpoints can also use speculative decoding:
   separately published MTP head matching the base checkpoint's quantization;
   use `--mtp-model <repo-or-path>` to override it.
 - `--eagle3 <drafter-directory>` for supported dense Gemma4 models
+- `--dflash2 <repo-or-directory>` for metadata-matched Qwen 3.8 or Muse
+  Glimmer targets. Add `--dflash2-required` to reject ineligible requests
+  instead of falling back to autoregressive decoding.
 - `--dspark-support <support.gguf>` for compatible DwarfStar DSpark workflows
 
 Read [decode optimizations](docs/decode-optimizations.md) before choosing a checkpoint or interpreting benchmark results.

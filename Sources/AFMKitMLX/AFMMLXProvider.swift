@@ -168,6 +168,15 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 completionTokens: result.completionTokens,
                 maximumResponseTokens: request.options.maximumResponseTokens
             )
+            var metadata: [String: AFMJSONValue] = [
+                "modelID": .string(result.modelID),
+                "promptTime": .number(result.promptTime),
+                "generateTime": .number(result.generateTime),
+                "stoppedBySequence": .bool(result.stoppedBySequence),
+            ]
+            if let telemetry = result.speculativeTelemetry {
+                metadata[AFMMLXSpeculativeTelemetry.metadataKey] = telemetry.metadataValue
+            }
             return AFMModelResponse(
                 text: split.text,
                 reasoning: split.reasoning,
@@ -192,12 +201,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         }
                     )
                 },
-                metadata: [
-                    "modelID": .string(result.modelID),
-                    "promptTime": .number(result.promptTime),
-                    "generateTime": .number(result.generateTime),
-                    "stoppedBySequence": .bool(result.stoppedBySequence)
-                ]
+                metadata: metadata
             )
         } catch let error as AFMError {
             throw error

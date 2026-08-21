@@ -13,30 +13,32 @@ export MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache
 
 ## Which flag for which model? (start here)
 
-afm has exactly **two** speculative-decoding options — one per model family. Both are
-quality-preserving (bit-exact to greedy on short generations; near-greedy on long ones) and need
-a specific drafter/checkpoint.
+AFM has three MLX speculative-decoding options plus DwarfStar DSpark. Each
+requires a compatible target and drafter or sidecar.
 
 | Running… | Use | Speedup | Needs |
 |----------|-----|---------|-------|
 | **Qwen3.6-27B** | `--mtp` | **~+52%** | checkpoint with the MTP head: `Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed` (has `mtp.safetensors`) |
 | **Gemma4-31B (dense)** | `--eagle3 <drafter-dir>` | **~+30%** | the `RedHatAI/gemma-4-31B-it-speculator.eagle3` drafter |
-| anything else (incl. **Gemma4 MoE 26B-A4B**) | — | none | no speculative option — use normal decode |
+| **Qwen3.8-27B** | `--dflash2 <repo-or-dir>` | no local speed result | `incoai/Qwen3.8-27B-DFlash2` |
+| **Muse-Glimmer-30B** | `--dflash2 <repo-or-dir>` | no local speed result | `incoai/Muse-Glimmer-30B-DFlash2` |
+| anything else (incl. **Gemma4 MoE 26B-A4B**) | — | none | use normal decode |
 
 ```bash
 # Qwen3.6  → MTP
 afm mlx -m Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed --mtp --port 9999
 # Gemma4-31B dense → EAGLE3
 afm mlx -m mlx-community/gemma-4-31b-it-4bit --eagle3 <eagle3-drafter-dir> --port 9999
+# Qwen3.8-27B → DFlash 2
+afm mlx -m mlx-community/Qwen3.8-27B-4bit \
+  --dflash2 incoai/Qwen3.8-27B-DFlash2 --port 9999
 ```
 
-Both engage only for greedy (`temperature: 0`), text-only requests (streaming or not); anything
-else silently uses normal autoregressive decode. Full details per feature below.
+These paths engage only for supported greedy, serial requests. DFlash 2 has an
+explicit preferred/required policy described below.
 
-**Evaluated but NOT shipped** (so you don't go looking): Gemma4 MoE spec-decode (all methods slower
-than AR), the Gemma4 "assistant"-MTP that llama.cpp uses (~+9% in MLX — not worth it; llama.cpp's
-GGUF/Metal version is a different engine, ~+39% on M4 Pro), DFlash (negative). On M4 Pro the practical
-spec-decode ceiling is ~+40% in any engine — afm's lossless EAGLE3/MTP are at or near it.
+Legacy DFlash and DFlash 2 are distinct checkpoint contracts. Only checkpoints
+declaring `DFlash2DraftModel` are accepted by `--dflash2`.
 
 ---
 
@@ -129,7 +131,61 @@ depth-2-bonus structure from mlx-lm PR #990).
 
 ---
 
-## 3. Long-context SDPA (automatic — no flag)
+## 3. DFlash 2 — Qwen 3.8 and Muse Glimmer
+
+**Flags:** `--dflash2 <repo-or-directory>`, `--dflash2-block <N>`, and
+`--dflash2-required`
+
+DFlash 2 performs one-pass parallel drafting with metadata-validated Qwen 3.8
+and Muse Glimmer target adapters. AFM validates the draft architecture, target
+dimensions, tokenizer/context/RoPE contract, feature taps, and all safetensor
+shapes before loading draft weights. Repository names are not used as proof of
+compatibility.
+
+```bash
+afm mlx -m mlx-community/Qwen3.8-27B-4bit \
+  --dflash2 incoai/Qwen3.8-27B-DFlash2 --port 9999
+
+afm mlx -m mlx-community/Muse-Glimmer-30B-4bit \
+  --dflash2 incoai/Muse-Glimmer-30B-DFlash2 --port 9999
+```
+
+The supported fast path is greedy, serial, text-only generation without tools,
+grammar, logprobs, or string stop sequences. Streaming and non-streaming use
+the same draft/verify generator. Prefix-cache and concurrent/batch execution
+remain autoregressive in preferred mode. `--dflash2-required` converts any
+unsupported request or runtime conflict into an error before output begins.
+
+Requests may explicitly disable a loaded runtime or require it:
+
+```json
+{
+  "model": "mlx-community/Qwen3.8-27B-4bit",
+  "messages": [{"role": "user", "content": "Explain speculative decoding."}],
+  "temperature": 0,
+  "speculative_decoding": {
+    "mode": "dflash2",
+    "requirement": "required",
+    "max_draft_tokens": 4
+  }
+}
+```
+
+Use `"mode": "off"` for per-request autoregressive decoding. A request cannot
+load or switch drafters; an optional `drafter` value must match the resource
+selected at startup. AFM exports neutral draft, accepted, emitted, cycle, and
+phase-time counters under `/metrics`, and AFMKit receives the same summary in
+`afm.speculative_decoding.v1` response metadata/events.
+
+The current generator is correctness-first: greedy output is target-equivalent
+in synthetic qualification and bounded live smoke tests on both released pairs,
+but draft KV caching, speculative prefix snapshots, sampling rejection, and
+batched verification are deferred. No local Qwen/Muse speedup claim has been
+qualified.
+
+---
+
+## 4. Long-context SDPA (automatic — no flag)
 
 The pinned mlx-swift 0.30.3 tree is patched with **0.31.3's adaptive-block 2-pass SDPA**
 (backported in `Scripts/patches/mlx-cpp-sdpa/`). This is applied at build time and needs no flag —
@@ -147,12 +203,12 @@ Applied automatically by the full build:
 
 ---
 
-## 4. Faster reasoning TTFT (automatic)
+## 5. Faster reasoning TTFT (automatic)
 
 Streaming responses now emit the `<think>` open tag eagerly, cutting reasoning **time-to-first-token
 ~610ms → ~346ms**. No flag — it just applies to streaming chat completions on thinking models.
 
-## 5. Metal-kernel prewarm (automatic)
+## 6. Metal-kernel prewarm (automatic)
 
 Metal kernels are prewarmed on server startup, so the **cold first token** is faster. No flag.
 
@@ -176,6 +232,7 @@ AFM_DEBUG=1 AFM_EAGLE3_PROFILE=1 afm mlx -m <gemma4-31b> --eagle3 <drafter> --po
 |---------|------|-------|---------|--------|
 | EAGLE3 | `--eagle3 <dir>` | dense Gemma4-31B | ~+30% decode | lossless (== greedy AR) |
 | MTP | `--mtp` | Qwen3.6 sidecar or Qwen3.8 matching head | serial decode acceleration | near-greedy (bit-exact on short gens) |
+| DFlash 2 | `--dflash2 <repo-or-dir>` | Qwen3.8-27B or Muse-Glimmer-30B | no local speed result | lossless greedy |
 | SDPA backport | (build-time) | any | ~+10% @16k | correct at all depths |
 | Eager think-tag | (auto) | thinking models | TTFT 610→346ms | unchanged |
 | Kernel prewarm | (auto) | any | faster cold token | unchanged |
@@ -187,8 +244,7 @@ AFM_DEBUG=1 AFM_EAGLE3_PROFILE=1 afm mlx -m <gemma4-31b> --eagle3 <drafter> --po
 | `AFM_DEBUG` | off | decode tok/s, cache, timing logs |
 | `AFM_EAGLE3_PROFILE` | off | EAGLE3 per-round verify/draft timing |
 
-All fast paths require: **greedy** (`temperature: 0`), text-only, no `tools` / `response_format` /
-`logprobs` / `stop` sequences. **Streaming and non-streaming are both supported.** Concurrent mode
-(`--concurrent N≥2`) routes through the batch scheduler and does **not** use MTP/EAGLE3 (serial only).
-Anything else uses normal autoregressive decode.
-EOF
+All fast paths require supported greedy requests. **Streaming and non-streaming
+are both supported.** Concurrent mode routes through the batch scheduler and
+does not run serial MTP/EAGLE3/DFlash 2. DFlash 2 preferred mode falls back to
+AR; required mode rejects the conflict before generation.

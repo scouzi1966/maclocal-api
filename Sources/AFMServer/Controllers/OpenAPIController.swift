@@ -128,11 +128,12 @@ struct OpenAPIController: RouteCollection {
                 "type": "object",
                 "description": "Optional provider-neutral speculative decoding controls. Preferred mode may fall back; required mode returns an error when unavailable or incompatible.",
                 "properties": {
-                  "mode": { "type": "string", "description": "Provider/runtime mode such as auto, off, or dflash2." },
+                  "mode": { "type": "string", "enum": ["auto", "off", "dflash2"] },
                   "requirement": { "type": "string", "enum": ["preferred", "required"] },
-                  "drafter": { "type": "string", "description": "Drafter resource identifier or server-local path." },
+                  "drafter": { "type": "string", "description": "Must match the DFlash 2 drafter loaded at server startup; request-time drafter switching is rejected." },
                   "max_draft_tokens": { "type": "integer", "minimum": 1 }
-                }
+                },
+                "additionalProperties": false
               }
             }
           },

@@ -151,6 +151,37 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         XCTAssertEqual(usage?.outputTokens, 1)
     }
 
+    func testSpeculativeTelemetryProducesVersionedMetadataEvent() {
+        let telemetry = AFMMLXSpeculativeTelemetry(
+            strategy: "dflash2",
+            draftedTokens: 8,
+            acceptedDraftTokens: 6,
+            emittedTokens: 8,
+            verificationCycles: 4,
+            draftTime: 0.1,
+            verificationTime: 0.2,
+            rollbackTime: 0.03
+        )
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 10
+        )
+
+        let events = translator.consume(
+            StreamChunk(text: "", speculativeTelemetry: telemetry)
+        )
+        let metadata = events.compactMap { event -> [String: AFMJSONValue]? in
+            guard case .metadata(let metadata) = event else { return nil }
+            return metadata
+        }.last
+
+        XCTAssertEqual(
+            metadata?[AFMMLXSpeculativeTelemetry.metadataKey],
+            telemetry.metadataValue
+        )
+    }
+
     private func text(from events: [AFMGenerationEvent]) -> String {
         events.compactMap {
             guard case .responseText(_, let text, _) = $0 else { return nil }

@@ -308,6 +308,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         let promptTime = metadata.double("promptTime") ?? 0
         let generateTime = metadata.double("generateTime") ?? 0
         let stoppedBySequence = metadata.bool("stoppedBySequence") ?? false
+        let speculativeTelemetry = metadata[AFMMLXSpeculativeTelemetry.metadataKey]
+            .flatMap(AFMMLXSpeculativeTelemetry.init(metadataValue:))
         let responseModelID = metadata.string("modelID") ?? normalizeModel(model)
         return (
             modelID: responseModelID,
@@ -326,7 +328,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             cachedTokens: response.usage.cachedInputTokens,
             promptTime: promptTime,
             generateTime: generateTime,
-            stoppedBySequence: stoppedBySequence
+            stoppedBySequence: stoppedBySequence,
+            speculativeTelemetry: speculativeTelemetry
         )
     }
 
@@ -485,6 +488,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 var promptTime: Double = 0
                 var generateTime: Double = 0
                 var stoppedBySequence = false
+                var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
                 var insideReasoning = false
                 var toolIndices = [String: Int]()
 
@@ -536,6 +540,10 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                             generateTime = metadata.double("generateTime") ?? generateTime
                             stoppedBySequence =
                                 metadata.bool("stoppedBySequence") ?? stoppedBySequence
+                            if let value = metadata[AFMMLXSpeculativeTelemetry.metadataKey] {
+                                speculativeTelemetry = AFMMLXSpeculativeTelemetry(
+                                    metadataValue: value)
+                            }
                         case .completed:
                             if insideReasoning {
                                 continuation.yield(StreamChunk(text: endTag ?? ""))
@@ -549,7 +557,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                                     cachedTokens: cachedTokens,
                                     promptTime: promptTime,
                                     generateTime: generateTime,
-                                    stoppedBySequence: stoppedBySequence
+                                    stoppedBySequence: stoppedBySequence,
+                                    speculativeTelemetry: speculativeTelemetry
                                 )
                             )
                         case .custom:

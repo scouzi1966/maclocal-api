@@ -105,6 +105,10 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
 
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(mode: "dflash2", maxDraftTokens: 0)))
+        XCTAssertNoThrow(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "dflash2", maxDraftTokens: 4)))
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "dflash2", maxDraftTokens: 5)))
 
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(requirement: "best-effort")))
@@ -136,7 +140,7 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             ],
         ])
         XCTAssertEqual(try config.effectiveBlockSize(requested: 5), 5)
-        XCTAssertEqual(try config.effectiveBlockSize(requested: 20), 8)
+        XCTAssertThrowsError(try config.effectiveBlockSize(requested: 20))
     }
 
     func testMuseReleasedContractValidatesByMetadata() throws {
@@ -353,6 +357,36 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             verificationTime: 0.2,
             rollbackTime: 0.03)
         XCTAssertEqual(telemetry.meanAcceptanceLength, 1.5)
+        XCTAssertEqual(
+            AFMMLXSpeculativeTelemetry(metadataValue: telemetry.metadataValue),
+            telemetry
+        )
+
+        StatsAggregator.shared.reset()
+        StatsAggregator.shared.addSpeculative(
+            strategy: telemetry.strategy,
+            draftedTokens: telemetry.draftedTokens,
+            acceptedDraftTokens: telemetry.acceptedDraftTokens,
+            emittedTokens: telemetry.emittedTokens,
+            verificationCycles: telemetry.verificationCycles,
+            draftSeconds: telemetry.draftTime,
+            verificationSeconds: telemetry.verificationTime,
+            rollbackSeconds: telemetry.rollbackTime
+        )
+        let snapshot = StatsAggregator.shared.snapshot()
+        XCTAssertEqual(snapshot.speculativeDraftedTokensTotal, 8)
+        XCTAssertEqual(snapshot.speculativeAcceptedTokensTotal, 6)
+        XCTAssertEqual(snapshot.speculativeEmittedTokensTotal, 8)
+        XCTAssertEqual(snapshot.speculativeVerificationCyclesTotal, 4)
+        StatsAggregator.shared.reset()
+
+        let fallback = AFMMLXSpeculativeTelemetry.fallback(
+            strategy: "dflash2", reason: "incompatible_request")
+        XCTAssertEqual(fallback.fallbackReason, "incompatible_request")
+        XCTAssertEqual(
+            AFMMLXSpeculativeTelemetry(metadataValue: fallback.metadataValue),
+            fallback
+        )
     }
 
     private func draftMetadata(

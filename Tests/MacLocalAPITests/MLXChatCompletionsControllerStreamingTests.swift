@@ -464,7 +464,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 cachedTokens: 0,
                 promptTime: 0.02,
                 generateTime: 0.01,
-                stoppedBySequence: false
+                stoppedBySequence: false,
+                speculativeTelemetry: nil
             ),
             streamingResult: makeStreamingResult(chunks: [])
         )
@@ -533,7 +534,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 cachedTokens: 0,
                 promptTime: 0.02,
                 generateTime: 0.01,
-                stoppedBySequence: false
+                stoppedBySequence: false,
+                speculativeTelemetry: nil
             ),
             streamingResult: makeStreamingResult(chunks: [])
         )
@@ -693,7 +695,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 cachedTokens: 0,
                 promptTime: 0.01,
                 generateTime: 0.01,
-                stoppedBySequence: false
+                stoppedBySequence: false,
+                speculativeTelemetry: nil
             ),
             streamingResult: makeStreamingResult(chunks: [])
         )
@@ -1055,7 +1058,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             cachedTokens: 0,
             promptTime: 0,
             generateTime: 0,
-            stoppedBySequence: false
+            stoppedBySequence: false,
+            speculativeTelemetry: nil
         )
         self.streamingResult = streamingResult
         self.streamingHandler = nil
@@ -1086,7 +1090,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             cachedTokens: 0,
             promptTime: 0,
             generateTime: 0,
-            stoppedBySequence: false
+            stoppedBySequence: false,
+            speculativeTelemetry: nil
         )
         self.streamingResult = FakeMLXChatService.emptyStreamingResult
         self.streamingHandler = streamingHandler

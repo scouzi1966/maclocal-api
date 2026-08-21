@@ -340,7 +340,8 @@ final class AFMMLXProviderTests: XCTestCase {
             cachedTokens: 0,
             promptTime: 0,
             generateTime: 0,
-            stoppedBySequence: false
+            stoppedBySequence: false,
+            speculativeTelemetry: nil
         )
 
         XCTAssertEqual(result.modelID, "test/model")

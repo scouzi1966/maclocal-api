@@ -107,8 +107,9 @@ public struct StreamChunk: Sendable {
     public let promptTime: Double?
     public let generateTime: Double?
     public let stoppedBySequence: Bool?
+    public let speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 
-    public init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
+    public init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil, speculativeTelemetry: AFMMLXSpeculativeTelemetry? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
@@ -119,6 +120,7 @@ public struct StreamChunk: Sendable {
         self.promptTime = promptTime
         self.generateTime = generateTime
         self.stoppedBySequence = stoppedBySequence
+        self.speculativeTelemetry = speculativeTelemetry
     }
 }
 
@@ -1498,6 +1500,11 @@ public final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.loadFailed(
                 "speculative_decoding.max_draft_tokens must be at least 1")
         }
+        if let maxDraftTokens = options?.maxDraftTokens,
+           maxDraftTokens + 1 > dflash2BlockSize {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.max_draft_tokens exceeds the loaded DFlash2 block limit \(dflash2BlockSize - 1)")
+        }
 
         let mode = options?.mode?.lowercased()
         guard mode == nil || mode == "auto" || mode == "dflash2"
@@ -2232,7 +2239,7 @@ public final class MLXModelService: @unchecked Sendable {
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
         speculativeDecoding: SpeculativeDecodingOptions? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool) {
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
         try beginOperation()
         defer { endOperation() }
 
@@ -2296,6 +2303,14 @@ public final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.loadFailed(
                 "DFlash2 is required but this request uses sampling, tools, grammar, logprobs, or stop sequences")
         }
+        let dflash2WasRequested = dflash2Drafter != nil || speculativeDecoding != nil
+        let dflash2FallbackTelemetry: AFMMLXSpeculativeTelemetry? = dflash2WasRequested
+            ? .fallback(
+                strategy: "dflash2",
+                reason: !dflash2Policy.permitsRuntime
+                    ? "disabled"
+                    : (dflash2Active == nil ? "unavailable" : "incompatible_request"))
+            : nil
         // GPU capture/trace/profile: start before inference
         let capturePath = gpuCapturePath
         let capturing = beginGPUCaptureIfNeeded()
@@ -2340,14 +2355,14 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
             }
         }
 
 
         // ---- DFlash2 one-pass parallel draft/verify path ----
         if dflash2Eligible, let installed = dflash2Active {
-            if let result = try await container.perform({ context -> (String, Int, Int)? in
+            if let result = try await container.perform({ context -> (String, Int, Int, AFMMLXSpeculativeTelemetry)? in
                 guard let target = context.model as? any DFlash2Target else { return nil }
                 let lmInput = try await context.processor.prepare(input: scratch.userInput)
                 if self.isMultimodalInput(lmInput) { return nil }
@@ -2369,10 +2384,20 @@ public final class MLXModelService: @unchecked Sendable {
                 let textIDs = (ids.last.map { eos.contains($0) } ?? false)
                     ? Array(ids.dropLast()) : ids
                 let stats = generated.statistics
+                let telemetry = AFMMLXSpeculativeTelemetry(
+                    strategy: "dflash2",
+                    draftedTokens: stats.draftedTokens,
+                    acceptedDraftTokens: stats.acceptedDraftTokens,
+                    emittedTokens: stats.emittedTokens,
+                    verificationCycles: stats.verificationCycles,
+                    draftTime: stats.draftSeconds,
+                    verificationTime: stats.verificationSeconds,
+                    rollbackTime: stats.rollbackSeconds)
                 StatsAggregator.shared.addSpeculative(
                     strategy: "dflash2",
                     draftedTokens: stats.draftedTokens,
                     acceptedDraftTokens: stats.acceptedDraftTokens,
+                    emittedTokens: stats.emittedTokens,
                     verificationCycles: stats.verificationCycles,
                     draftSeconds: stats.draftSeconds,
                     verificationSeconds: stats.verificationSeconds,
@@ -2380,12 +2405,12 @@ public final class MLXModelService: @unchecked Sendable {
                 if debugLogging {
                     print("[\(ts())] [DFlash2] \(ids.count) tokens, \(stats.verificationCycles) cycles, mean acceptance \(String(format: "%.2f", stats.meanAcceptanceLength))")
                 }
-                return (context.tokenizer.decode(tokens: textIDs), promptIDs.count, ids.count)
+                return (context.tokenizer.decode(tokens: textIDs), promptIDs.count, ids.count, telemetry)
             }) {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false, result.3)
             }
             if requestRequiresDFlash2 {
                 throw MLXServiceError.loadFailed(
@@ -2424,7 +2449,7 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
+                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
             }
         }
 
@@ -2466,7 +2491,7 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
+                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
             }
         }
 
@@ -2671,7 +2696,7 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
+            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence, dflash2FallbackTelemetry)
         }
 
         let generated: String = try await container.perform { context in
@@ -3226,7 +3251,7 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
+            return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence, dflash2FallbackTelemetry)
         }
 
     public func generateStreaming(
@@ -3320,6 +3345,7 @@ public final class MLXModelService: @unchecked Sendable {
         )
         let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
         let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let dflash2WasRequested = dflash2Drafter != nil || speculativeDecoding != nil
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
@@ -3392,7 +3418,7 @@ public final class MLXModelService: @unchecked Sendable {
                 thinkEndTag: self.thinkEndTag,
                 requestId: reqId
             )
-            let effectiveStream: AsyncThrowingStream<StreamChunk, Error>
+            var effectiveStream: AsyncThrowingStream<StreamChunk, Error>
             if templateOpenedThink, let thinkStart = self.thinkStartTag {
                 effectiveStream = AsyncThrowingStream { continuation in
                     let task = Task {
@@ -3410,6 +3436,27 @@ public final class MLXModelService: @unchecked Sendable {
                 }
             } else {
                 effectiveStream = schedulerStream
+            }
+            if dflash2WasRequested {
+                let upstream = effectiveStream
+                let telemetry = AFMMLXSpeculativeTelemetry.fallback(
+                    strategy: "dflash2",
+                    reason: dflash2Policy.permitsRuntime ? "concurrency" : "disabled")
+                effectiveStream = AsyncThrowingStream { continuation in
+                    let task = Task {
+                        do {
+                            for try await chunk in upstream {
+                                continuation.yield(chunk)
+                            }
+                            continuation.yield(StreamChunk(
+                                text: "", speculativeTelemetry: telemetry))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
             }
             self.cleanupTempFiles(mediaTempFiles)
 
@@ -3450,6 +3497,14 @@ public final class MLXModelService: @unchecked Sendable {
         let dflash2StreamEligible = specGreedyStream
             && dflash2Policy.permitsRuntime
             && DFlash2Runtime.shared.active != nil
+        let dflash2FallbackTelemetry: AFMMLXSpeculativeTelemetry? = dflash2WasRequested
+            ? .fallback(
+                strategy: "dflash2",
+                reason: !dflash2Policy.permitsRuntime
+                    ? "disabled"
+                    : (DFlash2Runtime.shared.active == nil
+                        ? "unavailable" : "incompatible_request"))
+            : nil
         let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
         let mtpStreamEligible = specGreedyStream && mtpBinding != nil
         if requestRequiresDFlash2,
@@ -3502,10 +3557,12 @@ public final class MLXModelService: @unchecked Sendable {
                         }
                         let t0 = Date.timeIntervalSinceReferenceDate
                         do {
-                            let outCount = try await container.perform { context -> Int in
+                            let generation = try await container.perform {
+                                context -> (tokenCount: Int, telemetry: AFMMLXSpeculativeTelemetry?) in
                                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                                 var allTokens: [Int] = []
                                 var prevText = ""
+                                var telemetry: AFMMLXSpeculativeTelemetry?
                                 let emit: (Int) -> Bool = { tok in
                                     if Task.isCancelled { return false }    // client disconnected
                                     if eos.contains(tok) { return false }   // stop; never stream EOS
@@ -3541,10 +3598,20 @@ public final class MLXModelService: @unchecked Sendable {
                                         shouldStop: { Task.isCancelled },
                                         onToken: emit)
                                     let stats = result.statistics
+                                    telemetry = AFMMLXSpeculativeTelemetry(
+                                        strategy: "dflash2",
+                                        draftedTokens: stats.draftedTokens,
+                                        acceptedDraftTokens: stats.acceptedDraftTokens,
+                                        emittedTokens: stats.emittedTokens,
+                                        verificationCycles: stats.verificationCycles,
+                                        draftTime: stats.draftSeconds,
+                                        verificationTime: stats.verificationSeconds,
+                                        rollbackTime: stats.rollbackSeconds)
                                     StatsAggregator.shared.addSpeculative(
                                         strategy: "dflash2",
                                         draftedTokens: stats.draftedTokens,
                                         acceptedDraftTokens: stats.acceptedDraftTokens,
+                                        emittedTokens: stats.emittedTokens,
                                         verificationCycles: stats.verificationCycles,
                                         draftSeconds: stats.draftSeconds,
                                         verificationSeconds: stats.verificationSeconds,
@@ -3560,9 +3627,10 @@ public final class MLXModelService: @unchecked Sendable {
                                     _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
                                                      eosIds: eos, onToken: emit)
                                 }
-                                return allTokens.count
+                                return (allTokens.count, telemetry)
                             }
                             let gt = Date.timeIntervalSinceReferenceDate - t0
+                            let outCount = generation.tokenCount
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
                                 let engine = useDSpark ? "DSpARK"
@@ -3570,7 +3638,10 @@ public final class MLXModelService: @unchecked Sendable {
                                 print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
-                                                           completionTokens: outCount, promptTime: 0, generateTime: gt))
+                                                           completionTokens: outCount, promptTime: 0,
+                                                           generateTime: gt,
+                                                           speculativeTelemetry: generation.telemetry
+                                                               ?? dflash2FallbackTelemetry))
                             StatsAggregator.shared.requestSucceeded(reason: "stop")
                             StatsAggregator.shared.requestCompleted()
                             continuation.finish()
@@ -4101,6 +4172,11 @@ public final class MLXModelService: @unchecked Sendable {
                     }
                     StatsAggregator.shared.requestSucceeded(reason: streamReason)
                     StatsAggregator.shared.requestCompleted()
+
+                    if let dflash2FallbackTelemetry {
+                        continuation.yield(StreamChunk(
+                            text: "", speculativeTelemetry: dflash2FallbackTelemetry))
+                    }
 
                     continuation.finish()
                 } catch {

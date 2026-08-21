@@ -54,7 +54,7 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
                 mode: .auto,
                 isSelectable: modelLoaded && hasAccelerationPath,
                 reason: modelLoaded
-                    ? "Auto requires a loaded model with MTP or dense Gemma4 EAGLE3 support."
+                    ? "Auto requires a loaded model with MTP, dense Gemma4 EAGLE3, or DFlash 2 support."
                     : "Load a supported MLX model before enabling acceleration."
             ),
             .mtp: AFMMLXSpeculativeModeAvailability(
@@ -105,7 +105,7 @@ public struct AFMMLXSpeculativeModeAvailability: Equatable, Sendable {
                 isSelectable: hasAccelerationPath,
                 reason: hasAccelerationPath
                     ? "Use the selected model's acceleration path after loading."
-                    : "Select a model with MTP or dense Gemma4 EAGLE3 support."
+                    : "Select a model with MTP, dense Gemma4 EAGLE3, or DFlash 2 support."
             ),
             .mtp: AFMMLXSpeculativeModeAvailability(
                 mode: .mtp,

@@ -172,6 +172,11 @@ struct MetricsController: RouteCollection {
             s.speculativeAcceptedTokensTotal
         )
         counter(
+            "afm:speculative_emitted_tokens_total",
+            "Total output tokens committed by speculative verification.",
+            s.speculativeEmittedTokensTotal
+        )
+        counter(
             "afm:speculative_verification_cycles_total",
             "Total speculative target-verification cycles.",
             s.speculativeVerificationCyclesTotal

@@ -14,14 +14,28 @@ Run before any large model inference:
 No long Qwen or Muse generation is authorized by this gate. Report readiness
 and coordinate with the AFMKit usability study first.
 
-Current gate result (2026-08-19):
+Current gate result (updated 2026-08-20):
 
-- `swift build --target AFMKitMLX`: pass;
-- `swift build --target AFMCLI`: pass;
-- `swift test --filter AFMMLXDFlash2ConfigurationTests`: 12 pass;
-- `swift test --filter AFMMLXSpeculativeDecodingTests`: 22 pass;
-- `./Scripts/check-dflash2-vendor-patch.sh`: pass;
-- no Qwen/Muse weights downloaded and no heavy inference run.
+- `Scripts/swiftpm-reliable.sh build --target AFMKitMLX`: pass;
+- `Scripts/swiftpm-reliable.sh build --target AFMCLI`: pass;
+- `Scripts/swiftpm-reliable.sh test --filter AFMMLXDFlash2ConfigurationTests`:
+  15 pass;
+- `Scripts/swiftpm-reliable.sh test --filter AFMMLXSpeculativeDecodingTests`:
+  22 pass;
+- final focused selection across DFlash2 config, speculative policy/setup,
+  model architecture, AFMKit adapter/provider, stream translation/controller,
+  OpenAPI/metrics, and batch routing: 143 XCTest plus 78 Swift Testing cases
+  pass with zero failures;
+- `Scripts/check-dflash2-vendor-patch.sh`: pass;
+- full patch application plus `--check` from a clean clone of pinned vendor
+  `6bab4f5ac55e81903dd74090244c25feb3233338`: pass with status identical to the
+  working materialized submodule;
+- official Qwen/Muse config snapshots and prior 81-tensor safetensor headers
+  were validated without downloading weight payloads;
+- official Qwen and Muse target/drafter pairs: bounded greedy live smoke pass
+  for request `off`, required non-streaming, required streaming with usage, and
+  nonzero speculative counters, run serially under the shared lock;
+- no full live matrix or local performance run was made.
 
 ## Fixture Matrix
 
@@ -74,8 +88,8 @@ Current expected routing:
 - Greedy, serial, text-only, no tools/grammar/logprobs/string stops: DFlash 2.
 - Sampling, tools, grammar, logprobs, or string stops: preferred AR fallback;
   required error before emission.
-- Prefix cache or `--concurrent`: preferred startup fallback to AR; required
-  startup error.
+- Prefix cache or `--concurrent`: preferred mode uses AR and emits a neutral
+  fallback reason; required mode rejects before generation.
 - Reasoning remains downstream token parsing and must be checked live for both
   targets before claiming support beyond token-equivalent greedy output.
 
