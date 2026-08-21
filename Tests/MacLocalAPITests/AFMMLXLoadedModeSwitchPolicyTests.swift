@@ -91,7 +91,8 @@ final class AFMMLXLoadedModeSwitchPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "data:image/png;base64,AA=="), .image)
-        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "https://example.com/clip.mp4"), .video)
+        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "data:video/mp4;base64,AA=="), .video)
+        XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "image_url", mediaURL: "https://example.com/clip.mp4"), .image)
         XCTAssertEqual(AFMMLXRequestMediaPolicy.kind(contentPartType: "input_audio"), .audio)
         XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.image, architecture: gemma))
         XCTAssertFalse(AFMMLXRequestMediaPolicy.supports(.video, architecture: gemma))

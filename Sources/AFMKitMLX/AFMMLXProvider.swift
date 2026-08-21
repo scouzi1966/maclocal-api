@@ -63,8 +63,6 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
 }
 
 public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable {
-    public let descriptor: AFMModelDescriptor
-
     private let runtime: AFMMLXRuntime
     private let service: MLXModelService
     private let modelID: String
@@ -85,7 +83,6 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = runtime.service
         self.modelID = runtime.modelID
-        self.descriptor = runtime.descriptor
     }
 
     /// Wrap a host-owned service without mutating its established runtime settings.
@@ -103,8 +100,9 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = service
         self.modelID = runtime.modelID
-        self.descriptor = runtime.descriptor
     }
+
+    public var descriptor: AFMModelDescriptor { runtime.descriptor }
 
     public func availability() async -> AFMModelAvailability {
         .available
@@ -789,7 +787,12 @@ private extension AFMContentPart {
             case .reference(let url):
                 return ContentPart(
                     type: "image_url",
-                    image_url: ImageURL(url: url.absoluteString, detail: nil)
+                    image_url: ImageURL(
+                        url: url.isFileURL
+                            ? try AFMMLXMediaSecurityPolicy.trustedLocalMediaDataURL(url)
+                            : url.absoluteString,
+                        detail: nil
+                    )
                 )
             case .custom(let type, _):
                 throw AFMError.unsupportedCapability("custom content '\(type)'")

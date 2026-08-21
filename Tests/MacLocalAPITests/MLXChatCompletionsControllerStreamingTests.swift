@@ -1,8 +1,11 @@
 import XCTest
+import Foundation
 import Vapor
 import XCTVapor
+import Darwin
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
@@ -801,6 +804,435 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testVisionAssetFailureReturnsJSONBeforeStreamingCommitAndReleasesReservation() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .visionAssetsUnavailable(
+                model: "/Users/example/private/test-model",
+                missing: ["processorConfiguration", "visionWeights"]
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
+            XCTAssertContains(res.body.string, "processorConfiguration, visionWeights")
+            XCTAssertFalse(res.body.string.contains("/Users/example/private"))
+            XCTAssertFalse(res.body.string.contains("data:"))
+        }
+        XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 0)
+        XCTAssertEqual(service.reserveSlotCallCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testVisionAssetFailureMatchesForNonStreamingRequests() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .visionAssetsUnavailable(
+                model: "test-model",
+                missing: ["visionWeights"]
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: false)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
+        }
+        XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 0)
+        XCTAssertEqual(service.reserveSlotCallCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
+        XCTAssertEqual(service.generateCallCount, 0)
+    }
+
+    func testUnsupportedMediaUsesStableOpenAIErrorForBothModes() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .unsupportedMediaInput(
+                model: "test-model",
+                kind: "image"
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        for stream in [false, true] {
+            let body = imageRequestBody(stream: stream)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { res async in
+                XCTAssertEqual(res.status, .badRequest)
+                XCTAssertEqual(res.headers.contentType, .json)
+                XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+                XCTAssertContains(res.body.string, #""code":"unsupported_media_input""#)
+            }
+        }
+        XCTAssertEqual(service.reserveSlotCallCount, 2)
+        XCTAssertEqual(service.releaseSlotCallCount, 2)
+        XCTAssertEqual(service.generateCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testInvalidMediaReferenceUsesStableOpenAIErrorBeforeStreaming() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .invalidMediaInput("image_url scheme 'file' is not allowed"),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"invalid_media_input""#)
+            XCTAssertFalse(res.body.string.contains("data:"))
+        }
+        XCTAssertEqual(service.reserveSlotCallCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testCoarseCapabilityCheckRejectsUnsupportedMediaBeforePreflight() async throws {
+        let service = FakeMLXChatService(
+            modelCapabilities: [.text],
+            preflightDelayNanoseconds: 30_000_000_000,
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertContains(res.body.string, #""code":"unsupported_media_input""#)
+        }
+
+        XCTAssertEqual(service.preflightCallCount, 0)
+        XCTAssertEqual(service.reserveSlotCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testSlowConcurrentMediaPreflightsAreBoundedByMaxConcurrent() async throws {
+        let service = FakeMLXChatService(
+            maxConcurrent: 2,
+            preflightDelayNanoseconds: 150_000_000,
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let tester = try app.testable()
+        let body = imageRequestBody(stream: false)
+        let headers = requestHeaders(for: body)
+        async let first: XCTHTTPResponse = tester.sendRequest(
+            .POST, "/v1/chat/completions", headers: headers, body: body
+        )
+        async let second: XCTHTTPResponse = tester.sendRequest(
+            .POST, "/v1/chat/completions", headers: headers, body: body
+        )
+        async let third: XCTHTTPResponse = tester.sendRequest(
+            .POST, "/v1/chat/completions", headers: headers, body: body
+        )
+        async let fourth: XCTHTTPResponse = tester.sendRequest(
+            .POST, "/v1/chat/completions", headers: headers, body: body
+        )
+
+        let responses = try await [first, second, third, fourth]
+        XCTAssertTrue(responses.allSatisfy { $0.status == .ok })
+        XCTAssertEqual(service.preflightCallCount, 4)
+        XCTAssertEqual(service.maximumObservedPreflightCount, 2)
+    }
+
+    func testStreamingCancellationCancelsSuspendedMediaPreflight() async throws {
+        app.middleware.use(RequestIDMiddleware())
+        let service = FakeMLXChatService(
+            preflightDelayNanoseconds: 30_000_000_000,
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let tester = try app.testable()
+        let body = imageRequestBody(stream: true)
+        var headers = requestHeaders(for: body)
+        let requestID = "req_suspended_preflight"
+        headers.replaceOrAdd(name: "X-Request-ID", value: requestID)
+        let responseTask = Task {
+            try await tester.sendRequest(
+                .POST,
+                "/v1/chat/completions",
+                headers: headers,
+                body: body
+            )
+        }
+
+        for _ in 0..<200 where service.preflightCallCount == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(service.preflightCallCount, 1)
+        let cancelled = await app.inflightRegistry.cancel(id: requestID)
+        XCTAssertTrue(cancelled)
+
+        let response = try await responseTask.value
+        XCTAssertEqual(response.status, .badRequest)
+        XCTAssertEqual(service.preflightCancellationCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testClientSocketDisconnectCancelsSuspendedMediaPreflightInBothModes() async throws {
+        let service = FakeMLXChatService(
+            preflightDelayNanoseconds: 30_000_000_000,
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        app.useAFMHTTPServer()
+        try app.boot()
+        try await app.server.start(address: .hostname("127.0.0.1", port: 0))
+        do {
+            guard let port = app.afmHTTPServer?.localAddress?.port else {
+                XCTFail("AFM HTTP server did not publish its allocated test port")
+                await app.server.shutdown()
+                return
+            }
+
+            for (index, stream) in [false, true].enumerated() {
+                let body = imageRequestBody(stream: stream)
+                let socket = try openClientSocket(
+                    port: port,
+                    body: body,
+                    requestID: "req_socket_disconnect_\(index)"
+                )
+                let expectedCount = index + 1
+                for _ in 0..<200 where service.preflightCallCount < expectedCount {
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                XCTAssertEqual(service.preflightCallCount, expectedCount)
+
+                closeClientSocket(socket)
+                for _ in 0..<400
+                    where service.preflightCancellationCount < expectedCount
+                        || service.releaseSlotCallCount < expectedCount
+                {
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                XCTAssertEqual(service.preflightCancellationCount, expectedCount)
+                XCTAssertEqual(service.releaseSlotCallCount, expectedCount)
+            }
+        } catch {
+            await app.server.shutdown()
+            throw error
+        }
+        await app.server.shutdown()
+
+        XCTAssertEqual(service.generateCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testAFMHTTPServerWritesRegisteredStreamingBody() async throws {
+        app.get("afm-stream-probe") { _ async throws -> Response in
+            let response = Response(status: .ok)
+            response.headers.contentType = .init(type: "text", subType: "event-stream")
+            response.useAFMAsyncBody { writer in
+                try await writer.write(.buffer(.init(string: "data: ready\n\n")))
+                try await writer.write(.end)
+            }
+            return response
+        }
+
+        app.useAFMHTTPServer()
+        try app.boot()
+        try await app.server.start(address: .hostname("127.0.0.1", port: 0))
+        do {
+            guard let port = app.afmHTTPServer?.localAddress?.port else {
+                XCTFail("AFM HTTP server did not publish its allocated test port")
+                await app.server.shutdown()
+                return
+            }
+
+            let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/afm-stream-probe"))
+            let (data, urlResponse) = try await URLSession.shared.data(from: url)
+            let httpResponse = try XCTUnwrap(urlResponse as? HTTPURLResponse)
+            XCTAssertEqual(httpResponse.statusCode, 200)
+            XCTAssertEqual(String(decoding: data, as: UTF8.self), "data: ready\n\n")
+        } catch {
+            await app.server.shutdown()
+            throw error
+        }
+        await app.server.shutdown()
+    }
+
+    func testStreamingMediaFailureUsesStructuredErrorEventNotAssistantMarkdown() async throws {
+        let service = FakeMLXChatService(
+            streamingFailure: MLXServiceError.invalidMediaInput(
+                "image_url media payload could not be safely inspected"
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, prompt: "trigger late media failure")
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(res.headers.first(name: .contentType), "text/event-stream")
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"invalid_media_input""#)
+            XCTAssertContains(res.body.string, "data: [DONE]")
+            XCTAssertFalse(res.body.string.contains("⚠️"))
+            XCTAssertFalse(res.body.string.contains("**Error**"))
+            XCTAssertFalse(res.body.string.contains(#""role":"assistant""#))
+        }
+        XCTAssertEqual(service.generateStreamingCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 1)
+        XCTAssertEqual(service.releaseSlotCallCount, 1)
+    }
+
+    func testOpenAIMultipartImageIsForwardedInStreamingAndNonStreamingModes() async throws {
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: "NON_STREAM_IMAGE_OK",
+                promptTokens: 10,
+                completionTokens: 3,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "STREAM_IMAGE_OK"),
+                StreamChunk(
+                    text: "",
+                    promptTokens: 10,
+                    completionTokens: 3,
+                    cachedTokens: 0,
+                    promptTime: 0.01,
+                    generateTime: 0.01
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        for stream in [false, true] {
+            let body = imageRequestBody(stream: stream)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { res async in
+                XCTAssertEqual(res.status, .ok)
+                XCTAssertContains(
+                    res.body.string,
+                    stream ? "STREAM_IMAGE_OK" : "NON_STREAM_IMAGE_OK"
+                )
+            }
+        }
+
+        XCTAssertEqual(service.preflightCallCount, 2)
+        XCTAssertEqual(service.preflightHandoffCallCount, 2)
+        XCTAssertEqual(service.generateCallCount, 1)
+        XCTAssertEqual(service.generateStreamingCallCount, 1)
+        for messages in service.recordedPreflightMessages
+            + service.recordedGenerateMessages
+            + service.recordedStreamingMessages
+        {
+            guard case .parts(let parts)? = messages.first?.content else {
+                return XCTFail("Expected multipart OpenAI message content.")
+            }
+            XCTAssertEqual(parts.map(\.type), ["text", "image_url"])
+            XCTAssertEqual(parts.last?.image_url?.url, "data:image/png;base64,iVBORw0KGgo=")
+        }
+    }
+
     private func requestBody(
         stream: Bool = true,
         prompt: String = "What is the weather in Berlin?",
@@ -830,6 +1262,119 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         headers.contentType = .json
         headers.replaceOrAdd(name: .contentLength, value: body.readableBytes.description)
         return headers
+    }
+
+    private func imageRequestBody(stream: Bool) -> ByteBuffer {
+        let json = """
+        {
+          "model": "test-model",
+          "stream": \(stream ? "true" : "false"),
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "Describe this image" },
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,iVBORw0KGgo=" } }
+              ]
+            }
+          ]
+        }
+        """
+        var buffer = ByteBufferAllocator().buffer(capacity: json.utf8.count)
+        buffer.writeString(json)
+        return buffer
+    }
+
+    private func openClientSocket(
+        port: Int,
+        body: ByteBuffer,
+        requestID: String
+    ) throws -> Int32 {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        do {
+            var noSignal = Int32(1)
+            guard setsockopt(
+                descriptor,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                &noSignal,
+                socklen_t(MemoryLayout.size(ofValue: noSignal))
+            ) == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(port).bigEndian
+            guard inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) == 1 else {
+                throw POSIXError(.EINVAL)
+            }
+            let connected = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(
+                        descriptor,
+                        $0,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+            guard connected == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+
+            let bodyString = body.getString(
+                at: body.readerIndex,
+                length: body.readableBytes
+            ) ?? ""
+            let request = """
+            POST /v1/chat/completions HTTP/1.1\r
+            Host: 127.0.0.1:\(port)\r
+            Content-Type: application/json\r
+            Content-Length: \(body.readableBytes)\r
+            X-Request-ID: \(requestID)\r
+            Connection: keep-alive\r
+            \r
+            \(bodyString)
+            """
+            let bytes = Array(request.utf8)
+            try bytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var sent = 0
+                while sent < rawBuffer.count {
+                    let count = Darwin.send(
+                        descriptor,
+                        baseAddress.advanced(by: sent),
+                        rawBuffer.count - sent,
+                        0
+                    )
+                    guard count > 0 else {
+                        throw POSIXError(.init(rawValue: errno) ?? .EIO)
+                    }
+                    sent += count
+                }
+            }
+            return descriptor
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+    }
+
+    private func closeClientSocket(_ descriptor: Int32) {
+        var reset = linger(l_onoff: 1, l_linger: 0)
+        _ = setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_LINGER,
+            &reset,
+            socklen_t(MemoryLayout.size(ofValue: reset))
+        )
+        Darwin.close(descriptor)
     }
 
     private func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
@@ -1022,12 +1567,28 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private let generateResult: AFMMLXChatGenerationResult
     private let streamingResult: AFMMLXChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
+    private let streamingFailure: Error?
+    private let preflightFailure: MLXServiceError?
+    private let modelCapabilities: AFMModelCapabilities?
+    private let preflightDelayNanoseconds: UInt64?
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
     private(set) var recordedGenerateToolChoices: [String] = []
     private(set) var recordedStreamingToolChoices: [String] = []
     private(set) var recordedPreserveStructuralTags: [Bool] = []
+    private(set) var recordedPreflightMessages: [[Message]] = []
+    private(set) var recordedGenerateMessages: [[Message]] = []
+    private(set) var recordedStreamingMessages: [[Message]] = []
+    private(set) var preflightCallCount = 0
+    private(set) var preflightCancellationCount = 0
+    private(set) var maximumObservedPreflightCount = 0
+    private var activePreflightCount = 0
+    private(set) var preflightHandoffCallCount = 0
+    private(set) var reserveSlotCallCount = 0
+    private(set) var generateCallCount = 0
+    private(set) var generateStreamingCallCount = 0
+    private(set) var releaseSlotCallCount = 0
 
     init(
         maxConcurrent: Int = 1,
@@ -1036,6 +1597,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
+        modelCapabilities: AFMModelCapabilities? = nil,
+        preflightDelayNanoseconds: UInt64? = nil,
+        preflightFailure: MLXServiceError? = nil,
+        streamingFailure: Error? = nil,
         generateResult: AFMMLXChatGenerationResult? = nil,
         streamingResult: AFMMLXChatStreamingResult
     ) {
@@ -1045,6 +1610,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
+        self.modelCapabilities = modelCapabilities
+        self.preflightDelayNanoseconds = preflightDelayNanoseconds
+        self.preflightFailure = preflightFailure
+        self.streamingFailure = streamingFailure
         self.generateResult = generateResult ?? (
             modelID: "test-model",
             content: "",
@@ -1068,6 +1637,9 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
+        modelCapabilities: AFMModelCapabilities? = nil,
+        preflightDelayNanoseconds: UInt64? = nil,
+        preflightFailure: MLXServiceError? = nil,
         streamingHandler: @escaping ([Message]) -> AFMMLXChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
@@ -1076,6 +1648,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
+        self.modelCapabilities = modelCapabilities
+        self.preflightDelayNanoseconds = preflightDelayNanoseconds
+        self.preflightFailure = preflightFailure
+        self.streamingFailure = nil
         self.generateResult = (
             modelID: "test-model",
             content: "",
@@ -1094,8 +1670,59 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func tryReserveSlot() -> Bool { true }
-    func releaseSlot() {}
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {
+        guard let modelCapabilities else { return nil }
+        return AFMModelDescriptor(
+            providerID: "mlx",
+            modelID: AFMModelID(rawValue: model),
+            displayName: model,
+            capabilities: modelCapabilities,
+            privacyBoundary: .device
+        )
+    }
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        let (failure, delay) = stateLock.withLock {
+            preflightCallCount += 1
+            activePreflightCount += 1
+            maximumObservedPreflightCount = max(
+                maximumObservedPreflightCount,
+                activePreflightCount
+            )
+            recordedPreflightMessages.append(messages)
+            return (preflightFailure, preflightDelayNanoseconds)
+        }
+        defer {
+            stateLock.withLock { activePreflightCount -= 1 }
+        }
+        if let delay {
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                stateLock.withLock { preflightCancellationCount += 1 }
+                throw error
+            }
+        }
+        try Task.checkCancellation()
+        if let failure { throw failure }
+        return AFMMLXResolvedMediaRequest(messages: messages, mediaKinds: [])
+    }
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result {
+        stateLock.withLock { preflightHandoffCallCount += 1 }
+        return try await operation(request.messages)
+    }
+    func tryReserveSlot() -> Bool {
+        stateLock.withLock { reserveSlotCallCount += 1 }
+        return true
+    }
+    func releaseSlot() {
+        stateLock.withLock { releaseSlotCallCount += 1 }
+    }
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
     func cancelBatchSlots(ids: Set<UUID>) async {}
@@ -1126,6 +1753,10 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
+        stateLock.withLock {
+            generateCallCount += 1
+            recordedGenerateMessages.append(messages)
+        }
         recordGenerateTools(tools)
         return generateResult
     }
@@ -1191,6 +1822,11 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatStreamingResult {
+        stateLock.withLock {
+            generateStreamingCallCount += 1
+            recordedStreamingMessages.append(messages)
+        }
+        if let streamingFailure { throw streamingFailure }
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }

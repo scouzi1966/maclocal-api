@@ -179,7 +179,7 @@ run_required_patch_step() {
 # SwiftPM decides whether dependency products are current.
 MLX_SAFETENSORS_SOURCE="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
 if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
-    echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
+    echo "[swiftpm-reliable] Resolving SwiftPM dependencies." >&2
     swift package resolve
 fi
 run_required_patch_step \

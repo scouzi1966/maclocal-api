@@ -1,7 +1,36 @@
 @testable import AFMKit
+import Foundation
 import XCTest
 
 final class AFMProviderRegistryTests: XCTestCase {
+    private final class DescriptorState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: AFMModelDescriptor
+
+        init(_ value: AFMModelDescriptor) { self.value = value }
+
+        func get() -> AFMModelDescriptor { lock.withLock { value } }
+        func set(_ value: AFMModelDescriptor) { lock.withLock { self.value = value } }
+    }
+
+    private struct RuntimeQualifiedModel: AFMModel {
+        let state: DescriptorState
+        var descriptor: AFMModelDescriptor { state.get() }
+
+        func availability() async -> AFMModelAvailability { .available }
+        func load(progress: (@Sendable (Double) -> Void)?) async throws -> AFMModelDescriptor {
+            descriptor
+        }
+        func respond(to request: AFMRequest) async throws -> AFMModelResponse {
+            AFMModelResponse(text: "ok")
+        }
+        func streamResponse(
+            to request: AFMRequest
+        ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
+            AsyncThrowingStream { $0.finish() }
+        }
+    }
+
     private struct EchoModel: AFMModel {
         let descriptor: AFMModelDescriptor
 
@@ -95,6 +124,27 @@ final class AFMProviderRegistryTests: XCTestCase {
 
         XCTAssertEqual(response.text, "hello")
         XCTAssertEqual(registry.providerDescriptors().map(\.id), ["test.echo"])
+    }
+
+    func testTypeErasedModelUsesRuntimeQualifiedDescriptor() {
+        let declared = AFMModelDescriptor(
+            providerID: "mlx",
+            modelID: "qualified",
+            displayName: "Qualified",
+            capabilities: [.text, .vision]
+        )
+        let qualified = AFMModelDescriptor(
+            providerID: "mlx",
+            modelID: "qualified",
+            displayName: "Qualified",
+            capabilities: [.text]
+        )
+        let state = DescriptorState(declared)
+        let model = AnyAFMModel(RuntimeQualifiedModel(state: state))
+
+        XCTAssertTrue(model.descriptor.capabilities.contains(.vision))
+        state.set(qualified)
+        XCTAssertFalse(model.descriptor.capabilities.contains(.vision))
     }
 
     func testDuplicateRegistrationFailsWithTypedError() throws {

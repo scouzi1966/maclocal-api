@@ -1,5 +1,6 @@
 import Foundation
 import AFMKit
+import AFMKitMLX
 
 final class AFMLocalClient {
     private let baseURL: URL
@@ -21,7 +22,14 @@ final class AFMLocalClient {
         } else {
             var parts = [ContentPart(type: "text", text: prompt, image_url: nil)]
             for imageURL in imageURLs {
-                parts.append(ContentPart(type: "image_url", text: nil, image_url: ImageURL(url: imageURL.absoluteString, detail: nil)))
+                parts.append(ContentPart(
+                    type: "image_url",
+                    text: nil,
+                    image_url: ImageURL(
+                        url: try AFMMLXMediaSecurityPolicy.trustedLocalMediaDataURL(imageURL),
+                        detail: nil
+                    )
+                ))
             }
             userMessage = Message(role: "user", content: .parts(parts))
         }

@@ -12,6 +12,42 @@ struct FinalizedAssistantTurn {
     let toolCalls: [ResponseToolCall]?
 }
 
+private final class MLXMediaPreflightAdmission: @unchecked Sendable {
+    private let limit: Int
+    private let lock = NSLock()
+    private var activeCount = 0
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func withAdmission<Result: Sendable>(
+        operation: @Sendable () async throws -> Result
+    ) async throws -> Result {
+        while !tryAcquire() {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        defer { release() }
+        try Task.checkCancellation()
+        return try await operation()
+    }
+
+    private func tryAcquire() -> Bool {
+        lock.withLock {
+            guard activeCount < limit else { return false }
+            activeCount += 1
+            return true
+        }
+    }
+
+    private func release() {
+        lock.withLock {
+            activeCount = max(0, activeCount - 1)
+        }
+    }
+}
+
 struct MLXChatCompletionsController: RouteCollection {
     private static let degenerateTailRegex = try! NSRegularExpression(pattern: "([!?.:,;`~_\\-*=|])\\1{79,}$")
 
@@ -35,6 +71,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let trace: Bool
     private let rawOutput: Bool
     private let stop: String?
+    private let mediaPreflightAdmission: MLXMediaPreflightAdmission
 
     init(
         streamingEnabled: Bool = true,
@@ -70,6 +107,9 @@ struct MLXChatCompletionsController: RouteCollection {
         self.trace = trace
         self.rawOutput = rawOutput
         self.stop = stop
+        mediaPreflightAdmission = MLXMediaPreflightAdmission(
+            limit: max(1, service.maxConcurrent)
+        )
     }
 
     /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
@@ -106,7 +146,7 @@ struct MLXChatCompletionsController: RouteCollection {
         let reqId = req.afmRequestID
         do {
             let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            var chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(encodeJSON(chatRequest))\(Self.reset)"); fflush(stdout)
                 if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {
@@ -175,10 +215,78 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let tJsonParse = Self.debugPipeline ? Date() : Date.distantPast
 
-            // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
-            // RotatingKVCache models (Gemma 4) fall back to serial execution, so
-            // queued requests can wait a long time when all slots are occupied.
-            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+            // Reject declared media kinds before decoding data URLs or fetching
+            // remote payloads. Full media preflight is admitted only after a
+            // generation reservation and is separately bounded in serial mode.
+            try service.validateMediaRequestCapabilities(
+                model: modelID,
+                messages: chatRequest.messages
+            )
+
+            let isStreamingRequest = chatRequest.stream == true && streamingEnabled
+            let inflightRegistry = req.application.inflightRegistry
+            let cancelHandle = CancellableTaskHandle()
+            let disconnectCancellation = RequestDisconnectCancellation(
+                cancelHandle: cancelHandle
+            )
+            var disconnectCancellationTransferred = false
+            defer {
+                if !disconnectCancellationTransferred {
+                    disconnectCancellation.disarm()
+                }
+            }
+            req.onAFMConnectionClose { [weak disconnectCancellation] in
+                disconnectCancellation?.cancel()
+            }
+            if isStreamingRequest && !reqId.isEmpty {
+                await inflightRegistry.register(id: reqId, cancel: {
+                    cancelHandle.cancel()
+                })
+            }
+
+            let requestMessages = chatRequest.messages
+            let admissionTask = Task<AFMMLXResolvedMediaRequest?, Error> {
+                // Reserve a concurrent slot before expensive media work. The
+                // explicit gate also bounds serial runtimes whose scheduler has
+                // no concrete reservation object.
+                guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+                    try Task.checkCancellation()
+                    return nil
+                }
+                do {
+                    let preflighted = try await mediaPreflightAdmission.withAdmission {
+                        try await service.preflightMediaRequest(
+                            model: modelID,
+                            messages: requestMessages
+                        )
+                    }
+                    try Task.checkCancellation()
+                    return preflighted
+                } catch {
+                    service.releaseSlot()
+                    throw error
+                }
+            }
+            cancelHandle.assign(admissionTask)
+
+            let admittedMedia: AFMMLXResolvedMediaRequest?
+            do {
+                admittedMedia = try await withTaskCancellationHandler {
+                    try await admissionTask.value
+                } onCancel: {
+                    cancelHandle.cancel()
+                }
+            } catch {
+                if isStreamingRequest && !reqId.isEmpty {
+                    await inflightRegistry.release(id: reqId)
+                }
+                throw error
+            }
+
+            guard let preflightedMedia = admittedMedia else {
+                if isStreamingRequest && !reqId.isEmpty {
+                    await inflightRegistry.release(id: reqId)
+                }
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
                 req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
@@ -192,6 +300,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 ))
                 return response
             }
+            chatRequest = chatRequest.replacingMessages(preflightedMedia.messages)
 
             // Reset peak memory before each request so usage.peak_memory_gib
             // reflects this request only (matches mlx_lm's mx.reset_peak_memory())
@@ -200,10 +309,31 @@ struct MLXChatCompletionsController: RouteCollection {
             let isWebUI = req.headers.first(name: .origin) != nil
             let extractThinking = !rawOutput || isWebUI
 
-            if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
+            if isStreamingRequest {
+                do {
+                    let response = try await createStreamingResponse(
+                        req: req,
+                        chatRequest: chatRequest,
+                        preflightedMedia: preflightedMedia,
+                        cancelHandle: cancelHandle,
+                        disconnectCancellation: disconnectCancellation,
+                        extractThinking: extractThinking,
+                        effectiveResponseFormat: effectiveResponseFormat,
+                        grammarDowngraded: grammarDowngraded,
+                        requestId: reqId
+                    )
+                    disconnectCancellationTransferred = true
+                    return response
+                } catch {
+                    service.releaseSlot()
+                    if !reqId.isEmpty {
+                        await inflightRegistry.release(id: reqId)
+                    }
+                    throw error
+                }
             }
 
+            let nonStreamingTask = Task<Response, Error> {
             // In concurrent mode, non-streaming requests currently bypass the
             // BatchScheduler decode loop, so the controller must release the
             // reservation itself. Streaming requests are released by the
@@ -244,28 +374,32 @@ struct MLXChatCompletionsController: RouteCollection {
             let result: AFMMLXChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
-                let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: reqId
-                )
+                let streamResult: AFMMLXChatStreamingResult =
+                    try await service.withPreflightedMediaRequest(preflightedMedia) {
+                        trustedMessages in
+                        try await service.generateStreaming(
+                            model: modelID,
+                            messages: trustedMessages,
+                            temperature: effectiveTemp,
+                            maxTokens: effectiveMaxTokens,
+                            topP: effectiveTopP,
+                            repetitionPenalty: effectiveRepetitionPenalty,
+                            topK: effectiveTopK,
+                            minP: effectiveMinP,
+                            presencePenalty: effectivePresencePenalty,
+                            seed: effectiveSeed,
+                            logprobs: chatRequest.logprobs,
+                            topLogprobs: chatRequest.topLogprobs,
+                            tools: effectiveTools,
+                            toolChoice: chatRequest.toolChoice,
+                            parallelToolCalls: chatRequest.parallelToolCalls,
+                            stop: effectiveStop,
+                            responseFormat: effectiveResponseFormat,
+                            chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                            preserveStructuralTags: !extractThinking,
+                            requestId: reqId
+                        )
+                    }
 
                 // Collect stream into complete response
                 var fullText = ""
@@ -361,26 +495,29 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             } else {
                 // Serial mode: use existing generate() path
-                result = try await service.generate(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
-                )
+                result = try await service.withPreflightedMediaRequest(preflightedMedia) {
+                    trustedMessages in
+                    try await service.generate(
+                        model: modelID,
+                        messages: trustedMessages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
+                    )
+                }
             }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
@@ -495,6 +632,48 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)"); fflush(stdout)
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+            }
+            cancelHandle.assign(nonStreamingTask)
+            return try await withTaskCancellationHandler {
+                try await nonStreamingTask.value
+            } onCancel: {
+                cancelHandle.cancel()
+            }
+        } catch let serviceError as MLXServiceError {
+            let clientErrorCode: String?
+            switch serviceError {
+            case .visionAssetsUnavailable:
+                clientErrorCode = "vision_assets_unavailable"
+            case .unsupportedMediaInput:
+                clientErrorCode = "unsupported_media_input"
+            case .invalidMediaInput:
+                clientErrorCode = "invalid_media_input"
+            default:
+                clientErrorCode = nil
+            }
+            if let clientErrorCode {
+                req.logger.error("[\(Self.timestamp())] MLX request error: \(serviceError.localizedDescription)")
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: serviceError.localizedDescription,
+                        type: "invalid_request_error",
+                        code: clientErrorCode,
+                        requestId: reqId.isEmpty ? nil : reqId
+                    ),
+                    status: .badRequest
+                )
+            }
+            req.logger.error("[\(Self.timestamp())] MLX completions error: \(serviceError.localizedDescription)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: serviceError.localizedDescription,
+                    type: "mlx_error",
+                    requestId: reqId.isEmpty ? nil : reqId
+                ),
+                status: .badRequest
+            )
         } catch let abort as Abort {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(abort)")
             return try await createErrorResponse(
@@ -511,7 +690,17 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
+    private func createStreamingResponse(
+        req: Request,
+        chatRequest: ChatCompletionRequest,
+        preflightedMedia: AFMMLXResolvedMediaRequest,
+        cancelHandle: CancellableTaskHandle,
+        disconnectCancellation: RequestDisconnectCancellation,
+        extractThinking: Bool,
+        effectiveResponseFormat: ResponseFormat?,
+        grammarDowngraded: Bool = false,
+        requestId: String = ""
+    ) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -533,16 +722,10 @@ struct MLXChatCompletionsController: RouteCollection {
 
         let streamReqId = requestId
         // Capture the registry on the request thread so the asyncStream closure
-        // can register a cancel hook without re-resolving it.
+        // can release the cancel hook without re-resolving it.
         let inflightRegistry = req.application.inflightRegistry
-        // Register the cancel hook BEFORE the asyncStream closure spawns the
-        // body Task. Eliminates the race where a cancel arrives between the
-        // Response being returned and the closure firing. (T1.4/T1.5 fix)
-        let cancelHandle = CancellableTaskHandle()
-        if !streamReqId.isEmpty {
-            await inflightRegistry.register(id: streamReqId, cancel: { cancelHandle.cancel() })
-        }
-        httpResponse.body = .init(asyncStream: { writer in
+        httpResponse.useAFMAsyncBody { writer in
+            defer { disconnectCancellation.disarm() }
             // T1.4/T1.5: Wrap the streaming body in an explicit Task so we can
             // cancel it from outside (cancel endpoint, client disconnect detection).
             // Cooperative cancellation propagates through the AsyncThrowingStream
@@ -577,6 +760,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     responseFormat: effectiveResponseFormat
                 )
             }
+            // The controller owns the reservation until the service returns a
+            // scheduler-backed stream. After that point the scheduler releases it.
+            var reservationTransferredToScheduler = false
 
             do {
                 let effectiveTools = try Self.resolveEffectiveTools(
@@ -590,28 +776,33 @@ struct MLXChatCompletionsController: RouteCollection {
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     ); fflush(stdout)
                 }
-                let res = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: streamReqId
-                )
+                let res = try await service.withPreflightedMediaRequest(
+                    preflightedMedia
+                ) { trustedMessages in
+                    try await service.generateStreaming(
+                        model: modelID,
+                        messages: trustedMessages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                        preserveStructuralTags: !extractThinking,
+                        requestId: streamReqId
+                    )
+                }
+                reservationTransferredToScheduler = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -1512,13 +1703,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             } catch {
+                if !reservationTransferredToScheduler {
+                    self.service.releaseSlot()
+                }
                 // Cleanup profile timer on error to prevent leak
                 if wantStreamProfile || wantStreamExtended {
                     _ = self.service.stopAPIProfile(promptTokens: 0, completionTokens: 0, promptTime: 0, generateTime: 0)
                 }
                 // Distinguish cooperative cancellation (T1.4/T1.5) from genuine
-                // errors. Cancellation must NOT emit a "⚠️ Error" content chunk;
-                // the stream should end cleanly with finish_reason="cancelled".
+                // errors. Errors use the OpenAI error envelope as an SSE data
+                // event; they must never masquerade as successful assistant text.
                 let isCancellation = (error is CancellationError) || Task.isCancelled
                 let completionTokens = self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
@@ -1549,13 +1743,12 @@ struct MLXChatCompletionsController: RouteCollection {
                         fflush(stdout)
                     }
                     req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
-                    let errorChunk = ChatCompletionStreamResponse(
-                        id: streamId,
-                        model: self.modelID,
-                        content: "⚠️ **Error**\n\n\(error.localizedDescription)",
-                        isFirst: true
+                    let streamError = Self.openAIStreamError(
+                        error,
+                        requestId: requestId.isEmpty ? nil : requestId
                     )
-                    if let data = try? encoder.encode(errorChunk), let json = String(data: data, encoding: .utf8) {
+                    if let data = try? encoder.encode(streamError),
+                       let json = String(data: data, encoding: .utf8) {
                         try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
                     }
                 }
@@ -1571,9 +1764,39 @@ struct MLXChatCompletionsController: RouteCollection {
             if !streamReqId.isEmpty {
                 await inflightRegistry.release(id: streamReqId)
             }
-        })
+        }
 
         return httpResponse
+    }
+
+    private static func openAIStreamError(
+        _ error: Error,
+        requestId: String?
+    ) -> OpenAIError {
+        guard let serviceError = error as? MLXServiceError else {
+            return OpenAIError(
+                message: error.localizedDescription,
+                type: "mlx_error",
+                requestId: requestId
+            )
+        }
+        let code: String?
+        switch serviceError {
+        case .visionAssetsUnavailable:
+            code = "vision_assets_unavailable"
+        case .unsupportedMediaInput:
+            code = "unsupported_media_input"
+        case .invalidMediaInput:
+            code = "invalid_media_input"
+        default:
+            code = nil
+        }
+        return OpenAIError(
+            message: serviceError.localizedDescription,
+            type: code == nil ? "mlx_error" : "invalid_request_error",
+            code: code,
+            requestId: requestId
+        )
     }
 
     /// Remap a single argument key using the full heuristic chain when --fix-tool-args is enabled.

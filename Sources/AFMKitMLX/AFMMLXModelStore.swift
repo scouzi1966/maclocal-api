@@ -301,10 +301,16 @@ public struct AFMMLXModelStore: Sendable {
         localDirectory(for: modelID) != nil
     }
 
-    /// Returns whether a locally resolved model advertises vision capability
-    /// through its model descriptor.
-    public func isVisionModel(_ modelID: String) -> Bool {
+    /// Returns declared discovery capability only. This value does not prove
+    /// that the active runtime has qualified vision assets or a VLM container.
+    public func isDeclaredVisionModel(_ modelID: String) -> Bool {
         loadReference(for: modelID)?.descriptor.capabilities.contains(.vision) ?? false
+    }
+
+    /// Compatibility spelling for discovery callers. Runtime request admission
+    /// must use `MLXModelService.preflightMediaRequest` instead.
+    public func isVisionModel(_ modelID: String) -> Bool {
+        isDeclaredVisionModel(modelID)
     }
 
     /// Returns the identifier a host should pass to MLX loading for a complete
@@ -446,10 +452,15 @@ public struct AFMMLXModelStore: Sendable {
         )
     }
 
-    /// Describes a model using the same assets and capability inference as the
-    /// AFMKit MLX provider.
-    public func descriptor(for modelID: String) -> AFMModelDescriptor {
+    /// Returns declared discovery metadata. The loaded descriptor returned by
+    /// `AFMMLXRuntime.load` is the runtime-usable capability surface.
+    public func declaredDescriptor(for modelID: String) -> AFMModelDescriptor {
         AFMMLXModelDescriptor.describe(modelID: modelID, resolver: resolver)
+    }
+
+    /// Compatibility spelling for discovery and catalog callers.
+    public func descriptor(for modelID: String) -> AFMModelDescriptor {
+        declaredDescriptor(for: modelID)
     }
 
     /// Fetches a Hugging Face model's `config.json` and applies AFMKit's shared

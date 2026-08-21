@@ -209,9 +209,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
 
 public final class AFMMLXRuntime: @unchecked Sendable {
     public let modelID: String
-    public let descriptor: AFMModelDescriptor
     public let service: MLXModelService
 
+    private let declaredDescriptor: AFMModelDescriptor
     private let configuration: AFMMLXRuntimeConfiguration
     let initializesSchedulerOnLoad: Bool
 
@@ -228,7 +228,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         self.initializesSchedulerOnLoad = true
         self.service = service
         self.modelID = service.normalizeModel(modelID)
-        self.descriptor = AFMMLXModelDescriptor.describe(
+        self.declaredDescriptor = AFMMLXModelDescriptor.describe(
             modelID: self.modelID,
             resolver: resolver
         )
@@ -255,7 +255,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         self.initializesSchedulerOnLoad = false
         self.service = service
         self.modelID = service.normalizeModel(modelID)
-        self.descriptor = AFMMLXModelDescriptor.describe(
+        self.declaredDescriptor = AFMMLXModelDescriptor.describe(
             modelID: self.modelID,
             resolver: resolver
         )
@@ -277,6 +277,10 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         )
     }
 
+    public var descriptor: AFMModelDescriptor {
+        service.loadedModelDescriptor(model: modelID) ?? declaredDescriptor
+    }
+
     public func load(
         progress: (@Sendable (Progress) -> Void)? = nil,
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil
@@ -290,7 +294,12 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         if initializesSchedulerOnLoad && configuration.maxConcurrent >= 2 {
             try await service.initScheduler()
         }
-        return descriptor
+        guard let runtimeDescriptor = service.loadedModelDescriptor(model: modelID) else {
+            throw MLXServiceError.loadFailed(
+                "\(modelID): loaded runtime descriptor is unavailable"
+            )
+        }
+        return runtimeDescriptor
     }
 
     public func prewarm(

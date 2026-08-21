@@ -17,6 +17,10 @@ import Tokenizers
 import Hub
 import HuggingFace
 
+private enum AFMMLXPreflightedMediaContext {
+    @TaskLocal static var request: AFMMLXResolvedMediaRequest?
+}
+
 private extension Dictionary where Key == String, Value == AnyCodable {
     var afmIncludeSchemaInPrompt: Bool? {
         guard case .bool(let value)? = self["afm_include_schema_in_prompt"]?.value else {
@@ -26,14 +30,53 @@ private extension Dictionary where Key == String, Value == AnyCodable {
     }
 }
 
+enum AFMMLXSpeculativeDecodeCancellation {
+    static func run<Output>(
+        _ decode: (_ onToken: @escaping (Int) -> Bool) -> Output
+    ) throws -> Output {
+        let output = decode { _ in !Task.isCancelled }
+        try Task.checkCancellation()
+        return output
+    }
+}
+
 /// Immutable request-scoped handle that keeps an MTP generator paired with
 /// the model identity and container it was created for. MLX model objects are
 /// not Sendable-audited, but use remains serialized by that ModelContainer.
+private enum MTPGeneratorRuntime: @unchecked Sendable {
+    case llm(Qwen3_5MoEMTPGenerator)
+    case vlm(MTPGenerator)
+
+    func generate(
+        promptIds: [Int],
+        maxTokens: Int,
+        eosIds: Set<Int>,
+        onToken: ((Int) -> Bool)? = nil
+    ) -> [Int] {
+        switch self {
+        case .llm(let generator):
+            generator.generate(
+                promptIds: promptIds,
+                maxTokens: maxTokens,
+                eosIds: eosIds,
+                onToken: onToken
+            )
+        case .vlm(let generator):
+            generator.generate(
+                promptIds: promptIds,
+                maxTokens: maxTokens,
+                eosIds: eosIds,
+                onToken: onToken
+            )
+        }
+    }
+}
+
 private final class MTPGeneratorBinding: @unchecked Sendable {
     let modelID: String
-    let generator: Qwen3_5MoEMTPGenerator
+    let generator: MTPGeneratorRuntime
 
-    init(modelID: String, generator: Qwen3_5MoEMTPGenerator) {
+    init(modelID: String, generator: MTPGeneratorRuntime) {
         self.modelID = modelID
         self.generator = generator
     }
@@ -118,6 +161,9 @@ public enum MLXServiceError: Error, LocalizedError {
     case noMetalDevice
     case serviceShuttingDown
     case serverBusy(Int)
+    case invalidMediaInput(String)
+    case unsupportedMediaInput(model: String, kind: String)
+    case visionAssetsUnavailable(model: String, missing: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -137,7 +183,19 @@ public enum MLXServiceError: Error, LocalizedError {
             return "MLX service is shutting down"
         case .serverBusy(let max):
             return "Server at capacity (\(max) concurrent requests). Please retry shortly."
+        case .invalidMediaInput(let reason):
+            return reason
+        case .unsupportedMediaInput(let model, let kind):
+            return "\(Self.diagnosticModelLabel(model)): \(kind) input is not supported by the loaded MLX model"
+        case .visionAssetsUnavailable(let model, let missing):
+            let categories = missing.isEmpty ? "unknown" : missing.joined(separator: ", ")
+            return "\(Self.diagnosticModelLabel(model)): vision assets are unavailable (missing: \(categories))"
         }
+    }
+
+    private static func diagnosticModelLabel(_ model: String) -> String {
+        guard model.hasPrefix("/") else { return model }
+        return URL(fileURLWithPath: model).lastPathComponent
     }
 }
 
@@ -222,9 +280,13 @@ public final class MLXModelService: @unchecked Sendable {
 
     private let resolver: MLXCacheResolver
     private let registry = MLXModelRegistry()
+    private let visionAssetValidator = AFMMLXVisionAssetValidator()
     private let stateLock = NSLock()
     private var currentModelID: String?
     private var currentModelArchitecture: AFMMLXModelArchitecturePreflight?
+    private var currentVisionQualification: AFMMLXVisionAssetQualification?
+    private var currentModelFactory: AFMMLXModelFactoryKind?
+    private var currentRuntimeDescriptor: AFMModelDescriptor?
     private var currentContainer: ModelContainer?
     /// Bound to `currentContainer` and replaced atomically with it. Requests
     /// capture both under `stateLock`, so a concurrent model switch cannot pair
@@ -1525,6 +1587,10 @@ public final class MLXModelService: @unchecked Sendable {
             in: directory,
             modelID: modelID
         )
+        let visionQualification = visionAssetValidator.qualify(
+            modelDirectory: directory,
+            architecture: modelArchitecture
+        )
         try ensureGPUConfigured(for: modelArchitecture)
 
         // Qwen 3.8 publishes its small MTP head separately from the base model.
@@ -1595,7 +1661,8 @@ public final class MLXModelService: @unchecked Sendable {
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
         let selectedFactory = AFMMLXModelFactoryPolicy.initialFactory(
             forceVLM: forceVLM,
-            architecture: modelArchitecture
+            architecture: modelArchitecture,
+            visionQualification: visionQualification
         )
         print(
             "[\(ts())] [ModelArchitecture] declared=\(modelArchitecture.modelType) "
@@ -1603,6 +1670,13 @@ public final class MLXModelService: @unchecked Sendable {
                 + "vision=\(modelArchitecture.isVisionConfiguration) "
                 + "factory=\(selectedFactory == .vlm ? "VLM" : "LLM")"
         )
+        if visionQualification.declaresVision && !visionQualification.isAssetUsable {
+            print(
+                "[\(ts())] [VisionAssets] optional vision unavailable: "
+                    + visionQualification.missingAssetNames.joined(separator: ", ")
+                    + "; preserving text startup"
+            )
+        }
         do {
             let loaded: ModelContainer
             var actualFactory = selectedFactory
@@ -1633,9 +1707,24 @@ public final class MLXModelService: @unchecked Sendable {
             if mtpEnabled {
                 if let sidecar = resolvedMTPSidecar {
                     do {
+                        guard let runtimeModelKind = AFMMLXMTPRuntimePolicy.compatibleModelKind(
+                            mtpEnabled: mtpEnabled,
+                            factory: actualFactory,
+                            canonicalModelType: modelArchitecture.canonicalModelType
+                        ) else {
+                            throw MLXServiceError.loadFailed(
+                                "MTP head requires a compatible Qwen text or vision architecture"
+                            )
+                        }
                         let quantization = mtpQuantization(for: sidecar)
                         loadedMTPBinding = try await loaded.perform { context in
-                            if let qwen = context.model as? Qwen3_5MoEModel {
+                            switch runtimeModelKind {
+                            case .qwenText:
+                                guard let qwen = context.model as? Qwen3_5MoEModel else {
+                                    throw MLXServiceError.loadFailed(
+                                        "Qwen text MTP selected, but loaded \(type(of: context.model))"
+                                    )
+                                }
                                 let head = try qwen.loadMTPHead(
                                     sidecarPath: sidecar,
                                     groupSize: quantization.groupSize,
@@ -1651,10 +1740,34 @@ public final class MLXModelService: @unchecked Sendable {
                                 if maxConcurrent >= 2 {
                                     print("[\(ts())] [MTP] concurrent/batch scheduler uses AR decode; serial requests use MTP")
                                 }
-                                return MTPGeneratorBinding(modelID: modelID, generator: generator)
-                            } else {
-                                throw MLXServiceError.loadFailed(
-                                    "MTP head requires a compatible Qwen text model; loaded \(type(of: context.model))"
+                                return MTPGeneratorBinding(
+                                    modelID: modelID,
+                                    generator: .llm(generator)
+                                )
+                            case .qwenVision:
+                                guard let qwen = context.model as? Qwen3_5MoEVL else {
+                                    throw MLXServiceError.loadFailed(
+                                        "Qwen vision MTP selected, but loaded \(type(of: context.model))"
+                                    )
+                                }
+                                let head = try qwen.loadMTPHead(
+                                    sidecarPath: sidecar,
+                                    groupSize: quantization.groupSize,
+                                    bits: quantization.bits,
+                                    mode: quantization.mode
+                                )
+                                let generator = MTPGenerator(
+                                    model: qwen,
+                                    head: head,
+                                    depth: mtpDepth
+                                )
+                                print("[\(ts())] [MTP] Qwen vision head loaded — self-speculative text decoding enabled (depth \(mtpDepth))")
+                                if maxConcurrent >= 2 {
+                                    print("[\(ts())] [MTP] concurrent/batch scheduler uses AR decode; serial requests use MTP")
+                                }
+                                return MTPGeneratorBinding(
+                                    modelID: modelID,
+                                    generator: .vlm(generator)
                                 )
                             }
                         }
@@ -1670,12 +1783,30 @@ public final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [MTP] matching head cached; pass --mtp to enable serial speculative decoding")
             }
 
-            // Publish the container and its MTP generator as one state change.
+            let declaredDescriptor = AFMMLXModelDescriptor.describe(
+                modelID: modelID,
+                resolver: resolver
+            )
+            let runtimeDescriptor = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+                declared: declaredDescriptor,
+                architecture: modelArchitecture,
+                qualification: visionQualification,
+                factory: actualFactory,
+                mtpEnabled: mtpEnabled,
+                mtpBindingModelID: loadedMTPBinding?.modelID,
+                concurrentServing: maxConcurrent >= 2
+            )
+
+            // Publish the container, capability evidence, actual factory, and
+            // MTP generator as one state change. Qualification remains immutable.
             // A failed sidecar load leaves the previous model state untouched.
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
                 currentModelArchitecture = modelArchitecture
+                currentVisionQualification = visionQualification
+                currentModelFactory = actualFactory
+                currentRuntimeDescriptor = runtimeDescriptor
                 currentToolCallFormat = detectedFormat
                 currentMTPBinding = loadedMTPBinding
             }
@@ -2110,7 +2241,12 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let resolvedMedia = try await Self.resolvedMediaRequest(for: messages)
+        let messages = resolvedMedia.messages
+        let runtime = try validatedRuntimeForRequest(
+            modelID: modelID,
+            mediaKinds: resolvedMedia.mediaKinds
+        )
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
 
@@ -2158,12 +2294,16 @@ public final class MLXModelService: @unchecked Sendable {
                 let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
                     .flatMap(Int.init)
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let ids = DeepseekV4DSparkGenerator(
-                    model: model, draftLimit: limit
-                ).generate(
-                    promptIds: promptIds,
-                    maxTokens: effectiveMaxTokens,
-                    eosIds: eos)
+                let ids = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    DeepseekV4DSparkGenerator(
+                        model: model, draftLimit: limit
+                    ).generate(
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        onToken: onToken
+                    )
+                }
                 let elapsed = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (ids.last.map { eos.contains($0) } ?? false)
                     ? Array(ids.dropLast()) : ids
@@ -2197,7 +2337,14 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
+                let outIds = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    gen.generate(
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        onToken: onToken
+                    )
+                }
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 // strip a trailing EOS for the returned text
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
@@ -2238,9 +2385,16 @@ public final class MLXModelService: @unchecked Sendable {
                 // seed — zero in-block drafter forwards — so the 2-wide verify amortizes best;
                 // larger blocks add sequential drafter forwards that erase the savings). Overridable.
                 let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
-                let outIds = gen.generateSpeculative(
-                    model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
-                    eosIds: eos, blockSize: block)
+                let outIds = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    gen.generateSpeculative(
+                        model: model,
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        blockSize: block,
+                        onToken: onToken
+                    )
+                }
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
                 let text = context.tokenizer.decode(tokens: textIds)
@@ -3050,7 +3204,12 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let resolvedMedia = try await Self.resolvedMediaRequest(for: messages)
+        let messages = resolvedMedia.messages
+        let runtime = try validatedRuntimeForRequest(
+            modelID: modelID,
+            mediaKinds: resolvedMedia.mediaKinds
+        )
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
 
@@ -3902,6 +4061,9 @@ public final class MLXModelService: @unchecked Sendable {
                 currentContainer = nil
                 currentModelID = nil
                 currentModelArchitecture = nil
+                currentVisionQualification = nil
+                currentModelFactory = nil
+                currentRuntimeDescriptor = nil
                 currentMTPBinding = nil
             }
         }
@@ -6007,44 +6169,184 @@ public final class MLXModelService: @unchecked Sendable {
         return false
     }
 
+    public func loadedModelDescriptor(model rawModel: String) -> AFMModelDescriptor? {
+        let modelID = normalizeModel(rawModel)
+        return withStateLock {
+            guard currentModelID == modelID else { return nil }
+            return currentRuntimeDescriptor
+        }
+    }
+
+    public func validateMediaRequestCapabilities(
+        model rawModel: String,
+        messages: [AFMOpenAICompat.Message]
+    ) throws {
+        let mediaKinds = AFMMLXMediaSecurityPolicy.declaredMediaKinds(in: messages)
+        guard !mediaKinds.isEmpty else { return }
+
+        let modelID = normalizeModel(rawModel)
+        let state = withStateLock {
+            (
+                matches: currentModelID == modelID && currentContainer != nil,
+                architecture: currentModelArchitecture,
+                qualification: currentVisionQualification,
+                factory: currentModelFactory
+            )
+        }
+        guard state.matches else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.architecture,
+              let qualification = state.qualification,
+              let factory = state.factory else {
+            throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
+        }
+        try Self.validateMediaKinds(
+            mediaKinds,
+            modelID: modelID,
+            architecture: architecture,
+            qualification: qualification,
+            factory: factory
+        )
+    }
+
+    public func preflightMediaRequest(
+        model rawModel: String,
+        messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        guard Self.containsMedia(in: messages) else {
+            return AFMMLXResolvedMediaRequest(messages: messages, mediaKinds: [])
+        }
+        let modelID = normalizeModel(rawModel)
+        let state = withStateLock {
+            (
+                matches: currentModelID == modelID && currentContainer != nil,
+                architecture: currentModelArchitecture,
+                qualification: currentVisionQualification,
+                factory: currentModelFactory
+            )
+        }
+        guard state.matches else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.architecture,
+              let qualification = state.qualification,
+              let factory = state.factory else {
+            throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
+        }
+        let resolved = try await Self.resolveMediaRequest(messages)
+        try Self.validateMediaKinds(
+            resolved.mediaKinds,
+            modelID: modelID,
+            architecture: architecture,
+            qualification: qualification,
+            factory: factory
+        )
+        return resolved
+    }
+
+    public func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([AFMOpenAICompat.Message]) async throws -> Result
+    ) async throws -> Result {
+        try await AFMMLXPreflightedMediaContext.$request.withValue(request) {
+            try await operation(request.messages)
+        }
+    }
+
     private func validatedRuntimeForRequest(
         modelID: String,
-        messages: [AFMOpenAICompat.Message]
+        mediaKinds: [AFMMLXRequestMediaKind]
     ) throws -> (container: ModelContainer, mtpBinding: MTPGeneratorBinding?) {
         let state = withStateLock {
-            (currentContainer, currentModelArchitecture, currentMTPBinding, currentModelID == modelID)
+            (
+                container: currentContainer,
+                architecture: currentModelArchitecture,
+                qualification: currentVisionQualification,
+                factory: currentModelFactory,
+                mtpBinding: currentMTPBinding,
+                matches: currentModelID == modelID
+            )
         }
-        guard let container = state.0, state.3 else { throw MLXServiceError.noModelLoaded }
-        guard let architecture = state.1 else {
-            throw MLXServiceError.loadFailed("\(modelID): model architecture is unavailable")
+        guard let container = state.container, state.matches else {
+            throw MLXServiceError.noModelLoaded
         }
-
-        for message in messages {
-            guard let content = message.content, case .parts(let parts) = content else { continue }
-            for part in parts {
-                guard let kind = AFMMLXRequestMediaPolicy.kind(
-                    contentPartType: part.type,
-                    mediaURL: part.image_url?.url
-                ) else { continue }
-                guard AFMMLXRequestMediaPolicy.supports(kind, architecture: architecture) else {
-                    let label: String
-                    switch kind {
-                    case .image: label = "image"
-                    case .video: label = "video"
-                    case .audio: label = "audio"
-                    }
-                    throw MLXServiceError.loadFailed(
-                        "\(modelID): \(label) input is not supported by the loaded MLX model"
-                    )
-                }
-            }
+        guard let architecture = state.architecture,
+              let qualification = state.qualification,
+              let factory = state.factory else {
+            throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
         }
+        try Self.validateMediaKinds(
+            mediaKinds,
+            modelID: modelID,
+            architecture: architecture,
+            qualification: qualification,
+            factory: factory
+        )
         let binding = AFMMLXMTPRuntimePolicy.bindingIsUsable(
             for: modelID,
             mtpEnabled: mtpEnabled,
-            bindingModelID: state.2?.modelID
-        ) ? state.2 : nil
+            bindingModelID: state.mtpBinding?.modelID
+        ) ? state.mtpBinding : nil
         return (container, binding)
+    }
+
+    private static func containsMedia(
+        in messages: [AFMOpenAICompat.Message]
+    ) -> Bool {
+        messages.contains { message in
+            guard let content = message.content, case .parts(let parts) = content else {
+                return false
+            }
+            return parts.contains { $0.type == "image_url" || $0.type == "input_audio" }
+        }
+    }
+
+    private static func resolveMediaRequest(
+        _ messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        do {
+            return try await AFMMLXMediaSecurityPolicy.resolveRequest(in: messages)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MLXServiceError.invalidMediaInput(error.localizedDescription)
+        }
+    }
+
+    static func resolvedMediaRequest(
+        for messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        if let preflighted = AFMMLXPreflightedMediaContext.request {
+            return preflighted
+        }
+        return try await resolveMediaRequest(messages)
+    }
+
+    private static func validateMediaKinds(
+        _ kinds: [AFMMLXRequestMediaKind],
+        modelID: String,
+        architecture: AFMMLXModelArchitecturePreflight,
+        qualification: AFMMLXVisionAssetQualification,
+        factory: AFMMLXModelFactoryKind
+    ) throws {
+        for kind in kinds {
+            switch AFMMLXRuntimeVisionPolicy.admission(
+                for: kind,
+                architecture: architecture,
+                qualification: qualification,
+                factory: factory
+            ) {
+            case .allowed:
+                continue
+            case .unsupported:
+                throw MLXServiceError.unsupportedMediaInput(
+                    model: modelID,
+                    kind: kind.label
+                )
+            case .visionAssetsUnavailable(let missing):
+                throw MLXServiceError.visionAssetsUnavailable(
+                    model: modelID,
+                    missing: missing
+                )
+            }
+        }
     }
 
     private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {
@@ -6416,8 +6718,6 @@ public final class MLXModelService: @unchecked Sendable {
         }
     }
 
-    private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
-
     private func extractMedia(from message: AFMOpenAICompat.Message) throws -> (images: [UserInput.Image], videos: [UserInput.Video], tempFiles: [URL]) {
         guard let content = message.content, case .parts(let parts) = content else { return ([], [], []) }
         var images: [UserInput.Image] = []
@@ -6425,83 +6725,38 @@ public final class MLXModelService: @unchecked Sendable {
         var tempFiles: [URL] = []
         for part in parts where part.type == "image_url" {
             guard let raw = part.image_url?.url else { continue }
-            if raw.hasPrefix("data:") {
-                // Parse "data:<mime>;base64,..." data URLs
-                guard let commaIndex = raw.firstIndex(of: ",") else { continue }
-                let header = raw[raw.startIndex..<commaIndex]
-                let payload = String(raw[raw.index(after: commaIndex)...])
-                guard let decoded = Data(base64Encoded: payload, options: .ignoreUnknownCharacters),
-                      !decoded.isEmpty else { continue }
-                // Check MIME type to route image vs video
-                if header.hasPrefix("data:video/") {
-                    // Video: extract extension from MIME (e.g. "video/mp4" → "mp4"), write temp file
-                    let ext: String
-                    if let slash = header.firstIndex(of: "/") {
-                        let sub = header[header.index(after: slash)...].prefix(while: { $0 != ";" && $0 != "," })
-                        ext = sub.isEmpty ? "mp4" : String(sub)
-                    } else { ext = "mp4" }
-                    let temp = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("afm_mlx_video_\(UUID().uuidString).\(ext)")
-                    try decoded.write(to: temp)
-                    videos.append(.url(temp))
-                    tempFiles.append(temp)
-                } else {
-                    // Image: decode to CIImage directly (no temp file)
-                    guard let ciImage = CIImage(data: decoded) else { continue }
-                    images.append(.ciImage(ciImage))
+            let payload: AFMMLXMediaPayload
+            do {
+                payload = try AFMMLXMediaSecurityPolicy.decodeDataURL(raw)
+            } catch {
+                throw MLXServiceError.invalidMediaInput(error.localizedDescription)
+            }
+            switch payload.kind {
+            case .image:
+                guard let image = CIImage(data: payload.data) else {
+                    throw MLXServiceError.invalidMediaInput(
+                        "image_url does not contain a decodable image"
+                    )
                 }
-            } else if let url = URL(string: raw),
-                      let scheme = url.scheme, scheme == "http" || scheme == "https" {
-                let (data, _) = try awaitURL(url: url)
-                let ext = url.pathExtension.lowercased()
-                let isVideo = Self.videoExtensions.contains(ext)
+                images.append(.ciImage(image))
+            case .video:
+                let fileExtension = Self.mediaFileExtension(for: payload.mimeType)
                 let temp = FileManager.default.temporaryDirectory.appendingPathComponent(
-                    "afm_mlx_\(isVideo ? "video" : "image")_\(UUID().uuidString).\(ext.isEmpty ? (isVideo ? "mp4" : "jpg") : ext)"
+                    "afm_mlx_video_\(UUID().uuidString).\(fileExtension)"
                 )
-                try data.write(to: temp)
-                if isVideo {
-                    videos.append(.url(temp))
-                } else {
-                    images.append(.url(temp))
-                }
+                try payload.data.write(to: temp, options: .atomic)
+                videos.append(.url(temp))
                 tempFiles.append(temp)
-            } else if let url = URL(string: raw) {
-                let ext = url.pathExtension.lowercased()
-                if Self.videoExtensions.contains(ext) {
-                    videos.append(.url(url))
-                } else {
-                    images.append(.url(url))
-                }
             }
         }
         return (images, videos, tempFiles)
     }
 
-    private func awaitURL(url: URL) throws -> (Data, URLResponse) {
-        let sem = DispatchSemaphore(value: 0)
-        // Box the result so the @Sendable URLSession completion handler can write
-        // it without a captured-var data race. The semaphore guarantees the write
-        // happens-before the read below, so the SendableBox is sound here.
-        let box = SendableBox<Result<(Data, URLResponse), Error>?>(nil)
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
-            if let error {
-                box.value = .failure(error)
-            } else if let data, let response {
-                box.value = .success((data, response))
-            } else {
-                box.value = .failure(MLXServiceError.downloadFailed("image download failed"))
-            }
-            sem.signal()
-        }
-        task.resume()
-        sem.wait()
-        switch box.value {
-        case .success(let pair):
-            return pair
-        case .failure(let error):
-            throw error
-        case .none:
-            throw MLXServiceError.downloadFailed("image download failed")
+    private static func mediaFileExtension(for mimeType: String) -> String {
+        switch mimeType {
+        case "video/quicktime": "mov"
+        case "video/webm": "webm"
+        default: "mp4"
         }
     }
 

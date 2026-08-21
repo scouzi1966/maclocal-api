@@ -7,9 +7,8 @@ import Vapor
 ///
 /// - **T1.5 — `/v1/chat/completions/{id}/cancel`** to cancel a turn the agent
 ///   has decided is no longer wanted.
-/// - **T1.4 — client-disconnect cancellation** as a fallback when the streaming
-///   closure detects a closed connection and wants to short-circuit the
-///   generator.
+/// - **T1.4 — client-disconnect cancellation** when Vapor reports that the NIO
+///   channel serving a request has closed.
 ///
 /// The registry stores a `@Sendable` cancel closure rather than the `Task`
 /// itself so callers can compose multiple cancellation effects (e.g. cancel
@@ -58,16 +57,18 @@ actor InflightRequestRegistry {
 /// body Task — a cancel arriving in that window would 404 silently.
 final class CancellableTaskHandle: @unchecked Sendable {
     private let lock = NSLock()
-    private var task: Task<Void, Never>?
+    private var cancelAssignedTask: (@Sendable () -> Void)?
     private var cancelledEarly: Bool = false
 
-    /// Called from the asyncStream closure once the body Task is created.
-    func assign(_ t: Task<Void, Never>) {
+    /// Assigns the current phase of request work. A later phase may replace it.
+    func assign<Success: Sendable, Failure: Error>(
+        _ task: Task<Success, Failure>
+    ) {
         lock.lock(); defer { lock.unlock() }
         if cancelledEarly {
-            t.cancel()
+            task.cancel()
         }
-        task = t
+        cancelAssignedTask = { task.cancel() }
     }
 
     /// Called from the registry's cancel closure (typically from another HTTP
@@ -75,7 +76,33 @@ final class CancellableTaskHandle: @unchecked Sendable {
     func cancel() {
         lock.lock(); defer { lock.unlock() }
         cancelledEarly = true
-        task?.cancel()
+        cancelAssignedTask?()
+    }
+}
+
+/// Retains a request's cancellation handle until the response is complete.
+/// Vapor's channel-close future holds this observer weakly so completed
+/// keep-alive requests do not accumulate callbacks that retain request state.
+final class RequestDisconnectCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancellation: (@Sendable () -> Void)?
+
+    init(cancelHandle: CancellableTaskHandle) {
+        cancellation = { cancelHandle.cancel() }
+    }
+
+    func cancel() {
+        let action = lock.withLock {
+            defer { cancellation = nil }
+            return cancellation
+        }
+        action?()
+    }
+
+    func disarm() {
+        lock.withLock {
+            cancellation = nil
+        }
     }
 }
 

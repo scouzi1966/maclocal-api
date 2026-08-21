@@ -1,4 +1,5 @@
 import AFMKit
+import AFMKitMLX
 import CryptoKit
 import Foundation
 
@@ -668,7 +669,14 @@ final class TelegramBridge: @unchecked Sendable {
             } else {
                 var parts = [ContentPart(type: "text", text: effectivePrompt, image_url: nil)]
                 for imageURL in imageURLs {
-                    parts.append(ContentPart(type: "image_url", text: nil, image_url: ImageURL(url: imageURL.absoluteString, detail: nil)))
+                    parts.append(ContentPart(
+                        type: "image_url",
+                        text: nil,
+                        image_url: ImageURL(
+                            url: try AFMMLXMediaSecurityPolicy.trustedLocalMediaDataURL(imageURL),
+                            detail: nil
+                        )
+                    ))
                 }
                 currentUserMessage = Message(role: "user", content: .parts(parts))
             }

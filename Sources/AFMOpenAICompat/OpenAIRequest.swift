@@ -81,6 +81,36 @@ public struct ChatCompletionRequest: Codable, Sendable {
         return result.isEmpty ? nil : result
     }
 
+    public func replacingMessages(_ messages: [Message]) -> ChatCompletionRequest {
+        ChatCompletionRequest(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            maxCompletionTokens: maxCompletionTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            repeatPenalty: repeatPenalty,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
+            topK: topK,
+            minP: minP,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            stop: stop,
+            stream: stream,
+            streamOptions: streamOptions,
+            user: user,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            reasoningEffort: reasoningEffort
+        )
+    }
+
     public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?, reasoningEffort: String? = nil) {
         self.model = model
         self.messages = messages
