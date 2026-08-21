@@ -65,9 +65,9 @@ cleanup() {
     else
         rm -f setup.py
     fi
+    rm -rf macafm_next.egg-info
     if [ -d "$METADATA_BACKUP/macafm_next.egg-info" ]; then
-        mkdir -p macafm_next.egg-info
-        cp -R "$METADATA_BACKUP/macafm_next.egg-info/." macafm_next.egg-info/
+        cp -R "$METADATA_BACKUP/macafm_next.egg-info" macafm_next.egg-info
     fi
     rm -rf macafm_next/bin macafm_next/share "$WHEEL_SMOKE" "$METADATA_BACKUP"
 }
