@@ -137,6 +137,34 @@ public struct TUILogprobConfiguration: Equatable, Sendable {
     }
 }
 
+public enum TUIReasoningDisplayMode: String, Equatable, Sendable {
+    case collapsed
+    case expanded
+    case hidden
+
+    mutating func togglePanel() {
+        self = self == .expanded ? .collapsed : .expanded
+    }
+}
+
+enum TUIGenerationPhase: Equatable, Sendable {
+    case preparing
+    case reasoning
+    case answering
+    case usingTools
+    case completed
+}
+
+enum TUIActivityIndicator {
+    private static let unicodeFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    private static let asciiFrames = ["|", "/", "-", "\\"]
+
+    static func symbol(frame: Int, unicode: Bool) -> String {
+        let frames = unicode ? unicodeFrames : asciiFrames
+        return frames[abs(frame) % frames.count]
+    }
+}
+
 struct GenerationSnapshot: Sendable {
     let revision: UInt64
     let text: String
@@ -150,6 +178,8 @@ struct GenerationSnapshot: Sendable {
     let promptTokens: Int
     let completionTokens: Int
     let cachedTokens: Int
+    let phase: TUIGenerationPhase
+    let reasoningDuration: TimeInterval?
     let completed: Bool
     let cancelled: Bool
     let error: String?
@@ -169,6 +199,9 @@ actor GenerationBuffer {
     private var promptTokens = 0
     private var completionTokens = 0
     private var cachedTokens = 0
+    private var currentPhase: TUIGenerationPhase = .preparing
+    private var reasoningStartedAt: Date?
+    private var reasoningFinishedAt: Date?
     private var completed = false
     private var cancelled = false
     private var error: String?
@@ -178,17 +211,23 @@ actor GenerationBuffer {
         guard !completed else { return }
         switch event {
         case .text(let value, let tokens):
+            finishReasoningIfNeeded()
+            currentPhase = .answering
             let safe = TerminalOutputSanitizer.sanitize(value)
             text += safe
             textTail = Self.appendingToRenderTail(textTail, safe)
             textCharacterCount += safe.count
             completionTokens = max(completionTokens, tokens)
         case .reasoning(let value, _):
+            if reasoningStartedAt == nil { reasoningStartedAt = Date() }
+            currentPhase = .reasoning
             let safe = TerminalOutputSanitizer.sanitize(value)
             reasoning += safe
             reasoningTail = Self.appendingToRenderTail(reasoningTail, safe)
             reasoningCharacterCount += safe.count
         case .toolCall(let call, let stage):
+            finishReasoningIfNeeded()
+            currentPhase = .usingTools
             let safeCall = AFMToolCall(
                 id: TerminalOutputSanitizer.sanitize(call.id),
                 name: TerminalOutputSanitizer.sanitize(call.name),
@@ -205,7 +244,9 @@ actor GenerationBuffer {
             }
         case .usage(let prompt, let completion, let cached):
             promptTokens = prompt; completionTokens = completion; cachedTokens = cached
-        case .completed: completed = true
+        case .completed:
+            finishReasoningIfNeeded()
+            completed = true
         case .tokenLogprobs, .metadata, .custom: break
         }
         revision &+= 1
@@ -215,6 +256,10 @@ actor GenerationBuffer {
         guard !completed else { return }
         text = TerminalOutputSanitizer.sanitize(response.content)
         reasoning = TerminalOutputSanitizer.sanitize(response.reasoningContent ?? "")
+        if !reasoning.isEmpty {
+            reasoningStartedAt = Date()
+            reasoningFinishedAt = reasoningStartedAt
+        }
         textCharacterCount = text.count
         reasoningCharacterCount = reasoning.count
         textTail = String(text.suffix(Self.renderTailLimit))
@@ -238,14 +283,17 @@ actor GenerationBuffer {
 
     func fail(_ value: Error) {
         guard !completed else { return }
+        finishReasoningIfNeeded()
         error = TerminalOutputSanitizer.sanitize(value.localizedDescription); completed = true; revision &+= 1
     }
     func cancel() {
         guard !completed else { return }
+        finishReasoningIfNeeded()
         cancelled = true; completed = true; revision &+= 1
     }
     func finish() {
         guard !completed else { return }
+        finishReasoningIfNeeded()
         completed = true; revision &+= 1
     }
     func snapshot() -> GenerationSnapshot {
@@ -257,7 +305,11 @@ actor GenerationBuffer {
     }
 
     private func makeSnapshot(includeFullContent: Bool) -> GenerationSnapshot {
-        GenerationSnapshot(
+        let phase: TUIGenerationPhase = completed ? .completed : currentPhase
+        let reasoningDuration = reasoningStartedAt.map {
+            (reasoningFinishedAt ?? Date()).timeIntervalSince($0)
+        }
+        return GenerationSnapshot(
             revision: revision,
             text: includeFullContent ? text : "",
             reasoning: includeFullContent ? reasoning : "",
@@ -267,9 +319,16 @@ actor GenerationBuffer {
             tools: includeFullContent ? tools : [],
             toolDisplayLines: toolDisplayLines,
             promptTokens: promptTokens, completionTokens: completionTokens,
-            cachedTokens: cachedTokens, completed: completed,
+            cachedTokens: cachedTokens, phase: phase,
+            reasoningDuration: reasoningDuration, completed: completed,
             cancelled: cancelled, error: error
         )
+    }
+
+    private func finishReasoningIfNeeded() {
+        if reasoningStartedAt != nil, reasoningFinishedAt == nil {
+            reasoningFinishedAt = Date()
+        }
     }
 
     func snapshot(ifChangedSince priorRevision: UInt64) -> GenerationSnapshot? {
@@ -358,7 +417,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
     private let engine: AFMEngine
     private var session: TUISession
     private var renderer: TerminalMarkdownRenderer
-    private var showReasoning: Bool
+    private var reasoningDisplayMode: TUIReasoningDisplayMode
     private var promptHistory: [String] = []
     private var codeBlocks: [TUICodeBlock] = []
     private var images: [TUIImageReference] = []
@@ -385,7 +444,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             messages: Self.initialMessages(for: configuration)
         )
         self.renderer = TerminalMarkdownRenderer(color: capabilities.color, theme: configuration.theme)
-        self.showReasoning = configuration.showReasoning
+        self.reasoningDisplayMode = configuration.showReasoning ? .expanded : .collapsed
         self.attachments = configuration.initialAttachments
     }
 
@@ -516,14 +575,38 @@ public final class AFMTerminalChat: @unchecked Sendable {
         var previousRows = 0
         var lastSnapshot = await buffer.renderSnapshot()
         let start = Date()
+        var activityFrame = 0
+        var nextActivityRedraw = Date.distantPast
         while !lastSnapshot.completed && !signalMonitor.shouldTerminate {
-            if let key = terminal.readKey(timeoutMilliseconds: 40), key == .interrupt {
-                task.cancel()
-                await buffer.cancel()
+            var forceRedraw = false
+            if let key = terminal.readKey(timeoutMilliseconds: 40) {
+                switch key {
+                case .interrupt:
+                    task.cancel()
+                    await buffer.cancel()
+                case .tab:
+                    reasoningDisplayMode.togglePanel()
+                    forceRedraw = true
+                default:
+                    break
+                }
             }
             if let changed = await buffer.snapshot(ifChangedSince: lastSnapshot.revision) {
                 lastSnapshot = changed
-                previousRows = redrawGeneration(lastSnapshot, previousRows: previousRows, final: false)
+                forceRedraw = true
+            }
+            let now = Date()
+            if forceRedraw || now >= nextActivityRedraw {
+                if !forceRedraw { lastSnapshot = await buffer.renderSnapshot() }
+                previousRows = redrawGeneration(
+                    lastSnapshot,
+                    previousRows: previousRows,
+                    final: false,
+                    activityFrame: activityFrame,
+                    elapsed: now.timeIntervalSince(start)
+                )
+                activityFrame &+= 1
+                nextActivityRedraw = now.addingTimeInterval(0.12)
             }
         }
         if signalMonitor.shouldTerminate {
@@ -540,7 +623,13 @@ public final class AFMTerminalChat: @unchecked Sendable {
             try? await engine.resetConversation(with: session.messages)
             return
         }
-        _ = redrawGeneration(lastSnapshot, previousRows: previousRows, final: true)
+        _ = redrawGeneration(
+            lastSnapshot,
+            previousRows: previousRows,
+            final: true,
+            activityFrame: activityFrame,
+            elapsed: Date().timeIntervalSince(start)
+        )
         terminal.write("\n")
 
         if let error = lastSnapshot.error {
@@ -619,7 +708,13 @@ public final class AFMTerminalChat: @unchecked Sendable {
         }
     }
 
-    private func redrawGeneration(_ snapshot: GenerationSnapshot, previousRows: Int, final: Bool) -> Int {
+    private func redrawGeneration(
+        _ snapshot: GenerationSnapshot,
+        previousRows: Int,
+        final: Bool,
+        activityFrame: Int,
+        elapsed: TimeInterval
+    ) -> Int {
         if previousRows > 0 {
             for index in 0..<previousRows {
                 terminal.clearLine()
@@ -629,16 +724,22 @@ public final class AFMTerminalChat: @unchecked Sendable {
         }
         var display = ""
         if snapshot.reasoningCharacterCount > 0 {
-            if showReasoning {
-                display += style("reasoning", "2;35") + " ›\n" + renderGenerationMarkdown(
-                    full: snapshot.reasoning,
-                    tail: snapshot.reasoningTail,
-                    characterCount: snapshot.reasoningCharacterCount,
-                    final: final
-                ) + "\n\n"
-            } else {
-                display += style("… reasoning hidden (\(snapshot.reasoningCharacterCount) chars; /reasoning show)", "2") + "\n"
-            }
+            display += reasoningPanel(
+                snapshot,
+                final: final,
+                activityFrame: activityFrame
+            ) + "\n"
+        } else if !final && snapshot.phase == .preparing {
+            display += activityLine(
+                label: "Preparing context",
+                frame: activityFrame,
+                elapsed: elapsed
+            ) + "\n"
+        }
+        if !final && snapshot.phase == .answering {
+            display += activityLine(label: "Writing answer", frame: activityFrame, elapsed: elapsed) + "\n"
+        } else if !final && snapshot.phase == .usingTools {
+            display += activityLine(label: "Using tools", frame: activityFrame, elapsed: elapsed) + "\n"
         }
         display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(
             full: snapshot.text,
@@ -646,14 +747,66 @@ public final class AFMTerminalChat: @unchecked Sendable {
             characterCount: snapshot.textCharacterCount,
             final: final
         )
-        if snapshot.textCharacterCount == 0 && snapshot.reasoningCharacterCount == 0 {
-            display += style("thinking…", "2")
-        }
         if !snapshot.toolDisplayLines.isEmpty {
             display += "\n" + style(snapshot.toolDisplayLines.joined(separator: "\n"), "36")
         }
         terminal.write(display)
         return displayRows(display, width: terminal.width())
+    }
+
+    private func reasoningPanel(
+        _ snapshot: GenerationSnapshot,
+        final: Bool,
+        activityFrame: Int
+    ) -> String {
+        let isActive = !final && snapshot.phase == .reasoning
+        let duration = Self.formattedDuration(snapshot.reasoningDuration ?? 0)
+        let size = Self.compactCount(snapshot.reasoningCharacterCount)
+        let status = isActive
+            ? "◆ Reasoning \(activitySymbol(activityFrame))"
+            : "◇ Reasoning ✓"
+        let hint = isActive
+            ? (reasoningDisplayMode == .expanded ? "Tab collapse" : "Tab expand")
+            : "/reasoning last"
+        let summary = "\(status)  \(duration) · \(size) chars  [\(hint)]"
+
+        switch reasoningDisplayMode {
+        case .hidden:
+            return style("\(isActive ? "◆" : "◇") Reasoning \(isActive ? activitySymbol(activityFrame) : "✓") (hidden)", "2;35")
+        case .collapsed:
+            return style(summary, isActive ? "35" : "2;35")
+        case .expanded:
+            let rendered = renderGenerationMarkdown(
+                full: snapshot.reasoning,
+                tail: snapshot.reasoningTail,
+                characterCount: snapshot.reasoningCharacterCount,
+                final: final
+            )
+            let body = rendered.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { style("│", "2;35") + " " + String($0) }
+                .joined(separator: "\n")
+            return style("╭─ \(summary)", isActive ? "35" : "2;35")
+                + "\n" + body + "\n" + style("╰─", "2;35")
+        }
+    }
+
+    private func activityLine(label: String, frame: Int, elapsed: TimeInterval) -> String {
+        style("◆ \(label)  \(activitySymbol(frame))  \(Self.formattedDuration(elapsed))  [Ctrl-C cancel]", "2;36")
+    }
+
+    private func activitySymbol(_ frame: Int) -> String {
+        TUIActivityIndicator.symbol(
+            frame: frame,
+            unicode: capabilities.terminalProgram != "dumb"
+        )
+    }
+
+    private static func formattedDuration(_ value: TimeInterval) -> String {
+        String(format: "%.1fs", max(0, value))
+    }
+
+    private static func compactCount(_ value: Int) -> String {
+        value >= 1_000 ? String(format: "%.1fk", Double(value) / 1_000) : "\(value)"
     }
 
     private func renderGenerationMarkdown(
@@ -745,9 +898,25 @@ public final class AFMTerminalChat: @unchecked Sendable {
         case "/status": terminal.write("\(configuration.backendName) · \(configuration.modelName)\n\(lastStatistics)\n")
         case "/reasoning":
             let value = pieces.dropFirst().first?.lowercased()
-            showReasoning = value == "show" || value == "on" ? true : value == "hide" || value == "off" ? false : !showReasoning
-            terminal.write("Reasoning is now \(showReasoning ? "visible" : "hidden").\n")
-            if showReasoning, !lastReasoning.isEmpty {
+            if value == "last" {
+                if lastReasoning.isEmpty {
+                    terminal.write("No reasoning is available for the latest response.\n")
+                } else {
+                    terminal.write("\(style("latest reasoning", "2;35")) ›\n\(renderMarkdown(lastReasoning).text)\n")
+                }
+                return false
+            }
+            switch value {
+            case "show", "on", "expanded", "expand": reasoningDisplayMode = .expanded
+            case "collapsed", "collapse": reasoningDisplayMode = .collapsed
+            case "hide", "hidden", "off": reasoningDisplayMode = .hidden
+            case nil: reasoningDisplayMode.togglePanel()
+            default:
+                terminal.write("Usage: /reasoning [collapsed|expanded|off|last]\n")
+                return false
+            }
+            terminal.write("Reasoning display: \(reasoningDisplayMode.rawValue).\n")
+            if reasoningDisplayMode == .expanded, !lastReasoning.isEmpty {
                 terminal.write("\(style("latest reasoning", "2;35")) ›\n\(renderMarkdown(lastReasoning).text)\n")
             }
         case "/blocks": listBlocks()
@@ -831,7 +1000,8 @@ public final class AFMTerminalChat: @unchecked Sendable {
 
         /new /clear /quit                 session controls
         /retry /edit                      regenerate or edit the previous prompt
-        /reasoning [show|hide]            toggle reasoning panels
+        /reasoning [collapsed|expanded|off|last]
+                                        control reasoning panels
         /status /history /search <text>   runtime and persisted-session search
         /resume <session-id>              resume a saved session
         /blocks /copy <n>                 list/copy response code blocks
@@ -843,7 +1013,8 @@ public final class AFMTerminalChat: @unchecked Sendable {
         /theme <auto|dark|light|mono>     change terminal rendering
 
         Arrow keys edit/navigate prompt history. Esc+Enter inserts a newline.
-        During generation Ctrl-C cancels only that response; Ctrl-C at an empty prompt exits.
+        During generation Tab expands/collapses reasoning and Ctrl-C cancels only that response.
+        Ctrl-C at an empty prompt exits.
 
         """)
     }

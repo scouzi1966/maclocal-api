@@ -952,6 +952,48 @@ final class FoundationSessionOperationGateTests: XCTestCase {
 }
 
 final class TUIConversationPolicyTests: XCTestCase {
+    func testReasoningDisplayModesAndActivityFrames() {
+        var mode = TUIReasoningDisplayMode.collapsed
+        mode.togglePanel()
+        XCTAssertEqual(mode, .expanded)
+        mode.togglePanel()
+        XCTAssertEqual(mode, .collapsed)
+        XCTAssertEqual(TUIActivityIndicator.symbol(frame: 0, unicode: true), "⠋")
+        XCTAssertEqual(TUIActivityIndicator.symbol(frame: 10, unicode: true), "⠋")
+        XCTAssertEqual(TUIActivityIndicator.symbol(frame: 0, unicode: false), "|")
+        XCTAssertEqual(TUIActivityIndicator.symbol(frame: 4, unicode: false), "|")
+    }
+
+    func testGenerationBufferTracksReasoningAndAnswerPhases() async {
+        let buffer = GenerationBuffer()
+        var snapshot = await buffer.renderSnapshot()
+        XCTAssertEqual(snapshot.phase, .preparing)
+        XCTAssertNil(snapshot.reasoningDuration)
+
+        await buffer.accept(.reasoning("checking", tokenCount: 1))
+        snapshot = await buffer.renderSnapshot()
+        XCTAssertEqual(snapshot.phase, .reasoning)
+        XCTAssertNotNil(snapshot.reasoningDuration)
+
+        await buffer.accept(.text("answer", tokenCount: 2))
+        let answering = await buffer.renderSnapshot()
+        XCTAssertEqual(answering.phase, .answering)
+        let finishedReasoningDuration = answering.reasoningDuration
+        await buffer.accept(.toolCall(
+            AFMToolCall(id: "call-1", name: "lookup", arguments: "{}"),
+            stage: .started
+        ))
+        let usingTools = await buffer.renderSnapshot()
+        XCTAssertEqual(usingTools.phase, .usingTools)
+        await buffer.accept(.text("done", tokenCount: 3))
+        let resumedAnswer = await buffer.renderSnapshot()
+        XCTAssertEqual(resumedAnswer.phase, .answering)
+        await buffer.finish()
+        snapshot = await buffer.snapshot()
+        XCTAssertEqual(snapshot.phase, .completed)
+        XCTAssertEqual(snapshot.reasoningDuration, finishedReasoningDuration)
+    }
+
     func testFoundationTurnsAreIncrementalWhileStatelessTurnsRetainHistory() {
         let transcript = [
             Message(role: "user", content: "first"),
@@ -1207,9 +1249,10 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
         XCTAssertEqual(pipe(&descriptors), 0)
         defer { close(descriptors[0]); close(descriptors[1]) }
         let terminal = TerminalIO(inputFD: descriptors[0], outputFD: descriptors[1])
-        let bytes = Array("é".utf8) + [13, 10, 27, 91, 68]
+        let bytes = Array("é".utf8) + [9, 13, 10, 27, 91, 68]
         _ = bytes.withUnsafeBytes { write(descriptors[1], $0.baseAddress, bytes.count) }
         XCTAssertEqual(terminal.readKey(), .text("é"))
+        XCTAssertEqual(terminal.readKey(), .tab)
         XCTAssertEqual(terminal.readKey(), .enter)
         XCTAssertEqual(terminal.readKey(), .newline)
         XCTAssertEqual(terminal.readKey(), .left)

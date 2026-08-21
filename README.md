@@ -113,6 +113,11 @@ have distinct file, hunk, addition, and deletion styling. Inline and display LaT
 as readable Unicode math, including fractions, roots, super/subscripts, operators, Greek
 symbols, matrices, and cases. The UI also reports token and throughput statistics.
 
+Reasoning is collapsed by default into a live activity row with its phase, animated cursor,
+elapsed time, and generated character count. Press `Tab` during generation to expand or
+collapse the reasoning panel without interrupting the model. Use `/reasoning expanded`,
+`/reasoning collapsed`, `/reasoning off`, or `/reasoning last` to control it explicitly.
+
 It supports multiline editing, prompt history, cancellation, persisted/searchable sessions
 under `~/.afm/sessions`, transcript export, attachments, terminal-width-aware tables, themes,
 and safe actions for response artifacts. Use `/help` for the command palette.

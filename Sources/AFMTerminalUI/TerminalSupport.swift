@@ -47,7 +47,7 @@ public struct TerminalCapabilities: Equatable, Sendable {
 }
 
 public enum TerminalKey: Equatable, Sendable {
-    case text(String), enter, newline, backspace, delete, left, right, up, down
+    case text(String), enter, newline, tab, backspace, delete, left, right, up, down
     case home, end, escape, interrupt, eof, clear, unknown
 }
 
@@ -271,6 +271,7 @@ public final class TerminalIO: @unchecked Sendable {
         switch byte {
         case 3: return .interrupt
         case 4: return .eof
+        case 9: return .tab
         case 8, 127: return .backspace
         case 10: return .newline
         case 12: return .clear
