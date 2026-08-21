@@ -32,7 +32,9 @@ final class MLXMediaPreflightTests: XCTestCase {
             declared: descriptor(capabilities: [.text, .vision]),
             architecture: architecture,
             qualification: qualification,
-            factory: .vlm
+            factory: .vlm,
+            mtpEnabled: false,
+            mtpBindingModelID: nil
         )
 
         XCTAssertEqual(
@@ -56,7 +58,9 @@ final class MLXMediaPreflightTests: XCTestCase {
             declared: descriptor(capabilities: [.text, .vision]),
             architecture: architecture,
             qualification: qualification,
-            factory: .llm
+            factory: .llm,
+            mtpEnabled: false,
+            mtpBindingModelID: nil
         )
 
         XCTAssertEqual(
@@ -83,6 +87,39 @@ final class MLXMediaPreflightTests: XCTestCase {
             ),
             .unsupported
         )
+    }
+
+    func testQualifiedQwenVLMDescriptorRequiresActualLoadedMTPBinding() {
+        let declared = descriptor(capabilities: [.text, .vision, .speculativeDecoding])
+        let inactive = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: qwenArchitecture(),
+            qualification: qwenQualification(),
+            factory: .vlm,
+            mtpEnabled: false,
+            mtpBindingModelID: declared.modelID.rawValue
+        )
+        let wrongBinding = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: qwenArchitecture(),
+            qualification: qwenQualification(),
+            factory: .vlm,
+            mtpEnabled: true,
+            mtpBindingModelID: "mlx-community/other-model"
+        )
+        let active = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: qwenArchitecture(),
+            qualification: qwenQualification(),
+            factory: .vlm,
+            mtpEnabled: true,
+            mtpBindingModelID: declared.modelID.rawValue
+        )
+
+        XCTAssertTrue(active.capabilities.contains(.vision))
+        XCTAssertTrue(active.capabilities.contains(.speculativeDecoding))
+        XCTAssertFalse(inactive.capabilities.contains(.speculativeDecoding))
+        XCTAssertFalse(wrongBinding.capabilities.contains(.speculativeDecoding))
     }
 
     func testNonVisionArchitectureRemainsUnsupported() {

@@ -1,5 +1,8 @@
+@preconcurrency import AVFoundation
 import Darwin
+import CoreImage
 import Foundation
+import ImageIO
 import AFMOpenAICompat
 
 public enum AFMMLXMediaInputError: Error, Equatable, LocalizedError, Sendable {
@@ -13,6 +16,12 @@ public enum AFMMLXMediaInputError: Error, Equatable, LocalizedError, Sendable {
     case invalidDataURL
     case unsupportedMIMEType(String)
     case responseTooLarge
+    case tooManyMediaItems
+    case aggregateMediaTooLarge
+    case imagePixelLimitExceeded
+    case videoDurationLimitExceeded
+    case videoFrameLimitExceeded
+    case mediaInspectionFailed
     case downloadFailed
 
     public var errorDescription: String? {
@@ -37,6 +46,18 @@ public enum AFMMLXMediaInputError: Error, Equatable, LocalizedError, Sendable {
             return "image_url MIME type '\(mimeType)' is not supported"
         case .responseTooLarge:
             return "image_url exceeds the maximum allowed media size"
+        case .tooManyMediaItems:
+            return "request exceeds the maximum allowed media item count"
+        case .aggregateMediaTooLarge:
+            return "request exceeds the aggregate media byte limit"
+        case .imagePixelLimitExceeded:
+            return "request exceeds the aggregate decoded image pixel limit"
+        case .videoDurationLimitExceeded:
+            return "request exceeds the aggregate video duration limit"
+        case .videoFrameLimitExceeded:
+            return "request exceeds the aggregate video frame limit"
+        case .mediaInspectionFailed:
+            return "image_url media payload could not be safely inspected"
         case .downloadFailed:
             return "image_url download failed"
         }
@@ -63,12 +84,54 @@ struct AFMMLXRemoteMediaResponse: Sendable {
     let redirectLocation: String?
 }
 
+public struct AFMMLXResolvedMediaRequest: Sendable {
+    public let messages: [AFMOpenAICompat.Message]
+    public let mediaKinds: [AFMMLXRequestMediaKind]
+}
+
+struct AFMMLXMediaRequestLimits: Sendable {
+    let maximumItems: Int
+    let maximumItemBytes: Int
+    let maximumAggregateBytes: Int
+    let maximumImagePixels: Int64
+    let maximumVideoDuration: Double
+    let maximumVideoFrames: Int
+
+    static let production = AFMMLXMediaRequestLimits(
+        maximumItems: 8,
+        maximumItemBytes: 20 * 1_024 * 1_024,
+        maximumAggregateBytes: 40 * 1_024 * 1_024,
+        maximumImagePixels: 64 * 1_024 * 1_024,
+        maximumVideoDuration: 120,
+        maximumVideoFrames: 3_600
+    )
+}
+
+struct AFMMLXMediaInspection: Sendable {
+    let imagePixels: Int64
+    let videoDuration: Double
+    let videoFrames: Int
+}
+
 public enum AFMMLXMediaSecurityPolicy {
     public static let maximumMediaBytes = 20 * 1_024 * 1_024
+    public static let maximumMediaItems = 8
+    public static let maximumAggregateMediaBytes = 40 * 1_024 * 1_024
+    public static let maximumAggregateImagePixels: Int64 = 64 * 1_024 * 1_024
+    public static let maximumAggregateVideoDuration: Double = 120
+    public static let maximumAggregateVideoFrames = 3_600
     static let maximumRedirects = 3
 
     typealias HostResolver = @Sendable (String) throws -> [String]
-    typealias RemoteTransport = @Sendable (URL, Int) throws -> AFMMLXRemoteMediaResponse
+    typealias RemoteTransport = @Sendable (
+        URL,
+        String,
+        Int
+    ) async throws -> AFMMLXRemoteMediaResponse
+    typealias PayloadInspector = @Sendable (
+        AFMMLXMediaPayload,
+        AFMMLXMediaRequestLimits
+    ) async throws -> AFMMLXMediaInspection
 
     private static let imageMIMETypes: Set<String> = [
         "image/gif", "image/heic", "image/heif", "image/jpeg", "image/png", "image/webp",
@@ -83,11 +146,17 @@ public enum AFMMLXMediaSecurityPolicy {
     public static func validateReferences(
         in messages: [AFMOpenAICompat.Message]
     ) throws {
+        var mediaCount = 0
         for message in messages {
             guard let content = message.content, case .parts(let parts) = content else {
                 continue
             }
-            for part in parts where part.type == "image_url" {
+            for part in parts where part.type == "image_url" || part.type == "input_audio" {
+                mediaCount += 1
+                guard mediaCount <= maximumMediaItems else {
+                    throw AFMMLXMediaInputError.tooManyMediaItems
+                }
+                guard part.type == "image_url" else { continue }
                 guard let raw = part.image_url?.url else {
                     throw AFMMLXMediaInputError.invalidReference
                 }
@@ -97,23 +166,165 @@ public enum AFMMLXMediaSecurityPolicy {
                     guard let url = URL(string: raw) else {
                         throw AFMMLXMediaInputError.invalidReference
                     }
-                    try validateRemoteURL(url, resolver: resolveHost)
+                    try validateRemoteURLShape(url)
                 }
             }
         }
     }
 
-    public static func load(_ raw: String) throws -> AFMMLXMediaPayload {
+    public static func resolveRequest(
+        in messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        try await resolveRequest(
+            in: messages,
+            limits: .production,
+            resolver: resolveHost,
+            transport: boundedHTTPSRequest,
+            inspector: inspectPayload
+        )
+    }
+
+    static func resolveRequest(
+        in messages: [AFMOpenAICompat.Message],
+        limits: AFMMLXMediaRequestLimits,
+        resolver: HostResolver,
+        transport: RemoteTransport,
+        inspector: PayloadInspector
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        var mediaCount = 0
+        var aggregateBytes = 0
+        var aggregatePixels: Int64 = 0
+        var aggregateVideoDuration: Double = 0
+        var aggregateVideoFrames = 0
+        var mediaKinds: [AFMMLXRequestMediaKind] = []
+        var resolvedMessages: [AFMOpenAICompat.Message] = []
+
+        for message in messages {
+            try Task.checkCancellation()
+            guard let content = message.content, case .parts(let parts) = content else {
+                resolvedMessages.append(message)
+                continue
+            }
+            var resolvedParts: [ContentPart] = []
+            resolvedParts.reserveCapacity(parts.count)
+            for part in parts {
+                try Task.checkCancellation()
+                if part.type == "input_audio" {
+                    mediaCount += 1
+                    guard mediaCount <= limits.maximumItems else {
+                        throw AFMMLXMediaInputError.tooManyMediaItems
+                    }
+                    guard let encoded = part.input_audio?.data else {
+                        throw AFMMLXMediaInputError.invalidDataURL
+                    }
+                    let audioData = try decodeBoundedBase64(
+                        encoded,
+                        maximumBytes: limits.maximumItemBytes
+                    )
+                    guard audioData.count <= limits.maximumAggregateBytes - aggregateBytes else {
+                        throw AFMMLXMediaInputError.aggregateMediaTooLarge
+                    }
+                    aggregateBytes += audioData.count
+                    mediaKinds.append(.audio)
+                    resolvedParts.append(part)
+                    continue
+                }
+                guard part.type == "image_url" else {
+                    resolvedParts.append(part)
+                    continue
+                }
+                mediaCount += 1
+                guard mediaCount <= limits.maximumItems else {
+                    throw AFMMLXMediaInputError.tooManyMediaItems
+                }
+                guard let raw = part.image_url?.url else {
+                    throw AFMMLXMediaInputError.invalidReference
+                }
+                let payload = try await load(
+                    raw,
+                    maximumBytes: limits.maximumItemBytes,
+                    resolver: resolver,
+                    transport: transport
+                )
+                guard payload.data.count <= limits.maximumAggregateBytes - aggregateBytes else {
+                    throw AFMMLXMediaInputError.aggregateMediaTooLarge
+                }
+                aggregateBytes += payload.data.count
+
+                let inspection = try await inspector(payload, limits)
+                guard inspection.imagePixels <= limits.maximumImagePixels - aggregatePixels else {
+                    throw AFMMLXMediaInputError.imagePixelLimitExceeded
+                }
+                aggregatePixels += inspection.imagePixels
+                guard inspection.videoDuration
+                    <= limits.maximumVideoDuration - aggregateVideoDuration
+                else {
+                    throw AFMMLXMediaInputError.videoDurationLimitExceeded
+                }
+                aggregateVideoDuration += inspection.videoDuration
+                guard inspection.videoFrames
+                    <= limits.maximumVideoFrames - aggregateVideoFrames
+                else {
+                    throw AFMMLXMediaInputError.videoFrameLimitExceeded
+                }
+                aggregateVideoFrames += inspection.videoFrames
+
+                let kind: AFMMLXRequestMediaKind = payload.kind == .image ? .image : .video
+                mediaKinds.append(kind)
+                let canonicalURL = "data:\(payload.mimeType);base64,"
+                    + payload.data.base64EncodedString()
+                resolvedParts.append(
+                    ContentPart(
+                        type: "image_url",
+                        image_url: ImageURL(
+                            url: canonicalURL,
+                            detail: part.image_url?.detail
+                        )
+                    )
+                )
+            }
+            resolvedMessages.append(
+                AFMOpenAICompat.Message(
+                    role: message.role,
+                    content: .parts(resolvedParts),
+                    toolCalls: message.toolCalls,
+                    toolCallId: message.toolCallId,
+                    name: message.name
+                )
+            )
+        }
+        return AFMMLXResolvedMediaRequest(
+            messages: resolvedMessages,
+            mediaKinds: mediaKinds
+        )
+    }
+
+    public static func load(_ raw: String) async throws -> AFMMLXMediaPayload {
+        try await load(
+            raw,
+            maximumBytes: maximumMediaBytes,
+            resolver: resolveHost,
+            transport: boundedHTTPSRequest
+        )
+    }
+
+    private static func load(
+        _ raw: String,
+        maximumBytes: Int,
+        resolver: HostResolver,
+        transport: RemoteTransport
+    ) async throws -> AFMMLXMediaPayload {
         if raw.lowercased().hasPrefix("data:") {
-            return try decodeDataURL(raw)
+            return try decodeDataURL(raw, maximumBytes: maximumBytes)
         }
         guard let url = URL(string: raw) else {
             throw AFMMLXMediaInputError.invalidReference
         }
-        return try loadRemote(
+        return try await loadRemote(
             url,
-            resolver: resolveHost,
-            transport: boundedHTTPSRequest
+            maximumBytes: maximumBytes,
+            resolver: resolver,
+            transport: transport
         )
     }
 
@@ -144,7 +355,10 @@ public enum AFMMLXMediaSecurityPolicy {
         return "data:\(mimeType);base64,\(data.base64EncodedString())"
     }
 
-    static func decodeDataURL(_ raw: String) throws -> AFMMLXMediaPayload {
+    static func decodeDataURL(
+        _ raw: String,
+        maximumBytes: Int = maximumMediaBytes
+    ) throws -> AFMMLXMediaPayload {
         guard let comma = raw.firstIndex(of: ",") else {
             throw AFMMLXMediaInputError.invalidDataURL
         }
@@ -158,17 +372,7 @@ public enum AFMMLXMediaSecurityPolicy {
         let mimeType = normalizedMIMEType(String(components[0]))
         let kind = try payloadKind(for: mimeType)
         let encoded = String(raw[raw.index(after: comma)...])
-        let maximumEncodedBytes = ((maximumMediaBytes + 2) / 3) * 4
-        guard !encoded.isEmpty,
-              encoded.utf8.count <= maximumEncodedBytes,
-              let data = Data(base64Encoded: encoded),
-              !data.isEmpty,
-              data.count <= maximumMediaBytes
-        else {
-            throw encoded.utf8.count > maximumEncodedBytes
-                ? AFMMLXMediaInputError.responseTooLarge
-                : AFMMLXMediaInputError.invalidDataURL
-        }
+        let data = try decodeBoundedBase64(encoded, maximumBytes: maximumBytes)
         return AFMMLXMediaPayload(
             data: data,
             mimeType: mimeType,
@@ -177,15 +381,49 @@ public enum AFMMLXMediaSecurityPolicy {
         )
     }
 
+    private static func decodeBoundedBase64(
+        _ encoded: String,
+        maximumBytes: Int
+    ) throws -> Data {
+        let maximumEncodedBytes = ((maximumBytes + 2) / 3) * 4
+        guard !encoded.isEmpty else { throw AFMMLXMediaInputError.invalidDataURL }
+        guard encoded.utf8.count <= maximumEncodedBytes else {
+            throw AFMMLXMediaInputError.responseTooLarge
+        }
+        guard let data = Data(base64Encoded: encoded), !data.isEmpty else {
+            throw AFMMLXMediaInputError.invalidDataURL
+        }
+        guard data.count <= maximumBytes else {
+            throw AFMMLXMediaInputError.responseTooLarge
+        }
+        return data
+    }
+
     static func loadRemote(
         _ initialURL: URL,
+        maximumBytes: Int = maximumMediaBytes,
         resolver: HostResolver,
         transport: RemoteTransport
-    ) throws -> AFMMLXMediaPayload {
+    ) async throws -> AFMMLXMediaPayload {
         var url = initialURL
         for redirectCount in 0...maximumRedirects {
-            try validateRemoteURL(url, resolver: resolver)
-            let response = try transport(url, maximumMediaBytes)
+            try Task.checkCancellation()
+            let addresses = try validatedRemoteAddresses(url, resolver: resolver)
+            var response: AFMMLXRemoteMediaResponse?
+            var lastFailure: Error?
+            for address in addresses.prefix(4) {
+                do {
+                    response = try await transport(url, address, maximumBytes)
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    lastFailure = error
+                }
+            }
+            guard let response else {
+                throw lastFailure ?? AFMMLXMediaInputError.downloadFailed
+            }
             if (300..<400).contains(response.statusCode) {
                 guard redirectCount < maximumRedirects else {
                     throw AFMMLXMediaInputError.tooManyRedirects
@@ -196,7 +434,7 @@ public enum AFMMLXMediaSecurityPolicy {
                     throw AFMMLXMediaInputError.redirectNotAllowed
                 }
                 do {
-                    try validateRemoteURL(redirected, resolver: resolver)
+                    _ = try validatedRemoteAddresses(redirected, resolver: resolver)
                 } catch {
                     throw AFMMLXMediaInputError.redirectNotAllowed
                 }
@@ -207,10 +445,10 @@ public enum AFMMLXMediaSecurityPolicy {
                 throw AFMMLXMediaInputError.downloadFailed
             }
             if let contentLength = response.contentLength,
-               contentLength < 0 || contentLength > Int64(maximumMediaBytes) {
+               contentLength < 0 || contentLength > Int64(maximumBytes) {
                 throw AFMMLXMediaInputError.responseTooLarge
             }
-            guard response.data.count <= maximumMediaBytes else {
+            guard response.data.count <= maximumBytes else {
                 throw AFMMLXMediaInputError.responseTooLarge
             }
             let mimeType = normalizedMIMEType(response.mimeType ?? "")
@@ -229,6 +467,10 @@ public enum AFMMLXMediaSecurityPolicy {
         _ url: URL,
         resolver: HostResolver
     ) throws {
+        _ = try validatedRemoteAddresses(url, resolver: resolver)
+    }
+
+    private static func validateRemoteURLShape(_ url: URL) throws {
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme == "https" else {
             throw AFMMLXMediaInputError.unsupportedScheme(scheme.isEmpty ? "none" : scheme)
@@ -243,6 +485,16 @@ public enum AFMMLXMediaSecurityPolicy {
         guard url.port == nil || url.port == 443 else {
             throw AFMMLXMediaInputError.remotePortNotAllowed
         }
+    }
+
+    private static func validatedRemoteAddresses(
+        _ url: URL,
+        resolver: HostResolver
+    ) throws -> [String] {
+        try validateRemoteURLShape(url)
+        guard let host = url.host?.lowercased() else {
+            throw AFMMLXMediaInputError.remoteHostNotAllowed
+        }
         let addresses: [String]
         do {
             addresses = try resolver(host)
@@ -254,6 +506,7 @@ public enum AFMMLXMediaSecurityPolicy {
         else {
             throw AFMMLXMediaInputError.remoteAddressNotAllowed
         }
+        return Array(Set(addresses)).sorted()
     }
 
     private static func payloadKind(
@@ -358,117 +611,127 @@ public enum AFMMLXMediaSecurityPolicy {
         return true
     }
 
+    private static func inspectPayload(
+        _ payload: AFMMLXMediaPayload,
+        limits: AFMMLXMediaRequestLimits
+    ) async throws -> AFMMLXMediaInspection {
+        switch payload.kind {
+        case .image:
+            guard let source = CGImageSourceCreateWithData(payload.data as CFData, nil) else {
+                throw AFMMLXMediaInputError.mediaInspectionFailed
+            }
+            let frameCount = CGImageSourceGetCount(source)
+            guard frameCount > 0, frameCount <= 256,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                    as? [CFString: Any],
+                  let width = integerProperty(properties[kCGImagePropertyPixelWidth]),
+                  let height = integerProperty(properties[kCGImagePropertyPixelHeight]),
+                  width > 0, height > 0
+            else {
+                throw AFMMLXMediaInputError.mediaInspectionFailed
+            }
+            let (pixelsPerFrame, overflow) = Int64(width).multipliedReportingOverflow(
+                by: Int64(height)
+            )
+            guard !overflow else {
+                throw AFMMLXMediaInputError.imagePixelLimitExceeded
+            }
+            let (pixels, frameOverflow) = pixelsPerFrame.multipliedReportingOverflow(
+                by: Int64(frameCount)
+            )
+            guard !frameOverflow, pixels <= limits.maximumImagePixels else {
+                throw AFMMLXMediaInputError.imagePixelLimitExceeded
+            }
+            guard CIImage(data: payload.data) != nil else {
+                throw AFMMLXMediaInputError.mediaInspectionFailed
+            }
+            return AFMMLXMediaInspection(
+                imagePixels: pixels,
+                videoDuration: 0,
+                videoFrames: 0
+            )
+        case .video:
+            let fileExtension = mediaFileExtension(for: payload.mimeType)
+            let temp = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "afm_media_inspect_\(UUID().uuidString).\(fileExtension)"
+            )
+            defer { try? FileManager.default.removeItem(at: temp) }
+            do {
+                try payload.data.write(to: temp, options: .atomic)
+                let asset = AVURLAsset(url: temp)
+                let duration = try await asset.load(.duration).seconds
+                guard duration.isFinite, duration > 0,
+                      duration <= limits.maximumVideoDuration
+                else {
+                    throw AFMMLXMediaInputError.videoDurationLimitExceeded
+                }
+                let tracks = try await asset.loadTracks(withMediaType: .video)
+                guard !tracks.isEmpty else {
+                    throw AFMMLXMediaInputError.mediaInspectionFailed
+                }
+                var frameCount = 0
+                let reader = try AVAssetReader(asset: asset)
+                for track in tracks {
+                    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+                    output.alwaysCopiesSampleData = false
+                    guard reader.canAdd(output) else {
+                        throw AFMMLXMediaInputError.mediaInspectionFailed
+                    }
+                    reader.add(output)
+                }
+                guard reader.startReading() else {
+                    throw AFMMLXMediaInputError.mediaInspectionFailed
+                }
+                for output in reader.outputs {
+                    while output.copyNextSampleBuffer() != nil {
+                        try Task.checkCancellation()
+                        frameCount += 1
+                        if frameCount > limits.maximumVideoFrames {
+                            reader.cancelReading()
+                            throw AFMMLXMediaInputError.videoFrameLimitExceeded
+                        }
+                    }
+                }
+                guard reader.status == .completed else {
+                    throw AFMMLXMediaInputError.mediaInspectionFailed
+                }
+                return AFMMLXMediaInspection(
+                    imagePixels: 0,
+                    videoDuration: duration,
+                    videoFrames: frameCount
+                )
+            } catch let error as AFMMLXMediaInputError {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw AFMMLXMediaInputError.mediaInspectionFailed
+            }
+        }
+    }
+
+    private static func integerProperty(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        return (value as? NSNumber)?.intValue
+    }
+
+    static func mediaFileExtension(for mimeType: String) -> String {
+        switch mimeType {
+        case "video/quicktime": "mov"
+        case "video/webm": "webm"
+        default: "mp4"
+        }
+    }
+
     private static func boundedHTTPSRequest(
         _ url: URL,
+        validatedAddress: String,
         maximumBytes: Int
-    ) throws -> AFMMLXRemoteMediaResponse {
-        let delegate = AFMMLXBoundedMediaDelegate(maximumBytes: maximumBytes)
-        return try delegate.run(url: url)
-    }
-}
-
-private final class AFMMLXBoundedMediaDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let maximumBytes: Int
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var data = Data()
-    private var response: HTTPURLResponse?
-    private var redirectResponse: HTTPURLResponse?
-    private var failure: Error?
-    private var didFinish = false
-
-    init(maximumBytes: Int) {
-        self.maximumBytes = maximumBytes
-    }
-
-    func run(url: URL) throws -> AFMMLXRemoteMediaResponse {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
-        configuration.httpCookieAcceptPolicy = .never
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("image/*, video/mp4, video/quicktime, video/webm", forHTTPHeaderField: "Accept")
-        let task = session.dataTask(with: request)
-        task.resume()
-        semaphore.wait()
-        session.finishTasksAndInvalidate()
-
-        if let failure { throw failure }
-        guard let response = redirectResponse ?? response else {
-            throw AFMMLXMediaInputError.downloadFailed
-        }
-        return AFMMLXRemoteMediaResponse(
-            statusCode: response.statusCode,
-            mimeType: response.mimeType,
-            contentLength: response.expectedContentLength >= 0
-                ? response.expectedContentLength : nil,
-            data: data,
-            redirectLocation: response.value(forHTTPHeaderField: "Location")
+    ) async throws -> AFMMLXRemoteMediaResponse {
+        try await AFMMLXPinnedHTTPSClient.fetch(
+            url: url,
+            validatedAddress: validatedAddress,
+            maximumBytes: maximumBytes
         )
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        lock.withLock { redirectResponse = response }
-        completionHandler(nil)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        guard let http = response as? HTTPURLResponse else {
-            lock.withLock { failure = AFMMLXMediaInputError.downloadFailed }
-            completionHandler(.cancel)
-            return
-        }
-        if http.expectedContentLength > Int64(maximumBytes) {
-            lock.withLock { failure = AFMMLXMediaInputError.responseTooLarge }
-            completionHandler(.cancel)
-            return
-        }
-        lock.withLock { self.response = http }
-        completionHandler(.allow)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive chunk: Data
-    ) {
-        let shouldCancel = lock.withLock { () -> Bool in
-            guard data.count <= maximumBytes - chunk.count else {
-                failure = AFMMLXMediaInputError.responseTooLarge
-                return true
-            }
-            data.append(chunk)
-            return false
-        }
-        if shouldCancel { dataTask.cancel() }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        lock.withLock {
-            if failure == nil, let error { failure = error }
-            guard !didFinish else { return }
-            didFinish = true
-            semaphore.signal()
-        }
     }
 }

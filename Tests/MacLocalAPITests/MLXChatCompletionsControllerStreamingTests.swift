@@ -931,6 +931,39 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(service.generateStreamingCallCount, 0)
     }
 
+    func testStreamingMediaFailureUsesStructuredErrorEventNotAssistantMarkdown() async throws {
+        let service = FakeMLXChatService(
+            streamingFailure: MLXServiceError.invalidMediaInput(
+                "image_url media payload could not be safely inspected"
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, prompt: "trigger late media failure")
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(res.headers.first(name: .contentType), "text/event-stream")
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"invalid_media_input""#)
+            XCTAssertContains(res.body.string, "data: [DONE]")
+            XCTAssertFalse(res.body.string.contains("⚠️"))
+            XCTAssertFalse(res.body.string.contains("**Error**"))
+            XCTAssertFalse(res.body.string.contains(#""role":"assistant""#))
+        }
+        XCTAssertEqual(service.generateStreamingCallCount, 1)
+    }
+
     func testOpenAIMultipartImageIsForwardedInStreamingAndNonStreamingModes() async throws {
         let service = FakeMLXChatService(
             generateResult: (
@@ -1237,6 +1270,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private let generateResult: AFMMLXChatGenerationResult
     private let streamingResult: AFMMLXChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
+    private let streamingFailure: Error?
     private let preflightFailure: MLXServiceError?
     private let stateLock = NSLock()
     private(set) var recordedGenerateToolNames: [[String]] = []
@@ -1260,6 +1294,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkEndTag: String? = nil,
         fixToolArgs: Bool = false,
         preflightFailure: MLXServiceError? = nil,
+        streamingFailure: Error? = nil,
         generateResult: AFMMLXChatGenerationResult? = nil,
         streamingResult: AFMMLXChatStreamingResult
     ) {
@@ -1270,6 +1305,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
         self.preflightFailure = preflightFailure
+        self.streamingFailure = streamingFailure
         self.generateResult = generateResult ?? (
             modelID: "test-model",
             content: "",
@@ -1303,6 +1339,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         self.thinkEndTag = thinkEndTag
         self.fixToolArgs = fixToolArgs
         self.preflightFailure = preflightFailure
+        self.streamingFailure = nil
         self.generateResult = (
             modelID: "test-model",
             content: "",
@@ -1321,13 +1358,14 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func preflightMediaRequest(model: String, messages: [Message]) throws {
+    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message] {
         let failure = stateLock.withLock {
             preflightCallCount += 1
             recordedPreflightMessages.append(messages)
             return preflightFailure
         }
         if let failure { throw failure }
+        return messages
     }
     func tryReserveSlot() -> Bool {
         stateLock.withLock { reserveSlotCallCount += 1 }
@@ -1437,6 +1475,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             generateStreamingCallCount += 1
             recordedStreamingMessages.append(messages)
         }
+        if let streamingFailure { throw streamingFailure }
         recordStreamingTools(tools)
         return streamingHandler?(messages) ?? streamingResult
     }

@@ -1,4 +1,5 @@
 import AFMKitCore
+import AFMKitMLX
 @testable import AFMServer
 import XCTest
 
@@ -28,6 +29,56 @@ final class MLXCapabilityEndpointTests: XCTestCase {
         XCTAssertFalse(
             AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: nil)
                 .contains("vision")
+        )
+    }
+
+    func testQualifiedVLMWithLoadedMTPIsPublishedOnServerSurfaces() {
+        let declared = makeDescriptor(
+            capabilities: [.text, .vision, .streaming, .speculativeDecoding]
+        )
+        let architecture = AFMMLXModelArchitecturePreflight(
+            modelID: declared.modelID.rawValue,
+            modelType: "qwen3_5",
+            canonicalModelType: "qwen3_5",
+            isVisionConfiguration: true,
+            requiresVisionModelFactory: true
+        )
+        let qualification = AFMMLXVisionAssetQualification(
+            snapshotIdentity: "complete-vlm",
+            modelType: "qwen3_5",
+            canonicalModelType: "qwen3_5",
+            isConditionalGeneration: true,
+            declaresVision: true,
+            processorClass: "Qwen3VLProcessor",
+            visionTensorCount: 333,
+            missingAssets: []
+        )
+        let active = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: architecture,
+            qualification: qualification,
+            factory: .vlm,
+            mtpEnabled: true,
+            mtpBindingModelID: declared.modelID.rawValue
+        )
+        let inactive = AFMMLXRuntimeVisionPolicy.runtimeDescriptor(
+            declared: declared,
+            architecture: architecture,
+            qualification: qualification,
+            factory: .vlm,
+            mtpEnabled: false,
+            mtpBindingModelID: declared.modelID.rawValue
+        )
+
+        XCTAssertTrue(AFMMLXCapabilityPresentation.supportsVision(descriptor: active))
+        XCTAssertEqual(
+            Set(AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: active)),
+            ["chat", "completion", "vision", "streaming", "speculative_decoding"]
+        )
+        XCTAssertTrue(AFMMLXCapabilityPresentation.supportsVision(descriptor: inactive))
+        XCTAssertFalse(
+            AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: inactive)
+                .contains("speculative_decoding")
         )
     }
 

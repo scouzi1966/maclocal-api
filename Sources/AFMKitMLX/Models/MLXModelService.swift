@@ -1777,7 +1777,9 @@ public final class MLXModelService: @unchecked Sendable {
                 declared: declaredDescriptor,
                 architecture: modelArchitecture,
                 qualification: visionQualification,
-                factory: actualFactory
+                factory: actualFactory,
+                mtpEnabled: mtpEnabled,
+                mtpBindingModelID: loadedMTPBinding?.modelID
             )
 
             // Publish the container, capability evidence, actual factory, and
@@ -2224,7 +2226,12 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let resolvedMedia = try await Self.resolveMediaRequest(messages)
+        let messages = resolvedMedia.messages
+        let runtime = try validatedRuntimeForRequest(
+            modelID: modelID,
+            mediaKinds: resolvedMedia.mediaKinds
+        )
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
 
@@ -3164,7 +3171,12 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let resolvedMedia = try await Self.resolveMediaRequest(messages)
+        let messages = resolvedMedia.messages
+        let runtime = try validatedRuntimeForRequest(
+            modelID: modelID,
+            mediaKinds: resolvedMedia.mediaKinds
+        )
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
 
@@ -6135,16 +6147,8 @@ public final class MLXModelService: @unchecked Sendable {
     public func preflightMediaRequest(
         model rawModel: String,
         messages: [AFMOpenAICompat.Message]
-    ) throws {
-        let mediaKinds = Self.mediaKinds(in: messages)
-        guard !mediaKinds.isEmpty else { return }
-
-        do {
-            try AFMMLXMediaSecurityPolicy.validateReferences(in: messages)
-        } catch {
-            throw MLXServiceError.invalidMediaInput(error.localizedDescription)
-        }
-
+    ) async throws -> [AFMOpenAICompat.Message] {
+        guard Self.containsMedia(in: messages) else { return messages }
         let modelID = normalizeModel(rawModel)
         let state = withStateLock {
             (
@@ -6160,18 +6164,20 @@ public final class MLXModelService: @unchecked Sendable {
               let factory = state.factory else {
             throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
         }
+        let resolved = try await Self.resolveMediaRequest(messages)
         try Self.validateMediaKinds(
-            mediaKinds,
+            resolved.mediaKinds,
             modelID: modelID,
             architecture: architecture,
             qualification: qualification,
             factory: factory
         )
+        return resolved.messages
     }
 
     private func validatedRuntimeForRequest(
         modelID: String,
-        messages: [AFMOpenAICompat.Message]
+        mediaKinds: [AFMMLXRequestMediaKind]
     ) throws -> (container: ModelContainer, mtpBinding: MTPGeneratorBinding?) {
         let state = withStateLock {
             (
@@ -6192,7 +6198,7 @@ public final class MLXModelService: @unchecked Sendable {
             throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
         }
         try Self.validateMediaKinds(
-            Self.mediaKinds(in: messages),
+            mediaKinds,
             modelID: modelID,
             architecture: architecture,
             qualification: qualification,
@@ -6206,19 +6212,26 @@ public final class MLXModelService: @unchecked Sendable {
         return (container, binding)
     }
 
-    private static func mediaKinds(
+    private static func containsMedia(
         in messages: [AFMOpenAICompat.Message]
-    ) -> [AFMMLXRequestMediaKind] {
-        messages.flatMap { message -> [AFMMLXRequestMediaKind] in
+    ) -> Bool {
+        messages.contains { message in
             guard let content = message.content, case .parts(let parts) = content else {
-                return []
+                return false
             }
-            return parts.compactMap { part in
-                AFMMLXRequestMediaPolicy.kind(
-                    contentPartType: part.type,
-                    mediaURL: part.image_url?.url
-                )
-            }
+            return parts.contains { $0.type == "image_url" || $0.type == "input_audio" }
+        }
+    }
+
+    private static func resolveMediaRequest(
+        _ messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        do {
+            return try await AFMMLXMediaSecurityPolicy.resolveRequest(in: messages)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MLXServiceError.invalidMediaInput(error.localizedDescription)
         }
     }
 
@@ -6630,7 +6643,7 @@ public final class MLXModelService: @unchecked Sendable {
             guard let raw = part.image_url?.url else { continue }
             let payload: AFMMLXMediaPayload
             do {
-                payload = try AFMMLXMediaSecurityPolicy.load(raw)
+                payload = try AFMMLXMediaSecurityPolicy.decodeDataURL(raw)
             } catch {
                 throw MLXServiceError.invalidMediaInput(error.localizedDescription)
             }

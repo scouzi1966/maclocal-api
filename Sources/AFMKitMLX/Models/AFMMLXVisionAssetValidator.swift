@@ -3,7 +3,14 @@ import MLXVLM
 
 public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
     private struct SafetensorEvidence {
-        let tensorNames: Set<String>
+        struct TensorMetadata {
+            let dtype: String
+            let shape: [Int]
+        }
+
+        let tensors: [String: TensorMetadata]
+
+        var tensorNames: Set<String> { Set(tensors.keys) }
     }
 
     private struct SnapshotFingerprint: Hashable {
@@ -172,7 +179,7 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         let indexURL = modelDirectory.appendingPathComponent(
             "model.safetensors.index.json"
         )
-        let names: Set<String>
+        let tensors: [String: SafetensorEvidence.TensorMetadata]
         if FileManager.default.fileExists(atPath: indexURL.path) {
             guard let index = jsonObject(at: indexURL),
                   let rawWeightMap = index["weight_map"] as? [String: Any]
@@ -191,9 +198,16 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                 shardEvidence[shardName] = evidence
             }
             guard weightMap.allSatisfy({ tensorName, shardName in
-                shardEvidence[shardName]?.tensorNames.contains(tensorName) == true
+                shardEvidence[shardName]?.tensors[tensorName] != nil
             }) else { return [] }
-            names = Set(weightMap.keys.filter(isVisionTensorName))
+            var discovered: [String: SafetensorEvidence.TensorMetadata] = [:]
+            for (tensorName, shardName) in weightMap where isVisionTensorName(tensorName) {
+                guard let metadata = shardEvidence[shardName]?.tensors[tensorName] else {
+                    return []
+                }
+                discovered[normalizedVisionTensorName(tensorName)] = metadata
+            }
+            tensors = discovered
         } else {
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: modelDirectory,
@@ -204,20 +218,27 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                     && $0.lastPathComponent != "mtp.safetensors"
             }
             guard !weightFiles.isEmpty else { return [] }
-            var discovered = Set<String>()
+            var discovered: [String: SafetensorEvidence.TensorMetadata] = [:]
             for file in weightFiles {
                 guard let evidence = safetensorEvidence(in: file) else { return [] }
-                discovered.formUnion(evidence.tensorNames.filter(isVisionTensorName))
+                for (name, metadata) in evidence.tensors where isVisionTensorName(name) {
+                    discovered[normalizedVisionTensorName(name)] = metadata
+                }
             }
-            names = discovered
+            tensors = discovered
         }
 
         if requiresCompleteQwenTower {
             guard let required = requiredQwenVisionTensorNames(config: config),
-                  required.isSubset(of: Set(names.map(normalizedVisionTensorName)))
+                  required.isSubset(of: Set(tensors.keys)),
+                  hasCompleteQwenQuantizationCompanions(
+                    required: required,
+                    tensors: tensors,
+                    config: config
+                  )
             else { return [] }
         }
-        return names
+        return Set(tensors.keys)
     }
 
     private static func isVisionTensorName(_ name: String) -> Bool {
@@ -274,6 +295,38 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         return required
     }
 
+    private static func hasCompleteQwenQuantizationCompanions(
+        required: Set<String>,
+        tensors: [String: SafetensorEvidence.TensorMetadata],
+        config: [String: Any]
+    ) -> Bool {
+        let quantization = (config["quantization_config"] as? [String: Any])
+            ?? (config["quantization"] as? [String: Any])
+        let mode = (quantization?["mode"] as? String)?.lowercased()
+        let isMXFP = mode == "mxfp4" || mode == "mxfp8"
+
+        for weightName in required where weightName.hasSuffix(".weight") {
+            guard let metadata = tensors[weightName] else { return false }
+            let base = String(weightName.dropLast(".weight".count))
+            let hasScales = tensors["\(base).scales"] != nil
+            let hasBiases = tensors["\(base).biases"] != nil
+            let packedWeight = ["U8", "U16", "U32", "I8", "I16", "I32"]
+                .contains(metadata.dtype.uppercased())
+            let hasQuantizedRepresentation = packedWeight || hasScales || hasBiases
+            guard !hasQuantizedRepresentation || quantization != nil else {
+                return false
+            }
+            guard hasQuantizedRepresentation else { continue }
+            guard hasScales else { return false }
+            if isMXFP {
+                guard !hasBiases else { return false }
+            } else {
+                guard hasBiases else { return false }
+            }
+        }
+        return true
+    }
+
     private static func safetensorEvidence(in url: URL) -> SafetensorEvidence? {
         let maximumHeaderBytes = 64 * 1_024 * 1_024
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -295,25 +348,31 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         let payloadStart = UInt64(8) + headerSize
         guard payloadStart <= fileSize else { return nil }
 
-        var tensorNames = Set<String>()
+        var tensors: [String: SafetensorEvidence.TensorMetadata] = [:]
         var maximumEnd = UInt64(0)
         for (name, rawMetadata) in object where name != "__metadata__" {
             guard let metadata = rawMetadata as? [String: Any],
-                  metadata["dtype"] is String,
-                  metadata["shape"] is [Any],
+                  let dtype = metadata["dtype"] as? String,
+                  let rawShape = metadata["shape"] as? [Any],
+                  let shape = integerShape(rawShape),
                   let offsets = metadata["data_offsets"] as? [Any],
                   offsets.count == 2,
                   let start = unsignedInteger(offsets[0]),
                   let end = unsignedInteger(offsets[1]),
-                  start <= end
+                  start <= end,
+                  let expectedBytes = tensorByteCount(dtype: dtype, shape: shape),
+                  end - start == expectedBytes
             else { return nil }
             maximumEnd = max(maximumEnd, end)
-            tensorNames.insert(name)
+            tensors[name] = SafetensorEvidence.TensorMetadata(
+                dtype: dtype,
+                shape: shape
+            )
         }
-        guard !tensorNames.isEmpty,
+        guard !tensors.isEmpty,
               maximumEnd <= fileSize - payloadStart
         else { return nil }
-        return SafetensorEvidence(tensorNames: tensorNames)
+        return SafetensorEvidence(tensors: tensors)
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {
@@ -331,6 +390,38 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             return nil
         }
         return number.uint64Value
+    }
+
+    private static func integerShape(_ values: [Any]) -> [Int]? {
+        let shape = values.compactMap(integer)
+        guard shape.count == values.count,
+              shape.allSatisfy({ $0 >= 0 })
+        else { return nil }
+        return shape
+    }
+
+    private static func tensorByteCount(dtype: String, shape: [Int]) -> UInt64? {
+        let byteWidth: UInt64
+        switch dtype.uppercased() {
+        case "BOOL", "I8", "U8", "F8_E4M3", "F8_E5M2", "F8_E8M0":
+            byteWidth = 1
+        case "I16", "U16", "F16", "BF16":
+            byteWidth = 2
+        case "I32", "U32", "F32":
+            byteWidth = 4
+        case "I64", "U64", "F64":
+            byteWidth = 8
+        default:
+            return nil
+        }
+        var elements: UInt64 = 1
+        for dimension in shape {
+            let (next, overflow) = elements.multipliedReportingOverflow(by: UInt64(dimension))
+            guard !overflow else { return nil }
+            elements = next
+        }
+        let (bytes, overflow) = elements.multipliedReportingOverflow(by: byteWidth)
+        return overflow ? nil : bytes
     }
 
     private func snapshotFingerprint(for modelDirectory: URL) -> SnapshotFingerprint {

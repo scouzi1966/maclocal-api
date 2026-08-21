@@ -106,7 +106,7 @@ struct MLXChatCompletionsController: RouteCollection {
         let reqId = req.afmRequestID
         do {
             let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            var chatRequest = try req.content.decode(ChatCompletionRequest.self)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(encodeJSON(chatRequest))\(Self.reset)"); fflush(stdout)
                 if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {
@@ -147,12 +147,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] MLX request model '\(requestedModelRaw)' does not match active model '\(modelID)'; serving active model"); fflush(stdout)
             }
 
-            // Media admission is provider-owned and side-effect-free. Run it
+            // Media admission is provider-owned. Resolve bounded remote payloads
             // before slot reservation and before constructing an SSE response.
-            try service.preflightMediaRequest(
+            let resolvedMessages = try await service.preflightMediaRequest(
                 model: modelID,
                 messages: chatRequest.messages
             )
+            chatRequest = chatRequest.replacingMessages(resolvedMessages)
 
             let effectiveTools = try Self.resolveEffectiveTools(
                 chatRequest.tools,
@@ -1559,8 +1560,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     _ = self.service.stopAPIProfile(promptTokens: 0, completionTokens: 0, promptTime: 0, generateTime: 0)
                 }
                 // Distinguish cooperative cancellation (T1.4/T1.5) from genuine
-                // errors. Cancellation must NOT emit a "⚠️ Error" content chunk;
-                // the stream should end cleanly with finish_reason="cancelled".
+                // errors. Errors use the OpenAI error envelope as an SSE data
+                // event; they must never masquerade as successful assistant text.
                 let isCancellation = (error is CancellationError) || Task.isCancelled
                 let completionTokens = self.estimateTokens(fullContent)
                 let generationDuration = max(Date().timeIntervalSince(started), 0.001)
@@ -1591,13 +1592,12 @@ struct MLXChatCompletionsController: RouteCollection {
                         fflush(stdout)
                     }
                     req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
-                    let errorChunk = ChatCompletionStreamResponse(
-                        id: streamId,
-                        model: self.modelID,
-                        content: "⚠️ **Error**\n\n\(error.localizedDescription)",
-                        isFirst: true
+                    let streamError = Self.openAIStreamError(
+                        error,
+                        requestId: requestId.isEmpty ? nil : requestId
                     )
-                    if let data = try? encoder.encode(errorChunk), let json = String(data: data, encoding: .utf8) {
+                    if let data = try? encoder.encode(streamError),
+                       let json = String(data: data, encoding: .utf8) {
                         try? await writer.write(.buffer(.init(string: "data: \(json)\n\n")))
                     }
                 }
@@ -1616,6 +1616,36 @@ struct MLXChatCompletionsController: RouteCollection {
         })
 
         return httpResponse
+    }
+
+    private static func openAIStreamError(
+        _ error: Error,
+        requestId: String?
+    ) -> OpenAIError {
+        guard let serviceError = error as? MLXServiceError else {
+            return OpenAIError(
+                message: error.localizedDescription,
+                type: "mlx_error",
+                requestId: requestId
+            )
+        }
+        let code: String?
+        switch serviceError {
+        case .visionAssetsUnavailable:
+            code = "vision_assets_unavailable"
+        case .unsupportedMediaInput:
+            code = "unsupported_media_input"
+        case .invalidMediaInput:
+            code = "invalid_media_input"
+        default:
+            code = nil
+        }
+        return OpenAIError(
+            message: serviceError.localizedDescription,
+            type: code == nil ? "mlx_error" : "invalid_request_error",
+            code: code,
+            requestId: requestId
+        )
     }
 
     /// Remap a single argument key using the full heuristic chain when --fix-tool-args is enabled.

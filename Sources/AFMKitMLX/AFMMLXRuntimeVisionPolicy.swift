@@ -43,7 +43,9 @@ public enum AFMMLXRuntimeVisionPolicy {
         declared descriptor: AFMModelDescriptor,
         architecture: AFMMLXModelArchitecturePreflight,
         qualification: AFMMLXVisionAssetQualification,
-        factory: AFMMLXModelFactoryKind
+        factory: AFMMLXModelFactoryKind,
+        mtpEnabled: Bool,
+        mtpBindingModelID: String?
     ) -> AFMModelDescriptor {
         var descriptor = descriptor
         if supportsVision(
@@ -54,6 +56,15 @@ public enum AFMMLXRuntimeVisionPolicy {
             descriptor.capabilities.insert(.vision)
         } else {
             descriptor.capabilities.remove(.vision)
+        }
+        if AFMMLXMTPRuntimePolicy.bindingIsUsable(
+            for: descriptor.modelID.rawValue,
+            mtpEnabled: mtpEnabled,
+            bindingModelID: mtpBindingModelID
+        ) {
+            descriptor.capabilities.insert(.speculativeDecoding)
+        } else {
+            descriptor.capabilities.remove(.speculativeDecoding)
         }
         return descriptor
     }

@@ -109,9 +109,10 @@ public protocol AFMMLXOpenAIChatServing:
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
 
-    /// Validate media against the immutable capability state of the active
-    /// container. Implementations must not load, reload, or inspect model files.
-    func preflightMediaRequest(model: String, messages: [Message]) throws
+    /// Resolve and validate media against the immutable capability state of the
+    /// active container. Remote media is returned as a bounded canonical data URL
+    /// so generation never performs a second network fetch.
+    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message]
 
     /// Runtime-usable descriptor for the active model, if this service owns one.
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor?
@@ -131,7 +132,9 @@ public extension AFMMLXOpenAIChatServing {
         )
     }
 
-    func preflightMediaRequest(model: String, messages: [Message]) throws {}
+    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message] {
+        messages
+    }
 
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor? { nil }
 }

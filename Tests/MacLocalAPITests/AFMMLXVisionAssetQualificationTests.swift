@@ -146,6 +146,69 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertFalse(qualification.isAssetUsable)
     }
 
+    func testMXFPPackedVisionWeightRequiresScaleTensor() throws {
+        let directory = try makeModelDirectory()
+        let packedWeight = "vision_tower.blocks.0.attn.proj.weight"
+        try rewriteVisionShard(
+            in: directory,
+            metadata: [packedWeight: ("U32", [1])]
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testMXFPPackedVisionWeightWithScaleQualifiesWithoutAffineBiases() throws {
+        let directory = try makeModelDirectory()
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [1]),
+                "\(base).scales": ("U8", [1]),
+            ]
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.isAssetUsable)
+        XCTAssertEqual(qualification.visionTensorCount, 34)
+    }
+
+    func testAffinePackedVisionWeightRequiresScalesAndBiases() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        config["quantization"] = ["group_size": 32, "bits": 4, "mode": "affine"]
+        config["quantization_config"] = [
+            "group_size": 32, "bits": 4, "mode": "affine",
+        ]
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [1]),
+                "\(base).scales": ("F16", [1]),
+            ]
+        )
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
+
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales", "\(base).biases"],
+            metadata: [
+                "\(base).weight": ("U32", [1]),
+                "\(base).scales": ("F16", [1]),
+                "\(base).biases": ("F16", [1]),
+            ]
+        )
+        XCTAssertTrue(try qualify(directory).isAssetUsable)
+    }
+
     func testMalformedQwenProcessorMetadataIsNotUsable() throws {
         let directory = try makeModelDirectory()
         try Self.writeJSON(
@@ -256,6 +319,28 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         return directory
     }
 
+    private func rewriteVisionShard(
+        in directory: URL,
+        additionalNames: Set<String> = [],
+        metadata: [String: (dtype: String, shape: [Int])]
+    ) throws {
+        let tensorNames = Self.requiredVisionTensorNames(depth: 2)
+            .union(["language_model.layers.0.weight"])
+            .union(additionalNames)
+        let weightMap = Dictionary(uniqueKeysWithValues: tensorNames.map {
+            ($0, "model-00001-of-00001.safetensors")
+        })
+        try Self.writeJSON(
+            ["weight_map": weightMap],
+            to: directory.appendingPathComponent("model.safetensors.index.json")
+        )
+        try Self.writeSafetensorHeader(
+            tensorNames: tensorNames,
+            metadata: metadata,
+            to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        )
+    }
+
     private static func writeJSON(_ object: Any, to url: URL) throws {
         try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
             .write(to: url)
@@ -263,17 +348,26 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
 
     private static func writeSafetensorHeader(
         tensorNames: Set<String>,
+        metadata: [String: (dtype: String, shape: [Int])] = [:],
         to url: URL
     ) throws {
         var offset = 0
         let entries = Dictionary(uniqueKeysWithValues: tensorNames.sorted().map { name in
-            defer { offset += 2 }
+            let tensor = metadata[name] ?? ("F16", [1])
+            let byteWidth: Int
+            switch tensor.dtype {
+            case "U8", "I8": byteWidth = 1
+            case "U32", "I32": byteWidth = 4
+            default: byteWidth = 2
+            }
+            let byteCount = tensor.shape.reduce(byteWidth, *)
+            defer { offset += byteCount }
             return (
                 name,
                 [
-                    "dtype": "F16",
-                    "shape": [1],
-                    "data_offsets": [offset, offset + 2],
+                    "dtype": tensor.dtype,
+                    "shape": tensor.shape,
+                    "data_offsets": [offset, offset + byteCount],
                 ] as [String: Any]
             )
         })

@@ -91,9 +91,6 @@ public enum AFMMLXRequestMediaPolicy {
             if mediaURL.lowercased().hasPrefix("data:video/") {
                 return .video
             }
-            if let url = URL(string: mediaURL), videoExtensions.contains(url.pathExtension.lowercased()) {
-                return .video
-            }
             return .image
         default:
             return nil
@@ -114,6 +111,4 @@ public enum AFMMLXRequestMediaPolicy {
                 && videoModelTypes.contains(architecture.canonicalModelType)
         }
     }
-
-    private static let videoExtensions: Set<String> = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
 }

@@ -106,7 +106,7 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         XCTAssertEqual(result.content, "<think>thought</think>captured")
     }
 
-    func testFixedAdapterUsesRuntimeQualifiedDescriptor() throws {
+    func testFixedAdapterUsesRuntimeQualifiedDescriptor() async throws {
         let declared = AFMModelDescriptor(
             providerID: "mlx",
             modelID: "dynamic",
@@ -135,8 +135,8 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             adapter.loadedModelDescriptor(model: "dynamic")?.capabilities.contains(.vision)
                 == true
         )
-        XCTAssertThrowsError(
-            try adapter.preflightMediaRequest(
+        do {
+            _ = try await adapter.preflightMediaRequest(
                 model: "dynamic",
                 messages: [
                     Message(
@@ -146,7 +146,7 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
                                 type: "image_url",
                                 text: nil,
                                 image_url: ImageURL(
-                                    url: "data:image/png;base64,aQ==",
+                                    url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlK3eQAAAAASUVORK5CYII=",
                                     detail: nil
                                 )
                             )
@@ -154,7 +154,8 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
                     )
                 ]
             )
-        ) { error in
+            XCTFail("Expected unsupported media input")
+        } catch {
             guard case .unsupportedMediaInput = error as? MLXServiceError else {
                 return XCTFail("unexpected error: \(error)")
             }

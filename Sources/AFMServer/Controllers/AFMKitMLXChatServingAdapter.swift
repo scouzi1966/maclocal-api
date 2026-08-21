@@ -64,42 +64,39 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         service?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
     }
 
-    func preflightMediaRequest(model: String, messages: [Message]) throws {
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> [Message] {
         if let service {
-            try service.preflightMediaRequest(model: model, messages: messages)
-            return
+            return try await service.preflightMediaRequest(model: model, messages: messages)
         }
 
+        let resolved: AFMMLXResolvedMediaRequest
         do {
-            try AFMMLXMediaSecurityPolicy.validateReferences(in: messages)
+            resolved = try await AFMMLXMediaSecurityPolicy.resolveRequest(in: messages)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw MLXServiceError.invalidMediaInput(error.localizedDescription)
         }
-        guard let descriptor = fixedModel?.descriptor else { return }
-        for message in messages {
-            guard let content = message.content, case .parts(let parts) = content else {
-                continue
+        guard let descriptor = fixedModel?.descriptor else { return resolved.messages }
+        for kind in resolved.mediaKinds {
+            let supported: Bool
+            switch kind {
+            case .image, .video:
+                supported = descriptor.capabilities.contains(.vision)
+            case .audio:
+                supported = descriptor.capabilities.contains(.audioInput)
             }
-            for part in parts {
-                guard let kind = AFMMLXRequestMediaPolicy.kind(
-                    contentPartType: part.type,
-                    mediaURL: part.image_url?.url
-                ) else { continue }
-                let supported: Bool
-                switch kind {
-                case .image, .video:
-                    supported = descriptor.capabilities.contains(.vision)
-                case .audio:
-                    supported = descriptor.capabilities.contains(.audioInput)
-                }
-                if !supported {
-                    throw MLXServiceError.unsupportedMediaInput(
-                        model: fixedModelID ?? model,
-                        kind: kind.label
-                    )
-                }
+            if !supported {
+                throw MLXServiceError.unsupportedMediaInput(
+                    model: fixedModelID ?? model,
+                    kind: kind.label
+                )
             }
         }
+        return resolved.messages
     }
 
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {
