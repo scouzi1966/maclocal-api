@@ -171,6 +171,63 @@ final class TUIArtifactActionsTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: victim, encoding: .utf8), "safe")
     }
 
+    func testOverwriteRestrictsExistingAndReplacementFilesToOwnerOnly() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let target = root.appendingPathComponent("output")
+        try Data("old".utf8).write(to: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: target.path)
+
+        try TUIArtifactActions.save(Data("new".utf8), to: target, overwrite: true)
+
+        let permissions = try FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o600)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "new")
+    }
+
+    func testAtomicOverwriteDoesNotFollowTargetSwappedToSymlinkAfterValidation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let target = root.appendingPathComponent("output")
+        let victim = root.appendingPathComponent("victim")
+        try Data("old".utf8).write(to: target)
+        try Data("safe".utf8).write(to: victim)
+
+        try TUIArtifactActions.save(
+            Data("replacement".utf8),
+            to: target,
+            overwrite: true,
+            beforeAtomicInstall: {
+                try FileManager.default.removeItem(at: target)
+                try FileManager.default.createSymbolicLink(at: target, withDestinationURL: victim)
+            }
+        )
+
+        XCTAssertEqual(try String(contentsOf: victim, encoding: .utf8), "safe")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "replacement")
+        var info = stat()
+        XCTAssertEqual(lstat(target.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFREG)
+        XCTAssertEqual(info.st_mode & 0o777, 0o600)
+    }
+
+    func testOverwriteRejectsNonRegularTargetsWithoutBlocking() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fifo = root.appendingPathComponent("pipe")
+        XCTAssertEqual(mkfifo(fifo.path, S_IRUSR | S_IWUSR), 0)
+
+        XCTAssertThrowsError(
+            try TUIArtifactActions.save(Data("unsafe".utf8), to: fifo, overwrite: true)
+        )
+        var info = stat()
+        XCTAssertEqual(lstat(fifo.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFIFO)
+    }
+
     func testJavaScriptBrowserArtifactHasLocalCSPAndDoesNotRunDuringPreparation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

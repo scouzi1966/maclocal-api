@@ -29,26 +29,117 @@ public enum TUIArtifactActions {
     }
 
     public static func save(_ data: Data, to url: URL, overwrite: Bool = false) throws {
+        try save(data, to: url, overwrite: overwrite, beforeAtomicInstall: nil)
+    }
+
+    static func save(
+        _ data: Data,
+        to url: URL,
+        overwrite: Bool,
+        beforeAtomicInstall: (() throws -> Void)?
+    ) throws {
         let parent = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        var info = stat()
-        if lstat(url.path, &info) == 0 {
-            if !overwrite { throw TUIArtifactError.exists(url.path) }
-            guard (info.st_mode & S_IFMT) == S_IFREG else { throw TUIArtifactError.invalidPath(url.path) }
+
+        var existingDescriptor: Int32 = -1
+        if overwrite {
+            existingDescriptor = open(
+                url.path,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+            if existingDescriptor >= 0 {
+                do {
+                    try verifyRegularAndRestrictPermissions(
+                        descriptor: existingDescriptor,
+                        path: url.path
+                    )
+                } catch {
+                    close(existingDescriptor)
+                    throw error
+                }
+            } else if errno != ENOENT {
+                throw TUIArtifactError.invalidPath(url.path)
+            }
         }
-        let flags = O_WRONLY | O_CREAT | (overwrite ? O_TRUNC : O_EXCL) | O_NOFOLLOW
-        let descriptor = open(url.path, flags, S_IRUSR | S_IWUSR)
+        defer {
+            if existingDescriptor >= 0 { close(existingDescriptor) }
+        }
+
+        let temporary = parent.appendingPathComponent(".afm-write-\(UUID().uuidString).tmp")
+        let descriptor = open(
+            temporary.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
         guard descriptor >= 0 else {
-            if errno == EEXIST { throw TUIArtifactError.exists(url.path) }
             throw TUIArtifactError.invalidPath(url.path)
         }
-        defer { close(descriptor) }
+        var descriptorIsOpen = true
+        defer {
+            if descriptorIsOpen { close(descriptor) }
+            _ = unlink(temporary.path)
+        }
+
+        do {
+            try verifyRegularAndRestrictPermissions(
+                descriptor: descriptor,
+                path: temporary.path
+            )
+            try write(data, to: descriptor)
+            guard fsync(descriptor) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            guard close(descriptor) == 0 else {
+                descriptorIsOpen = false
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            descriptorIsOpen = false
+        } catch {
+            throw error
+        }
+
+        try beforeAtomicInstall?()
+        if overwrite {
+            guard rename(temporary.path, url.path) == 0 else {
+                throw TUIArtifactError.invalidPath(url.path)
+            }
+        } else {
+            guard link(temporary.path, url.path) == 0 else {
+                if errno == EEXIST { throw TUIArtifactError.exists(url.path) }
+                throw TUIArtifactError.invalidPath(url.path)
+            }
+            guard unlink(temporary.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+    }
+
+    private static func verifyRegularAndRestrictPermissions(
+        descriptor: Int32,
+        path: String
+    ) throws {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            throw TUIArtifactError.invalidPath(path)
+        }
+    }
+
+    private static func write(_ data: Data, to descriptor: Int32) throws {
         try data.withUnsafeBytes { bytes in
             guard let start = bytes.baseAddress else { return }
             var offset = 0
             while offset < bytes.count {
-                let count = Darwin.write(descriptor, start.advanced(by: offset), bytes.count - offset)
-                guard count > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                let count = Darwin.write(
+                    descriptor,
+                    start.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
                 offset += count
             }
         }
