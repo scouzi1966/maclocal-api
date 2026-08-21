@@ -6,6 +6,50 @@ public enum AFMMLXDFlash2Requirement: String, Codable, CaseIterable, Sendable {
     case required
 }
 
+/// Immutable result of validating a DFlash 2 drafter against a target checkpoint.
+/// Keeping the target configuration bytes with the runtime prevents callers from
+/// accidentally reusing a validated drafter with a different model container.
+public struct AFMMLXDFlash2Preflight: Equatable, Sendable {
+    public let configuration: AFMMLXDFlash2Configuration
+    public let targetConfigurationData: Data
+    public let blockSize: Int
+
+    public init(
+        configuration: AFMMLXDFlash2Configuration,
+        targetConfigurationData: Data,
+        blockSize: Int
+    ) {
+        self.configuration = configuration
+        self.targetConfigurationData = targetConfigurationData
+        self.blockSize = blockSize
+    }
+}
+
+public enum AFMMLXDFlash2PreflightValidator {
+    public static func validate(
+        targetDirectory: URL,
+        drafterDirectory: URL,
+        requestedBlockSize: Int?
+    ) throws -> AFMMLXDFlash2Preflight {
+        let configuration = try AFMMLXDFlash2Configuration(directory: drafterDirectory)
+        let targetConfigurationData = try Data(
+            contentsOf: targetDirectory.appendingPathComponent("config.json"))
+        guard let targetMetadata = try JSONSerialization.jsonObject(
+            with: targetConfigurationData) as? [String: Any] else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "target config.json must contain an object")
+        }
+
+        try configuration.validateTarget(metadata: targetMetadata)
+        try configuration.validateWeights(in: drafterDirectory)
+        return AFMMLXDFlash2Preflight(
+            configuration: configuration,
+            targetConfigurationData: targetConfigurationData,
+            blockSize: try configuration.effectiveBlockSize(requested: requestedBlockSize)
+        )
+    }
+}
+
 public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
     public static let architecture = "DFlash2DraftModel"
 

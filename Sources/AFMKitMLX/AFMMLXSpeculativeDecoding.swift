@@ -1,5 +1,6 @@
 import Foundation
 import AFMKitCore
+import AFMOpenAICompat
 
 public enum AFMMLXSpeculativeDecodingMode: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case off
@@ -197,6 +198,22 @@ public enum AFMMLXSpeculativeRuntimeKind: Equatable, Sendable {
     case mtp
     case eagle3
     case dflash2
+}
+
+public enum AFMMLXBatchSpeculativePolicy {
+    /// Batch rows stay on deterministic autoregressive scheduling until a
+    /// row-aligned speculative verifier exists. Required requests fail closed;
+    /// preferred requests carry a stable fallback reason into telemetry.
+    public static func forceAutoregressive(
+        _ options: SpeculativeDecodingOptions?
+    ) -> SpeculativeDecodingOptions {
+        SpeculativeDecodingOptions(
+            mode: options?.mode,
+            requirement: options?.requirement,
+            drafter: options?.drafter,
+            maxDraftTokens: options?.maxDraftTokens,
+            forceAutoregressiveReason: "batch")
+    }
 }
 
 public enum AFMMLXSpeculativeGenerationPath: String, Equatable, Sendable {

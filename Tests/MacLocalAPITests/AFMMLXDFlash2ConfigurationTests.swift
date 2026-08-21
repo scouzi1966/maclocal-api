@@ -20,18 +20,37 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         let target = DeterministicDFlash2Target()
         let generator = try DFlash2Generator(target: target, draft: draft, blockSize: 4)
 
-        let result = generator.generate(promptIDs: [1], maxTokens: 4)
+        let result = try generator.generate(promptIDs: [1], maxTokens: 4)
         XCTAssertEqual(result.tokenIDs, [5, 6, 7, 8])
         XCTAssertEqual(result.statistics.emittedTokens, 4)
         XCTAssertGreaterThan(result.statistics.verificationCycles, 0)
 
-        let cancelled = generator.generate(
-            promptIDs: [1], maxTokens: 4, shouldStop: { true })
-        XCTAssertEqual(cancelled.tokenIDs, [])
+        XCTAssertThrowsError(try generator.generate(
+            promptIDs: [1], maxTokens: 4, shouldStop: { true })) {
+            XCTAssertTrue($0 is CancellationError)
+        }
+
+        var partiallyEmitted = 0
+        XCTAssertThrowsError(try generator.generate(
+            promptIDs: [1],
+            maxTokens: 4,
+            onToken: { _ in
+                partiallyEmitted += 1
+                return partiallyEmitted < 2
+            })) {
+            XCTAssertTrue($0 is CancellationError)
+        }
+        XCTAssertEqual(partiallyEmitted, 2)
+
+        let secondaryEOS = try generator.generate(
+            promptIDs: [1], maxTokens: 4, stopTokenIDs: [7])
+        XCTAssertEqual(secondaryEOS.tokenIDs, [5, 6])
+        XCTAssertEqual(secondaryEOS.statistics.emittedTokens, 2)
     }
 
     private func tinyDraftModel() throws -> DFlash2DraftModel {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -91,12 +110,14 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         let disabled = try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(mode: "off"))
         XCTAssertFalse(disabled.permitsRuntime)
+        XCTAssertFalse(disabled.permitsOtherRuntimes)
         XCTAssertFalse(disabled.requiresRuntime)
 
         service.dflash2Requirement = .required
         let explicitlyDisabled = try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(mode: "off"))
         XCTAssertFalse(explicitlyDisabled.permitsRuntime)
+        XCTAssertFalse(explicitlyDisabled.permitsOtherRuntimes)
         XCTAssertFalse(explicitlyDisabled.requiresRuntime)
 
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
@@ -116,6 +137,144 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             SpeculativeDecodingOptions(mode: "eagle3")))
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(mode: "off", requirement: "required")))
+    }
+
+    func testServiceSamplingCompatibilityPreservesNormalDefaultsAndPenalties() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+
+        XCTAssertEqual(
+            service.speculativeRequestCompatibility(
+                temperature: nil, topP: nil, repetitionPenalty: nil,
+                topK: nil, minP: nil, presencePenalty: nil,
+                hasTools: false, hasResponseFormat: false,
+                wantsLogprobs: false, hasStopSequences: false).denialReason,
+            "sampling")
+        XCTAssertTrue(service.speculativeRequestCompatibility(
+            temperature: 0, topP: 1, repetitionPenalty: 1,
+            topK: 0, minP: 0, presencePenalty: 0,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).isEligible)
+        XCTAssertEqual(service.speculativeRequestCompatibility(
+            temperature: 0, topP: 1, repetitionPenalty: 1.1,
+            topK: 0, minP: 0, presencePenalty: 0,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).denialReason, "penalties")
+        XCTAssertEqual(service.speculativeRequestCompatibility(
+            temperature: 0, topP: 1, repetitionPenalty: 1,
+            topK: 0, minP: 0, presencePenalty: 0.4,
+            hasTools: false, hasResponseFormat: false,
+            wantsLogprobs: false, hasStopSequences: false).denialReason, "penalties")
+    }
+
+    func testExplicitPreferredAndOffDoNotSelectOtherSpeculativeRuntimes() throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.dflash2Drafter = "incoai/loaded"
+
+        let preferred = try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(requirement: "preferred"))
+        XCTAssertTrue(preferred.permitsRuntime)
+        XCTAssertFalse(preferred.permitsOtherRuntimes)
+
+        let off = try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "off"))
+        XCTAssertFalse(off.permitsRuntime)
+        XCTAssertFalse(off.permitsOtherRuntimes)
+        XCTAssertEqual(off.denialReason, "disabled")
+    }
+
+    func testServiceBuildsCompleteEOSSet() {
+        let eos = MLXModelService.completeEOSTokenIDs(
+            configuredTokenIDs: [10, 11],
+            tokenizerTokenID: 12,
+            extraTokens: ["<end>", "<missing>"],
+            tokenID: { $0 == "<end>" ? 13 : nil })
+        XCTAssertEqual(eos, [10, 11, 12, 13])
+    }
+
+    func testServiceInstancesHaveIndependentDFlashRuntimeScopes() {
+        let first = MLXModelService(resolver: MLXCacheResolver())
+        let second = MLXModelService(resolver: MLXCacheResolver())
+        XCTAssertNotEqual(first.dflash2RuntimeScopeID, second.dflash2RuntimeScopeID)
+
+        first.dflash2Drafter = "incoai/first"
+        second.dflash2Drafter = "incoai/second"
+        XCTAssertNoThrow(try first.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(drafter: "incoai/first")))
+        XCTAssertNoThrow(try second.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(drafter: "incoai/second")))
+        XCTAssertThrowsError(try first.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(drafter: "incoai/second")))
+    }
+
+    func testPrefixConcurrencyAndBatchFallbackReasonsAreStable() throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        service.dflash2Drafter = "incoai/loaded"
+        service.enablePrefixCaching = true
+        XCTAssertEqual(service.dflash2StartupFallbackReason(), "prefix_cache")
+        service.maxConcurrent = 2
+        XCTAssertEqual(service.dflash2StartupFallbackReason(), "concurrency")
+
+        let forced = AFMMLXBatchSpeculativePolicy.forceAutoregressive(
+            SpeculativeDecodingOptions(mode: "dflash2", requirement: "preferred"))
+        let preferred = try service.dflash2RequestPolicy(forced)
+        XCTAssertFalse(preferred.permitsRuntime)
+        XCTAssertFalse(preferred.permitsOtherRuntimes)
+        XCTAssertFalse(preferred.requiresRuntime)
+        XCTAssertEqual(preferred.denialReason, "batch")
+
+        let required = try service.dflash2RequestPolicy(
+            AFMMLXBatchSpeculativePolicy.forceAutoregressive(
+                SpeculativeDecodingOptions(mode: "dflash2", requirement: "required")))
+        XCTAssertTrue(required.requiresRuntime)
+        XCTAssertEqual(required.denialReason, "batch")
+    }
+
+    func testPromptOpenedReasoningBoundaryIsRestoredForNonStreamingOutput() {
+        let restored = MLXModelService.restorePromptOpenedReasoningBoundary(
+            generatedText: "private reasoning</think>visible answer",
+            promptSuffix: "assistant\n<think>\n",
+            startTag: "<think>",
+            endTag: "</think>")
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            maximumResponseTokens: nil)
+        let events = translator.consume(StreamChunk(text: restored)) + translator.finish()
+        let visible = events.compactMap { event -> String? in
+            guard case .responseText(_, let delta, _) = event else { return nil }
+            return delta
+        }.joined()
+        let reasoning = events.compactMap { event -> String? in
+            guard case .reasoningText(_, let delta, _) = event else { return nil }
+            return delta
+        }.joined()
+        XCTAssertEqual(reasoning, "private reasoning")
+        XCTAssertEqual(visible, "visible answer")
+    }
+
+    func testSpeculativeCompletionPopulatesBaseRequestTelemetry() {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        StatsAggregator.shared.reset()
+        defer { StatsAggregator.shared.reset() }
+        StatsAggregator.shared.requestStarted()
+        service.recordSpeculativeRequestCompletion(
+            queuedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 100.3),
+            promptTokens: 12,
+            completionTokens: 4,
+            promptTime: 0.1,
+            maxTokens: 10)
+
+        let snapshot = StatsAggregator.shared.snapshot()
+        XCTAssertEqual(snapshot.promptTokensTotal, 12)
+        XCTAssertEqual(snapshot.genTokensTotal, 4)
+        XCTAssertEqual(snapshot.requestsStartedTotal, 1)
+        XCTAssertEqual(snapshot.requestsCompletedTotal, 1)
+        XCTAssertEqual(snapshot.requestSuccessByReason["stop"], 1)
+        XCTAssertEqual(snapshot.promptTokens.count, 1)
+        XCTAssertEqual(snapshot.generationTokens.count, 1)
+        XCTAssertEqual(snapshot.prefillTime.count, 1)
+        XCTAssertEqual(snapshot.decodeTime.count, 1)
     }
 
     func testQwenReleasedContractValidatesByMetadata() throws {
@@ -276,6 +435,58 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertThrowsError(try config.validateWeights(in: directory)) {
             XCTAssertTrue($0.localizedDescription.contains("fc.weight"))
         }
+    }
+
+    func testSharedRuntimePreflightPreservesValidatedTargetContract() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        let draft = root.appendingPathComponent("draft", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: draft, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var draftObject = draftMetadata(
+            hidden: 16,
+            targetLayers: 2,
+            vocabulary: 32,
+            block: 4,
+            mask: 31,
+            targetLayerIDs: [1])
+        draftObject["eos_token_id"] = 30
+        draftObject["pad_token_id"] = 30
+        try JSONSerialization.data(withJSONObject: draftObject, options: [.sortedKeys])
+            .write(to: draft.appendingPathComponent("config.json"))
+        let configuration = try AFMMLXDFlash2Configuration(metadata: draftObject)
+        try writeSafetensorHeader(
+            shapes: configuration.expectedTensorShapes(),
+            to: draft.appendingPathComponent("model.safetensors"))
+
+        let targetObject: [String: Any] = [
+            "model_type": "qwen3_5",
+            "generation_config": ["eos_token_id": [30]],
+            "text_config": [
+                "model_type": "qwen3_5_text",
+                "hidden_size": 16,
+                "num_hidden_layers": 2,
+                "vocab_size": 32,
+                "max_position_embeddings": 262_144,
+                "eos_token_id": 30,
+                "rope_parameters": ["rope_theta": 10_000_000],
+            ],
+        ]
+        let targetData = try JSONSerialization.data(
+            withJSONObject: targetObject, options: [.sortedKeys])
+        try targetData.write(to: target.appendingPathComponent("config.json"))
+
+        let preflight = try AFMMLXDFlash2PreflightValidator.validate(
+            targetDirectory: target,
+            drafterDirectory: draft,
+            requestedBlockSize: 3)
+        XCTAssertEqual(preflight.blockSize, 3)
+        XCTAssertEqual(preflight.targetConfigurationData, targetData)
+        XCTAssertEqual(preflight.configuration.hiddenSize, 16)
     }
 
     func testOpenAIRequestDecodesNeutralSpeculativeControls() throws {

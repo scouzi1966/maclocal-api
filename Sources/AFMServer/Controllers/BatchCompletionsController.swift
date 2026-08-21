@@ -210,7 +210,8 @@ struct BatchCompletionsController: RouteCollection {
                 stop: chatReq.stop,
                 responseFormat: effectiveResponseFormat,
                 chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs,
-                speculativeDecoding: chatReq.speculativeDecoding,
+                speculativeDecoding: AFMMLXBatchSpeculativePolicy.forceAutoregressive(
+                    chatReq.speculativeDecoding),
                 preserveStructuralTags: false,
                 requestId: nil
             )

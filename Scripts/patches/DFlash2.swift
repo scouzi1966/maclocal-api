@@ -33,6 +33,7 @@ public struct DFlash2GenerationStatistics: Sendable {
     public let acceptedDraftTokens: Int
     public let emittedTokens: Int
     public let verificationCycles: Int
+    public let prefillSeconds: Double
     public let draftSeconds: Double
     public let verificationSeconds: Double
     public let rollbackSeconds: Double
@@ -459,19 +460,23 @@ public final class DFlash2Generator {
         stopTokenIDs: Set<Int> = [],
         shouldStop: () -> Bool = { false },
         onToken: ((Int) -> Bool)? = nil
-    ) -> DFlash2GenerationResult {
+    ) throws -> DFlash2GenerationResult {
         guard !promptIDs.isEmpty, maxTokens > 0 else {
             return DFlash2GenerationResult(
                 tokenIDs: [],
                 statistics: DFlash2GenerationStatistics(
                     draftedTokens: 0, acceptedDraftTokens: 0, emittedTokens: 0,
-                    verificationCycles: 0, draftSeconds: 0,
+                    verificationCycles: 0, prefillSeconds: 0, draftSeconds: 0,
                     verificationSeconds: 0, rollbackSeconds: 0))
         }
 
         let cache = target.dflash2NewCache()
+        if shouldStop() { throw CancellationError() }
+        let prefillStart = DispatchTime.now().uptimeNanoseconds
         let prefill = target.dflash2Forward(
             array(promptIDs), captureLayerIDs: draft.config.targetLayerIDs, cache: cache)
+        eval(prefill.hidden, prefill.logits)
+        let prefillTime = elapsedSeconds(since: prefillStart)
         var context = prefill.hidden
         var staged = greedy(prefill.logits, position: prefill.logits.dim(1) - 1)
         var output: [Int] = []
@@ -483,15 +488,16 @@ public final class DFlash2Generator {
         var rollbackTime = 0.0
         var stopped = false
 
-        func emit(_ token: Int) -> Bool {
-            if shouldStop() { return false }
+        func emit(_ token: Int) throws -> Bool {
+            if shouldStop() { throw CancellationError() }
+            if stopTokenIDs.contains(token) { return false }
             output.append(token)
-            if let onToken, !onToken(token) { return false }
-            return output.count < maxTokens && !stopTokenIDs.contains(token)
+            if let onToken, !onToken(token) { throw CancellationError() }
+            return output.count < maxTokens
         }
 
         while output.count < maxTokens, !stopped {
-            guard emit(staged) else { break }
+            guard try emit(staged) else { break }
             let remaining = maxTokens - output.count
             if remaining <= 0 { break }
 
@@ -536,7 +542,7 @@ public final class DFlash2Generator {
             rollbackTime += elapsedSeconds(since: rollbackStart)
 
             for token in proposal.prefix(accepted) {
-                if !emit(token) {
+                if try emit(token) == false {
                     stopped = true
                     break
                 }
@@ -545,6 +551,8 @@ public final class DFlash2Generator {
             staged = greedy(verified.logits, position: accepted)
         }
 
+        if shouldStop() { throw CancellationError() }
+
         return DFlash2GenerationResult(
             tokenIDs: output,
             statistics: DFlash2GenerationStatistics(
@@ -552,6 +560,7 @@ public final class DFlash2Generator {
                 acceptedDraftTokens: acceptedCount,
                 emittedTokens: output.count,
                 verificationCycles: cycles,
+                prefillSeconds: prefillTime,
                 draftSeconds: draftTime,
                 verificationSeconds: verifyTime,
                 rollbackSeconds: rollbackTime))

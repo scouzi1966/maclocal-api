@@ -117,6 +117,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             return try await runtime.load(
                 progress: { progress?($0.fractionCompleted) }
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw AFMError.loadingFailed(error.localizedDescription)
         }
@@ -203,6 +205,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 },
                 metadata: metadata
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as AFMError {
             throw error
         } catch {
@@ -654,7 +658,8 @@ extension AFMRequest {
             mode: string("mode"),
             requirement: string("requirement"),
             drafter: string("drafter"),
-            maxDraftTokens: integer("maxDraftTokens")
+            maxDraftTokens: integer("maxDraftTokens"),
+            forceAutoregressiveReason: string("forceAutoregressiveReason")
         )
     }
 

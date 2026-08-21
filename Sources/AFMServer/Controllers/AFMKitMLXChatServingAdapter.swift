@@ -664,6 +664,9 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             if let maxDraftTokens = speculativeDecoding.maxDraftTokens {
                 speculative["maxDraftTokens"] = .integer(maxDraftTokens)
             }
+            if let forceAutoregressiveReason = speculativeDecoding.forceAutoregressiveReason {
+                speculative["forceAutoregressiveReason"] = .string(forceAutoregressiveReason)
+            }
             metadata["speculativeDecoding"] = .object(speculative)
         }
         return GenerationConfig(

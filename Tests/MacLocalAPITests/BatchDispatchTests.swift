@@ -39,6 +39,7 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
     private(set) var ensureBatchModeCallCount = 0
     private(set) var releaseBatchReferenceCallCount = 0
     private(set) var generateStreamingCallCount = 0
+    private(set) var lastSpeculativeDecoding: SpeculativeDecodingOptions?
     private(set) var reserveSlotCallCount = 0
     private(set) var releaseSlotCallCount = 0
 
@@ -171,6 +172,60 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
             responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs
         )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?
+    ) async throws -> AFMMLXChatStreamingResult {
+        _lock.withLock {
+            lastSpeculativeDecoding = speculativeDecoding
+        }
+        if speculativeDecoding?.forceAutoregressiveReason != nil,
+           speculativeDecoding?.requirement?.lowercased() == "required" {
+            throw NSError(
+                domain: "AFMMLXSpeculativeDecoding",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Required speculative decoding conflicts with batch autoregressive execution"])
+        }
+        return try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs)
     }
 
     static func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
@@ -1163,6 +1218,42 @@ final class BatchCompletionsControllerTests: XCTestCase {
         ) { res async in
             XCTAssertContains(res.body.string, "data: [DONE]")
         }
+    }
+
+    func testPreferredSpeculativeRequestIsForcedAutoregressive() async throws {
+        let json = """
+        {"requests":[{"custom_id":"preferred","body":{"model":"m","temperature":0,"messages":[{"role":"user","content":"hi"}],"speculative_decoding":{"mode":"dflash2","requirement":"preferred"}}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/batch/completions", headers: headers, body: ByteBuffer(string: json)
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, "\"preferred\"")
+        }
+
+        XCTAssertEqual(service.lastSpeculativeDecoding?.mode, "dflash2")
+        XCTAssertEqual(service.lastSpeculativeDecoding?.requirement, "preferred")
+        XCTAssertEqual(service.lastSpeculativeDecoding?.forceAutoregressiveReason, "batch")
+    }
+
+    func testRequiredSpeculativeRequestReportsBatchConflict() async throws {
+        let json = """
+        {"requests":[{"custom_id":"required","body":{"model":"m","temperature":0,"messages":[{"role":"user","content":"hi"}],"speculative_decoding":{"mode":"dflash2","requirement":"required"}}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/batch/completions", headers: headers, body: ByteBuffer(string: json)
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, "batch autoregressive execution")
+        }
+
+        XCTAssertEqual(service.lastSpeculativeDecoding?.forceAutoregressiveReason, "batch")
     }
 
     func testNonStreamingResponseContainsCustomId() async throws {

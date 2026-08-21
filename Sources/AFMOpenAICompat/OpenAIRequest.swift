@@ -120,17 +120,23 @@ public struct SpeculativeDecodingOptions: Codable, Sendable, Equatable {
     public let requirement: String?
     public let drafter: String?
     public let maxDraftTokens: Int?
+    /// Internal execution constraint used by server-owned workflows such as
+    /// deterministic batch dispatch. It is intentionally not part of the
+    /// OpenAI-compatible wire representation.
+    public var forceAutoregressiveReason: String? = nil
 
     public init(
         mode: String? = nil,
         requirement: String? = nil,
         drafter: String? = nil,
-        maxDraftTokens: Int? = nil
+        maxDraftTokens: Int? = nil,
+        forceAutoregressiveReason: String? = nil
     ) {
         self.mode = mode
         self.requirement = requirement
         self.drafter = drafter
         self.maxDraftTokens = maxDraftTokens
+        self.forceAutoregressiveReason = forceAutoregressiveReason
     }
 
     public enum CodingKeys: String, CodingKey {

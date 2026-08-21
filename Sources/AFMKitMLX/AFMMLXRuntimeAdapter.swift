@@ -6,12 +6,22 @@ import MLXLLM
 import MLXVLM
 import Tokenizers
 
+public final class AFMMLXDFlash2Runtime: @unchecked Sendable {
+    public let draft: DFlash2DraftModel
+    public let preflight: AFMMLXDFlash2Preflight
+
+    init(draft: DFlash2DraftModel, preflight: AFMMLXDFlash2Preflight) {
+        self.draft = draft
+        self.preflight = preflight
+    }
+}
+
 public enum AFMMLXSpeculativeRuntime {
     case none
     case mtpLLM(Qwen3_5MoEMTPGenerator)
     case mtpVLM(MTPGenerator)
     case eagle3(Gemma4Eagle3Drafter)
-    case dflash2(DFlash2DraftModel, blockSize: Int)
+    case dflash2(AFMMLXDFlash2Runtime)
 
     public var kind: AFMMLXSpeculativeRuntimeKind {
         switch self {
@@ -466,12 +476,37 @@ public struct AFMMLXRuntimeAdapter: Sendable {
         return .eagle3(drafter)
     }
 
-    public nonisolated func makeDFlash2Runtime(
+    public func makeDFlash2Runtime(
+        container: ModelContainer,
+        targetDirectory: URL,
         drafterDirectory: URL,
         blockSize: Int
-    ) throws -> AFMMLXSpeculativeRuntime {
+    ) async throws -> AFMMLXSpeculativeRuntime {
+        let preflight = try AFMMLXDFlash2PreflightValidator.validate(
+            targetDirectory: targetDirectory,
+            drafterDirectory: drafterDirectory,
+            requestedBlockSize: blockSize)
         let draft = try DFlash2DraftModel.load(directory: drafterDirectory.path)
-        return .dflash2(draft, blockSize: blockSize)
+        let targetCompatible = try await container.perform { context in
+            let loadedTargetData = try Data(contentsOf: context.configuration
+                .modelDirectory()
+                .appendingPathComponent("config.json"))
+            guard loadedTargetData == preflight.targetConfigurationData else {
+                throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                    "validated target metadata does not match the loaded model container")
+            }
+            guard let target = context.model as? any DFlash2Target else { return false }
+            _ = try DFlash2Generator(
+                target: target,
+                draft: draft,
+                blockSize: preflight.blockSize)
+            return true
+        }
+        guard targetCompatible else {
+            throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                "loaded target runtime does not expose DFlash2 hidden-state and rollback hooks")
+        }
+        return .dflash2(AFMMLXDFlash2Runtime(draft: draft, preflight: preflight))
     }
 
     @MainActor public func runSpeculativeGeneration(
@@ -489,7 +524,9 @@ public struct AFMMLXRuntimeAdapter: Sendable {
             let promptIds = Self.extractTokenArray(input)
             guard !promptIds.isEmpty else { return 0 }
 
-            let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+            let eos = Self.completeEOSTokenIDs(
+                configuration: context.configuration,
+                tokenizer: context.tokenizer)
             var allTokens: [Int] = []
             var previousText = ""
 
@@ -526,11 +563,13 @@ public struct AFMMLXRuntimeAdapter: Sendable {
                     blockSize: 2,
                     onToken: emit
                 )
-            case .dflash2(let draft, let blockSize):
+            case .dflash2(let runtime):
                 guard let target = context.model as? any DFlash2Target else { return 0 }
                 let generator = try DFlash2Generator(
-                    target: target, draft: draft, blockSize: blockSize)
-                let result = generator.generate(
+                    target: target,
+                    draft: runtime.draft,
+                    blockSize: runtime.preflight.blockSize)
+                let result = try generator.generate(
                     promptIDs: promptIds,
                     maxTokens: maxTokens,
                     stopTokenIDs: eos,
@@ -550,6 +589,10 @@ public struct AFMMLXRuntimeAdapter: Sendable {
                 return 0
             }
 
+            try Task.checkCancellation()
+            if shouldStop() {
+                throw CancellationError()
+            }
             return allTokens.count
         }
     }
@@ -567,5 +610,21 @@ public struct AFMMLXRuntimeAdapter: Sendable {
 
     private nonisolated static func isMultimodalInput(_ input: LMInput) -> Bool {
         input.image != nil || input.video != nil
+    }
+
+    private nonisolated static func completeEOSTokenIDs(
+        configuration: ModelConfiguration,
+        tokenizer: any Tokenizer
+    ) -> Set<Int> {
+        var result = configuration.eosTokenIds
+        if let eosTokenID = tokenizer.eosTokenId {
+            result.insert(eosTokenID)
+        }
+        for token in configuration.extraEOSTokens {
+            if let tokenID = tokenizer.convertTokenToId(token) {
+                result.insert(tokenID)
+            }
+        }
+        return result
     }
 }
