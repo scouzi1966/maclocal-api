@@ -280,7 +280,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 var stoppedBySequence = false
                 var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 
+                try Task.checkCancellation()
                 for try await chunk in streamResult.stream {
+                    try Task.checkCancellation()
                     fullText += chunk.text
                     if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
                     if let tc = chunk.toolCalls { finalToolCalls = tc }
@@ -294,6 +296,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         speculativeTelemetry = telemetry
                     }
                 }
+                try Task.checkCancellation()
 
                 // FIX: Vendor ToolCallProcessor can append XML tag remnants to tool names
                 // for zero-parameter calls (e.g. "todoread</function"). Strip them.
@@ -620,6 +623,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
+                try Task.checkCancellation()
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -746,6 +750,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
+                    try Task.checkCancellation()
                     let piece = streamChunk.text
 
                     // Capture real token counts and timing from the info chunk
@@ -1141,6 +1146,10 @@ struct MLXChatCompletionsController: RouteCollection {
                         }
                     }
                 }
+                // AsyncThrowingStream reports cancellation while awaiting the
+                // next element as normal end-of-stream. Re-check the consumer
+                // task before translating that termination into stop + usage.
+                try Task.checkCancellation()
 
                 // Handle incomplete tool call (model hit max tokens mid-tool-call)
                 if let toolRuntime {
