@@ -70,6 +70,117 @@ public enum TerminalOutputSanitizer {
     }
 }
 
+/// Keeps process-level backend diagnostics away from the interactive terminal.
+///
+/// MLX and some of its dependencies write directly to stdout/stderr instead of
+/// going through AFM's structured response stream. Those writes invalidate the
+/// TUI's cursor accounting during a redraw. This scope preserves a duplicate of
+/// the original terminal for `TerminalIO`, redirects the process streams to a
+/// private log, and restores both streams on every exit path.
+public final class TerminalOutputIsolation: @unchecked Sendable {
+    public static var defaultLogURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".afm/logs/tui.log", isDirectory: false)
+    }
+
+    public let terminalOutputFD: Int32
+    public let logURL: URL
+
+    private let outputFD: Int32
+    private let errorFD: Int32
+    private var originalErrorFD: Int32
+    private var logFD: Int32
+    private let lock = NSLock()
+    private var active = true
+
+    public init(
+        logURL: URL = TerminalOutputIsolation.defaultLogURL,
+        outputFD: Int32 = STDOUT_FILENO,
+        errorFD: Int32 = STDERR_FILENO
+    ) throws {
+        self.logURL = logURL
+        self.outputFD = outputFD
+        self.errorFD = errorFD
+
+        let directory = logURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+
+        Self.flushIfStandard(outputFD, errorFD)
+
+        let savedOutput = dup(outputFD)
+        guard savedOutput >= 0 else { throw Self.posixError() }
+        terminalOutputFD = savedOutput
+
+        let savedError = dup(errorFD)
+        guard savedError >= 0 else {
+            close(savedOutput)
+            throw Self.posixError()
+        }
+        originalErrorFD = savedError
+
+        let openedLog = open(
+            logURL.path,
+            O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard openedLog >= 0 else {
+            close(savedOutput)
+            close(savedError)
+            throw Self.posixError()
+        }
+        logFD = openedLog
+        _ = fchmod(openedLog, S_IRUSR | S_IWUSR)
+
+        guard dup2(openedLog, outputFD) >= 0 else {
+            close(savedOutput)
+            close(savedError)
+            close(openedLog)
+            throw Self.posixError()
+        }
+        guard dup2(openedLog, errorFD) >= 0 else {
+            _ = dup2(savedOutput, outputFD)
+            close(savedOutput)
+            close(savedError)
+            close(openedLog)
+            throw Self.posixError()
+        }
+    }
+
+    public func restore() {
+        lock.lock()
+        guard active else { lock.unlock(); return }
+        active = false
+        let savedOutput = terminalOutputFD
+        let savedError = originalErrorFD
+        let sink = logFD
+        originalErrorFD = -1
+        logFD = -1
+        lock.unlock()
+
+        Self.flushIfStandard(outputFD, errorFD)
+        _ = dup2(savedOutput, outputFD)
+        _ = dup2(savedError, errorFD)
+        close(savedOutput)
+        close(savedError)
+        close(sink)
+    }
+
+    deinit { restore() }
+
+    private static func flushIfStandard(_ outputFD: Int32, _ errorFD: Int32) {
+        if outputFD == STDOUT_FILENO { fflush(stdout) }
+        if errorFD == STDERR_FILENO { fflush(stderr) }
+    }
+
+    private static func posixError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}
+
 /// Owns terminal mode transitions. Restoration is idempotent and occurs on every exit path.
 public final class TerminalModeController: @unchecked Sendable {
     private let enterAction: () throws -> Void

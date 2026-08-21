@@ -1052,6 +1052,44 @@ final class TUIConversationPolicyTests: XCTestCase {
 }
 
 final class TerminalLifecycleAndInvocationTests: XCTestCase {
+    func testOutputIsolationKeepsBackendLogsOutOfTerminalAndRestoresDescriptors() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logURL = root.appendingPathComponent("logs/tui.log")
+
+        var outputPipe: [Int32] = [0, 0]
+        var errorPipe: [Int32] = [0, 0]
+        XCTAssertEqual(pipe(&outputPipe), 0)
+        XCTAssertEqual(pipe(&errorPipe), 0)
+        defer {
+            close(outputPipe[0])
+            close(errorPipe[0])
+        }
+
+        let isolation = try TerminalOutputIsolation(
+            logURL: logURL,
+            outputFD: outputPipe[1],
+            errorFD: errorPipe[1]
+        )
+        XCTAssertEqual(writeString("backend-out\n", to: outputPipe[1]), 12)
+        XCTAssertEqual(writeString("backend-error\n", to: errorPipe[1]), 14)
+        XCTAssertEqual(writeString("chat\n", to: isolation.terminalOutputFD), 5)
+        isolation.restore()
+        isolation.restore()
+        XCTAssertEqual(writeString("after\n", to: outputPipe[1]), 6)
+        close(outputPipe[1])
+        close(errorPipe[1])
+
+        XCTAssertEqual(readString(from: outputPipe[0]), "chat\nafter\n")
+        XCTAssertEqual(readString(from: errorPipe[0]), "")
+        XCTAssertEqual(
+            try String(contentsOf: logURL, encoding: .utf8),
+            "backend-out\nbackend-error\n"
+        )
+        let permissions = try FileManager.default.attributesOfItem(atPath: logURL.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o600)
+    }
+
     func testTerminalRestorationIsIdempotent() throws {
         var enters = 0
         var restores = 0
@@ -1175,5 +1213,22 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
         XCTAssertEqual(terminal.readKey(), .enter)
         XCTAssertEqual(terminal.readKey(), .newline)
         XCTAssertEqual(terminal.readKey(), .left)
+    }
+
+    private func writeString(_ value: String, to descriptor: Int32) -> Int {
+        value.withCString { pointer in
+            Darwin.write(descriptor, pointer, strlen(pointer))
+        }
+    }
+
+    private func readString(from descriptor: Int32) -> String {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 }

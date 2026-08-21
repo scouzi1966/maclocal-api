@@ -19,12 +19,26 @@ nonisolated(unsafe) private var globalServer: Server?
 nonisolated(unsafe) private var shouldKeepRunning = true
 
 private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws {
+    let outputIsolation = try TerminalOutputIsolation()
+    defer { outputIsolation.restore() }
+    let terminal = TerminalIO(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
+    let capabilities = TerminalCapabilities.detect(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
     let group = DispatchGroup()
     let errorBox = SendableBox<Error?>(nil)
     group.enter()
     Task.detached {
         do {
-            try await AFMTerminalChat(configuration: configuration).run()
+            try await AFMTerminalChat(
+                configuration: configuration,
+                terminal: terminal,
+                capabilities: capabilities
+            ).run()
         } catch {
             errorBox.value = error
         }
