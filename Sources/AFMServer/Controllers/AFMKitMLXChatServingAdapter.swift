@@ -379,9 +379,9 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> AFMChatStreamingResult {
-        let request: AFMRequest
+        let eventStream: AsyncThrowingStream<AFMGenerationEvent, Error>
         do {
-            request = try AFMRequest(
+            let request = try AFMRequest(
                 openAIMessages: messages,
                 generationConfig: generationConfig(
                     temperature: temperature,
@@ -402,12 +402,14 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
                     chatTemplateKwargs: chatTemplateKwargs
                 )
             )
+            eventStream = afmModel(for: model).streamResponse(to: request)
         } catch {
-            genericAdmission?.release()
-            throw error
+            guard genericAdmission != nil else { throw error }
+            eventStream = AsyncThrowingStream { continuation in
+                continuation.finish(throwing: error)
+            }
         }
         let modelID = normalizeModel(model)
-        let eventStream = afmModel(for: model).streamResponse(to: request)
         let startTag = thinkStartTag
         let endTag = thinkEndTag
 

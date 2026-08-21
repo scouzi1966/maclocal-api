@@ -119,19 +119,23 @@ final class AFMServerOwnershipTests: XCTestCase {
         adapter.releaseSlot()
     }
 
-    func testGenericAdapterReleasesReservationWhenStreamingRequestIsInvalid() async {
-        let adapter = makeGenericAdapter(maxConcurrent: 1)
+    func testGenericAdapterReleasesExactlyOneReservationWhenStreamingRequestIsInvalid() async throws {
+        let adapter = makeGenericAdapter(maxConcurrent: 2)
+        XCTAssertTrue(adapter.tryReserveSlot())
         XCTAssertTrue(adapter.tryReserveSlot())
 
+        let result = try await genericStream(
+            adapter: adapter,
+            messages: [Message(role: "unsupported", content: "hello")]
+        )
         do {
-            _ = try await genericStream(
-                adapter: adapter,
-                messages: [Message(role: "unsupported", content: "hello")]
-            )
-            XCTFail("invalid OpenAI message role unexpectedly produced a stream")
+            for try await _ in result.stream {}
+            XCTFail("invalid OpenAI message role unexpectedly completed its stream")
         } catch {}
 
         XCTAssertTrue(adapter.tryReserveSlot())
+        XCTAssertFalse(adapter.tryReserveSlot())
+        adapter.releaseSlot()
         adapter.releaseSlot()
     }
 
