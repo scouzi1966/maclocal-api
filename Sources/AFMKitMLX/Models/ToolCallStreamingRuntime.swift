@@ -201,12 +201,15 @@ public final class ToolCallStreamingRuntime {
         if incrementalEmittedFirst {
             let parsed = parseIncrementalToolCalls(includeTrailingPartial: false)
             var events = [ToolCallStreamingEvent]()
-            if needsIncrementalArgumentClose {
+            let closeArguments = incrementalParamCount == 0
+                ? "{}"
+                : (needsIncrementalArgumentClose ? "}" : nil)
+            if let closeArguments {
                 events.append(.delta(StreamDeltaToolCall(
                     index: incrementalToolIndex,
                     id: nil,
                     type: nil,
-                    function: StreamDeltaFunction(name: nil, arguments: "}")
+                    function: StreamDeltaFunction(name: nil, arguments: closeArguments)
                 )))
             }
             for tc in parsed {
@@ -292,7 +295,21 @@ public final class ToolCallStreamingRuntime {
             tools: tools
         )
         let fixedToolCall = applyFixToolArgs(responseToolCall)
-        return MLXModelService.coerceArgumentTypes(fixedToolCall, tools: tools)
+        let coerced = MLXModelService.coerceArgumentTypes(fixedToolCall, tools: tools)
+        guard coerced.function.arguments
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return coerced
+        }
+        return ResponseToolCall(
+            index: coerced.index,
+            id: coerced.id,
+            type: coerced.type,
+            function: ResponseToolCallFunction(
+                name: coerced.function.name,
+                arguments: "{}"
+            )
+        )
     }
 
     private func scanIncrementalMarkers() -> [ToolCallStreamingEvent] {

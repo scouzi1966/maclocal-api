@@ -259,7 +259,11 @@ public struct MLXStreamEventTranslator {
                 events.append(.toolCall(call: state.call, stage: .started))
             }
 
-            let finalArguments = completedCall.function.arguments
+            let rawFinalArguments = completedCall.function.arguments
+            let finalArguments = rawFinalArguments
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "{}"
+                : rawFinalArguments
             if finalArguments.hasPrefix(state.arguments) {
                 let suffix = String(finalArguments.dropFirst(state.arguments.count))
                 if !suffix.isEmpty {
