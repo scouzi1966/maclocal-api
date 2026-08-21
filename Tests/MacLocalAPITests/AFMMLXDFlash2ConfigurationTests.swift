@@ -242,6 +242,21 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 SpeculativeDecodingOptions(mode: "dflash2", requirement: "required")))
         XCTAssertTrue(required.requiresRuntime)
         XCTAssertEqual(required.denialReason, "batch")
+        XCTAssertEqual(service.dflash2UnavailableReason(
+            policy: required,
+            runtimeFallbackReason: "prefix_cache",
+            defaultReason: "unavailable"), "batch")
+
+        let runtimePermitted = try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "dflash2", requirement: "required"))
+        XCTAssertEqual(service.dflash2UnavailableReason(
+            policy: runtimePermitted,
+            runtimeFallbackReason: "prefix_cache",
+            defaultReason: "unavailable"), "prefix_cache")
+        XCTAssertEqual(service.dflash2UnavailableReason(
+            policy: runtimePermitted,
+            runtimeFallbackReason: "concurrency",
+            defaultReason: "unavailable"), "concurrency")
     }
 
     func testPromptOpenedReasoningBoundaryIsRestoredForNonStreamingOutput() {

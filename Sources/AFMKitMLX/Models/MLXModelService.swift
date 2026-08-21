@@ -1583,6 +1583,14 @@ public final class MLXModelService: @unchecked Sendable {
         return nil
     }
 
+    func dflash2UnavailableReason(
+        policy: DFlash2RequestPolicy,
+        runtimeFallbackReason: String?,
+        defaultReason: String
+    ) -> String {
+        policy.denialReason ?? runtimeFallbackReason ?? defaultReason
+    }
+
     func dflash2WasRequested(
         _ options: SpeculativeDecodingOptions?,
         configuredDrafter: String?
@@ -2427,8 +2435,12 @@ public final class MLXModelService: @unchecked Sendable {
         let dflash2Eligible = dflash2Active != nil
             && speculativeCompatibility.isEligible
         if requestRequiresDFlash2, dflash2Active == nil {
+            let reason = dflash2UnavailableReason(
+                policy: dflash2Policy,
+                runtimeFallbackReason: dflash2State?.fallbackReason,
+                defaultReason: "no compatible runtime is active")
             throw MLXServiceError.loadFailed(
-                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "no compatible runtime is active")")
+                "DFlash2 is required but unavailable: \(reason)")
         }
         if requestRequiresDFlash2, !dflash2Eligible {
             throw MLXServiceError.loadFailed(
@@ -3679,8 +3691,12 @@ public final class MLXModelService: @unchecked Sendable {
             && specGreedyStream && mtpBinding != nil
         if requestRequiresDFlash2,
            !dflash2StreamEligible {
+            let reason = dflash2UnavailableReason(
+                policy: dflash2Policy,
+                runtimeFallbackReason: dflash2State?.fallbackReason,
+                defaultReason: "streaming request modifiers require autoregressive decoding")
             throw MLXServiceError.loadFailed(
-                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "streaming request modifiers require autoregressive decoding")")
+                "DFlash2 is required but unavailable: \(reason)")
         }
         if dsparkStreamEligible || dflash2StreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
