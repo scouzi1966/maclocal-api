@@ -55,6 +55,7 @@ done
 if [ -z "$OUTPUT" ]; then
   OUTPUT="$ROOT_DIR/$TARBALL_NAME"
 fi
+mkdir -p "$(dirname "$OUTPUT")"
 
 # Find the built binary
 BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/release/afm"
