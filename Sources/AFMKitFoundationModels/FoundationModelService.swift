@@ -194,11 +194,58 @@ public enum FoundationModelError: Error, LocalizedError {
     }
 }
 
+struct FoundationStopSequenceFilter {
+    private let stopSequences: [String]
+    private var pending = ""
+    private(set) var stopped = false
+
+    init(stopSequences: [String]?) {
+        self.stopSequences = stopSequences?.filter { !$0.isEmpty } ?? []
+    }
+
+    mutating func consume(_ delta: String) -> String {
+        guard !stopped else { return "" }
+        guard !stopSequences.isEmpty else { return delta }
+        pending += delta
+
+        let earliest = stopSequences.compactMap { pending.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
+        if let earliest {
+            let output = String(pending[..<earliest.lowerBound])
+            pending = ""
+            stopped = true
+            return output
+        }
+
+        let heldCount = stopSequences.reduce(0) { longest, sequence in
+            let maximum = min(pending.count, max(0, sequence.count - 1))
+            guard maximum > longest else { return longest }
+            for count in stride(from: maximum, through: longest + 1, by: -1) {
+                if pending.suffix(count) == sequence.prefix(count) { return count }
+            }
+            return longest
+        }
+        let emittedCount = pending.count - heldCount
+        let output = String(pending.prefix(emittedCount))
+        pending = String(pending.suffix(heldCount))
+        return output
+    }
+
+    mutating func finish() -> String {
+        guard !stopped else { return "" }
+        let output = pending
+        pending = ""
+        return output
+    }
+}
+
 @available(macOS 26.0, *)
 public class FoundationModelService: @unchecked Sendable {
     
     #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
     private var session: LanguageModelSession?
+    private let model: SystemLanguageModel
+    private let instructions: String
     #endif
     
     // Shared singleton instance
@@ -214,6 +261,8 @@ public class FoundationModelService: @unchecked Sendable {
     
     public init(instructions: String = "You are a helpful assistant", adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS && !DISABLE_FOUNDATION_MODELS
+        let fallbackModel = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+        let selectedModel: SystemLanguageModel
         // Check if adapter path is provided
         if let adapterPath = adapter {
             do {
@@ -224,34 +273,30 @@ public class FoundationModelService: @unchecked Sendable {
                 // Validate adapter file exists and has correct extension
                 guard FileManager.default.fileExists(atPath: adapterURL.path) else {
                     print("Warning: Adapter file not found at '\(adapterPath)', falling back to default model")
-                    let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-                    self.session = LanguageModelSession(model: model) {
-                        instructions
-                    }
+                    selectedModel = fallbackModel
+                    self.model = selectedModel
+                    self.instructions = instructions
+                    self.session = LanguageModelSession(model: selectedModel) { instructions }
                     return
                 }
                 
                 guard adapterURL.pathExtension.lowercased() == "fmadapter" else {
                     print("Warning: Adapter file must have .fmadapter extension, falling back to default model")
-                    let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-                    self.session = LanguageModelSession(model: model) {
-                        instructions
-                    }
+                    selectedModel = fallbackModel
+                    self.model = selectedModel
+                    self.instructions = instructions
+                    self.session = LanguageModelSession(model: selectedModel) { instructions }
                     return
                 }
                 
                 // Try to load the adapter
                 let adapter = try SystemLanguageModel.Adapter(fileURL: adapterURL)
-                let customModel = SystemLanguageModel(adapter: adapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
+                selectedModel = SystemLanguageModel(adapter: adapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
                 
                 // Store adapter for reuse if this is the first time loading
                 if Self.sharedAdapter == nil {
                     Self.sharedAdapter = adapter
                     Self.sharedAdapterPath = adapterPath
-                }
-                
-                self.session = LanguageModelSession(model: customModel) {
-                    instructions
                 }
                 
                 print("✅ Successfully loaded LoRA adapter: \(adapterURL.lastPathComponent)")
@@ -261,18 +306,15 @@ public class FoundationModelService: @unchecked Sendable {
                 print("Falling back to default model")
                 
                 // Fallback to default model
-                let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-                self.session = LanguageModelSession(model: model) {
-                    instructions
-                }
+                selectedModel = fallbackModel
             }
         } else {
             // No adapter specified, use default model
-            let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-            self.session = LanguageModelSession(model: model) {
-                instructions
-            }
+            selectedModel = fallbackModel
         }
+        self.model = selectedModel
+        self.instructions = instructions
+        self.session = LanguageModelSession(model: selectedModel) { instructions }
         #else
         throw FoundationModelError.notAvailable
         #endif
@@ -281,23 +323,59 @@ public class FoundationModelService: @unchecked Sendable {
     // Private initializer for creating instances with shared adapter
     private init(instructions: String, useSharedAdapter: Bool, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool) async throws {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        let selectedModel: SystemLanguageModel
         if useSharedAdapter, let sharedAdapter = Self.sharedAdapter {
             // Use the shared adapter
-            let customModel = SystemLanguageModel(adapter: sharedAdapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-            self.session = LanguageModelSession(model: customModel) {
-                instructions
-            }
+            selectedModel = SystemLanguageModel(adapter: sharedAdapter, guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
         } else {
             // No shared adapter available, use default model
-            let model = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
-            self.session = LanguageModelSession(model: model) {
-                instructions
-            }
+            selectedModel = SystemLanguageModel(guardrails: permissiveGuardrails ? .permissiveContentTransformations : .default)
         }
+        self.model = selectedModel
+        self.instructions = instructions
+        self.session = LanguageModelSession(model: selectedModel) { instructions }
         #else
         throw FoundationModelError.notAvailable
         #endif
     }
+
+    /// Replaces the stateful native session and optionally restores a saved conversation.
+    /// Callers must subsequently submit only messages that are not already in `history`.
+    public func resetConversation(with history: [Message] = []) {
+        #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+        guard !history.isEmpty else {
+            session = LanguageModelSession(model: model) { instructions }
+            return
+        }
+        session = LanguageModelSession(model: model, transcript: transcript(from: history))
+        #endif
+    }
+
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+    private func transcript(from messages: [Message]) -> Transcript {
+        let restoredInstructions = messages
+            .filter { $0.role == "system" || $0.role == "developer" }
+            .map(\.textContent)
+            .filter { !$0.isEmpty }
+        let instructionText = ([instructions] + restoredInstructions).joined(separator: "\n\n")
+        var entries: [Transcript.Entry] = [
+            .instructions(.init(
+                segments: [.text(.init(content: instructionText))],
+                toolDefinitions: []
+            ))
+        ]
+        for message in messages where message.role != "system" && message.role != "developer" {
+            if message.role == "assistant" {
+                let segment = Transcript.Segment.text(.init(content: message.textContent))
+                entries.append(.response(.init(assetIDs: [], segments: [segment])))
+            } else {
+                let segment = Transcript.Segment.text(.init(content: formatMessagesAsPrompt([message])))
+                entries.append(.prompt(.init(segments: [segment])))
+            }
+        }
+        return Transcript(entries: entries)
+    }
+    #endif
     
     public func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
         #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
@@ -311,6 +389,8 @@ public class FoundationModelService: @unchecked Sendable {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, options: options)
             return applyStopSequences(to: response.content, stopSequences: stop)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             // Check for context window exceeded error and wrap it
             if let contextError = FoundationModelError.parseContextWindowError(error) {
@@ -381,36 +461,23 @@ public class FoundationModelService: @unchecked Sendable {
                     // so we must extract only the new delta each iteration.
                     let stream = session.streamResponse(to: prompt, options: options)
                     var previousContent = ""
-                    var stopped = false
+                    var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
                     for try await partialResponse in stream {
                         try Task.checkCancellation()
-                        if stopped { break }
+                        if stopFilter.stopped { break }
                         let full = partialResponse.content
                         if full.count > previousContent.count {
-                            var delta = String(full.dropFirst(previousContent.count))
-                            // Check if any stop sequence appears in the accumulated content
-                            if let stopSeqs = stop, !stopSeqs.isEmpty {
-                                let accumulated = previousContent + delta
-                                for seq in stopSeqs {
-                                    if let range = accumulated.range(of: seq) {
-                                        // Truncate delta to exclude stop sequence and everything after
-                                        let keepUpTo = range.lowerBound
-                                        let alreadyEmitted = accumulated.index(accumulated.startIndex, offsetBy: previousContent.count)
-                                        if keepUpTo > alreadyEmitted {
-                                            delta = String(accumulated[alreadyEmitted..<keepUpTo])
-                                            continuation.yield(delta)
-                                        }
-                                        stopped = true
-                                        break
-                                    }
-                                }
-                                if stopped { break }
-                            }
-                            continuation.yield(delta)
+                            let delta = String(full.dropFirst(previousContent.count))
+                            let output = stopFilter.consume(delta)
+                            if !output.isEmpty { continuation.yield(output) }
                         }
                         previousContent = full
                     }
+                    let finalOutput = stopFilter.finish()
+                    if !finalOutput.isEmpty { continuation.yield(finalOutput) }
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
                 } catch {
                     if let contextError = FoundationModelError.parseContextWindowError(error) {
                         continuation.finish(throwing: contextError)
@@ -456,6 +523,8 @@ public class FoundationModelService: @unchecked Sendable {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
             let response = try await session.respond(to: prompt, schema: schema, options: options)
             return applyStopSequences(to: response.content.jsonString, stopSequences: stop)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let contextError = FoundationModelError.parseContextWindowError(error) {
                 throw contextError
@@ -488,7 +557,7 @@ public class FoundationModelService: @unchecked Sendable {
         stop: [String]? = nil
     ) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
                 guard let session = self.session else {
                     continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
@@ -509,45 +578,31 @@ public class FoundationModelService: @unchecked Sendable {
                     let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
                     let stream = session.streamResponse(to: prompt, schema: schema, options: options)
                     var previousJson = ""
-                    var emittedPrefixCount = 0
-                    var stopped = false
+                    var processedPrefixCount = 0
+                    var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
                     for try await partialResponse in stream {
-                        if stopped { break }
+                        try Task.checkCancellation()
+                        if stopFilter.stopped { break }
                         let currentJson = partialResponse.content.jsonString
                         let stablePrefixCount = Self.commonPrefixLength(previousJson, currentJson)
-                        if stablePrefixCount > emittedPrefixCount {
+                        if stablePrefixCount > processedPrefixCount {
                             let stablePrefix = String(currentJson.prefix(stablePrefixCount))
-                            var delta = String(stablePrefix.dropFirst(emittedPrefixCount))
-                            if let stopSeqs = stop, !stopSeqs.isEmpty {
-                                let accumulated = stablePrefix
-                                for seq in stopSeqs {
-                                    if let range = accumulated.range(of: seq) {
-                                        let keepUpTo = range.lowerBound
-                                        let keepCount = accumulated.distance(from: accumulated.startIndex, to: keepUpTo)
-                                        if keepCount > emittedPrefixCount {
-                                            delta = String(accumulated.dropFirst(emittedPrefixCount).prefix(keepCount - emittedPrefixCount))
-                                            continuation.yield(delta)
-                                        }
-                                        stopped = true
-                                        break
-                                    }
-                                }
-                                if stopped { break }
-                            }
-                            if !delta.isEmpty {
-                                continuation.yield(delta)
-                            }
-                            emittedPrefixCount = stablePrefixCount
+                            let delta = String(stablePrefix.dropFirst(processedPrefixCount))
+                            let output = stopFilter.consume(delta)
+                            if !output.isEmpty { continuation.yield(output) }
+                            processedPrefixCount = stablePrefixCount
                         }
                         previousJson = currentJson
                     }
-                    if !stopped, previousJson.count > emittedPrefixCount {
-                        let finalSnapshot = self.applyStopSequences(to: previousJson, stopSequences: stop)
-                        if finalSnapshot.count > emittedPrefixCount {
-                            continuation.yield(String(finalSnapshot.dropFirst(emittedPrefixCount)))
-                        }
+                    if !stopFilter.stopped, previousJson.count > processedPrefixCount {
+                        let output = stopFilter.consume(String(previousJson.dropFirst(processedPrefixCount)))
+                        if !output.isEmpty { continuation.yield(output) }
                     }
+                    let finalOutput = stopFilter.finish()
+                    if !finalOutput.isEmpty { continuation.yield(finalOutput) }
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
                 } catch {
                     if let contextError = FoundationModelError.parseContextWindowError(error) {
                         continuation.finish(throwing: contextError)
@@ -563,6 +618,7 @@ public class FoundationModelService: @unchecked Sendable {
                 continuation.finish(throwing: FoundationModelError.notAvailable)
                 #endif
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 

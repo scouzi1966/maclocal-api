@@ -36,6 +36,25 @@ public enum TerminalKey: Equatable, Sendable {
     case home, end, escape, interrupt, eof, clear, unknown
 }
 
+public enum TerminalOutputSanitizer {
+    public static func sanitize(_ value: String) -> String {
+        var result = String.UnicodeScalarView()
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0x0A:
+                result.append(scalar)
+            case 0x09:
+                result.append(contentsOf: "    ".unicodeScalars)
+            case 0x00...0x1F, 0x7F...0x9F, 0x202A...0x202E, 0x2066...0x2069:
+                result.append("�")
+            default:
+                result.append(scalar)
+            }
+        }
+        return String(result)
+    }
+}
+
 /// Owns terminal mode transitions. Restoration is idempotent and occurs on every exit path.
 public final class TerminalModeController: @unchecked Sendable {
     private let enterAction: () throws -> Void

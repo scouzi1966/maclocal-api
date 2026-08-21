@@ -330,6 +330,19 @@ public actor AFMEngine {
         foundationService = nil
     }
 
+    /// Reset backend-owned conversational state and optionally restore a transcript.
+    /// Stateless backends receive complete request histories and require no action.
+    public func resetConversation(with history: [Message] = []) async throws {
+        guard case .foundationModels = backend else { return }
+        try await ensureFoundation()
+        if #available(macOS 26.0, *) {
+            guard let service = foundationService as? FoundationModelService else {
+                throw AFMEngineError.foundationModelsUnavailable
+            }
+            service.resetConversation(with: history)
+        }
+    }
+
     /// Generate a single (non-streaming) response for a chat transcript.
     public func respond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) async throws -> AFMResponse {
         switch backend {

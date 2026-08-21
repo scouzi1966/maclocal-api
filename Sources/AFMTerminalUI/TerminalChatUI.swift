@@ -56,8 +56,12 @@ struct GenerationSnapshot: Sendable {
     let revision: UInt64
     let text: String
     let reasoning: String
+    let textTail: String
+    let reasoningTail: String
+    let textCharacterCount: Int
+    let reasoningCharacterCount: Int
     let tools: [AFMToolCall]
-    let toolStages: [AFMToolCallStage]
+    let toolDisplayLines: [String]
     let promptTokens: Int
     let completionTokens: Int
     let cachedTokens: Int
@@ -67,10 +71,16 @@ struct GenerationSnapshot: Sendable {
 }
 
 actor GenerationBuffer {
+    static let renderTailLimit = 12_000
     private var text = ""
     private var reasoning = ""
+    private var textTail = ""
+    private var reasoningTail = ""
+    private var textCharacterCount = 0
+    private var reasoningCharacterCount = 0
     private var tools: [AFMToolCall] = []
     private var toolStages: [AFMToolCallStage] = []
+    private var toolDisplayLines: [String] = []
     private var promptTokens = 0
     private var completionTokens = 0
     private var cachedTokens = 0
@@ -82,15 +92,31 @@ actor GenerationBuffer {
     func accept(_ event: AFMStreamEvent) {
         guard !completed else { return }
         switch event {
-        case .text(let value, let tokens): text += value; completionTokens = max(completionTokens, tokens)
-        case .reasoning(let value, _): reasoning += value
+        case .text(let value, let tokens):
+            let safe = TerminalOutputSanitizer.sanitize(value)
+            text += safe
+            textTail = Self.appendingToRenderTail(textTail, safe)
+            textCharacterCount += safe.count
+            completionTokens = max(completionTokens, tokens)
+        case .reasoning(let value, _):
+            let safe = TerminalOutputSanitizer.sanitize(value)
+            reasoning += safe
+            reasoningTail = Self.appendingToRenderTail(reasoningTail, safe)
+            reasoningCharacterCount += safe.count
         case .toolCall(let call, let stage):
-            if let index = tools.firstIndex(where: { $0.id == call.id }) {
-                tools[index] = call
+            let safeCall = AFMToolCall(
+                id: TerminalOutputSanitizer.sanitize(call.id),
+                name: TerminalOutputSanitizer.sanitize(call.name),
+                arguments: TerminalOutputSanitizer.sanitize(call.arguments)
+            )
+            if let index = tools.firstIndex(where: { $0.id == safeCall.id }) {
+                tools[index] = safeCall
                 toolStages[index] = stage
+                toolDisplayLines[index] = Self.toolDisplayLine(call: safeCall, stage: stage)
             } else {
-                tools.append(call)
+                tools.append(safeCall)
                 toolStages.append(stage)
+                toolDisplayLines.append(Self.toolDisplayLine(call: safeCall, stage: stage))
             }
         case .usage(let prompt, let completion, let cached):
             promptTokens = prompt; completionTokens = completion; cachedTokens = cached
@@ -102,14 +128,24 @@ actor GenerationBuffer {
 
     func accept(_ response: AFMResponse) {
         guard !completed else { return }
-        text = response.content
-        reasoning = response.reasoningContent ?? ""
+        text = TerminalOutputSanitizer.sanitize(response.content)
+        reasoning = TerminalOutputSanitizer.sanitize(response.reasoningContent ?? "")
+        textCharacterCount = text.count
+        reasoningCharacterCount = reasoning.count
+        textTail = String(text.suffix(Self.renderTailLimit))
+        reasoningTail = String(reasoning.suffix(Self.renderTailLimit))
         promptTokens = response.promptTokens
         completionTokens = response.completionTokens
         cachedTokens = response.cachedPromptTokens
         for call in response.toolCalls ?? [] {
-            tools.append(AFMToolCall(id: call.id, name: call.function.name, arguments: call.function.arguments))
+            let safeCall = AFMToolCall(
+                id: TerminalOutputSanitizer.sanitize(call.id),
+                name: TerminalOutputSanitizer.sanitize(call.function.name),
+                arguments: TerminalOutputSanitizer.sanitize(call.function.arguments)
+            )
+            tools.append(safeCall)
             toolStages.append(.completed)
+            toolDisplayLines.append(Self.toolDisplayLine(call: safeCall, stage: .completed))
         }
         completed = true
         revision &+= 1
@@ -117,7 +153,7 @@ actor GenerationBuffer {
 
     func fail(_ value: Error) {
         guard !completed else { return }
-        error = value.localizedDescription; completed = true; revision &+= 1
+        error = TerminalOutputSanitizer.sanitize(value.localizedDescription); completed = true; revision &+= 1
     }
     func cancel() {
         guard !completed else { return }
@@ -128,9 +164,23 @@ actor GenerationBuffer {
         completed = true; revision &+= 1
     }
     func snapshot() -> GenerationSnapshot {
+        makeSnapshot(includeFullContent: true)
+    }
+
+    func renderSnapshot() -> GenerationSnapshot {
+        makeSnapshot(includeFullContent: false)
+    }
+
+    private func makeSnapshot(includeFullContent: Bool) -> GenerationSnapshot {
         GenerationSnapshot(
             revision: revision,
-            text: text, reasoning: reasoning, tools: tools, toolStages: toolStages,
+            text: includeFullContent ? text : "",
+            reasoning: includeFullContent ? reasoning : "",
+            textTail: textTail, reasoningTail: reasoningTail,
+            textCharacterCount: textCharacterCount,
+            reasoningCharacterCount: reasoningCharacterCount,
+            tools: includeFullContent ? tools : [],
+            toolDisplayLines: toolDisplayLines,
             promptTokens: promptTokens, completionTokens: completionTokens,
             cachedTokens: cachedTokens, completed: completed,
             cancelled: cancelled, error: error
@@ -139,7 +189,32 @@ actor GenerationBuffer {
 
     func snapshot(ifChangedSince priorRevision: UInt64) -> GenerationSnapshot? {
         guard revision != priorRevision else { return nil }
-        return snapshot()
+        return renderSnapshot()
+    }
+
+    private static func appendingToRenderTail(_ tail: String, _ value: String) -> String {
+        var updated = tail
+        updated += value
+        guard updated.count > renderTailLimit else { return updated }
+        return String(updated.suffix(renderTailLimit))
+    }
+
+    private static func toolDisplayLine(call: AFMToolCall, stage: AFMToolCallStage) -> String {
+        let name = bounded(call.name, limit: 256)
+        let arguments = bounded(call.arguments, limit: 2_048)
+        let stageLabel: String
+        switch stage {
+        case .started: stageLabel = "started"
+        case .argumentsDelta: stageLabel = "arguments"
+        case .completed: stageLabel = "completed"
+        case .retracted: stageLabel = "retracted"
+        }
+        return "\(stageLabel): \(name)(\(arguments))"
+    }
+
+    private static func bounded(_ value: String, limit: Int) -> String {
+        let prefix = String(value.prefix(limit + 1))
+        return prefix.count > limit ? String(prefix.prefix(limit)) + "…" : prefix
     }
 }
 
@@ -156,7 +231,7 @@ final class TUISignalMonitor: @unchecked Sendable {
     private var stopped = false
     private var sources: [DispatchSourceSignal] = []
     private var previousHandlers: [(Int32, SignalHandler?)] = []
-    private let monitoredSignals = [SIGTERM, SIGHUP]
+    private let monitoredSignals = [SIGINT, SIGTERM, SIGHUP]
     private let queue = DispatchQueue(label: "ai.maclocal.afm.tui-signals")
 
     init() {
@@ -206,6 +281,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
     private var lastStatistics = "No generation yet"
     private var lastInput: String?
     private var lastReasoning = ""
+    private var lastInputWasRolledBack = false
 
     public init(
         configuration: TerminalChatConfiguration,
@@ -237,36 +313,85 @@ public final class AFMTerminalChat: @unchecked Sendable {
         let signalMonitor = TUISignalMonitor()
         defer {
             signalMonitor.stop()
-            Task { await engine.unload() }
             terminal.restore()
         }
 
-        drawWelcome()
-        terminal.write("Loading \(configuration.modelName)…\n")
-        let modelID = try await engine.load { [terminal] progress in
-            terminal.clearLine()
-            terminal.write(String(format: "Loading model %3.0f%%", progress * 100))
-        }
-        terminal.clearLine()
-        terminal.write("Ready: \(modelID)\n\n")
+        do {
+            drawWelcome()
+            terminal.write("Loading \(configuration.modelName)…\n")
+            if let modelID = try await loadModel(signalMonitor: signalMonitor) {
+                terminal.clearLine()
+                terminal.write("Ready: \(modelID)\n\n")
 
-        while !signalMonitor.shouldTerminate {
-            guard let input = readInput(initial: nil, signalMonitor: signalMonitor) else { break }
-            let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-            if trimmed.hasPrefix("/") {
-                do {
-                    if try await handleCommand(trimmed, signalMonitor: signalMonitor) { break }
-                } catch {
-                    terminal.write("\(style("error", "1;31")): \(error.localizedDescription)\n")
+                while !signalMonitor.shouldTerminate {
+                    guard let input = readInput(initial: nil, signalMonitor: signalMonitor) else { break }
+                    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty { continue }
+                    if trimmed.hasPrefix("/") {
+                        do {
+                            if try await handleCommand(trimmed, signalMonitor: signalMonitor) { break }
+                        } catch {
+                            terminal.write("\(style("error", "1;31")): \(error.localizedDescription)\n")
+                        }
+                        continue
+                    }
+                    try await send(input, signalMonitor: signalMonitor)
                 }
-                continue
             }
-            try await send(input, signalMonitor: signalMonitor)
+        } catch {
+            signalMonitor.stop()
+            terminal.restore()
+            await engine.unload()
+            throw error
         }
+        signalMonitor.stop()
+        terminal.restore()
+        await engine.unload()
+    }
+
+    private func loadModel(signalMonitor: TUISignalMonitor) async throws -> String? {
+        let state = GenerationTaskState()
+        let task = Task<String, Error> {
+            do {
+                let modelID = try await engine.load { [terminal] progress in
+                    terminal.clearLine()
+                    terminal.write(String(format: "Loading model %3.0f%%", progress * 100))
+                }
+                await state.markFinished()
+                return modelID
+            } catch {
+                await state.markFinished()
+                throw error
+            }
+        }
+        var interrupted = false
+        while !(await state.isFinished()) {
+            if signalMonitor.shouldTerminate {
+                interrupted = true
+                task.cancel()
+                break
+            }
+            if let key = terminal.readKey(timeoutMilliseconds: 40), key == .interrupt || key == .eof {
+                interrupted = true
+                task.cancel()
+                break
+            }
+        }
+        if interrupted {
+            signalMonitor.stop()
+            terminal.restore()
+            _ = try? await task.value
+            if !signalMonitor.shouldTerminate {
+                terminal.clearLine()
+                terminal.write("Loading cancelled.\n")
+            }
+            return nil
+        }
+        return try await task.value
     }
 
     private func send(_ input: String, signalMonitor: TUISignalMonitor) async throws {
+        lastInputWasRolledBack = false
         promptHistory.append(input)
         lastInput = input
         let userMessage = try makeUserMessage(input)
@@ -275,12 +400,12 @@ public final class AFMTerminalChat: @unchecked Sendable {
             session.title = String(input.replacingOccurrences(of: "\n", with: " ").prefix(72))
         }
         session.messages.append(userMessage)
+        let pendingUserIndex = session.messages.index(before: session.messages.endIndex)
         session.updatedAt = Date()
         terminal.write("\n\(style("you", "1;34")) › \(input)\n\n")
 
         let buffer = GenerationBuffer()
-        let taskState = GenerationTaskState()
-        let messages = session.messages
+        let messages = Self.requestMessages(for: configuration.backend, transcript: session.messages)
         let generation = configuration.generation
         let task = Task {
             do {
@@ -298,11 +423,10 @@ public final class AFMTerminalChat: @unchecked Sendable {
             } catch {
                 await buffer.fail(error)
             }
-            await taskState.markFinished()
         }
 
         var previousRows = 0
-        var lastSnapshot = await buffer.snapshot()
+        var lastSnapshot = await buffer.renderSnapshot()
         let start = Date()
         while !lastSnapshot.completed && !signalMonitor.shouldTerminate {
             if let key = terminal.readKey(timeoutMilliseconds: 40), key == .interrupt {
@@ -314,31 +438,39 @@ public final class AFMTerminalChat: @unchecked Sendable {
                 previousRows = redrawGeneration(lastSnapshot, previousRows: previousRows, final: false)
             }
         }
-        if signalMonitor.shouldTerminate { task.cancel() }
-        let clock = ContinuousClock()
-        let cancellationRequested = lastSnapshot.cancelled || signalMonitor.shouldTerminate
-        if cancellationRequested {
+        if signalMonitor.shouldTerminate {
+            signalMonitor.stop()
+            terminal.restore()
             task.cancel()
+            await buffer.cancel()
         }
-        let deadline = clock.now.advanced(by: cancellationRequested ? .milliseconds(500) : .seconds(1))
-        while !(await taskState.isFinished()), clock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        if !(await taskState.isFinished()) { task.cancel() }
+        await task.value
         lastSnapshot = await buffer.snapshot()
-        lastReasoning = lastSnapshot.reasoning
+        if signalMonitor.shouldTerminate {
+            session.removeMessage(at: pendingUserIndex)
+            lastInputWasRolledBack = true
+            try? await engine.resetConversation(with: session.messages)
+            return
+        }
         _ = redrawGeneration(lastSnapshot, previousRows: previousRows, final: true)
         terminal.write("\n")
 
         if let error = lastSnapshot.error {
+            session.removeMessage(at: pendingUserIndex)
+            lastInputWasRolledBack = true
+            try? await engine.resetConversation(with: session.messages)
             terminal.write("\(style("error", "1;31")): \(error)\n\n")
             return
         }
         if lastSnapshot.cancelled || (lastSnapshot.text.isEmpty && lastSnapshot.tools.isEmpty) {
+            session.removeMessage(at: pendingUserIndex)
+            lastInputWasRolledBack = true
+            try? await engine.resetConversation(with: session.messages)
             terminal.write("\(style("cancelled", "33")) — the partial response was not added.\n\n")
             return
         }
 
+        lastReasoning = lastSnapshot.reasoning
         let messageToolCalls = lastSnapshot.tools.map {
             MessageToolCall(
                 id: $0.id,
@@ -382,30 +514,44 @@ public final class AFMTerminalChat: @unchecked Sendable {
             terminal.write("\r")
         }
         var display = ""
-        if !snapshot.reasoning.isEmpty {
+        if snapshot.reasoningCharacterCount > 0 {
             if showReasoning {
-                display += style("reasoning", "2;35") + " ›\n" + renderGenerationMarkdown(snapshot.reasoning, final: final) + "\n\n"
+                display += style("reasoning", "2;35") + " ›\n" + renderGenerationMarkdown(
+                    full: snapshot.reasoning,
+                    tail: snapshot.reasoningTail,
+                    characterCount: snapshot.reasoningCharacterCount,
+                    final: final
+                ) + "\n\n"
             } else {
-                display += style("… reasoning hidden (\(snapshot.reasoning.count) chars; /reasoning show)", "2") + "\n"
+                display += style("… reasoning hidden (\(snapshot.reasoningCharacterCount) chars; /reasoning show)", "2") + "\n"
             }
         }
-        display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(snapshot.text, final: final)
-        if snapshot.text.isEmpty && snapshot.reasoning.isEmpty { display += style("thinking…", "2") }
-        if !snapshot.tools.isEmpty {
-            let lines = zip(snapshot.tools, snapshot.toolStages).map { call, stage in
-                "\(stage): \(call.name)(\(call.arguments))"
-            }
-            display += "\n" + style(lines.joined(separator: "\n"), "36")
+        display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(
+            full: snapshot.text,
+            tail: snapshot.textTail,
+            characterCount: snapshot.textCharacterCount,
+            final: final
+        )
+        if snapshot.textCharacterCount == 0 && snapshot.reasoningCharacterCount == 0 {
+            display += style("thinking…", "2")
+        }
+        if !snapshot.toolDisplayLines.isEmpty {
+            display += "\n" + style(snapshot.toolDisplayLines.joined(separator: "\n"), "36")
         }
         terminal.write(display)
         return displayRows(display, width: terminal.width())
     }
 
-    private func renderGenerationMarkdown(_ source: String, final: Bool) -> String {
-        let limit = 12_000
-        guard !final, source.count > limit else { return renderMarkdown(source).text }
-        let suffix = String(source.suffix(limit))
-        return style("… earlier streaming output omitted from redraw …", "2") + "\n" + renderMarkdown(suffix).text
+    private func renderGenerationMarkdown(
+        full: String,
+        tail: String,
+        characterCount: Int,
+        final: Bool
+    ) -> String {
+        if final { return renderMarkdown(full).text }
+        let renderedTail = renderMarkdown(tail).text
+        guard characterCount > GenerationBuffer.renderTailLimit else { return renderedTail }
+        return style("… earlier streaming output omitted from redraw …", "2") + "\n" + renderedTail
     }
 
     private func readInput(initial: String?, signalMonitor: TUISignalMonitor) -> String? {
@@ -473,12 +619,14 @@ public final class AFMTerminalChat: @unchecked Sendable {
         case "/quit", "/exit", "/q": return true
         case "/help", "/?": drawHelp()
         case "/new":
+            try await engine.resetConversation()
             session = TUISession(
                 backend: configuration.backendName,
                 model: configuration.modelName,
                 messages: Self.initialMessages(for: configuration)
             )
-            codeBlocks = []; images = []; terminal.clearScreen(); drawWelcome()
+            resetTransientSessionState()
+            terminal.clearScreen(); drawWelcome()
         case "/clear": terminal.clearScreen(); drawWelcome()
         case "/status": terminal.write("\(configuration.backendName) · \(configuration.modelName)\n\(lastStatistics)\n")
         case "/reasoning":
@@ -498,17 +646,17 @@ public final class AFMTerminalChat: @unchecked Sendable {
         case "/export", "/export!": try exportSession(pieces, overwrite: command == "/export!")
         case "/history": try listHistory()
         case "/search": try searchSessions(pieces)
-        case "/resume": try resumeSession(pieces)
+        case "/resume": try await resumeSession(pieces)
         case "/retry":
             guard let lastInput else { terminal.write("Nothing to retry.\n"); return false }
-            if session.messages.last?.role == "assistant" { session.messages.removeLast() }
-            if session.messages.last?.role == "user" { session.messages.removeLast() }
+            if !lastInputWasRolledBack { session.removeLastExchange() }
+            try await engine.resetConversation(with: session.messages)
             try await send(lastInput, signalMonitor: signalMonitor)
         case "/edit":
             guard let lastInput else { terminal.write("Nothing to edit.\n"); return false }
             if let revised = readInput(initial: lastInput, signalMonitor: signalMonitor), !revised.isEmpty {
-                if session.messages.last?.role == "assistant" { session.messages.removeLast() }
-                if session.messages.last?.role == "user" { session.messages.removeLast() }
+                if !lastInputWasRolledBack { session.removeLastExchange() }
+                try await engine.resetConversation(with: session.messages)
                 try await send(revised, signalMonitor: signalMonitor)
             }
         case "/theme":
@@ -528,12 +676,12 @@ public final class AFMTerminalChat: @unchecked Sendable {
         for url in attachments {
             let ext = url.pathExtension.lowercased()
             if ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(ext) {
-                let data = try Data(contentsOf: url)
+                let data = try TUIArtifactActions.readRegularFile(at: url, maximumBytes: 20_000_000)
                 let mime = ext == "jpg" || ext == "jpeg" ? "image/jpeg" : "image/\(ext)"
                 parts.append(ContentPart(type: "image_url", image_url: ImageURL(url: "data:\(mime);base64,\(data.base64EncodedString())", detail: "auto")))
             } else {
-                let data = try Data(contentsOf: url)
-                guard data.count <= 2_000_000, let text = String(data: data, encoding: .utf8) else {
+                let data = try TUIArtifactActions.readRegularFile(at: url, maximumBytes: 2_000_000)
+                guard let text = String(data: data, encoding: .utf8) else {
                     throw TUIArtifactError.invalidPath("Attachment must be an image or UTF-8 text file under 2 MB: \(url.path)")
                 }
                 parts.append(ContentPart(type: "text", text: "\n<attachment path=\"\(url.lastPathComponent)\">\n\(text)\n</attachment>"))
@@ -624,18 +772,15 @@ public final class AFMTerminalChat: @unchecked Sendable {
 
     private func presentImages(_ values: [TUIImageReference]) {
         for (index, image) in values.enumerated() {
-            if let sequence = try? TUIArtifactActions.inlineImageSequence(path: image.path, capabilities: capabilities) {
-                terminal.write("\n" + sequence + "\n")
-            } else {
-                terminal.write(style("Image \(index + 1): \(image.path) — use /image \(index + 1) for Quick Look", "2;36") + "\n")
-            }
+            terminal.write(style("Image \(index + 1): \(image.path) — use /image \(index + 1) to read and display", "2;36") + "\n")
         }
     }
 
     private func attach(_ pieces: [String]) throws {
         guard pieces.count >= 2 else { throw TUIArtifactError.invalidPath("usage: /attach <path>") }
         let url = try TUIArtifactActions.resolvedURL(pieces.dropFirst().joined(separator: " "))
-        guard FileManager.default.fileExists(atPath: url.path) else { throw TUIArtifactError.invalidPath(url.path) }
+        let isImage = ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(url.pathExtension.lowercased())
+        try TUIArtifactActions.preflightRegularFile(at: url, maximumBytes: isImage ? 20_000_000 : 2_000_000)
         attachments.append(url); terminal.write("Attached \(url.lastPathComponent). It will be sent with the next prompt.\n")
     }
 
@@ -657,19 +802,41 @@ public final class AFMTerminalChat: @unchecked Sendable {
         }
     }
 
-    private func resumeSession(_ pieces: [String]) throws {
+    private func resumeSession(_ pieces: [String]) async throws {
         guard pieces.count == 2, let id = UUID(uuidString: pieces[1]) else { throw TUIArtifactError.invalidPath("usage: /resume <session-id>") }
-        session = try store.load(id: id)
+        var restored = try store.load(id: id)
+        try Self.validateRestoredSession(
+            restored,
+            backendName: configuration.backendName,
+            modelName: configuration.modelName
+        )
+        restored.pruneReasoningMetadata()
+        try await engine.resetConversation(with: restored.messages)
+        session = restored
         promptHistory = session.messages.filter { $0.role == "user" }.map(\.textContent)
         lastInput = promptHistory.last
+        lastInputWasRolledBack = false
         let lastAssistantIndex = session.messages.indices.reversed().first { session.messages[$0].role == "assistant" }
         lastReasoning = lastAssistantIndex.flatMap { session.reasoning(atMessageIndex: $0) } ?? ""
         codeBlocks = []
         images = []
+        attachments = []
+        lastStatistics = "No generation yet"
         terminal.clearScreen(); drawWelcome()
         for message in session.messages where message.role != "system" {
             terminal.write("\(style(message.role, message.role == "user" ? "1;34" : "1;32")) › \(renderMarkdown(message.textContent).text)\n\n")
         }
+    }
+
+    private func resetTransientSessionState() {
+        promptHistory = []
+        codeBlocks = []
+        images = []
+        attachments = []
+        lastStatistics = "No generation yet"
+        lastInput = nil
+        lastReasoning = ""
+        lastInputWasRolledBack = false
     }
 
     private func splitCommand(_ input: String) -> [String] {
@@ -707,7 +874,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
 
     private func renderMarkdown(_ source: String) -> MarkdownRenderResult {
         renderer.render(
-            source,
+            TerminalOutputSanitizer.sanitize(source),
             width: max(24, terminal.width() - 4),
             hyperlinks: capabilities.hyperlinks
         )
@@ -718,6 +885,28 @@ public final class AFMTerminalChat: @unchecked Sendable {
             return [Message(role: "system", content: configuration.engine.instructions)]
         }
         return []
+    }
+
+    static func requestMessages(for backend: AFMBackend, transcript: [Message]) -> [Message] {
+        if case .foundationModels = backend {
+            return transcript.last.map { [$0] } ?? []
+        }
+        return transcript
+    }
+
+    static func validateRestoredSession(
+        _ restored: TUISession,
+        backendName: String,
+        modelName: String
+    ) throws {
+        guard restored.backend == backendName, restored.model == modelName else {
+            throw TUIArtifactError.incompatibleSession(
+                savedBackend: restored.backend,
+                savedModel: restored.model,
+                currentBackend: backendName,
+                currentModel: modelName
+            )
+        }
     }
 
     private func style(_ value: String, _ code: String) -> String {

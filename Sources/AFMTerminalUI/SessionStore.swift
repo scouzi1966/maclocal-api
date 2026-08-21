@@ -47,10 +47,38 @@ public struct TUISession: Codable, Sendable {
         updatedAt = try values.decode(Date.self, forKey: .updatedAt)
         messages = try values.decode([Message].self, forKey: .messages)
         reasoningByMessage = try values.decodeIfPresent([String: String].self, forKey: .reasoningByMessage) ?? [:]
+        pruneReasoningMetadata()
     }
 
     public func reasoning(atMessageIndex index: Int) -> String? {
         reasoningByMessage[String(index)]
+    }
+
+    public mutating func removeLastExchange() {
+        if messages.last?.role == "assistant" { messages.removeLast() }
+        if messages.last?.role == "user" { messages.removeLast() }
+        pruneReasoningMetadata()
+    }
+
+    public mutating func removeMessage(at index: Int) {
+        guard messages.indices.contains(index) else { return }
+        messages.remove(at: index)
+        var remapped: [String: String] = [:]
+        for (key, value) in reasoningByMessage {
+            guard let oldIndex = Int(key), oldIndex != index else { continue }
+            let newIndex = oldIndex > index ? oldIndex - 1 : oldIndex
+            if messages.indices.contains(newIndex), messages[newIndex].role == "assistant" {
+                remapped[String(newIndex)] = value
+            }
+        }
+        reasoningByMessage = remapped
+    }
+
+    public mutating func pruneReasoningMetadata() {
+        reasoningByMessage = reasoningByMessage.filter { key, _ in
+            guard let index = Int(key), messages.indices.contains(index) else { return false }
+            return messages[index].role == "assistant"
+        }
     }
 }
 
@@ -62,6 +90,7 @@ public struct TUISessionSummary: Equatable, Sendable {
 }
 
 public final class TUISessionStore: @unchecked Sendable {
+    private static let maximumSessionBytes = 10_000_000
     public let directory: URL
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -96,7 +125,10 @@ public final class TUISessionStore: @unchecked Sendable {
     }
 
     public func load(id: UUID) throws -> TUISession {
-        try decoder.decode(TUISession.self, from: Data(contentsOf: url(for: id)))
+        try decoder.decode(
+            TUISession.self,
+            from: TUIArtifactActions.readRegularFile(at: url(for: id), maximumBytes: Self.maximumSessionBytes)
+        )
     }
 
     public func recent(limit: Int = 20) throws -> [TUISessionSummary] {
@@ -127,7 +159,10 @@ public final class TUISessionStore: @unchecked Sendable {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ).filter { $0.pathExtension == "json" }.compactMap { url in
-            try? decoder.decode(TUISession.self, from: Data(contentsOf: url))
+            try? decoder.decode(
+                TUISession.self,
+                from: TUIArtifactActions.readRegularFile(at: url, maximumBytes: Self.maximumSessionBytes)
+            )
         }
         return sessions.compactMap { session in
             guard let lowered, !lowered.isEmpty else {

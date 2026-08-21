@@ -1,5 +1,8 @@
 import Darwin
 import XCTest
+import AFMKit
+import AFMOpenAICompat
+@testable import AFMKitFoundationModels
 @testable import AFMTerminalUI
 
 final class TerminalMarkdownRendererTests: XCTestCase {
@@ -177,6 +180,8 @@ final class TUIArtifactActionsTests: XCTestCase {
         XCTAssertTrue(html.contains("Content-Security-Policy"))
         XCTAssertTrue(html.contains("default-src 'none'"))
         XCTAssertTrue(html.contains("querySelector"))
+        XCTAssertTrue(html.contains("sandbox=\"allow-scripts\""))
+        XCTAssertFalse(html.contains("<script>document.querySelector"))
     }
 
     func testHTMLBrowserArtifactIsSandboxed() throws {
@@ -196,6 +201,21 @@ final class TUIArtifactActionsTests: XCTestCase {
         XCTAssertThrowsError(
             try TUIArtifactActions.prepareBrowserArtifact(TUICodeBlock(language: "bash", content: "rm something"))
         )
+    }
+
+    func testBoundedRegularFileReadRejectsLinksDirectoriesAndOversizedFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let regular = root.appendingPathComponent("regular.txt")
+        let link = root.appendingPathComponent("linked.txt")
+        try Data("1234".utf8).write(to: regular)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: regular)
+
+        XCTAssertEqual(try TUIArtifactActions.readRegularFile(at: regular, maximumBytes: 4), Data("1234".utf8))
+        XCTAssertThrowsError(try TUIArtifactActions.readRegularFile(at: regular, maximumBytes: 3))
+        XCTAssertThrowsError(try TUIArtifactActions.readRegularFile(at: link, maximumBytes: 100))
+        XCTAssertThrowsError(try TUIArtifactActions.readRegularFile(at: root, maximumBytes: 100))
     }
 }
 
@@ -251,6 +271,21 @@ final class TUISessionStoreTests: XCTestCase {
         try data.write(to: root.appendingPathComponent("\(session.id.uuidString).json"))
         XCTAssertTrue(try store.load(id: session.id).reasoningByMessage.isEmpty)
     }
+
+    func testReasoningMetadataIsPrunedAndRemappedWhenMessagesAreRemoved() {
+        var session = TUISession(backend: "MLX", model: "test/model", messages: [
+            .init(role: "user", content: "one"),
+            .init(role: "assistant", content: "first"),
+            .init(role: "user", content: "two"),
+            .init(role: "assistant", content: "second")
+        ], reasoningByMessage: ["1": "r1", "3": "r2", "99": "stale"])
+
+        session.removeMessage(at: 0)
+        XCTAssertEqual(session.reasoningByMessage, ["0": "r1", "2": "r2"])
+        session.removeLastExchange()
+        XCTAssertEqual(session.messages.count, 1)
+        XCTAssertEqual(session.reasoningByMessage, ["0": "r1"])
+    }
 }
 
 final class GenerationBufferTests: XCTestCase {
@@ -265,6 +300,76 @@ final class GenerationBufferTests: XCTestCase {
         let final = await buffer.snapshot()
         XCTAssertNil(unchanged)
         XCTAssertEqual(final.text, "one")
+    }
+
+    func testStreamingSnapshotUsesBoundedSanitizedRenderTails() async {
+        let buffer = GenerationBuffer()
+        let unsafePrefix = "safe\u{001B}]2;owned\u{0007}"
+        let longText = unsafePrefix + String(repeating: "x", count: GenerationBuffer.renderTailLimit + 500)
+        await buffer.accept(.text(longText, tokenCount: 1))
+        await buffer.accept(.reasoning("think\u{000D}again", tokenCount: 1))
+        await buffer.accept(.toolCall(
+            AFMToolCall(id: "id", name: "bad\u{001B}name", arguments: "{}\u{0007}"),
+            stage: .argumentsDelta("delta\u{001B}]2;owned")
+        ))
+        let renderSnapshot = await buffer.renderSnapshot()
+        let snapshot = await buffer.snapshot()
+
+        XCTAssertTrue(renderSnapshot.text.isEmpty)
+        XCTAssertTrue(renderSnapshot.reasoning.isEmpty)
+        XCTAssertTrue(renderSnapshot.tools.isEmpty)
+        XCTAssertEqual(snapshot.textTail.count, GenerationBuffer.renderTailLimit)
+        XCTAssertEqual(snapshot.textCharacterCount, snapshot.text.count)
+        XCTAssertFalse(snapshot.text.contains("\u{001B}"))
+        XCTAssertFalse(snapshot.reasoning.contains("\u{000D}"))
+        XCTAssertFalse(snapshot.toolDisplayLines.joined().contains("\u{0007}"))
+        XCTAssertFalse(snapshot.toolDisplayLines.joined().contains("owned"))
+    }
+}
+
+final class FoundationStopSequenceFilterTests: XCTestCase {
+    func testWithholdsSplitStopPrefixesAndDropsTheStopAndSuffix() {
+        var filter = FoundationStopSequenceFilter(stopSequences: ["<END>", "STOP"])
+        var output = ""
+        output += filter.consume("hello<")
+        output += filter.consume("EN")
+        output += filter.consume("D>ignored")
+        output += filter.finish()
+
+        XCTAssertEqual(output, "hello")
+        XCTAssertTrue(filter.stopped)
+    }
+
+    func testFlushesAnUnmatchedPrefixAtEndOfStream() {
+        var filter = FoundationStopSequenceFilter(stopSequences: ["<END>"])
+        XCTAssertEqual(filter.consume("hello<EN"), "hello")
+        XCTAssertEqual(filter.finish(), "<EN")
+    }
+}
+
+final class TUIConversationPolicyTests: XCTestCase {
+    func testFoundationTurnsAreIncrementalWhileStatelessTurnsRetainHistory() {
+        let transcript = [
+            Message(role: "user", content: "first"),
+            Message(role: "assistant", content: "answer"),
+            Message(role: "user", content: "second")
+        ]
+
+        XCTAssertEqual(
+            AFMTerminalChat.requestMessages(for: .foundationModels, transcript: transcript).map(\.textContent),
+            ["second"]
+        )
+        XCTAssertEqual(
+            AFMTerminalChat.requestMessages(for: .mlx(modelID: "test"), transcript: transcript).map(\.textContent),
+            ["first", "answer", "second"]
+        )
+    }
+
+    func testResumeRejectsBackendOrModelMismatch() {
+        let session = TUISession(backend: "MLX", model: "one", messages: [])
+        XCTAssertNoThrow(try AFMTerminalChat.validateRestoredSession(session, backendName: "MLX", modelName: "one"))
+        XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "Foundation", modelName: "one"))
+        XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "MLX", modelName: "two"))
     }
 }
 
