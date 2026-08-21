@@ -40,6 +40,110 @@ final class AFMDwarfStarCheckpointTests: XCTestCase {
         XCTAssertFalse(AFMDwarfStarCheckpointCatalog.isGGUF(at: model))
     }
 
+    func testBoundedGGUFHeaderProbeRejectsUnsupportedArchitectureBeforeDownload() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = directory.appendingPathComponent("unsupported.gguf")
+        try writeMinimalGGUF(to: model, architecture: "qwen3")
+        let header = try Data(contentsOf: model)
+
+        let architecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(in: header)
+        XCTAssertEqual(architecture, "qwen3")
+        XCTAssertThrowsError(
+            try AFMDwarfStarHubSelector.validateArchitecture(
+                architecture,
+                path: "unsupported.gguf"
+            )
+        ) { error in
+            guard case AFMDwarfStarHubSelectionError.unsupportedArchitecture(
+                let path,
+                let actual
+            ) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, "unsupported.gguf")
+            XCTAssertEqual(actual, "qwen3")
+            XCTAssertTrue(error.localizedDescription.contains("deepseek4"))
+        }
+    }
+
+    func testBoundedGGUFRangeProbeRejectsFullResponseBeforeReadingBody() async throws {
+        IgnoredRangeURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [IgnoredRangeURLProtocol.self]
+        let delegate = AFMDwarfStarBoundedRangeDataDelegate(maximumBytes: 16)
+        let session = URLSession(
+            configuration: configuration,
+            delegate: delegate,
+            delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        var request = URLRequest(url: URL(string: "https://example.invalid/model.gguf")!)
+        request.setValue("bytes=0-15", forHTTPHeaderField: "Range")
+
+        do {
+            _ = try await delegate.run(request: request, session: session)
+            XCTFail("expected a server that ignores Range to be rejected")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("did not honor"))
+        }
+
+        XCTAssertEqual(IgnoredRangeURLProtocol.lastRange, "bytes=0-15")
+        XCTAssertEqual(delegate.acceptedByteCount, 0)
+    }
+
+    func testDwarfStarHubCacheLockCoordinatesAcrossProcesses() async throws {
+        let python = URL(fileURLWithPath: "/usr/bin/python3")
+        guard FileManager.default.isExecutableFile(atPath: python.path) else {
+            throw XCTSkip("/usr/bin/python3 is required for the cross-process lock test")
+        }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let artifact = directory
+            .appendingPathComponent("models--org--model/blobs/blob-key")
+        let lockFile = AFMDwarfStarHubCacheCoordinator.lockFileURL(
+            cacheDirectory: directory,
+            artifact: artifact
+        )
+        let acquiredMarker = directory.appendingPathComponent("python-acquired")
+        let releaseMarker = directory.appendingPathComponent("python-release")
+        let script = """
+        import fcntl, os, sys, time
+        lock_path, acquired, release = sys.argv[1:]
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        with open(lock_path, "w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            open(acquired, "w").close()
+            while not os.path.exists(release):
+                time.sleep(0.01)
+        """
+        let process = Process()
+        process.executableURL = python
+        process.arguments = [
+            "-c", script, lockFile.path, acquiredMarker.path, releaseMarker.path
+        ]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+        }
+
+        try await waitForFile(acquiredMarker)
+        let started = ContinuousClock.now
+        let waiter = Task {
+            try await AFMDwarfStarHubCacheCoordinator.withArtifactLock(
+                cacheDirectory: directory,
+                artifact: artifact
+            ) {}
+            return ContinuousClock.now - started
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        try Data().write(to: releaseMarker)
+        let elapsed = try await waiter.value
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertGreaterThanOrEqual(elapsed, .milliseconds(100))
+    }
+
     func testExternalAFMCheckpointHeadersCanBeCataloged() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["AFM_DWARFSTAR_REAL_CHECKPOINT_TEST"] == "1" else {
@@ -219,6 +323,16 @@ final class AFMDwarfStarCheckpointTests: XCTestCase {
         return root
     }
 
+    private func waitForFile(_ url: URL) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: url.path) {
+            guard ContinuousClock.now < deadline else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     private func writeMinimalGGUF(to url: URL, architecture: String) throws {
         var data = Data("GGUF".utf8)
         data.appendLittleEndian(UInt32(3))
@@ -365,6 +479,40 @@ final class AFMDwarfStarCheckpointTests: XCTestCase {
             tensorDataOffset: tensorDataOffset,
             relativeOffsetPositions: positions)
     }
+}
+
+private final class IgnoredRangeURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let stateLock = NSLock()
+    nonisolated(unsafe) private static var recordedRange: String?
+
+    static var lastRange: String? {
+        stateLock.withLock { recordedRange }
+    }
+
+    static func reset() {
+        stateLock.withLock { recordedRange = nil }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.stateLock.withLock {
+            Self.recordedRange = request.value(forHTTPHeaderField: "Range")
+        }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Length": "1048576"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(repeating: 0x5a, count: 1_048_576))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private extension Data {

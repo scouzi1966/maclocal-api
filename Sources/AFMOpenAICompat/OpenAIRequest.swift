@@ -28,6 +28,7 @@ public struct ChatCompletionRequest: Codable, Sendable {
     public let chatTemplateKwargs: [String: AnyCodable]?
     /// Official DeepSeek 0731 reasoning control: low, high, or max.
     public let reasoningEffort: String?
+    public let speculativeDecoding: SpeculativeDecodingOptions?
 
     public enum CodingKeys: String, CodingKey {
         case model
@@ -55,6 +56,7 @@ public struct ChatCompletionRequest: Codable, Sendable {
         case responseFormat = "response_format"
         case chatTemplateKwargs = "chat_template_kwargs"
         case reasoningEffort = "reasoning_effort"
+        case speculativeDecoding = "speculative_decoding"
     }
 
     /// Whether the final SSE chunk should carry a `usage` block. Mirrors OpenAI's
@@ -81,7 +83,7 @@ public struct ChatCompletionRequest: Codable, Sendable {
         return result.isEmpty ? nil : result
     }
 
-    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?, reasoningEffort: String? = nil) {
+    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?, reasoningEffort: String? = nil, speculativeDecoding: SpeculativeDecodingOptions? = nil) {
         self.model = model
         self.messages = messages
         self.temperature = temperature
@@ -107,6 +109,41 @@ public struct ChatCompletionRequest: Codable, Sendable {
         self.responseFormat = responseFormat
         self.chatTemplateKwargs = chatTemplateKwargs
         self.reasoningEffort = reasoningEffort
+        self.speculativeDecoding = speculativeDecoding
+    }
+}
+
+/// Optional, provider-neutral speculative-decoding request controls.
+/// Servers may reject `required` when the selected provider cannot honor it.
+public struct SpeculativeDecodingOptions: Codable, Sendable, Equatable {
+    public let mode: String?
+    public let requirement: String?
+    public let drafter: String?
+    public let maxDraftTokens: Int?
+    /// Internal execution constraint used by server-owned workflows such as
+    /// deterministic batch dispatch. It is intentionally not part of the
+    /// OpenAI-compatible wire representation.
+    public var forceAutoregressiveReason: String? = nil
+
+    public init(
+        mode: String? = nil,
+        requirement: String? = nil,
+        drafter: String? = nil,
+        maxDraftTokens: Int? = nil,
+        forceAutoregressiveReason: String? = nil
+    ) {
+        self.mode = mode
+        self.requirement = requirement
+        self.drafter = drafter
+        self.maxDraftTokens = maxDraftTokens
+        self.forceAutoregressiveReason = forceAutoregressiveReason
+    }
+
+    public enum CodingKeys: String, CodingKey {
+        case mode
+        case requirement
+        case drafter
+        case maxDraftTokens = "max_draft_tokens"
     }
 }
 

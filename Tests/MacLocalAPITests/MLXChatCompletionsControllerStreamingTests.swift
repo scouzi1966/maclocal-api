@@ -116,6 +116,90 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(service.recordedPreserveStructuralTags, [true])
     }
 
+    func testStreamingCancellationAfterPartialOutputDoesNotEmitStopOrUsage() async throws {
+        app.middleware.use(RequestIDMiddleware())
+        let probe = StreamingCancellationProbe()
+        let inflightRegistry = app.inflightRegistry
+        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            let producer = Task {
+                do {
+                    while await inflightRegistry.count == 0 {
+                        try await Task.sleep(nanoseconds: 5_000_000)
+                    }
+                    continuation.yield(StreamChunk(text: "partial"))
+                    probe.markYielded()
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                    continuation.yield(StreamChunk(
+                        text: "",
+                        promptTokens: 12,
+                        completionTokens: 20,
+                        cachedTokens: 0,
+                        promptTime: 0.1,
+                        generateTime: 5
+                    ))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                probe.markTerminated()
+                producer.cancel()
+            }
+        }
+        let service = FakeMLXChatService(
+            streamingResult: (
+                modelID: "test-model",
+                stream: stream,
+                promptTokens: 12,
+                toolCallStartTag: nil,
+                toolCallEndTag: nil,
+                thinkStartTag: nil,
+                thinkEndTag: nil
+            )
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+        try CancelController().boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        var headers = requestHeaders(for: body)
+        headers.replaceOrAdd(name: "X-Request-ID", value: "partial-cancel")
+        let cancelTester = try app.testable()
+        let tester = try app.testable(method: .running(port: 0))
+        let responseTask = Task {
+            try await tester.sendRequest(
+                .POST,
+                "/v1/chat/completions",
+                headers: headers,
+                body: body
+            )
+        }
+
+        for _ in 0..<200 where !probe.yielded {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertTrue(probe.yielded)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let cancelResponse = try await cancelTester.sendRequest(
+            .POST,
+            "/v1/chat/completions/partial-cancel/cancel"
+        )
+        XCTAssertEqual(cancelResponse.status, .ok)
+        XCTAssertContains(cancelResponse.body.string, "\"cancelled\":true")
+
+        let response = try await responseTask.value.body.string
+        XCTAssertContains(response, "partial")
+        XCTAssertContains(response, "\"finish_reason\":\"cancelled\"")
+        XCTAssertFalse(response.contains("\"finish_reason\":\"stop\""))
+        XCTAssertFalse(response.contains("\"usage\":{"))
+        XCTAssertTrue(probe.terminated)
+    }
+
     func testStreamingControllerSerializesCompletedBatchToolCalls() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
@@ -1001,6 +1085,28 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
+private final class StreamingCancellationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didYield = false
+    private var didTerminate = false
+
+    func markYielded() {
+        lock.withLock { didYield = true }
+    }
+
+    func markTerminated() {
+        lock.withLock { didTerminate = true }
+    }
+
+    var yielded: Bool {
+        lock.withLock { didYield }
+    }
+
+    var terminated: Bool {
+        lock.withLock { didTerminate }
+    }
+}
+
 private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String?
@@ -1023,6 +1129,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private let streamingResult: AFMMLXChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
     private let stateLock = NSLock()
+    private let schedulerID = UUID()
+    private var reservationIDs = Set<UUID>()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
     private(set) var recordedGenerateToolChoices: [String] = []
@@ -1094,8 +1202,21 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func tryReserveSlot() -> Bool { true }
-    func releaseSlot() {}
+    func tryReserveSlot() -> AFMMLXSchedulerAdmission {
+        guard maxConcurrent >= 2 else { return .serial }
+        return stateLock.withLock {
+            let reservation = AFMMLXSchedulerReservation(schedulerID: schedulerID)
+            reservationIDs.insert(reservation.reservationID)
+            return .reserved(reservation)
+        }
+    }
+    @discardableResult
+    func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool {
+        guard reservation.schedulerID == schedulerID else { return false }
+        return stateLock.withLock {
+            reservationIDs.remove(reservation.reservationID) != nil
+        }
+    }
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
     func cancelBatchSlots(ids: Set<UUID>) async {}
@@ -1238,6 +1359,61 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs
         )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> AFMMLXChatStreamingResult {
+        let result = try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId)
+        if case .reserved(let reservation) = schedulerAdmission {
+            guard reservation.schedulerID == schedulerID,
+                  stateLock.withLock({ reservationIDs.remove(reservation.reservationID) != nil })
+            else {
+                throw MLXServiceError.invalidSchedulerReservation
+            }
+        }
+        return result
     }
 
     func generateStreaming(

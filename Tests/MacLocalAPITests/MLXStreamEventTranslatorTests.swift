@@ -116,6 +116,36 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         XCTAssertEqual(completionReason(from: events), .toolCalls)
     }
 
+    func testCompletedZeroParameterToolCallStreamsEmptyJSONObject() {
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 100
+        )
+        var events = translator.consume(.init(
+            text: "",
+            toolCalls: [
+                .init(
+                    index: 0,
+                    id: "call_list",
+                    type: "function",
+                    function: .init(name: "list_projects", arguments: "")
+                )
+            ]
+        ))
+        events += translator.finish()
+
+        let argumentDeltas = events.compactMap { event -> String? in
+            guard case .toolCall(_, .argumentsDelta(let arguments)) = event else {
+                return nil
+            }
+            return arguments
+        }
+        XCTAssertEqual(argumentDeltas, ["{}"])
+        XCTAssertEqual(completedToolCall(from: events)?.arguments, "{}")
+        XCTAssertEqual(completionReason(from: events), .toolCalls)
+    }
+
     func testMaximumTokenUsageProducesLengthCompletion() {
         var translator = MLXStreamEventTranslator(
             thinkStartTag: nil,
@@ -149,6 +179,37 @@ final class MLXStreamEventTranslatorTests: XCTestCase {
         XCTAssertEqual(usage?.inputTokens, 20)
         XCTAssertEqual(usage?.cachedInputTokens, 12)
         XCTAssertEqual(usage?.outputTokens, 1)
+    }
+
+    func testSpeculativeTelemetryProducesVersionedMetadataEvent() {
+        let telemetry = AFMMLXSpeculativeTelemetry(
+            strategy: "dflash2",
+            draftedTokens: 8,
+            acceptedDraftTokens: 6,
+            emittedTokens: 8,
+            verificationCycles: 4,
+            draftTime: 0.1,
+            verificationTime: 0.2,
+            rollbackTime: 0.03
+        )
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: nil,
+            thinkEndTag: nil,
+            maximumResponseTokens: 10
+        )
+
+        let events = translator.consume(
+            StreamChunk(text: "", speculativeTelemetry: telemetry)
+        )
+        let metadata = events.compactMap { event -> [String: AFMJSONValue]? in
+            guard case .metadata(let metadata) = event else { return nil }
+            return metadata
+        }.last
+
+        XCTAssertEqual(
+            metadata?[AFMMLXSpeculativeTelemetry.metadataKey],
+            telemetry.metadataValue
+        )
     }
 
     private func text(from events: [AFMGenerationEvent]) -> String {

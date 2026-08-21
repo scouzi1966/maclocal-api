@@ -241,6 +241,9 @@ struct MlxCommand: ParsableCommand {
           --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
           --dspark-strict: Load DSpark support but use target-only decoding
           --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
+          --dflash2: DFlash 2 drafter repository or local directory for a compatible Qwen 3.8 or Muse Glimmer target
+          --dflash2-block: Verification block size including the verifier token (default: 5)
+          --dflash2-required: Reject requests that cannot use explicit-greedy serial DFlash 2 instead of falling back to AR
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
@@ -249,7 +252,7 @@ struct MlxCommand: ParsableCommand {
           --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
           --cache-profile-path: Write cache timing profile records as JSONL
-          --gpu-capture <path>: Capture Metal GPU trace to .gputrace file for Xcode analysis (auto-limits to 5 tokens)
+          --gpu-capture <path>: Capture a serial Metal GPU trace to .gputrace (auto-limits to 5 tokens)
           --gpu-trace <seconds>: Record Metal System Trace via xctrace for N seconds (lightweight per-kernel timing)
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --gpu-profile-bw: Also sample DRAM bandwidth with mactop
@@ -485,6 +488,15 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Enable EAGLE3 speculative decoding for a dense Gemma4 verifier. Pass the drafter directory (config.json + safetensors). Faster decode, quality-preserving (near-greedy output). No-op if the verifier is not a dense Gemma4 text model.")
     var eagle3: String?
 
+    @Option(name: .customLong("dflash2"), help: "Enable DFlash 2 with a metadata-compatible Hugging Face repository or local drafter directory. Opt-in; target and drafter configs are validated before inference.")
+    var dflash2: String?
+
+    @Option(name: .customLong("dflash2-block"), help: "DFlash 2 verification block size, including the verifier token (2...checkpoint limit; default: 5).")
+    var dflash2Block: Int = 5
+
+    @Flag(name: .customLong("dflash2-required"), help: "Reject requests that cannot use explicit-greedy serial DFlash 2 instead of falling back to autoregressive decoding.")
+    var dflash2Required: Bool = false
+
     @Option(name: .long, help: "Write cache timing profile records as JSONL to this file")
     var cacheProfilePath: String?
 
@@ -503,7 +515,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Max concurrent requests (enables batch mode; 0 or 1 reverts to serial)")
     var concurrent: Int?
 
-    @Option(name: .long, help: "Capture a Metal GPU trace to the given path (e.g. /tmp/afm-trace.gputrace). Opens in Xcode for per-kernel analysis. Auto-limits to 5 tokens to keep trace small.")
+    @Option(name: .long, help: "Capture a serial Metal GPU trace to the given path (e.g. /tmp/afm-trace.gputrace). Opens in Xcode for per-kernel analysis. Auto-limits to 5 tokens to keep trace small.")
     var gpuCapture: String?
 
     @Option(name: .long, help: "Record a Metal System Trace for N seconds using Instruments xctrace (e.g. --gpu-trace 10). Lightweight per-kernel GPU timing without massive trace files. Output: /tmp/afm-metal.trace")
@@ -530,6 +542,13 @@ struct MlxCommand: ParsableCommand {
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
             throw ExitCode.failure
+        }
+
+        if let incompatibility = AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: concurrent ?? 0,
+            capturePath: gpuCapture
+        ) {
+            throw ValidationError(incompatibility)
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
@@ -618,6 +637,16 @@ struct MlxCommand: ParsableCommand {
             parsedKwargs["enable_thinking"] = false
             parsedKwargs.removeValue(forKey: "reasoning_effort")
         }
+        guard dflash2Block >= 2 else {
+            throw ValidationError("--dflash2-block must be at least 2")
+        }
+        let speculativeSelections = [mtp, eagle3 != nil, dflash2 != nil].filter { $0 }.count
+        guard speculativeSelections <= 1 else {
+            throw ValidationError("Choose only one of --mtp, --eagle3, or --dflash2")
+        }
+        if dflash2Required, dflash2 == nil {
+            throw ValidationError("--dflash2-required requires --dflash2")
+        }
 
         var defaultGuidedJsonSchema: ResponseFormat?
         if let guidedJson {
@@ -675,6 +704,9 @@ struct MlxCommand: ParsableCommand {
             mtpDepth: mtpDepth,
             mtpModelID: mtpModel,
             eagle3DrafterPath: eagle3,
+            dflash2Drafter: dflash2,
+            dflash2BlockSize: dflash2Block,
+            dflash2Requirement: dflash2Required ? .required : .preferred,
             maxConcurrent: concurrent ?? 0,
             toolCallParser: toolCallParser,
             enableGrammarConstraints: enableGrammarConstraints,
@@ -888,12 +920,16 @@ struct MlxCommand: ParsableCommand {
             }
             return .mlx
         }
-        guard AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: modelURL) else {
+        let ggufArchitecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: modelURL)
+        guard ggufArchitecture == "deepseek4" else {
             if requested == .dwarfstar {
-                let architecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: modelURL)
-                    ?? "unreadable"
+                let architecture = ggufArchitecture ?? "unreadable"
                 throw ValidationError(
                     "DwarfStar does not support GGUF architecture \(architecture)")
+            }
+            if let ggufArchitecture {
+                throw ValidationError(
+                    "Auto runtime cannot execute GGUF architecture \(ggufArchitecture): DwarfStar requires deepseek4 and MLX requires a safetensors checkpoint")
             }
             return .mlx
         }
@@ -991,7 +1027,7 @@ struct MlxCommand: ParsableCommand {
         if !media.isEmpty || vlm {
             throw ValidationError("The DwarfStar runtime currently supports text input only")
         }
-        if kvBits != nil || mtp || eagle3 != nil {
+        if kvBits != nil || mtp || eagle3 != nil || dflash2 != nil {
             throw ValidationError(
                 "KV quantization and speculative decoding are unavailable in the DwarfStar runtime")
         }
@@ -1192,6 +1228,13 @@ struct MlxCommand: ParsableCommand {
                     mtpDepth: self.mtpDepth,
                     mtpModelID: self.mtpModel,
                     eagle3DrafterPath: self.eagle3,
+                    speculativeDecoding: self.dflash2.map {
+                        AFMSpeculativeDecodingConfiguration(
+                            mode: "dflash2",
+                            drafter: $0,
+                            maxDraftTokens: self.dflash2Block - 1,
+                            requirement: self.dflash2Required ? "required" : "preferred")
+                    },
                     enableGrammarConstraints: self.enableGrammarConstraints,
                     toolCallParser: self.toolCallParser,
                     prefillStepSize: self.prefillStepSize,

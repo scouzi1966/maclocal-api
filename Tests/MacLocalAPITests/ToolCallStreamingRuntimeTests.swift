@@ -65,6 +65,26 @@ struct ToolCallStreamingRuntimeTests {
         #expect(!deltas.contains(#"{"location":"Sydney","unit":"fahrenheit"}"#))
     }
 
+    @Test("completed zero-parameter XML call emits valid empty JSON arguments")
+    func zeroParameterXMLCallEmitsEmptyJSONObject() throws {
+        let runtime = ToolCallStreamingRuntime(
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            toolCallParser: "afm_adaptive_xml",
+            tools: [makeTool(name: "list_projects", properties: [:])],
+            applyFixToolArgs: { $0 },
+            remapSingleKey: { key, _ in key }
+        )
+
+        _ = runtime.process(piece: "<tool_call>")
+        let function = runtime.process(piece: "<function=list_projects>")
+        let end = runtime.process(piece: "</function></tool_call>")
+        let events = function.events + end.events
+
+        #expect(replacement(from: events)?.function.arguments == "{}")
+        #expect(emittedArgumentDeltas(events).joined() == "{}")
+    }
+
     @Test("runtime ignores duplicate JSON fallback after XML parameter deltas")
     func ignoresDuplicateJSONFallbackAfterXMLParameterDeltas() throws {
         let runtime = ToolCallStreamingRuntime(

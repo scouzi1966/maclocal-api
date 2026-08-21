@@ -142,6 +142,23 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
     }
 
+    @Test("Scheduler submission admission keeps reserved and unreserved capacity separate")
+    func schedulerSubmissionAdmissionIsExplicit() {
+        let admission = BatchSchedulerAdmissionState(maxConcurrent: 1)
+
+        #expect(admission.reserveForUnreservedSubmission())
+        #expect(!admission.reserveForUnreservedSubmission())
+        #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
+
+        admission.finish()
+        let reservation = admission.tryReserve()
+        #expect(reservation != nil)
+        #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 1))
+        #expect(!admission.reserveForUnreservedSubmission())
+        #expect(admission.consumeReservationForSubmission(reservation!))
+        #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
+    }
+
     @Test("Gemma 4 defers staggered arrivals until the active cohort drains")
     func gemma4DefersStaggeredAdmissions() {
         #expect(BatchScheduler.shouldDeferStaggeredAdmissions(

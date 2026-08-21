@@ -178,7 +178,9 @@ struct MLXChatCompletionsController: RouteCollection {
             // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
             // RotatingKVCache models (Gemma 4) fall back to serial execution, so
             // queued requests can wait a long time when all slots are occupied.
-            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+            let schedulerAdmission = await service.waitForSlot(
+                timeout: Self.slotQueueTimeout)
+            guard schedulerAdmission.isAdmitted else {
                 let peer = req.peerAddress?.description ?? "unknown"
                 let ua = req.headers.first(name: .userAgent) ?? "unknown"
                 req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
@@ -192,6 +194,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 ))
                 return response
             }
+            var schedulerAdmissionTransferred = false
+            defer {
+                if !schedulerAdmissionTransferred,
+                   let reservation = schedulerAdmission.reservation {
+                    service.releaseSlot(reservation)
+                }
+            }
 
             // Reset peak memory before each request so usage.peak_memory_gib
             // reflects this request only (matches mlx_lm's mx.reset_peak_memory())
@@ -201,14 +210,17 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
+                let response = try await createStreamingResponse(
+                    req: req,
+                    chatRequest: chatRequest,
+                    extractThinking: extractThinking,
+                    effectiveResponseFormat: effectiveResponseFormat,
+                    grammarDowngraded: grammarDowngraded,
+                    requestId: reqId,
+                    schedulerAdmission: schedulerAdmission)
+                schedulerAdmissionTransferred = true
+                return response
             }
-
-            // In concurrent mode, non-streaming requests currently bypass the
-            // BatchScheduler decode loop, so the controller must release the
-            // reservation itself. Streaming requests are released by the
-            // scheduler when the stream finishes.
-            defer { service.releaseSlot() }
 
             // AFM Profile: start GPU monitoring if client requests it
             let profileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
@@ -241,7 +253,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] [HTTPPipeline] req=\(reqId) json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
             }
 
-            let result: AFMMLXChatGenerationResult
+            let result: AFMMLXChatGenerationResultWithTelemetry
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
                 let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
@@ -263,9 +275,12 @@ struct MLXChatCompletionsController: RouteCollection {
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                    speculativeDecoding: chatRequest.speculativeDecoding,
                     preserveStructuralTags: !extractThinking,
-                    requestId: reqId
+                    requestId: reqId,
+                    schedulerAdmission: schedulerAdmission
                 )
+                schedulerAdmissionTransferred = true
 
                 // Collect stream into complete response
                 var fullText = ""
@@ -277,8 +292,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 var promptTime: Double = 0
                 var generateTime: Double = 0
                 var stoppedBySequence = false
+                var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 
+                try Task.checkCancellation()
                 for try await chunk in streamResult.stream {
+                    try Task.checkCancellation()
                     fullText += chunk.text
                     if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
                     if let tc = chunk.toolCalls { finalToolCalls = tc }
@@ -288,7 +306,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = chunk.promptTime { promptTime = pt }
                     if let gt = chunk.generateTime { generateTime = gt }
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
+                    if let telemetry = chunk.speculativeTelemetry {
+                        speculativeTelemetry = telemetry
+                    }
                 }
+                try Task.checkCancellation()
 
                 // FIX: Vendor ToolCallProcessor can append XML tag remnants to tool names
                 // for zero-parameter calls (e.g. "todoread</function"). Strip them.
@@ -347,7 +369,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 // Tool-call argument coercion is handled in convertToolCall (pre-serialization)
                 // and in the streaming vendor path. No additional pass needed here.
-                result = (
+                result = AFMMLXChatGenerationResultWithTelemetry(
                     modelID: streamResult.modelID,
                     content: fullText,
                     promptTokens: promptTokens,
@@ -357,11 +379,12 @@ struct MLXChatCompletionsController: RouteCollection {
                     cachedTokens: cachedTokens,
                     promptTime: promptTime,
                     generateTime: generateTime,
-                    stoppedBySequence: stoppedBySequence
+                    stoppedBySequence: stoppedBySequence,
+                    speculativeTelemetry: speculativeTelemetry
                 )
             } else {
-                // Serial mode: use existing generate() path
-                result = try await service.generate(
+                // Serial mode: retain speculative telemetry for response headers.
+                result = try await service.generateWithTelemetry(
                     model: modelID,
                     messages: chatRequest.messages,
                     temperature: effectiveTemp,
@@ -379,7 +402,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     parallelToolCalls: chatRequest.parallelToolCalls,
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
+                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                    speculativeDecoding: chatRequest.speculativeDecoding
                 )
             }
             let completionTok = result.completionTokens
@@ -511,7 +535,15 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
+    private func createStreamingResponse(
+        req: Request,
+        chatRequest: ChatCompletionRequest,
+        extractThinking: Bool,
+        effectiveResponseFormat: ResponseFormat?,
+        grammarDowngraded: Bool = false,
+        requestId: String = "",
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -557,6 +589,13 @@ struct MLXChatCompletionsController: RouteCollection {
             // when the SSE body finishes.
             StatsAggregator.shared.connectionStarted()
             defer { StatsAggregator.shared.connectionEnded() }
+            var schedulerAdmissionTransferred = false
+            defer {
+                if !schedulerAdmissionTransferred,
+                   let reservation = schedulerAdmission.reservation {
+                    service.releaseSlot(reservation)
+                }
+            }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()
@@ -609,9 +648,13 @@ struct MLXChatCompletionsController: RouteCollection {
                     stop: effectiveStop,
                     responseFormat: effectiveResponseFormat,
                     chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                    speculativeDecoding: chatRequest.speculativeDecoding,
                     preserveStructuralTags: !extractThinking,
-                    requestId: streamReqId
+                    requestId: streamReqId,
+                    schedulerAdmission: schedulerAdmission
                 )
+                schedulerAdmissionTransferred = true
+                try Task.checkCancellation()
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -738,6 +781,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
+                    try Task.checkCancellation()
                     let piece = streamChunk.text
 
                     // Capture real token counts and timing from the info chunk
@@ -1133,6 +1177,10 @@ struct MLXChatCompletionsController: RouteCollection {
                         }
                     }
                 }
+                // AsyncThrowingStream reports cancellation while awaiting the
+                // next element as normal end-of-stream. Re-check the consumer
+                // task before translating that termination into stop + usage.
+                try Task.checkCancellation()
 
                 // Handle incomplete tool call (model hit max tokens mid-tool-call)
                 if let toolRuntime {

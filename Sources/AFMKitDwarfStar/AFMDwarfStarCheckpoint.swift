@@ -80,6 +80,13 @@ public struct AFMDwarfStarCheckpointCatalog: Sendable {
         try? GGUFMetadataReader(url: url.resolvingSymlinksInPath()).architecture()
     }
 
+    /// Reads GGUF architecture metadata from a bounded header buffer. Remote
+    /// resolvers use this to reject unsupported artifacts before downloading
+    /// tensor payloads.
+    public static func ggufArchitecture(in data: Data) -> String? {
+        try? GGUFMetadataReader(data: data).architecture()
+    }
+
     public static func isDwarfStarCompatibleGGUF(at url: URL) -> Bool {
         ggufArchitecture(at: url) == "deepseek4"
     }
@@ -355,15 +362,23 @@ public struct AFMDwarfStarCheckpointCatalog: Sendable {
 }
 
 private final class GGUFMetadataReader {
-    private let handle: FileHandle
+    private let handle: FileHandle?
+    private let data: Data?
+    private var offset = 0
 
     init(url: URL) throws {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey])
         guard values.isRegularFile == true else { throw CocoaError(.fileReadCorruptFile) }
         handle = try FileHandle(forReadingFrom: url)
+        data = nil
     }
 
-    deinit { try? handle.close() }
+    init(data: Data) {
+        handle = nil
+        self.data = data
+    }
+
+    deinit { try? handle?.close() }
 
     func architecture() throws -> String? {
         guard try bytes(4) == Data("GGUF".utf8), try u32() == 3 else {
@@ -383,9 +398,18 @@ private final class GGUFMetadataReader {
     }
 
     private func bytes(_ count: Int) throws -> Data {
-        let data = try handle.read(upToCount: count) ?? Data()
-        guard data.count == count else { throw CocoaError(.fileReadCorruptFile) }
-        return data
+        if let handle {
+            let value = try handle.read(upToCount: count) ?? Data()
+            guard value.count == count else { throw CocoaError(.fileReadCorruptFile) }
+            return value
+        }
+        guard let data, count >= 0, offset <= data.count,
+              count <= data.count - offset else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let end = offset + count
+        defer { offset = end }
+        return data.subdata(in: offset..<end)
     }
 
     private func u32() throws -> UInt32 { try integer(UInt32.self) }

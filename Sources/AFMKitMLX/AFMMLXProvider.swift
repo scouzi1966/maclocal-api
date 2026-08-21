@@ -68,6 +68,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     private let runtime: AFMMLXRuntime
     private let service: MLXModelService
     private let modelID: String
+    private let schedulerAdmissionOwnership: AFMMLXSchedulerAdmissionOwnership
+    private let streamingLoadOverride: (@Sendable () async throws -> Void)?
 
     public init(
         modelID: AFMModelID,
@@ -85,6 +87,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = runtime.service
         self.modelID = runtime.modelID
+        self.schedulerAdmissionOwnership = .model
+        self.streamingLoadOverride = nil
         self.descriptor = runtime.descriptor
     }
 
@@ -92,7 +96,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     public init(
         modelID: AFMModelID,
         resolver: MLXCacheResolver = .init(),
-        attachedService service: MLXModelService
+        attachedService service: MLXModelService,
+        schedulerAdmissionOwnership: AFMMLXSchedulerAdmissionOwnership = .model
     ) {
         let runtime = AFMMLXRuntime(
             modelID: modelID.rawValue,
@@ -103,6 +108,29 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = service
         self.modelID = runtime.modelID
+        self.schedulerAdmissionOwnership = schedulerAdmissionOwnership
+        self.streamingLoadOverride = nil
+        self.descriptor = runtime.descriptor
+    }
+
+    init(
+        modelID: AFMModelID,
+        resolver: MLXCacheResolver = .init(),
+        attachedService service: MLXModelService,
+        schedulerAdmissionOwnership: AFMMLXSchedulerAdmissionOwnership,
+        testingStreamingLoad: @escaping @Sendable () async throws -> Void
+    ) {
+        let runtime = AFMMLXRuntime(
+            modelID: modelID.rawValue,
+            attaching: service,
+            resolver: resolver
+        )
+
+        self.runtime = runtime
+        self.service = service
+        self.modelID = runtime.modelID
+        self.schedulerAdmissionOwnership = schedulerAdmissionOwnership
+        self.streamingLoadOverride = testingStreamingLoad
         self.descriptor = runtime.descriptor
     }
 
@@ -117,16 +145,41 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             return try await runtime.load(
                 progress: { progress?($0.fractionCompleted) }
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw AFMError.loadingFailed(error.localizedDescription)
         }
     }
 
     public func respond(to request: AFMRequest) async throws -> AFMModelResponse {
+        let callerAdmission: AFMMLXSchedulerAdmission? = switch schedulerAdmissionOwnership {
+        case .model:
+            nil
+        case .caller(let admission):
+            admission
+        }
+        guard callerAdmission?.isAdmitted != false else {
+            throw AFMError.unavailable("MLX scheduler is at capacity")
+        }
+        var callerReservation = callerAdmission?.reservation
+        defer {
+            if let callerReservation { service.releaseSlot(callerReservation) }
+        }
         _ = try await load(progress: nil)
         do {
+            if AFMMLXGenerationRoute.resolve(maxConcurrent: service.maxConcurrent)
+                == .schedulerStream {
+                var accumulator = AFMMLXResponseAccumulator(modelID: modelID)
+                let stream = streamResponse(to: request)
+                callerReservation = nil
+                for try await event in stream {
+                    accumulator.consume(event)
+                }
+                return accumulator.response
+            }
             let tools = request.effectiveOpenAITools()
-            let result = try await service.generate(
+            let result = try await service.generateWithTelemetry(
                 model: modelID,
                 messages: try request.openAIMessages(),
                 temperature: request.options.temperature,
@@ -143,9 +196,10 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 parallelToolCalls: request.parallelToolCalls,
                 stop: request.options.stopSequences,
                 responseFormat: request.openAIResponseFormat(),
-                chatTemplateKwargs: request.chatTemplateKwargs()
+                chatTemplateKwargs: request.chatTemplateKwargs(),
+                speculativeDecoding: request.speculativeDecodingOptions()
             )
-            let split = Self.splitReasoning(
+            let normalized = Self.normalizedGeneratedResponse(
                 result.content,
                 startTag: service.thinkStartTag,
                 endTag: service.thinkEndTag
@@ -167,9 +221,18 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 completionTokens: result.completionTokens,
                 maximumResponseTokens: request.options.maximumResponseTokens
             )
+            var metadata: [String: AFMJSONValue] = [
+                "modelID": .string(result.modelID),
+                "promptTime": .number(result.promptTime),
+                "generateTime": .number(result.generateTime),
+                "stoppedBySequence": .bool(result.stoppedBySequence),
+            ]
+            if let telemetry = result.speculativeTelemetry {
+                metadata[AFMMLXSpeculativeTelemetry.metadataKey] = telemetry.metadataValue
+            }
             return AFMModelResponse(
-                text: split.text,
-                reasoning: split.reasoning,
+                text: normalized.text,
+                reasoning: normalized.reasoning,
                 toolCalls: toolCalls,
                 usage: AFMUsage(
                     inputTokens: result.promptTokens,
@@ -191,13 +254,10 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         }
                     )
                 },
-                metadata: [
-                    "modelID": .string(result.modelID),
-                    "promptTime": .number(result.promptTime),
-                    "generateTime": .number(result.generateTime),
-                    "stoppedBySequence": .bool(result.stoppedBySequence)
-                ]
+                metadata: metadata
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as AFMError {
             throw error
         } catch {
@@ -210,10 +270,44 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var reservation: AFMMLXSchedulerReservation? =
+                    switch schedulerAdmissionOwnership {
+                    case .model:
+                        nil
+                    case .caller(let admission):
+                        admission.reservation
+                    }
+                defer {
+                    if let reservation { service.releaseSlot(reservation) }
+                }
                 do {
-                    _ = try await load(progress: nil)
+                    if let streamingLoadOverride {
+                        try await streamingLoadOverride()
+                    } else {
+                        _ = try await load(progress: nil)
+                    }
+                    let schedulerAdmission: AFMMLXSchedulerAdmission
+                    switch schedulerAdmissionOwnership {
+                    case .model:
+                        schedulerAdmission = await service.waitForSlot(timeout: 30)
+                    case .caller(let admission):
+                        schedulerAdmission = admission
+                    }
+                    guard schedulerAdmission.isAdmitted else {
+                        throw AFMError.unavailable("MLX scheduler is at capacity")
+                    }
+                    reservation = schedulerAdmission.reservation
+                    let submissionAdmission: BatchSchedulerSubmissionAdmission =
+                        switch schedulerAdmission {
+                        case .serial:
+                            .unreserved
+                        case .reserved(let reservation):
+                            .reserved(reservation)
+                        case .unavailable:
+                            .unreserved
+                        }
                     let tools = request.effectiveOpenAITools()
-                    let result = try await service.generateStreaming(
+                    let result = try await service.generateStreamingWithSchedulerAdmission(
                         model: modelID,
                         messages: try request.openAIMessages(),
                         temperature: request.options.temperature,
@@ -231,8 +325,12 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         stop: request.options.stopSequences,
                         responseFormat: request.openAIResponseFormat(),
                         chatTemplateKwargs: request.chatTemplateKwargs(),
-                        requestId: nil
+                        speculativeDecoding: request.speculativeDecodingOptions(),
+                        preserveStructuralTags: request.preserveStructuralTags,
+                        requestId: nil,
+                        admission: submissionAdmission
                     )
+                    reservation = nil
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
                         thinkEndTag: result.thinkEndTag,
@@ -338,9 +436,28 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 break
             }
         }
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmedText, trimmedReasoning.isEmpty ? nil : trimmedReasoning)
+        return (text, reasoning.isEmpty ? nil : reasoning)
+    }
+
+    static func normalizedGeneratedResponse(
+        _ value: String,
+        startTag: String?,
+        endTag: String?
+    ) -> (text: String, reasoning: String?) {
+        let split = splitReasoning(value, startTag: startTag, endTag: endTag)
+        return normalizeResponse(text: split.text, reasoning: split.reasoning)
+    }
+
+    static func normalizeResponse(
+        text: String,
+        reasoning: String?
+    ) -> (text: String, reasoning: String?) {
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedReasoning = reasoning?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            normalizedText,
+            normalizedReasoning?.isEmpty == false ? normalizedReasoning : nil)
     }
 
     static func sanitizedToolName(_ value: String) -> String {
@@ -380,6 +497,76 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             return .length
         }
         return .stop
+    }
+}
+
+struct AFMMLXResponseAccumulator {
+    private var text = ""
+    private var reasoning = ""
+    private var toolOrder: [String] = []
+    private var toolCalls: [String: AFMToolCall] = [:]
+    private var usage = AFMUsage()
+    private var finishReason = AFMFinishReason.stop
+    private var tokenLogprobs: [AFMTokenLogProbability] = []
+    private var metadata: [String: AFMJSONValue]
+
+    init(modelID: String) {
+        self.metadata = ["modelID": .string(modelID)]
+    }
+
+    mutating func consume(_ event: AFMGenerationEvent) {
+        switch event {
+        case .responseText(let action, let value, _):
+            Self.apply(action, value: value, to: &text)
+        case .reasoningText(let action, let value, _):
+            Self.apply(action, value: value, to: &reasoning)
+        case .tokenLogprobs(let values):
+            tokenLogprobs.append(contentsOf: values)
+        case .toolCall(let call, let stage):
+            switch stage {
+            case .retracted:
+                toolCalls.removeValue(forKey: call.id)
+            case .started, .argumentsDelta, .completed:
+                if !toolOrder.contains(call.id) {
+                    toolOrder.append(call.id)
+                }
+                toolCalls[call.id] = call
+            }
+        case .usage(let value):
+            usage = value
+        case .metadata(let values):
+            metadata.merge(values) { _, new in new }
+        case .completed(let reason):
+            finishReason = reason
+        case .custom:
+            break
+        }
+    }
+
+    var response: AFMModelResponse {
+        let normalized = AFMMLXModel.normalizeResponse(
+            text: text,
+            reasoning: reasoning.isEmpty ? nil : reasoning)
+        return AFMModelResponse(
+            text: normalized.text,
+            reasoning: normalized.reasoning,
+            toolCalls: toolOrder.compactMap { toolCalls[$0] },
+            usage: usage,
+            finishReason: finishReason,
+            tokenLogprobs: tokenLogprobs.isEmpty ? nil : tokenLogprobs,
+            metadata: metadata
+        )
+    }
+
+    private static func apply(
+        _ action: AFMTextUpdateAction,
+        value: String,
+        to destination: inout String
+    ) {
+        switch action {
+        case .append: destination += value
+        case .replace: destination = value
+        }
     }
 }
 
@@ -632,6 +819,34 @@ public enum AFMMLXModelDescriptor {
 }
 
 extension AFMRequest {
+    var preserveStructuralTags: Bool {
+        guard case .bool(let value)? =
+            metadata[AFMMLXRequestMetadata.preserveStructuralTags]
+        else { return false }
+        return value
+    }
+
+    func speculativeDecodingOptions() -> SpeculativeDecodingOptions? {
+        guard case .object(let values)? = metadata["speculativeDecoding"] else {
+            return nil
+        }
+        func string(_ key: String) -> String? {
+            guard case .string(let value)? = values[key] else { return nil }
+            return value
+        }
+        func integer(_ key: String) -> Int? {
+            guard case .integer(let value)? = values[key] else { return nil }
+            return value
+        }
+        return SpeculativeDecodingOptions(
+            mode: string("mode"),
+            requirement: string("requirement"),
+            drafter: string("drafter"),
+            maxDraftTokens: integer("maxDraftTokens"),
+            forceAutoregressiveReason: string("forceAutoregressiveReason")
+        )
+    }
+
     var requiresToolCall: Bool {
         metadata["toolCallingMode"] == .string("required")
     }

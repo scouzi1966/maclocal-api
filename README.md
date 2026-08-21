@@ -216,6 +216,11 @@ Supported checkpoints can also use speculative decoding:
   separately published MTP head matching the base checkpoint's quantization;
   use `--mtp-model <repo-or-path>` to override it.
 - `--eagle3 <drafter-directory>` for supported dense Gemma4 models
+- `--dflash2 <repo-or-directory>` for metadata-matched Qwen 3.8 or Muse
+  Glimmer targets. The fast path requires an explicit `temperature: 0`; an
+  omitted temperature keeps the normal `0.6` sampling default. Preferred mode
+  falls back to autoregressive decoding for sampling, penalties, prefix cache,
+  concurrency, and batch execution; `--dflash2-required` rejects those cases.
 - `--dspark-support <support.gguf>` for compatible DwarfStar DSpark workflows
 
 Read [decode optimizations](docs/decode-optimizations.md) before choosing a checkpoint or interpreting benchmark results.

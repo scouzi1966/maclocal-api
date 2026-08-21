@@ -2,6 +2,31 @@ import Foundation
 import AFMKitCore
 import AFMOpenAICompat
 
+enum AFMMLXGenerationRoute: Equatable {
+    case serial
+    case schedulerStream
+
+    static func resolve(maxConcurrent: Int) -> Self {
+        maxConcurrent >= 2 ? .schedulerStream : .serial
+    }
+}
+
+public enum AFMMLXGPUCapturePolicy {
+    public static let concurrentIncompatibility =
+        "--gpu-capture cannot be combined with --concurrent values greater than 1; GPU capture requires serial generation"
+
+    public static func incompatibility(
+        maxConcurrent: Int,
+        capturePath: String?
+    ) -> String? {
+        guard maxConcurrent > 1,
+              let capturePath,
+              !capturePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return concurrentIncompatibility
+    }
+}
+
 public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
     case native
     case ds4
@@ -14,6 +39,25 @@ public enum AFMMLXKernelEngine: String, CaseIterable, Sendable {
     }
 }
 
+enum AFMMLXDFlash2DraftTokenPolicy {
+    static func validationMessage(maxDraftTokens: Int) -> String? {
+        guard maxDraftTokens >= 1 else {
+            return "speculative_decoding.max_draft_tokens must be at least 1"
+        }
+        guard maxDraftTokens < Int.max else {
+            return "speculative_decoding.max_draft_tokens must be less than Int.max"
+        }
+        return nil
+    }
+
+    static func blockSize(maxDraftTokens: Int) -> Int? {
+        guard validationMessage(maxDraftTokens: maxDraftTokens) == nil else {
+            return nil
+        }
+        return maxDraftTokens + 1
+    }
+}
+
 public struct AFMMLXRuntimeConfiguration: Sendable {
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
@@ -22,6 +66,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var mtpDepth: Int
     public var mtpModelID: String?
     public var eagle3DrafterPath: String?
+    public var dflash2Drafter: String?
+    public var dflash2BlockSize: Int
+    public var dflash2Requirement: AFMMLXDFlash2Requirement
     public var maxConcurrent: Int
     public var toolCallParser: String?
     public var enableGrammarConstraints: Bool
@@ -38,6 +85,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     public var defaultChatTemplateKwargs: [String: AFMJSONValue]?
     public var forceDisableThinking: Bool
     public var defaultGuidedJsonSchema: ResponseFormat?
+    public private(set) var startupValidationError: String?
 
     public init(
         kvBits: Int? = nil,
@@ -47,6 +95,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         mtpDepth: Int = 3,
         mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
+        dflash2Drafter: String? = nil,
+        dflash2BlockSize: Int = 5,
+        dflash2Requirement: AFMMLXDFlash2Requirement = .preferred,
         maxConcurrent: Int = 0,
         toolCallParser: String? = nil,
         enableGrammarConstraints: Bool = false,
@@ -71,6 +122,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.mtpDepth = mtpDepth
         self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
+        self.dflash2Drafter = dflash2Drafter
+        self.dflash2BlockSize = dflash2BlockSize
+        self.dflash2Requirement = dflash2Requirement
         self.maxConcurrent = max(0, maxConcurrent)
         self.toolCallParser = toolCallParser
         self.enableGrammarConstraints = enableGrammarConstraints
@@ -87,6 +141,7 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
+        self.startupValidationError = nil
     }
 
     public init(providerConfiguration configuration: AFMProviderConfiguration) {
@@ -95,6 +150,22 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
     }
 
     public mutating func apply(_ configuration: AFMProviderConfiguration) {
+        if let speculative = configuration.object("speculativeDecoding"),
+           speculative.string("mode")?.lowercased() == "dflash2" {
+            dflash2Drafter = speculative.string("drafter")
+            if let maxDraftTokens = speculative.integer("maxDraftTokens") {
+                startupValidationError = AFMMLXDFlash2DraftTokenPolicy.validationMessage(
+                    maxDraftTokens: maxDraftTokens)
+                if let blockSize = AFMMLXDFlash2DraftTokenPolicy.blockSize(
+                    maxDraftTokens: maxDraftTokens) {
+                    dflash2BlockSize = blockSize
+                }
+            }
+            if let value = speculative.string("requirement"),
+               let requirement = AFMMLXDFlash2Requirement(rawValue: value.lowercased()) {
+                dflash2Requirement = requirement
+            }
+        }
         if let value = configuration.integer("kvBits") {
             kvBits = value
         }
@@ -115,6 +186,16 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
         if let value = configuration.string("eagle3DrafterPath") {
             eagle3DrafterPath = value
+        }
+        if let value = configuration.string("dflash2Drafter") {
+            dflash2Drafter = value
+        }
+        if let value = configuration.integer("dflash2BlockSize") {
+            dflash2BlockSize = value
+        }
+        if let value = configuration.string("dflash2Requirement"),
+           let requirement = AFMMLXDFlash2Requirement(rawValue: value.lowercased()) {
+            dflash2Requirement = requirement
         }
         if let value = configuration.integer("maxConcurrent") {
             maxConcurrent = max(0, value)
@@ -160,6 +241,12 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         }
     }
 
+    public func validateForStartup() throws {
+        if let startupValidationError {
+            throw MLXServiceError.loadFailed(startupValidationError)
+        }
+    }
+
     public func apply(to service: MLXModelService) {
         service.kvBits = kvBits
         service.enablePrefixCaching = enablePrefixCaching
@@ -168,6 +255,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
         service.mtpDepth = mtpDepth
         service.mtpModelID = mtpModelID
         service.eagle3DrafterPath = eagle3DrafterPath
+        service.dflash2Drafter = dflash2Drafter
+        service.dflash2BlockSize = dflash2BlockSize
+        service.dflash2Requirement = dflash2Requirement
         service.maxConcurrent = maxConcurrent >= 2 ? maxConcurrent : 0
         service.toolCallParser = toolCallParser
         service.enableGrammarConstraints = enableGrammarConstraints
@@ -247,6 +337,9 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             mtpEnabled: service.mtpEnabled,
             mtpDepth: service.mtpDepth,
             mtpModelID: service.mtpModelID,
+            dflash2Drafter: service.dflash2Drafter,
+            dflash2BlockSize: service.dflash2BlockSize,
+            dflash2Requirement: service.dflash2Requirement,
             maxConcurrent: service.maxConcurrent,
             enableGrammarConstraints: service.enableGrammarConstraints,
             forceDisableThinking: service.forceDisableThinking,
@@ -281,6 +374,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         progress: (@Sendable (Progress) -> Void)? = nil,
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil
     ) async throws -> AFMModelDescriptor {
+        try configuration.validateForStartup()
         try MLXMetalLibrary.ensureAvailable(verbose: false)
         _ = try await service.ensureLoaded(
             model: modelID,
@@ -297,14 +391,36 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         messages: [Message] = [Message(role: "user", content: "warmup")],
         maxTokens: Int = 4
     ) async throws {
-        _ = try await service.generate(
+        _ = try await load()
+        let schedulerAdmission = await service.waitForSlot(timeout: 30)
+        guard schedulerAdmission.isAdmitted else {
+            throw AFMError.unavailable("MLX scheduler is at capacity during prewarm")
+        }
+        var reservation = schedulerAdmission.reservation
+        defer {
+            if let reservation { service.releaseSlot(reservation) }
+        }
+        let submissionAdmission: BatchSchedulerSubmissionAdmission = switch schedulerAdmission {
+        case .serial:
+            .unreserved
+        case .reserved(let reservation):
+            .reserved(reservation)
+        case .unavailable:
+            .unreserved
+        }
+        let result = try await service.generateStreamingWithSchedulerAdmission(
             model: modelID,
             messages: messages,
             temperature: 0,
             maxTokens: maxTokens,
             topP: nil,
-            repetitionPenalty: nil
+            repetitionPenalty: nil,
+            admission: submissionAdmission
         )
+        reservation = nil
+        for try await _ in result.stream {
+            try Task.checkCancellation()
+        }
     }
 
     public func unload(
@@ -319,6 +435,11 @@ public final class AFMMLXRuntime: @unchecked Sendable {
 }
 
 extension AFMProviderConfiguration {
+    func object(_ key: String) -> [String: AFMJSONValue]? {
+        guard case .object(let value) = values[key] else { return nil }
+        return value
+    }
+
     func bool(_ key: String) -> Bool? {
         guard case .bool(let value) = values[key] else { return nil }
         return value
@@ -331,6 +452,18 @@ extension AFMProviderConfiguration {
 
     func string(_ key: String) -> String? {
         guard case .string(let value) = values[key] else { return nil }
+        return value
+    }
+}
+
+private extension Dictionary where Key == String, Value == AFMJSONValue {
+    func integer(_ key: String) -> Int? {
+        guard case .integer(let value) = self[key] else { return nil }
+        return value
+    }
+
+    func string(_ key: String) -> String? {
+        guard case .string(let value) = self[key] else { return nil }
         return value
     }
 }

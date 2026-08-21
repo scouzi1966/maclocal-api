@@ -54,6 +54,216 @@ final class Eagle3Runtime: @unchecked Sendable {
     var active: Gemma4Eagle3Drafter? { lock.withLock { drafter } }
 }
 
+private struct DFlash2ModelRuntimeState: @unchecked Sendable {
+    let ownerID: UUID
+    let modelID: String
+    let configuredDrafter: String?
+    let runtime: AFMMLXDFlash2Runtime?
+    let fallbackReason: String?
+}
+
+struct DFlash2RequestPolicy {
+    let permitsRuntime: Bool
+    let permitsOtherRuntimes: Bool
+    let requiresRuntime: Bool
+    let requestedBlockSize: Int?
+    let denialReason: String?
+}
+
+struct SpeculativeRequestCompatibility: Equatable {
+    let denialReason: String?
+
+    var isEligible: Bool { denialReason == nil }
+}
+
+actor MLXModelExecutionCoordinator {
+    enum Lease: Sendable {
+        case serial
+        case scheduler
+    }
+
+    struct Snapshot: Equatable, Sendable {
+        let activeSerialGenerations: Int
+        let activeSchedulerUsers: Int
+        let waitingGenerationAcquisitions: Int
+        let promotionInProgress: Bool
+        let schedulerInstalled: Bool
+    }
+
+    private var activeSerialGenerations = 0
+    private var activeSchedulerUsers = 0
+    private var waitingGenerationAcquisitions = 0
+    private var promotionInProgress = false
+    private var schedulerInstalled = false
+    private var shutdownRequested = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquireGeneration() async -> Lease {
+        var registeredAsWaiting = false
+        while promotionInProgress {
+            if !registeredAsWaiting {
+                waitingGenerationAcquisitions += 1
+                registeredAsWaiting = true
+                signalChange()
+            }
+            await waitForChange()
+        }
+        if registeredAsWaiting {
+            waitingGenerationAcquisitions -= 1
+            signalChange()
+        }
+        if schedulerInstalled {
+            activeSchedulerUsers += 1
+            return .scheduler
+        }
+        activeSerialGenerations += 1
+        return .serial
+    }
+
+    func releaseSerialGeneration() {
+        precondition(activeSerialGenerations > 0)
+        activeSerialGenerations -= 1
+        signalChange()
+    }
+
+    func releaseSchedulerGeneration() {
+        precondition(activeSchedulerUsers > 0)
+        activeSchedulerUsers -= 1
+        signalChange()
+    }
+
+    /// Returns true only to the caller that owns scheduler construction.
+    func beginPromotion() async -> Bool {
+        while promotionInProgress {
+            await waitForChange()
+        }
+        guard !shutdownRequested else { return false }
+        guard !schedulerInstalled else { return false }
+
+        promotionInProgress = true
+        while activeSerialGenerations > 0 {
+            await waitForChange()
+        }
+        return true
+    }
+
+    func finishPromotion(schedulerInstalled: Bool) {
+        self.schedulerInstalled = schedulerInstalled
+        promotionInProgress = false
+        signalChange()
+    }
+
+    func beginShutdown() async {
+        shutdownRequested = true
+        signalChange()
+        while promotionInProgress {
+            await waitForChange()
+        }
+    }
+
+    func beginSchedulerRemoval() async -> Bool {
+        while promotionInProgress {
+            await waitForChange()
+        }
+        guard schedulerInstalled else { return false }
+        promotionInProgress = true
+        while activeSchedulerUsers > 0 {
+            await waitForChange()
+        }
+        return true
+    }
+
+    func cancelSchedulerRemoval() {
+        promotionInProgress = false
+        signalChange()
+    }
+
+    func finishSchedulerRemoval() {
+        schedulerInstalled = false
+        promotionInProgress = false
+        signalChange()
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            activeSerialGenerations: activeSerialGenerations,
+            activeSchedulerUsers: activeSchedulerUsers,
+            waitingGenerationAcquisitions: waitingGenerationAcquisitions,
+            promotionInProgress: promotionInProgress,
+            schedulerInstalled: schedulerInstalled)
+    }
+
+    private func waitForChange() async {
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func signalChange() {
+        let pending = waiters
+        waiters.removeAll(keepingCapacity: true)
+        for continuation in pending {
+            continuation.resume()
+        }
+    }
+}
+
+final class MLXModelServiceOperationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finishHandler: (() -> Void)?
+
+    init(finishHandler: @escaping () -> Void) {
+        self.finishHandler = finishHandler
+    }
+
+    func finish() {
+        let handler = lock.withLock { () -> (() -> Void)? in
+            let handler = finishHandler
+            finishHandler = nil
+            return handler
+        }
+        handler?()
+    }
+
+    deinit {
+        finish()
+    }
+}
+
+struct MLXGenerationDiagnosticsMetrics: Equatable, Sendable {
+    var promptTokens = 0
+    var completionTokens = 0
+    var promptTime = 0.0
+    var generateTime = 0.0
+}
+
+/// Owns request-scoped GPU diagnostics and guarantees one cleanup call.
+final class MLXGenerationDiagnosticsScope: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finishHandler: ((MLXGenerationDiagnosticsMetrics) -> Void)?
+
+    init(start: () -> ((MLXGenerationDiagnosticsMetrics) -> Void)) {
+        finishHandler = start()
+    }
+
+    var isFinished: Bool {
+        lock.withLock { finishHandler == nil }
+    }
+
+    func finish(metrics: MLXGenerationDiagnosticsMetrics = .init()) {
+        let handler = lock.withLock {
+            let handler = finishHandler
+            finishHandler = nil
+            return handler
+        }
+        handler?(metrics)
+    }
+
+    deinit {
+        finish()
+    }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 public struct ResolvedLogprob: Sendable {
     public let token: String
@@ -86,8 +296,9 @@ public struct StreamChunk: Sendable {
     public let promptTime: Double?
     public let generateTime: Double?
     public let stoppedBySequence: Bool?
+    public let speculativeTelemetry: AFMMLXSpeculativeTelemetry?
 
-    public init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil) {
+    public init(text: String, logprobs: [ResolvedLogprob]? = nil, toolCalls: [ResponseToolCall]? = nil, toolCallDeltas: [StreamDeltaToolCall]? = nil, promptTokens: Int? = nil, completionTokens: Int? = nil, cachedTokens: Int? = nil, promptTime: Double? = nil, generateTime: Double? = nil, stoppedBySequence: Bool? = nil, speculativeTelemetry: AFMMLXSpeculativeTelemetry? = nil) {
         self.text = text
         self.logprobs = logprobs
         self.toolCalls = toolCalls
@@ -98,6 +309,7 @@ public struct StreamChunk: Sendable {
         self.promptTime = promptTime
         self.generateTime = generateTime
         self.stoppedBySequence = stoppedBySequence
+        self.speculativeTelemetry = speculativeTelemetry
     }
 }
 
@@ -118,6 +330,7 @@ public enum MLXServiceError: Error, LocalizedError {
     case noMetalDevice
     case serviceShuttingDown
     case serverBusy(Int)
+    case invalidSchedulerReservation
 
     public var errorDescription: String? {
         switch self {
@@ -137,6 +350,8 @@ public enum MLXServiceError: Error, LocalizedError {
             return "MLX service is shutting down"
         case .serverBusy(let max):
             return "Server at capacity (\(max) concurrent requests). Please retry shortly."
+        case .invalidSchedulerReservation:
+            return "Scheduler reservation does not belong to the active scheduler request"
         }
     }
 }
@@ -221,6 +436,7 @@ public final class MLXModelService: @unchecked Sendable {
     }()
 
     private let resolver: MLXCacheResolver
+    let dflash2RuntimeScopeID = UUID()
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
     private var currentModelID: String?
@@ -230,6 +446,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// capture both under `stateLock`, so a concurrent model switch cannot pair
     /// one model's container with another model's MTP generator.
     private var currentMTPBinding: MTPGeneratorBinding?
+    private var currentDFlash2State: DFlash2ModelRuntimeState?
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
@@ -251,6 +468,10 @@ public final class MLXModelService: @unchecked Sendable {
     /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
     /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
     public var eagle3DrafterPath: String?
+    /// Opt-in DFlash 2 checkpoint directory or Hugging Face repository.
+    public var dflash2Drafter: String?
+    public var dflash2BlockSize: Int = 5
+    public var dflash2Requirement: AFMMLXDFlash2Requirement = .preferred
     /// Server-level default JSON schema from `--guided-json` CLI flag.
     /// Applied to requests that don't specify their own response_format. (#97)
     public var defaultGuidedJsonSchema: ResponseFormat?
@@ -508,25 +729,82 @@ public final class MLXModelService: @unchecked Sendable {
     /// Number of in-flight batch operations (for auto-teardown).
     private let _activeBatchCount = OSAllocatedUnfairLock(initialState: 0)
 
-    /// Whether a promotion is currently in progress (prevents races).
-    private var promotionInProgress = false
+    /// Prevents the scheduler and serial `container.perform` generations from
+    /// owning the same model at the same time during dynamic promotion.
+    private let modelExecutionCoordinator = MLXModelExecutionCoordinator()
+
+    /// Deterministic test barrier between promotion ownership and construction.
+    var schedulerPromotionBarrier: (@Sendable () async -> Void)?
+    /// Deterministic test hooks around scheduler setup and active decode.
+    var schedulerSetupBarrier: (@Sendable () async -> Void)?
+    var schedulerDecodeBarrier: (@Sendable () -> Void)?
 
     /// Scheduled teardown work item (cancelled if new batch arrives).
     private var teardownWorkItem: DispatchWorkItem?
 
-    /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
-    public func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
-    /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
-    public func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
-        guard let sched = scheduler else { return true }
-        return await sched.waitForSlot(timeout: timeout)
+    /// Atomically acquire scheduler capacity, or identify the serial path.
+    public func tryReserveSlot() -> AFMMLXSchedulerAdmission {
+        guard let scheduler = withStateLock({ scheduler }) else { return .serial }
+        guard let reservation = scheduler.tryReserve() else { return .unavailable }
+        return .reserved(reservation)
     }
-    /// Release a reserved slot (call if request fails before generation starts).
-    public func releaseSlot() { scheduler?.releaseReservation() }
+    /// Wait for scheduler capacity, or identify the serial path.
+    public func waitForSlot(
+        timeout: TimeInterval = 30
+    ) async -> AFMMLXSchedulerAdmission {
+        guard let scheduler = withStateLock({ scheduler }) else { return .serial }
+        guard let reservation = await scheduler.waitForSlot(timeout: timeout) else {
+            return .unavailable
+        }
+        return .reserved(reservation)
+    }
+    /// Release only the matching reservation from the active scheduler.
+    @discardableResult
+    public func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool {
+        withStateLock({ scheduler })?.releaseReservation(reservation) ?? false
+    }
+
+    var schedulerAdmissionSnapshot: BatchSchedulerAdmissionState.Snapshot? {
+        withStateLock({ scheduler })?.admissionSnapshot
+    }
+
+    var installedScheduler: BatchScheduler? {
+        withStateLock { scheduler }
+    }
+
+    func replaceInstalledSchedulerForTesting(
+        with replacement: BatchScheduler?
+    ) -> BatchScheduler? {
+        withStateLock {
+            let previous = scheduler
+            scheduler = replacement
+            return previous
+        }
+    }
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
+    }
+
+    convenience init(
+        resolver: MLXCacheResolver,
+        testingModelID: String,
+        container: ModelContainer,
+        architecture: AFMMLXModelArchitecturePreflight
+    ) {
+        self.init(resolver: resolver)
+        withStateLock {
+            currentModelID = testingModelID
+            currentModelArchitecture = architecture
+            currentContainer = container
+            currentDFlash2State = DFlash2ModelRuntimeState(
+                ownerID: dflash2RuntimeScopeID,
+                modelID: testingModelID,
+                configuredDrafter: nil,
+                runtime: nil,
+                fallbackReason: nil)
+        }
     }
 
     /// Configure MLX GPU settings once, before first model load.
@@ -593,6 +871,38 @@ public final class MLXModelService: @unchecked Sendable {
             return capped
         }
         return maxTokens
+    }
+
+    private func beginGenerationDiagnostics() -> MLXGenerationDiagnosticsScope {
+        let capturePath = gpuCapturePath
+        return MLXGenerationDiagnosticsScope {
+            let capturing = self.beginGPUCaptureIfNeeded()
+            let tracing = self.beginGPUTraceIfNeeded()
+            let profiling = self.gpuProfile
+            if profiling {
+                self.printGPUProfileHeader()
+            }
+
+            return { [weak self] metrics in
+                guard let self else { return }
+                if capturing || tracing || profiling {
+                    Stream.gpu.synchronize()
+                }
+                if capturing, let capturePath {
+                    self.endGPUCapture(path: capturePath)
+                }
+                if tracing {
+                    self.endGPUTrace()
+                }
+                if profiling {
+                    self.printGPUProfileFooter(
+                        promptTokens: metrics.promptTokens,
+                        completionTokens: metrics.completionTokens,
+                        promptTime: metrics.promptTime,
+                        generateTime: metrics.generateTime)
+                }
+            }
+        }
     }
 
     /// Active xctrace Process (launched by beginGPUTrace, stopped by endGPUTrace).
@@ -1434,6 +1744,213 @@ public final class MLXModelService: @unchecked Sendable {
         return sidecar
     }
 
+    private func resolveDFlash2Directory(
+        progress: (@Sendable (Progress) -> Void)?,
+        stage: (@Sendable (MLXLoadStage) -> Void)?
+    ) async throws -> URL? {
+        guard let resource = dflash2Drafter?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !resource.isEmpty else { return nil }
+        if let local = resolver.localFilesystemURLIfExists(
+            NSString(string: resource).expandingTildeInPath) {
+            guard FileManager.default.fileExists(
+                atPath: local.appendingPathComponent("config.json").path) else {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 drafter directory has no config.json: \(local.path)")
+            }
+            return local
+        }
+        if let cached = resolver.localModelDirectory(repoId: resource) {
+            return cached
+        }
+        stage?(.downloading)
+        print("[\(ts())] [DFlash2] downloading drafter: \(resource)")
+        try await downloadModel(modelID: resource, progress: progress)
+        guard let downloaded = resolver.localModelDirectory(repoId: resource) else {
+            throw MLXServiceError.modelNotFoundInCache(resource)
+        }
+        return downloaded
+    }
+
+    func dflash2RequestPolicy(
+        _ options: SpeculativeDecodingOptions?
+    ) throws -> DFlash2RequestPolicy {
+        let requirement = options?.requirement?.lowercased()
+        guard requirement == nil || requirement == "preferred" || requirement == "required" else {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.requirement must be preferred or required")
+        }
+        let requestedBlockSize: Int?
+        if let maxDraftTokens = options?.maxDraftTokens {
+            if let message = AFMMLXDFlash2DraftTokenPolicy.validationMessage(
+                maxDraftTokens: maxDraftTokens) {
+                throw MLXServiceError.loadFailed(message)
+            }
+            let loadedDraftLimit = dflash2BlockSize > 1 ? dflash2BlockSize - 1 : 0
+            guard maxDraftTokens <= loadedDraftLimit else {
+                throw MLXServiceError.loadFailed(
+                    "speculative_decoding.max_draft_tokens exceeds the loaded DFlash2 block limit \(loadedDraftLimit)")
+            }
+            requestedBlockSize = AFMMLXDFlash2DraftTokenPolicy.blockSize(
+                maxDraftTokens: maxDraftTokens)
+        } else {
+            requestedBlockSize = nil
+        }
+
+        let mode = options?.mode?.lowercased()
+        guard mode == nil || mode == "auto" || mode == "dflash2"
+                || mode == "off" || mode == "disabled" else {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.mode must be auto, dflash2, or off")
+        }
+        let explicitlyDisabled = mode == "off" || mode == "disabled"
+        if explicitlyDisabled, requirement == "required" {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding cannot be both off and required")
+        }
+        if let drafter = options?.drafter, drafter != dflash2Drafter {
+            throw MLXServiceError.loadFailed(
+                "per-request DFlash2 drafter switching is not supported; restart with drafter \(drafter)")
+        }
+        let explicitlyDFlash2 = mode == "dflash2"
+            || options?.drafter != nil
+            || options?.maxDraftTokens != nil
+            || options?.requirement != nil
+        let reason: String?
+        if explicitlyDisabled {
+            reason = "disabled"
+        } else if let forcedReason = options?.forceAutoregressiveReason {
+            reason = forcedReason
+        } else if dflash2Drafter == nil && explicitlyDFlash2 {
+            reason = "unavailable"
+        } else {
+            reason = nil
+        }
+        return DFlash2RequestPolicy(
+            permitsRuntime: reason == nil,
+            permitsOtherRuntimes: reason == nil && !explicitlyDFlash2,
+            requiresRuntime: !explicitlyDisabled
+                && (dflash2Requirement == .required || requirement == "required"),
+            requestedBlockSize: requestedBlockSize,
+            denialReason: reason)
+    }
+
+    func speculativeRequestCompatibility(
+        temperature: Double?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        hasTools: Bool,
+        hasResponseFormat: Bool,
+        wantsLogprobs: Bool,
+        hasStopSequences: Bool
+    ) -> SpeculativeRequestCompatibility {
+        guard let temperature, temperature <= 0 else {
+            return SpeculativeRequestCompatibility(denialReason: "sampling")
+        }
+        if (topP ?? 1) < 1
+            || (topK ?? 0) > 0
+            || (minP ?? 0) > 0 {
+            return SpeculativeRequestCompatibility(denialReason: "sampling")
+        }
+        if abs((repetitionPenalty ?? 1) - 1) > 0.000_001
+            || abs(presencePenalty ?? 0) > 0.000_001 {
+            return SpeculativeRequestCompatibility(denialReason: "penalties")
+        }
+        if hasTools || hasResponseFormat || wantsLogprobs || hasStopSequences {
+            return SpeculativeRequestCompatibility(denialReason: "incompatible_request")
+        }
+        return SpeculativeRequestCompatibility(denialReason: nil)
+    }
+
+    func dflash2StartupFallbackReason() -> String? {
+        if maxConcurrent >= 2 { return "concurrency" }
+        if enablePrefixCaching { return "prefix_cache" }
+        return nil
+    }
+
+    func dflash2UnavailableReason(
+        policy: DFlash2RequestPolicy,
+        runtimeFallbackReason: String?,
+        defaultReason: String
+    ) -> String {
+        policy.denialReason ?? runtimeFallbackReason ?? defaultReason
+    }
+
+    func dflash2WasRequested(
+        _ options: SpeculativeDecodingOptions?,
+        configuredDrafter: String?
+    ) -> Bool {
+        if configuredDrafter != nil { return true }
+        let mode = options?.mode?.lowercased()
+        return mode == "auto"
+            || mode == "dflash2"
+            || options?.drafter != nil
+            || options?.maxDraftTokens != nil
+            || options?.requirement != nil
+    }
+
+    func recordSpeculativeRequestCompletion(
+        queuedAt: Date,
+        completedAt: Date = Date(),
+        promptTokens: Int,
+        completionTokens: Int,
+        promptTime: Double,
+        maxTokens: Int
+    ) {
+        let firstTokenAt = completionTokens > 0
+            ? queuedAt.addingTimeInterval(promptTime)
+            : nil
+        StatsAggregator.shared.addPromptTokens(promptTokens)
+        StatsAggregator.shared.addGenTokens(completionTokens)
+        StatsAggregator.shared.observeRequest(
+            StatsAggregator.RequestObservation(
+                queuedAt: queuedAt.timeIntervalSince1970,
+                startedAt: queuedAt.timeIntervalSince1970,
+                firstTokenAt: firstTokenAt?.timeIntervalSince1970,
+                completedAt: completedAt.timeIntervalSince1970,
+                promptTokens: promptTokens,
+                generationTokens: completionTokens))
+        StatsAggregator.shared.requestSucceeded(
+            reason: completionTokens >= maxTokens ? "length" : "stop")
+        StatsAggregator.shared.requestCompleted()
+    }
+
+    static func completeEOSTokenIDs(
+        configuredTokenIDs: Set<Int>,
+        tokenizerTokenID: Int?,
+        unknownTokenID: Int?,
+        extraTokens: [String],
+        tokenID: (String) -> Int?
+    ) -> Set<Int> {
+        var result = configuredTokenIDs
+        if let tokenizerTokenID {
+            result.insert(tokenizerTokenID)
+        }
+        if let unknownTokenID {
+            result.insert(unknownTokenID)
+        }
+        for token in extraTokens {
+            if let id = tokenID(token) {
+                result.insert(id)
+            }
+        }
+        return result
+    }
+
+    private static func completeEOSTokenIDs(
+        configuration: ModelConfiguration,
+        tokenizer: any Tokenizer
+    ) -> Set<Int> {
+        completeEOSTokenIDs(
+            configuredTokenIDs: configuration.eosTokenIds,
+            tokenizerTokenID: tokenizer.eosTokenId,
+            unknownTokenID: tokenizer.unknownTokenId,
+            extraTokens: Array(configuration.extraEOSTokens),
+            tokenID: tokenizer.convertTokenToId)
+    }
+
     private func mtpQuantization(for sidecarPath: String) -> (
         groupSize: Int, bits: Int, mode: QuantizationMode
     ) {
@@ -1460,20 +1977,25 @@ public final class MLXModelService: @unchecked Sendable {
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil,
         countOperation: Bool = true
     ) async throws -> String {
-        var didBeginOperation = false
-        if countOperation {
-            try beginOperation()
-            didBeginOperation = true
-        }
-        defer {
-            if didBeginOperation {
-                endOperation()
-            }
-        }
+        let operation = countOperation ? try beginOperation() : nil
+        defer { operation?.finish() }
 
         let modelID = normalizeModel(rawModel)
+        let configuredDFlash2Drafter = dflash2Drafter
         guard !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MLXServiceError.invalidModel(rawModel)
+        }
+        let speculativeSelections = [
+            mtpEnabled,
+            eagle3DrafterPath?.isEmpty == false,
+            configuredDFlash2Drafter?.isEmpty == false,
+        ].filter { $0 }.count
+        guard speculativeSelections <= 1 else {
+            throw MLXServiceError.loadFailed(
+                "Choose only one speculative runtime: MTP, EAGLE3, or DFlash2")
+        }
+        guard configuredDFlash2Drafter == nil || dflash2BlockSize >= 2 else {
+            throw MLXServiceError.loadFailed("DFlash2 block size must be at least 2")
         }
         stage?(.checkingCache)
 
@@ -1484,12 +2006,17 @@ public final class MLXModelService: @unchecked Sendable {
                     requestedModelID: modelID,
                     mtpEnabled: mtpEnabled,
                     bindingModelID: currentMTPBinding?.modelID
-                  ) else { return nil }
+                  ),
+                  currentDFlash2State?.ownerID == dflash2RuntimeScopeID,
+                  currentDFlash2State?.modelID == modelID,
+                  currentDFlash2State?.configuredDrafter == configuredDFlash2Drafter
+            else { return nil }
             return (modelID, container)
         }) {
             stage?(.ready)
             return cached.0
         }
+        Eagle3Runtime.shared.clear()
 
         // Loading priority:
         // 1. Absolute/relative path — use directly (no cache or download)
@@ -1670,16 +2197,6 @@ public final class MLXModelService: @unchecked Sendable {
                 print("[\(ts())] [MTP] matching head cached; pass --mtp to enable serial speculative decoding")
             }
 
-            // Publish the container and its MTP generator as one state change.
-            // A failed sidecar load leaves the previous model state untouched.
-            withStateLock {
-                currentContainer = loaded
-                currentModelID = modelID
-                currentModelArchitecture = modelArchitecture
-                currentToolCallFormat = detectedFormat
-                currentMTPBinding = loadedMTPBinding
-            }
-
             if AFMMLXMTPRuntimePolicy.shouldPrefetchInBackground(
                 mtpEnabled: mtpEnabled,
                 resolvedSidecar: resolvedMTPSidecar,
@@ -1724,6 +2241,54 @@ public final class MLXModelService: @unchecked Sendable {
                 } else {
                     print("[\(ts())] [EAGLE3] no config.json at \(drafterPath) — EAGLE3 disabled (AR decode)")
                 }
+            }
+            var loadedDFlash2Runtime: AFMMLXDFlash2Runtime?
+            var dflash2FallbackReason: String?
+            if configuredDFlash2Drafter != nil {
+                do {
+                    if let conflict = dflash2StartupFallbackReason() {
+                        dflash2FallbackReason = conflict
+                        let message = conflict == "concurrency"
+                            ? "DFlash2 currently requires serial scheduling; remove --concurrent"
+                            : "DFlash2 prefix snapshots are not yet integrated; disable --enable-prefix-caching"
+                        throw MLXServiceError.loadFailed(message)
+                    }
+                    guard let draftDirectory = try await resolveDFlash2Directory(
+                        progress: progress, stage: stage) else {
+                        throw MLXServiceError.loadFailed("DFlash2 drafter was not resolved")
+                    }
+                    let runtime = try await AFMMLXRuntimeAdapter().makeDFlash2Runtime(
+                        container: loaded,
+                        targetDirectory: directory,
+                        drafterDirectory: draftDirectory,
+                        blockSize: dflash2BlockSize)
+                    guard case .dflash2(let dflash2Runtime) = runtime else {
+                        throw MLXServiceError.loadFailed("DFlash2 runtime setup returned no runtime")
+                    }
+                    loadedDFlash2Runtime = dflash2Runtime
+                    print("[\(ts())] [DFlash2] ready from \(draftDirectory.path) (block \(dflash2Runtime.preflight.blockSize))")
+                } catch {
+                    dflash2FallbackReason = dflash2FallbackReason ?? "unavailable"
+                    if dflash2Requirement == .required { throw error }
+                    print("[\(ts())] [DFlash2] unavailable (\(error)); using autoregressive decoding")
+                }
+            }
+
+            // Publish the container and every container-bound speculative runtime
+            // in one state change. Requests can never observe a drafter validated
+            // for a different target model or service instance.
+            withStateLock {
+                currentContainer = loaded
+                currentModelID = modelID
+                currentModelArchitecture = modelArchitecture
+                currentToolCallFormat = detectedFormat
+                currentMTPBinding = loadedMTPBinding
+                currentDFlash2State = DFlash2ModelRuntimeState(
+                    ownerID: dflash2RuntimeScopeID,
+                    modelID: modelID,
+                    configuredDrafter: configuredDFlash2Drafter,
+                    runtime: loadedDFlash2Runtime,
+                    fallbackReason: dflash2FallbackReason)
             }
             // Detect think start/end tags from tokenizer vocabulary
             // Run the tokenizer-vocabulary inspection inside `perform` so the
@@ -1929,17 +2494,34 @@ public final class MLXModelService: @unchecked Sendable {
     /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     public func initScheduler() async throws {
+        try await initScheduler(requiresFixedDecodeCohorts: nil)
+    }
+
+    func initScheduler(
+        requiresFixedDecodeCohorts: Bool?
+    ) async throws {
         guard maxConcurrent >= 2 else { return }
+        try validateGPUCaptureCompatibility(maxConcurrent: maxConcurrent)
         if forceSerialGeneration {
             print("[\(ts())] Concurrent mode requested but model requires serial generation — running serially (correct output, requests serialized through model lock)")
             return
         }
         startedInBatchMode = true
+        let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
+        guard ownsPromotion else {
+            if shuttingDown { throw MLXServiceError.serviceShuttingDown }
+            return
+        }
+        if let barrier = withStateLock({ schedulerPromotionBarrier }) {
+            await barrier()
+        }
         guard let container = withStateLock({ currentContainer }) else {
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
             throw MLXServiceError.noModelLoaded
         }
         let prefixCaching = self.enablePrefixCaching
         let limit = self.maxConcurrent
+        let decodeBarrier = withStateLock { schedulerDecodeBarrier }
         let sched = await container.perform { context -> BatchScheduler in
             BatchScheduler(
                 model: context.model,
@@ -1948,16 +2530,30 @@ public final class MLXModelService: @unchecked Sendable {
                 configuration: context.configuration,
                 maxConcurrent: limit,
                 enablePrefixCaching: prefixCaching,
-                cacheProfilePath: self.cacheProfilePath
+                cacheProfilePath: self.cacheProfilePath,
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts,
+                testingDecodeBarrier: decodeBarrier
             )
         }
-        self.scheduler = sched
+        let published = withStateLock { () -> Bool in
+            guard !isShuttingDown else { return false }
+            self.scheduler = sched
+            return true
+        }
+        if !published {
+            await sched.shutdown()
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
+            throw MLXServiceError.serviceShuttingDown
+        }
+        await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
     }
 
     /// Auto-promote from serial to batch mode for batch requests.
-    /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
+    /// Waits for active serial generations to leave the model before publishing
+    /// the scheduler, and blocks new serial generations while promotion runs.
     public func ensureBatchMode(concurrency: Int) async throws {
+        try validateGPUCaptureCompatibility(maxConcurrent: max(concurrency, 8))
         // Models that require serial generation never get a scheduler. Still increment the
         // batch reference so the caller's matching releaseBatchReference() stays balanced;
         // per-request generateStreaming() routes to the serial path when scheduler == nil.
@@ -1965,42 +2561,27 @@ public final class MLXModelService: @unchecked Sendable {
             _activeBatchCount.withLock { $0 += 1 }
             return
         }
-        // Fast path: scheduler already exists
-        if withStateLock({ scheduler != nil }) {
+        teardownWorkItem?.cancel()
+        teardownWorkItem = nil
+        let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
+        if !ownsPromotion {
+            if shuttingDown { throw MLXServiceError.serviceShuttingDown }
             _activeBatchCount.withLock { $0 += 1 }
-            // Cancel any pending teardown
             teardownWorkItem?.cancel()
             teardownWorkItem = nil
             return
         }
-
-        // Check if another caller is already promoting
-        let shouldPromote = withStateLock { () -> Bool in
-            if scheduler != nil { return false }
-            if promotionInProgress { return false }
-            promotionInProgress = true
-            return true
-        }
-
-        if !shouldPromote {
-            // Wait for the other caller to finish promotion
-            while withStateLock({ promotionInProgress && scheduler == nil }) {
-                try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-            }
-            // Verify scheduler was actually installed — promotion may have failed
-            guard withStateLock({ scheduler != nil }) else {
-                throw MLXServiceError.noModelLoaded
-            }
-            _activeBatchCount.withLock { $0 += 1 }
-            return
+        if let barrier = withStateLock({ schedulerPromotionBarrier }) {
+            await barrier()
         }
 
         // Promote: create scheduler
         let limit = max(concurrency, 8)
         self.maxConcurrent = limit
+        let decodeBarrier = withStateLock { schedulerDecodeBarrier }
 
         guard let container = withStateLock({ currentContainer }) else {
-            withStateLock { promotionInProgress = false }
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
             throw MLXServiceError.noModelLoaded
         }
 
@@ -2012,14 +2593,22 @@ public final class MLXModelService: @unchecked Sendable {
                 configuration: context.configuration,
                 maxConcurrent: limit,
                 enablePrefixCaching: true,
-                cacheProfilePath: self.cacheProfilePath
+                cacheProfilePath: self.cacheProfilePath,
+                testingDecodeBarrier: decodeBarrier
             )
         }
 
-        withStateLock {
+        let published = withStateLock { () -> Bool in
+            guard !isShuttingDown else { return false }
             self.scheduler = sched
-            self.promotionInProgress = false
+            return true
         }
+        if !published {
+            await sched.shutdown()
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
+            throw MLXServiceError.serviceShuttingDown
+        }
+        await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         _activeBatchCount.withLock { $0 += 1 }
         print("[\(ts())] Auto-promoted to batch mode: \(limit) concurrent slots (prefix caching enabled)")
     }
@@ -2056,10 +2645,22 @@ public final class MLXModelService: @unchecked Sendable {
             guard sched.activeSlotCount == 0 else { return }
         }
 
-        withStateLock {
-            self.scheduler = nil
-            self.maxConcurrent = 0
+        guard await modelExecutionCoordinator.beginSchedulerRemoval() else { return }
+        guard _activeBatchCount.withLock({ $0 == 0 }),
+              let sched = withStateLock({ scheduler }),
+              sched.activeSlotCount == 0
+        else {
+            await modelExecutionCoordinator.cancelSchedulerRemoval()
+            return
         }
+        await sched.shutdown()
+        withStateLock {
+            if self.scheduler === sched {
+                self.scheduler = nil
+                self.maxConcurrent = 0
+            }
+        }
+        await modelExecutionCoordinator.finishSchedulerRemoval()
         print("[\(ts())] Auto-teardown: returned to serial mode")
     }
 
@@ -2086,33 +2687,97 @@ public final class MLXModelService: @unchecked Sendable {
         parallelToolCalls: Bool? = nil,
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
-        chatTemplateKwargs: [String: AnyCodable]? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool) {
-        try beginOperation()
-        defer { endOperation() }
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil
+    ) async throws -> AFMMLXChatGenerationResult {
+        try await generateWithTelemetry(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding).result
+    }
 
-        // /metrics: serial-path timestamps. The serial generate() has no
-        // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
-        // Token counters (prompt_tokens_total / generation_tokens_total) and
-        // the per-request histograms are recorded at the bottom of this
-        // function, after `completionInfo` is available.
-        let serialQueuedAt = Date()
-        StatsAggregator.shared.requestStarted()
-        // Balance the requests_started_total counter on every exit, including
-        // throws between here and the success path below. Without this, an
-        // error during model load or input prep increments started_total
-        // without a matching completed_total, breaking dashboards and alerts.
-        var serialRequestRecorded = false
-        defer {
-            if !serialRequestRecorded {
-                StatsAggregator.shared.requestSucceeded(reason: "error")
-                StatsAggregator.shared.requestCompleted()
-            }
-        }
+    public func generateWithTelemetry(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
+        let operation = try beginOperation()
+        defer { operation.finish() }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
+        let dflash2State = runtime.dflash2State
+        let executionLease = await modelExecutionCoordinator.acquireGeneration()
+        if case .scheduler = executionLease {
+            await modelExecutionCoordinator.releaseSchedulerGeneration()
+            operation.finish()
+            return try await collectStreamingGeneration(
+                model: model,
+                messages: messages,
+                temperature: temperature,
+                maxTokens: maxTokens,
+                topP: topP,
+                repetitionPenalty: repetitionPenalty,
+                topK: topK,
+                minP: minP,
+                presencePenalty: presencePenalty,
+                seed: seed,
+                logprobs: logprobs,
+                topLogprobs: topLogprobs,
+                tools: tools,
+                parallelToolCalls: parallelToolCalls,
+                stop: stop,
+                responseFormat: responseFormat,
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding)
+        }
+        defer {
+            Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+        }
+
+        // /metrics: serial-path timestamps. Scheduler-backed direct generation
+        // is collected above and leaves admission and metrics to BatchScheduler.
+        let serialQueuedAt = Date()
+        StatsAggregator.shared.requestStarted()
+        var serialRequestRecorded = false
+        defer {
+            if !serialRequestRecorded {
+                StatsAggregator.shared.requestSucceeded(
+                    reason: Task.isCancelled ? "abort" : "error")
+                StatsAggregator.shared.requestCompleted()
+            }
+        }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -2133,19 +2798,58 @@ public final class MLXModelService: @unchecked Sendable {
         // awaited before these fields are read, so access stays single-sequence.
         let scratch = NonStreamingScratch()
         scratch.userInput = userInput
-        // GPU capture/trace/profile: start before inference
-        let capturePath = gpuCapturePath
-        let capturing = beginGPUCaptureIfNeeded()
-        let tracing = beginGPUTraceIfNeeded()
-        if gpuProfile { printGPUProfileHeader() }
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let speculativeCompatibility = speculativeRequestCompatibility(
+            temperature: temperature,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            hasTools: !(tools?.isEmpty ?? true),
+            hasResponseFormat: responseFormat != nil,
+            wantsLogprobs: wantLogprobs,
+            hasStopSequences: !(stop?.isEmpty ?? true))
+        let dflash2Active = dflash2Policy.permitsRuntime
+            ? dflash2State?.runtime : nil
+        let dflash2Eligible = dflash2Active != nil
+            && speculativeCompatibility.isEligible
+        if requestRequiresDFlash2, dflash2Active == nil {
+            let reason = dflash2UnavailableReason(
+                policy: dflash2Policy,
+                runtimeFallbackReason: dflash2State?.fallbackReason,
+                defaultReason: "no compatible runtime is active")
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but unavailable: \(reason)")
+        }
+        if requestRequiresDFlash2, !dflash2Eligible {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but this request is unsupported: \(speculativeCompatibility.denialReason ?? "incompatible request")")
+        }
+        let dflash2WasRequested = dflash2WasRequested(
+            speculativeDecoding,
+            configuredDrafter: dflash2State?.configuredDrafter)
+        let dflash2FallbackTelemetry: AFMMLXSpeculativeTelemetry? = dflash2WasRequested
+            ? .fallback(
+                strategy: "dflash2",
+                reason: !dflash2Policy.permitsRuntime
+                    ? (dflash2Policy.denialReason ?? "disabled")
+                    : (dflash2Active == nil
+                        ? (dflash2State?.fallbackReason ?? "unavailable")
+                        : (speculativeCompatibility.denialReason ?? "incompatible_request")))
+            : nil
+        // Scope diagnostics across every generation exit, including speculative fast paths.
+        let diagnostics = beginGenerationDiagnostics()
+        var diagnosticsMetrics = MLXGenerationDiagnosticsMetrics()
+        defer { diagnostics.finish(metrics: diagnosticsMetrics) }
         // ---- Embedded DSpARK fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // DeepSeek V4 checkpoints advertise this capability through metadata and carry the
         // drafter weights themselves; no model-id allowlist or separately loaded package.
-        let dsparkEligible = afmDSparkEnabled()
-            && (temperature ?? 0) <= 0.0
-            && (tools?.isEmpty ?? true)
-            && responseFormat == nil
-            && !wantLogprobs
+        let dsparkEligible = dflash2Policy.permitsOtherRuntimes
+            && dflash2Active == nil
+            && afmDSparkEnabled()
+            && speculativeCompatibility.isEligible
         if dsparkEligible {
             if let result = try await container.perform({ context -> (String, Int, Int)? in
                 guard let model = context.model as? DeepseekV4Model,
@@ -2154,7 +2858,9 @@ public final class MLXModelService: @unchecked Sendable {
                 if self.isMultimodalInput(lmInput) { return nil }
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
-                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let eos = Self.completeEOSTokenIDs(
+                    configuration: context.configuration,
+                    tokenizer: context.tokenizer)
                 let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
                     .flatMap(Int.init)
                 let t0 = Date.timeIntervalSinceReferenceDate
@@ -2173,21 +2879,123 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
             }) {
+                diagnosticsMetrics.promptTokens = result.1
+                diagnosticsMetrics.completionTokens = result.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: result.0,
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
+            }
+        }
+
+
+        // ---- DFlash2 one-pass parallel draft/verify path ----
+        if dflash2Eligible, let installed = dflash2Active {
+            if let result = try await container.perform({ context -> (String, Int, Int, Double, Double, AFMMLXSpeculativeTelemetry)? in
+                guard let target = context.model as? any DFlash2Target else { return nil }
+                let prepareStart = Date.timeIntervalSinceReferenceDate
+                let lmInput = try await context.processor.prepare(input: scratch.userInput)
+                if self.isMultimodalInput(lmInput) { return nil }
+                let promptIDs = self.extractTokenArray(lmInput)
+                guard !promptIDs.isEmpty else { return nil }
+                let preparationTime = Date.timeIntervalSinceReferenceDate - prepareStart
+                let eos = Self.completeEOSTokenIDs(
+                    configuration: context.configuration,
+                    tokenizer: context.tokenizer)
+                let generator = try DFlash2Generator(
+                    target: target,
+                    draft: installed.draft,
+                    blockSize: dflash2Policy.requestedBlockSize.map {
+                        min(installed.preflight.blockSize, $0)
+                    } ?? installed.preflight.blockSize)
+                let generationStart = Date.timeIntervalSinceReferenceDate
+                let generated = try generator.generate(
+                    promptIDs: promptIDs,
+                    maxTokens: effectiveMaxTokens,
+                    stopTokenIDs: eos,
+                    shouldStop: { Task.isCancelled })
+                let totalGenerationTime = Date.timeIntervalSinceReferenceDate - generationStart
+                let ids = generated.tokenIDs
+                let stats = generated.statistics
+                let promptTime = preparationTime + stats.prefillSeconds
+                let generateTime = max(0, totalGenerationTime - stats.prefillSeconds)
+                let telemetry = AFMMLXSpeculativeTelemetry(
+                    strategy: "dflash2",
+                    draftedTokens: stats.draftedTokens,
+                    acceptedDraftTokens: stats.acceptedDraftTokens,
+                    emittedTokens: stats.emittedTokens,
+                    verificationCycles: stats.verificationCycles,
+                    draftTime: stats.draftSeconds,
+                    verificationTime: stats.verificationSeconds,
+                    rollbackTime: stats.rollbackSeconds)
+                StatsAggregator.shared.addSpeculative(
+                    strategy: "dflash2",
+                    draftedTokens: stats.draftedTokens,
+                    acceptedDraftTokens: stats.acceptedDraftTokens,
+                    emittedTokens: stats.emittedTokens,
+                    verificationCycles: stats.verificationCycles,
+                    draftSeconds: stats.draftSeconds,
+                    verificationSeconds: stats.verificationSeconds,
+                    rollbackSeconds: stats.rollbackSeconds)
+                if debugLogging {
+                    print("[\(ts())] [DFlash2] \(ids.count) tokens, \(stats.verificationCycles) cycles, mean acceptance \(String(format: "%.2f", stats.meanAcceptanceLength))")
+                }
+                let promptSuffix = context.tokenizer.decode(tokens: Array(promptIDs.suffix(8)))
+                let text = Self.restorePromptOpenedReasoningBoundary(
+                    generatedText: context.tokenizer.decode(tokens: ids),
+                    promptSuffix: promptSuffix,
+                    startTag: self.thinkStartTag,
+                    endTag: self.thinkEndTag)
+                return (text, promptIDs.count, ids.count, promptTime, generateTime, telemetry)
+            }) {
+                diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    promptTime: result.3,
+                    generateTime: result.4)
+                recordSpeculativeRequestCompletion(
+                    queuedAt: serialQueuedAt,
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    promptTime: result.3,
+                    maxTokens: effectiveMaxTokens)
+                serialRequestRecorded = true
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: result.0,
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: result.3,
+                    generateTime: result.4,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: result.5)
+            }
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but the prepared input is empty, multimodal, or target-incompatible")
             }
         }
 
         // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // Eligible when an MTP head is installed and the request is plain greedy generation.
         // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
-        let mtpEligible = mtpBinding != nil
-            && (temperature ?? 0) <= 0.0
-            && (tools?.isEmpty ?? true)
-            && responseFormat == nil
-            && !wantLogprobs
+        let mtpEligible = dflash2Policy.permitsOtherRuntimes
+            && mtpBinding != nil
+            && speculativeCompatibility.isEligible
         if mtpEligible {
             if let mtpResult = try await container.perform({ context -> (String, Int, Int)? in
                 guard let gen = mtpBinding?.generator else { return nil }
@@ -2195,7 +3003,9 @@ public final class MLXModelService: @unchecked Sendable {
                 if self.isMultimodalInput(lmInput) { return nil }   // MTP is text-only
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
-                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let eos = Self.completeEOSTokenIDs(
+                    configuration: context.configuration,
+                    tokenizer: context.tokenizer)
                 let t0 = Date.timeIntervalSinceReferenceDate
                 let outIds = gen.generate(promptIds: promptIds, maxTokens: effectiveMaxTokens, eosIds: eos)
                 let gt = Date.timeIntervalSinceReferenceDate - t0
@@ -2208,21 +3018,32 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
+                diagnosticsMetrics.promptTokens = mtpResult.1
+                diagnosticsMetrics.completionTokens = mtpResult.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: mtpResult.0,
+                    promptTokens: mtpResult.1,
+                    completionTokens: mtpResult.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
             }
         }
 
         // ---- EAGLE3 speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // Eligible when a drafter is installed and the request is plain greedy generation.
         // Produces output identical to greedy AR (validated P1) with fewer verifier trunk forwards.
-        let eagle3Eligible = Eagle3Runtime.shared.active != nil
-            && (temperature ?? 0) <= 0.0
-            && (tools?.isEmpty ?? true)
-            && responseFormat == nil
-            && !wantLogprobs
+        let eagle3Eligible = dflash2Policy.permitsOtherRuntimes
+            && Eagle3Runtime.shared.active != nil
+            && speculativeCompatibility.isEligible
         if eagle3Eligible {
             if let e3Result = try await container.perform({ context -> (String, Int, Int)? in
                 guard let drafter = Eagle3Runtime.shared.active,
@@ -2231,7 +3052,9 @@ public final class MLXModelService: @unchecked Sendable {
                 if self.isMultimodalInput(lmInput) { return nil }   // EAGLE3 is text-only
                 let promptIds = self.extractTokenArray(lmInput)
                 guard !promptIds.isEmpty else { return nil }
-                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                let eos = Self.completeEOSTokenIDs(
+                    configuration: context.configuration,
+                    tokenizer: context.tokenizer)
                 let t0 = Date.timeIntervalSinceReferenceDate
                 let gen = Gemma4Eagle3Generator(drafter: drafter)
                 // blockSize 2 is the sweet spot on the dense 31B (each round drafts only the carried
@@ -2250,10 +3073,23 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
+                diagnosticsMetrics.promptTokens = e3Result.1
+                diagnosticsMetrics.completionTokens = e3Result.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: e3Result.0,
+                    promptTokens: e3Result.1,
+                    completionTokens: e3Result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
             }
         }
 
@@ -2368,20 +3204,6 @@ public final class MLXModelService: @unchecked Sendable {
                 generationTask.cancel()
             }
 
-            if capturing, let path = capturePath {
-                endGPUCapture(path: path)
-            }
-            if tracing {
-                endGPUTrace()
-            }
-            if gpuProfile {
-                let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
-                let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-                let pTime = completionInfo?.promptTime ?? 0
-                let gTime = completionInfo?.generateTime ?? 0
-                printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
-            }
-
             var finalToolCalls = collectedToolCalls
             var finalContent = generated
             if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
@@ -2409,6 +3231,11 @@ public final class MLXModelService: @unchecked Sendable {
             let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
             let promptTime = completionInfo?.promptTime ?? 0
             let generateTime = completionInfo?.generateTime ?? 0
+            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
             self.logCacheProfile(
                 phase: "restore",
                 mode: "non-streaming",
@@ -2458,7 +3285,18 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
+            return AFMMLXChatGenerationResultWithTelemetry(
+                modelID: modelID,
+                content: finalContent,
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                tokenLogprobs: nil,
+                toolCalls: responseToolCalls,
+                cachedTokens: 0,
+                promptTime: promptTime,
+                generateTime: generateTime,
+                stoppedBySequence: stoppedBySequence,
+                speculativeTelemetry: dflash2FallbackTelemetry)
         }
 
         let generated: String = try await container.perform { context in
@@ -2904,21 +3742,6 @@ public final class MLXModelService: @unchecked Sendable {
         let saveTruncateTime = scratch.saveTruncateTime
         let saveInsertTime = scratch.saveInsertTime
 
-        // GPU capture/trace/profile: end after GPU sync completes inside container.perform
-        if capturing, let path = capturePath {
-            endGPUCapture(path: path)
-        }
-        if tracing {
-            endGPUTrace()
-        }
-        if gpuProfile {
-            let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
-            let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-            let pTime = completionInfo?.promptTime ?? 0
-            let gTime = completionInfo?.generateTime ?? 0
-            printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
-        }
-
         // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
         // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
@@ -2953,6 +3776,11 @@ public final class MLXModelService: @unchecked Sendable {
             let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
             let promptTime = completionInfo?.promptTime ?? 0
             let generateTime = completionInfo?.generateTime ?? 0
+            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
             self.logCacheProfile(
                 phase: "restore",
                 mode: "non-streaming",
@@ -3013,8 +3841,103 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
+            return AFMMLXChatGenerationResultWithTelemetry(
+                modelID: modelID,
+                content: finalContent,
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                tokenLogprobs: resolvedLogprobs,
+                toolCalls: responseToolCalls,
+                cachedTokens: cachedTokenCount,
+                promptTime: promptTime,
+                generateTime: generateTime,
+                stoppedBySequence: stoppedBySequence,
+                speculativeTelemetry: dflash2FallbackTelemetry)
         }
+
+    private func collectStreamingGeneration(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
+        let result = try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: false,
+            requestId: nil)
+
+        var content = ""
+        var promptTokens = result.promptTokens
+        var completionTokens = 0
+        var tokenLogprobs: [ResolvedLogprob] = []
+        var toolCalls: [ResponseToolCall]?
+        var cachedTokens = 0
+        var promptTime = 0.0
+        var generateTime = 0.0
+        var stoppedBySequence = false
+        var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
+
+        for try await chunk in result.stream {
+            content += chunk.text
+            if let values = chunk.logprobs {
+                tokenLogprobs.append(contentsOf: values)
+            }
+            if let values = chunk.toolCalls {
+                toolCalls = values
+            }
+            promptTokens = chunk.promptTokens ?? promptTokens
+            completionTokens = chunk.completionTokens ?? completionTokens
+            cachedTokens = chunk.cachedTokens ?? cachedTokens
+            promptTime = chunk.promptTime ?? promptTime
+            generateTime = chunk.generateTime ?? generateTime
+            stoppedBySequence = chunk.stoppedBySequence ?? stoppedBySequence
+            speculativeTelemetry = chunk.speculativeTelemetry ?? speculativeTelemetry
+        }
+
+        return AFMMLXChatGenerationResultWithTelemetry(
+            modelID: result.modelID,
+            content: content,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            tokenLogprobs: tokenLogprobs.isEmpty ? nil : tokenLogprobs,
+            toolCalls: toolCalls,
+            cachedTokens: cachedTokens,
+            promptTime: promptTime,
+            generateTime: generateTime,
+            stoppedBySequence: stoppedBySequence,
+            speculativeTelemetry: speculativeTelemetry)
+    }
 
     public func generateStreaming(
         model: String,
@@ -3034,25 +3957,95 @@ public final class MLXModelService: @unchecked Sendable {
         stop: [String]? = nil,
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil,
         preserveStructuralTags: Bool = false,
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
+        try await generateStreamingWithSchedulerAdmission(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId,
+            admission: .unreserved)
+    }
+
+    func generateStreamingWithSchedulerAdmission(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil,
+        preserveStructuralTags: Bool = false,
+        requestId: String? = nil,
+        admission: BatchSchedulerSubmissionAdmission
+    ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         let reqId = requestId ?? ""
-        try beginOperation()
-        var endOperationOnExit = true
+        let operation = try beginOperation()
+        var operationOwnedByStream = false
         defer {
-            if endOperationOnExit {
-                endOperation()
+            if !operationOwnedByStream {
+                operation.finish()
             }
         }
         // Streaming keeps the operation open until the background Task finishes.
         // The fallback defer above only handles setup failures before the Task
-        // is created; the Task itself owns the normal endOperation() call.
+        // or operation-owning stream is created.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
+        let dflash2State = runtime.dflash2State
+        let executionLease = await modelExecutionCoordinator.acquireGeneration()
+        let hasSerialExecutionLease: Bool
+        switch executionLease {
+        case .serial:
+            hasSerialExecutionLease = true
+        case .scheduler:
+            hasSerialExecutionLease = false
+        }
+        var releaseSerialExecutionOnExit = hasSerialExecutionLease
+        let releaseSchedulerExecutionOnExit = !hasSerialExecutionLease
+        defer {
+            if releaseSerialExecutionOnExit {
+                Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+            }
+            if releaseSchedulerExecutionOnExit {
+                Task { await self.modelExecutionCoordinator.releaseSchedulerGeneration() }
+            }
+        }
+        if hasSerialExecutionLease, case .reserved = admission {
+            throw MLXServiceError.invalidSchedulerReservation
+        }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -3081,7 +4074,10 @@ public final class MLXModelService: @unchecked Sendable {
         }
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
-        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let requestedMaxTokens = maxTokens ?? 2000
+        let effectiveMaxTokens = hasSerialExecutionLease
+            ? capMaxTokensForCapture(requestedMaxTokens)
+            : requestedMaxTokens
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -3104,9 +4100,33 @@ public final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let dflash2WasRequested = dflash2WasRequested(
+            speculativeDecoding,
+            configuredDrafter: dflash2State?.configuredDrafter)
+        let speculativeCompatibility = speculativeRequestCompatibility(
+            temperature: temperature,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            hasTools: !(tools?.isEmpty ?? true),
+            hasResponseFormat: responseFormat != nil,
+            wantsLogprobs: wantLogprobs,
+            hasStopSequences: !(stop?.isEmpty ?? true))
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
-        if let scheduler = self.scheduler {
+        if case .scheduler = executionLease {
+            try validateGPUCaptureCompatibility(maxConcurrent: maxConcurrent)
+            guard let scheduler = withStateLock({ self.scheduler }) else {
+                throw MLXServiceError.noModelLoaded
+            }
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but concurrent and batch execution use autoregressive decoding")
+            }
             let pipelineStart = debugLogging ? Date() : Date.distantPast
 
             // Use scheduler's tokenizer directly — no container lock needed.
@@ -3129,6 +4149,9 @@ public final class MLXModelService: @unchecked Sendable {
             }
 
             let tToolSetup = debugLogging ? Date() : Date.distantPast
+            if let setupBarrier = withStateLock({ schedulerSetupBarrier }) {
+                await setupBarrier()
+            }
             let input = try await scheduler.prepareInput(userInput)
             let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
@@ -3170,9 +4193,10 @@ public final class MLXModelService: @unchecked Sendable {
                 stopSequences: (stop ?? []) + self.implicitStopSequences,
                 thinkStartTag: self.thinkStartTag,
                 thinkEndTag: self.thinkEndTag,
-                requestId: reqId
+                requestId: reqId,
+                admission: admission
             )
-            let effectiveStream: AsyncThrowingStream<StreamChunk, Error>
+            var effectiveStream: AsyncThrowingStream<StreamChunk, Error>
             if templateOpenedThink, let thinkStart = self.thinkStartTag {
                 effectiveStream = AsyncThrowingStream { continuation in
                     let task = Task {
@@ -3191,6 +4215,29 @@ public final class MLXModelService: @unchecked Sendable {
             } else {
                 effectiveStream = schedulerStream
             }
+            if dflash2WasRequested {
+                let upstream = effectiveStream
+                let telemetry = AFMMLXSpeculativeTelemetry.fallback(
+                    strategy: "dflash2",
+                    reason: dflash2Policy.permitsRuntime
+                        ? "concurrency"
+                        : (dflash2Policy.denialReason ?? "disabled"))
+                effectiveStream = AsyncThrowingStream { continuation in
+                    let task = Task {
+                        do {
+                            for try await chunk in upstream {
+                                continuation.yield(chunk)
+                            }
+                            continuation.yield(StreamChunk(
+                                text: "", speculativeTelemetry: telemetry))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
+            }
             self.cleanupTempFiles(mediaTempFiles)
 
             if debugLogging {
@@ -3206,8 +4253,11 @@ public final class MLXModelService: @unchecked Sendable {
             // Derive tool call tags (same logic as serial path, below)
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
 
-            endOperationOnExit = false
-            return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+            let operationStream = Self.ownOperation(
+                effectiveStream,
+                operation: operation)
+            operationOwnedByStream = true
+            return (modelID, operationStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- MTP / EAGLE3 speculative streaming fast path (serial, greedy, text-only) ---
@@ -3216,8 +4266,7 @@ public final class MLXModelService: @unchecked Sendable {
         // The generator's per-token `onToken` callback drives incremental detokenization, yielding
         // an SSE text delta per emitted token; think-tag extraction is done by the controller from
         // those deltas (we return the think tags). Output matches the non-streaming fast path.
-        let specGreedyStream = (temperature ?? 0) <= 0.0 && (tools?.isEmpty ?? true)
-            && responseFormat == nil && !wantLogprobs && (stop?.isEmpty ?? true)
+        let specGreedyStream = speculativeCompatibility.isEligible
         let loadedSupportsDSpark: Bool
         if specGreedyStream && afmDSparkEnabled() {
             loadedSupportsDSpark = await container.perform { context in
@@ -3226,22 +4275,48 @@ public final class MLXModelService: @unchecked Sendable {
         } else {
             loadedSupportsDSpark = false
         }
-        let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
-        let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
-        let mtpStreamEligible = specGreedyStream && mtpBinding != nil
-        if dsparkStreamEligible || eagle3StreamEligible || mtpStreamEligible {
+        let dsparkStreamEligible = dflash2Policy.permitsOtherRuntimes
+            && specGreedyStream && loadedSupportsDSpark
+        let dflash2StreamEligible = specGreedyStream
+            && dflash2Policy.permitsRuntime
+            && dflash2State?.runtime != nil
+        let dflash2FallbackTelemetry: AFMMLXSpeculativeTelemetry? = dflash2WasRequested
+            ? .fallback(
+                strategy: "dflash2",
+                reason: !dflash2Policy.permitsRuntime
+                    ? (dflash2Policy.denialReason ?? "disabled")
+                    : (dflash2State?.runtime == nil
+                        ? (dflash2State?.fallbackReason ?? "unavailable")
+                        : (speculativeCompatibility.denialReason ?? "incompatible_request")))
+            : nil
+        let eagle3StreamEligible = dflash2Policy.permitsOtherRuntimes
+            && specGreedyStream && Eagle3Runtime.shared.active != nil
+        let mtpStreamEligible = dflash2Policy.permitsOtherRuntimes
+            && specGreedyStream && mtpBinding != nil
+        if requestRequiresDFlash2,
+           !dflash2StreamEligible {
+            let reason = dflash2UnavailableReason(
+                policy: dflash2Policy,
+                runtimeFallbackReason: dflash2State?.fallbackReason,
+                defaultReason: "streaming request modifiers require autoregressive decoding")
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but unavailable: \(reason)")
+        }
+        if dsparkStreamEligible || dflash2StreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
             // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
             // thinking models whose chat template begins reasoning in the prompt, the generated
             // stream never contains the opening tag, so we must synthesize a leading thinkStart chunk
             // (mirrors the scheduler/serial paths) or the controller classifies reasoning as content.
-            let prep: (ids: [Int], openedThink: Bool)? = try await container.perform { context -> (ids: [Int], openedThink: Bool)? in
+            let prep: (ids: [Int], openedThink: Bool, preparationTime: Double)? = try await container.perform { context -> (ids: [Int], openedThink: Bool, preparationTime: Double)? in
+                let prepareStart = Date.timeIntervalSinceReferenceDate
                 let lmInput = try await context.processor.prepare(input: userInput)
                 if self.isMultimodalInput(lmInput) { return nil }
                 if dsparkStreamEligible
                     && !((context.model as? DeepseekV4Model)?.supportsEmbeddedDSpark == true)
                 { return nil }
                 if eagle3StreamEligible && !(context.model is Gemma4Model) { return nil }
+                if dflash2StreamEligible && !(context.model is any DFlash2Target) { return nil }
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
                 var opened = false
@@ -3253,29 +4328,48 @@ public final class MLXModelService: @unchecked Sendable {
                         endTag: self.thinkEndTag
                     )
                 }
-                return (ids, opened)
+                return (
+                    ids,
+                    opened,
+                    Date.timeIntervalSinceReferenceDate - prepareStart)
             }
             if let prep {
                 let promptIds = prep.ids
                 let openedThink = prep.openedThink
-                let useDSpark = dsparkStreamEligible
-                let useEagle3 = !useDSpark && eagle3StreamEligible
+                let preparationTime = prep.preparationTime
+                let useDFlash2 = dflash2StreamEligible
+                let useDSpark = !useDFlash2 && dsparkStreamEligible
+                let useEagle3 = !useDSpark && !useDFlash2 && eagle3StreamEligible
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
+                let diagnostics = beginGenerationDiagnostics()
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
-                        defer { self.cleanupTempFiles(mediaTempFiles) }
+                        var diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                            promptTokens: promptIds.count)
+                        defer {
+                            diagnostics.finish(metrics: diagnosticsMetrics)
+                            self.cleanupTempFiles(mediaTempFiles)
+                            operation.finish()
+                            Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+                        }
                         StatsAggregator.shared.requestStarted()
                         if openedThink, let thinkStartTag {
                             continuation.yield(StreamChunk(text: thinkStartTag))
                         }
                         let t0 = Date.timeIntervalSinceReferenceDate
                         do {
-                            let outCount = try await container.perform { context -> Int in
-                                let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
+                            let generation = try await container.perform {
+                                context -> (tokenCount: Int, promptTime: Double, generateTime: Double, telemetry: AFMMLXSpeculativeTelemetry?) in
+                                let eos = Self.completeEOSTokenIDs(
+                                    configuration: context.configuration,
+                                    tokenizer: context.tokenizer)
                                 var allTokens: [Int] = []
                                 var prevText = ""
+                                var telemetry: AFMMLXSpeculativeTelemetry?
+                                var speculativePrefillTime = 0.0
+                                let decodeStart = Date.timeIntervalSinceReferenceDate
                                 let emit: (Int) -> Bool = { tok in
                                     if Task.isCancelled { return false }    // client disconnected
                                     if eos.contains(tok) { return false }   // stop; never stream EOS
@@ -3295,6 +4389,41 @@ public final class MLXModelService: @unchecked Sendable {
                                     _ = generator.generate(
                                         promptIds: promptIds, maxTokens: maxTok,
                                         eosIds: eos, onToken: emit)
+                                } else if useDFlash2,
+                                          let installed = dflash2State?.runtime,
+                                          let target = context.model as? any DFlash2Target {
+                                    let generator = try DFlash2Generator(
+                                        target: target,
+                                        draft: installed.draft,
+                                        blockSize: dflash2Policy.requestedBlockSize.map {
+                                            min(installed.preflight.blockSize, $0)
+                                        } ?? installed.preflight.blockSize)
+                                    let result = try generator.generate(
+                                        promptIDs: promptIds,
+                                        maxTokens: maxTok,
+                                        stopTokenIDs: eos,
+                                        shouldStop: { Task.isCancelled },
+                                        onToken: emit)
+                                    let stats = result.statistics
+                                    speculativePrefillTime = stats.prefillSeconds
+                                    telemetry = AFMMLXSpeculativeTelemetry(
+                                        strategy: "dflash2",
+                                        draftedTokens: stats.draftedTokens,
+                                        acceptedDraftTokens: stats.acceptedDraftTokens,
+                                        emittedTokens: stats.emittedTokens,
+                                        verificationCycles: stats.verificationCycles,
+                                        draftTime: stats.draftSeconds,
+                                        verificationTime: stats.verificationSeconds,
+                                        rollbackTime: stats.rollbackSeconds)
+                                    StatsAggregator.shared.addSpeculative(
+                                        strategy: "dflash2",
+                                        draftedTokens: stats.draftedTokens,
+                                        acceptedDraftTokens: stats.acceptedDraftTokens,
+                                        emittedTokens: stats.emittedTokens,
+                                        verificationCycles: stats.verificationCycles,
+                                        draftSeconds: stats.draftSeconds,
+                                        verificationSeconds: stats.verificationSeconds,
+                                        rollbackSeconds: stats.rollbackSeconds)
                                 } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
@@ -3306,34 +4435,61 @@ public final class MLXModelService: @unchecked Sendable {
                                     _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
                                                      eosIds: eos, onToken: emit)
                                 }
-                                return allTokens.count
+                                try Task.checkCancellation()
+                                let elapsed = Date.timeIntervalSinceReferenceDate - decodeStart
+                                return (
+                                    allTokens.count,
+                                    preparationTime + speculativePrefillTime,
+                                    max(0, elapsed - speculativePrefillTime),
+                                    telemetry)
                             }
                             let gt = Date.timeIntervalSinceReferenceDate - t0
+                            let outCount = generation.tokenCount
+                            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                                promptTokens: promptIds.count,
+                                completionTokens: outCount,
+                                promptTime: generation.promptTime,
+                                generateTime: generation.generateTime)
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
-                                let engine = useDSpark ? "DSpARK" : (useEagle3 ? "EAGLE3" : "MTP")
+                                let engine = useDSpark ? "DSpARK"
+                                    : (useDFlash2 ? "DFlash2" : (useEagle3 ? "EAGLE3" : "MTP"))
                                 print("[\(ts())] [\(engine)] streamed \(outCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                             }
                             continuation.yield(StreamChunk(text: "", promptTokens: promptIds.count,
-                                                           completionTokens: outCount, promptTime: 0, generateTime: gt))
-                            StatsAggregator.shared.requestSucceeded(reason: "stop")
-                            StatsAggregator.shared.requestCompleted()
+                                                           completionTokens: outCount,
+                                                           promptTime: generation.promptTime,
+                                                           generateTime: generation.generateTime,
+                                                           speculativeTelemetry: generation.telemetry
+                                                               ?? dflash2FallbackTelemetry))
+                            self.recordSpeculativeRequestCompletion(
+                                queuedAt: streamQueuedAt,
+                                promptTokens: promptIds.count,
+                                completionTokens: outCount,
+                                promptTime: generation.promptTime,
+                                maxTokens: effectiveMaxTokens)
                             continuation.finish()
                         } catch {
                             // Surface model/tokenizer/generator failures instead of masking them as
                             // an empty success (don't emit a final usage chunk; fail the stream).
-                            StatsAggregator.shared.requestSucceeded(reason: "error")
+                            StatsAggregator.shared.requestSucceeded(
+                                reason: error is CancellationError || Task.isCancelled
+                                    ? "abort" : "error")
                             StatsAggregator.shared.requestCompleted()
                             continuation.finish(throwing: error)
                         }
-                        self.endOperation()
                     }
                     // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
                     continuation.onTermination = { _ in task.cancel() }
                 }
                 streamOwnsTempFiles = true
-                endOperationOnExit = false
+                operationOwnedByStream = true
+                releaseSerialExecutionOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
+            }
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but the prepared streaming input is empty, multimodal, or target-incompatible")
             }
         }
 
@@ -3356,7 +4512,10 @@ public final class MLXModelService: @unchecked Sendable {
             let streamScratch = StreamingScratch()
             streamScratch.userInput = userInput
             let task = Task {
-                defer { self.endOperation() }
+                defer {
+                    operation.finish()
+                    Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+                }
                 do {
                     try await container.perform { context in
                         // Local generation params (the outer `params` is a captured
@@ -3802,6 +4961,7 @@ public final class MLXModelService: @unchecked Sendable {
                             truncateTime: saveTruncateTime,
                             insertTime: saveInsertTime
                         )
+                        try Task.checkCancellation()
                     }
                     // Re-bind metric counters from the scratch box so the
                     // observation below reads them by their original names.
@@ -3843,6 +5003,11 @@ public final class MLXModelService: @unchecked Sendable {
                     StatsAggregator.shared.requestSucceeded(reason: streamReason)
                     StatsAggregator.shared.requestCompleted()
 
+                    if let dflash2FallbackTelemetry {
+                        continuation.yield(StreamChunk(
+                            text: "", speculativeTelemetry: dflash2FallbackTelemetry))
+                    }
+
                     continuation.finish()
                 } catch {
                     if debugLogging {
@@ -3852,7 +5017,9 @@ public final class MLXModelService: @unchecked Sendable {
                     self.cleanupTempFiles(mediaTempFiles)
                     // /metrics: error path — still complete the lifecycle so
                     // requests_completed_total tracks requests_started_total.
-                    StatsAggregator.shared.requestSucceeded(reason: "error")
+                    StatsAggregator.shared.requestSucceeded(
+                        reason: error is CancellationError || Task.isCancelled
+                            ? "abort" : "error")
                     StatsAggregator.shared.requestCompleted()
                     continuation.finish(throwing: error)
                 }
@@ -3872,19 +5039,33 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         streamOwnsTempFiles = true
-        endOperationOnExit = false
+        operationOwnedByStream = true
+        releaseSerialExecutionOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
 
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
-        // Shut down concurrent scheduler first (cancels pending + active)
-        if let scheduler = self.scheduler {
-            await scheduler.shutdown()
-            self.scheduler = nil
+        let scheduler = beginShutdown()
+        // Closing admission is nonisolated and must happen before coordinator
+        // waits: setup may itself be queued behind the active decode actor.
+        scheduler?.beginShutdown()
+        await modelExecutionCoordinator.beginShutdown()
+
+        // Drain concurrent scheduler state after setup users observe closure.
+        if let scheduler {
+            let ownsRemoval = await modelExecutionCoordinator.beginSchedulerRemoval()
+            await scheduler.finishShutdownAfterAdmissionClosed()
+            withStateLock {
+                if self.scheduler === scheduler {
+                    self.scheduler = nil
+                }
+            }
+            if ownsRemoval {
+                await modelExecutionCoordinator.finishSchedulerRemoval()
+            }
         }
 
         let start = Date()
-        withStateLock { isShuttingDown = true }
 
         while Date().timeIntervalSince(start) < timeoutSeconds {
             if withStateLock({ activeOperations == 0 }) {
@@ -3903,8 +5084,10 @@ public final class MLXModelService: @unchecked Sendable {
                 currentModelID = nil
                 currentModelArchitecture = nil
                 currentMTPBinding = nil
+                currentDFlash2State = nil
             }
         }
+        Eagle3Runtime.shared.clear()
 
         if gpuInitialized {
             // Ensure queued GPU work is complete before clearing recycled buffers.
@@ -3924,6 +5107,24 @@ public final class MLXModelService: @unchecked Sendable {
             } else {
                 print("MLX memory after shutdown - GPU was not initialized")
             }
+        }
+    }
+
+    func beginShutdown() -> BatchScheduler? {
+        withStateLock {
+            isShuttingDown = true
+            return scheduler
+        }
+    }
+
+    private func validateGPUCaptureCompatibility(
+        maxConcurrent: Int
+    ) throws {
+        if let incompatibility = AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: maxConcurrent,
+            capturePath: gpuCapturePath
+        ) {
+            throw MLXServiceError.loadFailed(incompatibility)
         }
     }
 
@@ -5227,12 +6428,41 @@ public final class MLXModelService: @unchecked Sendable {
 
     // MARK: - Private helpers
 
-    private func beginOperation() throws {
+    func beginOperation() throws -> MLXModelServiceOperationToken {
         try withStateLock {
             if isShuttingDown {
                 throw MLXServiceError.serviceShuttingDown
             }
             activeOperations += 1
+        }
+        return MLXModelServiceOperationToken { self.endOperation() }
+    }
+
+    var activeOperationCount: Int {
+        withStateLock { activeOperations }
+    }
+
+    var shuttingDown: Bool {
+        withStateLock { isShuttingDown }
+    }
+
+    static func ownOperation(
+        _ upstream: AsyncThrowingStream<StreamChunk, Error>,
+        operation: MLXModelServiceOperationToken
+    ) -> AsyncThrowingStream<StreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                defer { operation.finish() }
+                do {
+                    for try await chunk in upstream {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -6010,11 +7240,21 @@ public final class MLXModelService: @unchecked Sendable {
     private func validatedRuntimeForRequest(
         modelID: String,
         messages: [AFMOpenAICompat.Message]
-    ) throws -> (container: ModelContainer, mtpBinding: MTPGeneratorBinding?) {
+    ) throws -> (
+        container: ModelContainer,
+        mtpBinding: MTPGeneratorBinding?,
+        dflash2State: DFlash2ModelRuntimeState?
+    ) {
         let state = withStateLock {
-            (currentContainer, currentModelArchitecture, currentMTPBinding, currentModelID == modelID)
+            (
+                currentContainer,
+                currentModelArchitecture,
+                currentMTPBinding,
+                currentDFlash2State,
+                currentModelID == modelID
+            )
         }
-        guard let container = state.0, state.3 else { throw MLXServiceError.noModelLoaded }
+        guard let container = state.0, state.4 else { throw MLXServiceError.noModelLoaded }
         guard let architecture = state.1 else {
             throw MLXServiceError.loadFailed("\(modelID): model architecture is unavailable")
         }
@@ -6044,7 +7284,9 @@ public final class MLXModelService: @unchecked Sendable {
             mtpEnabled: mtpEnabled,
             bindingModelID: state.2?.modelID
         ) ? state.2 : nil
-        return (container, binding)
+        let dflash2State = state.3?.ownerID == dflash2RuntimeScopeID
+            && state.3?.modelID == modelID ? state.3 : nil
+        return (container, binding, dflash2State)
     }
 
     private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {
@@ -7306,6 +8548,23 @@ public final class MLXModelService: @unchecked Sendable {
             return true
         }
         return startRange.lowerBound > endRange.lowerBound
+    }
+
+    static func restorePromptOpenedReasoningBoundary(
+        generatedText: String,
+        promptSuffix: String,
+        startTag: String?,
+        endTag: String?
+    ) -> String {
+        guard let startTag,
+              promptSuffixOpensThink(
+                promptSuffix,
+                startTag: startTag,
+                endTag: endTag)
+        else {
+            return generatedText
+        }
+        return startTag + generatedText
     }
 
     /// Adapted from vLLM's tool_chat_template_mistral.jinja — Mistral v7 format.

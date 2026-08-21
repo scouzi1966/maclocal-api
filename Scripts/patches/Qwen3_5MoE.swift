@@ -860,6 +860,24 @@ class Qwen3_5TextModelInner: Module {
 
         return norm(h)
     }
+
+    func dflash2Forward(
+        _ inputs: MLXArray,
+        captureLayerIDs: [Int],
+        cache: [KVCache]
+    ) -> (hidden: MLXArray, normalized: MLXArray) {
+        var h = embedTokens(inputs)
+        let faMask = createAttentionMask(h: h, cache: cache[faIdx])
+        let ssmMask = createSSMMask(h: h, cache: cache[ssmIdx] as? MambaCache)
+        let capture = Set(captureLayerIDs)
+        var selected: [MLXArray] = []
+        for (index, layer) in layers.enumerated() {
+            h = layer(h, faMask: faMask, ssmMask: ssmMask, cache: cache[index])
+            if capture.contains(index) { selected.append(h) }
+        }
+        precondition(selected.count == captureLayerIDs.count)
+        return (concatenated(selected, axis: -1), norm(h))
+    }
 }
 
 // MARK: - MTP (Multi-Token Prediction) Head — text LLM variant
@@ -1247,6 +1265,39 @@ public class Qwen3_5MoEModel: Module, LLMModel, KVCacheDimensionProvider {
         }
 
         return sanitizedWeights
+    }
+}
+
+extension Qwen3_5MoEModel: DFlash2Target {
+    public var dflash2HiddenSize: Int { configuration.textConfig.hiddenSize }
+    public var dflash2LayerCount: Int { configuration.textConfig.hiddenLayers }
+    public var dflash2VocabularySize: Int { configuration.textConfig.vocabularySize }
+
+    public func dflash2NewCache() -> [any KVCache] { newCache(parameters: nil) }
+    public func dflash2Embed(_ tokenIDs: MLXArray) -> MLXArray { embedTokens(tokenIDs) }
+    public func dflash2Project(_ hidden: MLXArray) -> MLXArray { projectLMHead(hidden) }
+
+    public func dflash2Forward(
+        _ tokenIDs: MLXArray,
+        captureLayerIDs: [Int],
+        cache: [any KVCache]
+    ) -> DFlash2TargetOutput {
+        let result = languageModel.model.dflash2Forward(
+            tokenIDs, captureLayerIDs: captureLayerIDs, cache: cache)
+        return DFlash2TargetOutput(
+            hidden: result.hidden,
+            logits: languageModel.projectLMHead(result.normalized))
+    }
+
+    public func dflash2CaptureCache(_ cache: [any KVCache]) -> Any {
+        DFlash2CacheSnapshot.capture(cache)
+    }
+
+    public func dflash2RestoreCache(_ snapshot: Any, into cache: [any KVCache]) {
+        guard let snapshot = snapshot as? [DFlash2CacheSnapshot.Layer] else {
+            preconditionFailure("Invalid Qwen DFlash2 cache snapshot")
+        }
+        DFlash2CacheSnapshot.restore(snapshot, into: cache)
     }
 }
 

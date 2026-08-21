@@ -5,6 +5,7 @@ import XCTest
 import XCTVapor
 
 @testable import AFMKit
+@testable import AFMKitMLX
 @testable import AFMServer
 
 /// Tests for T1.6 (tokenize / count_tokens request decoding) and T1.7
@@ -103,6 +104,47 @@ struct TokenizeAndOpenAPITests {
         for path in expected {
             #expect(paths[path] != nil, "missing path in OpenAPI spec: \(path)")
         }
+    }
+
+    @Test("T1.7 chat schema declares neutral speculative decoding controls")
+    func openAPIDeclaresSpeculativeDecodingControls() throws {
+        let parsed = try JSONSerialization.jsonObject(
+            with: Data(OpenAPIController.specJSON.utf8)) as? [String: Any]
+        let components = parsed?["components"] as? [String: Any]
+        let schemas = components?["schemas"] as? [String: Any]
+        let chat = schemas?["ChatCompletionRequest"] as? [String: Any]
+        let properties = chat?["properties"] as? [String: Any]
+        let speculative = properties?["speculative_decoding"] as? [String: Any]
+        let speculativeProperties = speculative?["properties"] as? [String: Any]
+        let mode = speculativeProperties?["mode"] as? [String: Any]
+
+        #expect(speculative?["type"] as? String == "object")
+        #expect(speculative?["additionalProperties"] as? Bool == false)
+        #expect(mode?["enum"] as? [String] == ["auto", "off", "dflash2"])
+        #expect(speculativeProperties?["requirement"] != nil)
+        #expect(speculativeProperties?["drafter"] != nil)
+        #expect(speculativeProperties?["max_draft_tokens"] != nil)
+    }
+
+    @Test("T1.7 metrics export speculative emitted tokens")
+    func metricsExportSpeculativeEmittedTokens() {
+        StatsAggregator.shared.reset()
+        defer { StatsAggregator.shared.reset() }
+        StatsAggregator.shared.addSpeculative(
+            strategy: "dflash2",
+            draftedTokens: 5,
+            acceptedDraftTokens: 3,
+            emittedTokens: 4,
+            verificationCycles: 2,
+            draftSeconds: 0.1,
+            verificationSeconds: 0.2,
+            rollbackSeconds: 0.03
+        )
+
+        let metrics = MetricsController.renderPrometheus(
+            StatsAggregator.shared.snapshot())
+        #expect(metrics.contains(
+            "afm:speculative_emitted_tokens_total{model_name=\"\"} 4"))
     }
 
     @Test("T1.7 docs page references /openapi.json on same origin")

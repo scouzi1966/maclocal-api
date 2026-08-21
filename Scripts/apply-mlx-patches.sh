@@ -28,6 +28,12 @@ PATCH_FILES+=("MuseGlimmer.swift")
 TARGET_PATHS+=("Libraries/MLXVLM/Models/MuseGlimmer.swift")
 NEW_FILES+=("MuseGlimmer.swift")
 
+# DFlash2 model primitives are isolated in MLXLMCommon; target adapters stay
+# with their model implementations and AFMKit owns server orchestration.
+PATCH_FILES+=("DFlash2.swift")
+TARGET_PATHS+=("Libraries/MLXLMCommon/DFlash2.swift")
+NEW_FILES+=("DFlash2.swift")
+
 # --- Package-level patches (sed replacements in Package.swift) ---
 # Each entry: "search_pattern|replacement"
 # These fix dependency version pins that can't be handled by file-copy patches.

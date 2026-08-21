@@ -58,7 +58,7 @@ public enum AFMMLXModelArchitecturePreflightError: Error, LocalizedError, Sendab
         case .invalidConfiguration(let modelID):
             return "Could not read model_type from \(modelID)'s config.json."
         case .draftOnlyArchitecture(let architecture, let modelID):
-            return "Model '\(modelID)' (architecture: \(architecture)) is a speculative draft checkpoint, not a standalone language model. Pair it with its full target model using a compatible speculative runtime; AFM does not currently support DFlash pairing."
+            return "Model '\(modelID)' (architecture: \(architecture)) is a speculative draft checkpoint, not a standalone language model. Start AFM with its full target model and pass this checkpoint through --dflash2."
         case .unsupportedArchitecture(let modelType, let modelID):
             return "Unsupported model architecture '\(modelType)' for \(modelID)."
         case .metalCrashArchitecture(let modelType, let modelID):

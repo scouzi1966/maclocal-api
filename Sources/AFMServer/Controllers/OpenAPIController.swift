@@ -123,7 +123,18 @@ struct OpenAPIController: RouteCollection {
               "tools": { "type": "array", "items": { "$ref": "#/components/schemas/Tool" } },
               "tool_choice": { "description": "auto | none | required | { type: 'function', function: { name } }" },
               "parallel_tool_calls": { "type": "boolean", "description": "When false, the server emits at most one tool call per assistant turn." },
-              "response_format": { "$ref": "#/components/schemas/ResponseFormat" }
+              "response_format": { "$ref": "#/components/schemas/ResponseFormat" },
+              "speculative_decoding": {
+                "type": "object",
+                "description": "Optional provider-neutral speculative decoding controls. DFlash 2 requires explicit temperature 0 and serial text generation without sampling modifiers or non-neutral penalties. Omitted temperature retains the normal sampling default. Preferred mode falls back to autoregressive decoding for incompatible, prefix-cache, concurrent, or batch requests; required mode returns an error before output. Mode off disables every speculative runtime for the request.",
+                "properties": {
+                  "mode": { "type": "string", "enum": ["auto", "off", "dflash2"] },
+                  "requirement": { "type": "string", "enum": ["preferred", "required"] },
+                  "drafter": { "type": "string", "description": "Must match the DFlash 2 drafter loaded at server startup; request-time drafter switching is rejected." },
+                  "max_draft_tokens": { "type": "integer", "minimum": 1 }
+                },
+                "additionalProperties": false
+              }
             }
           },
           "Message": {

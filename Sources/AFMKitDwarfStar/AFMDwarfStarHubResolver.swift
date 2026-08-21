@@ -32,6 +32,8 @@ public enum AFMDwarfStarHubSelectionError: LocalizedError, Equatable {
     case noModelGGUF(String)
     case requestedFileNotFound(String)
     case modelExceedsMemoryBudget(path: String, size: Int64, budget: Int64)
+    case unsupportedArchitecture(path: String, architecture: String)
+    case unreadableArchitecture(String)
 
     public var errorDescription: String? {
         switch self {
@@ -43,6 +45,10 @@ public enum AFMDwarfStarHubSelectionError: LocalizedError, Equatable {
             return "Requested GGUF file was not found in the repository: \(path)"
         case .modelExceedsMemoryBudget(let path, let size, let budget):
             return "GGUF \(path) is \(Self.bytes(size)), exceeding the \(Self.bytes(budget)) memory budget. Use --gguf-file to select it explicitly."
+        case .unsupportedArchitecture(let path, let architecture):
+            return "GGUF \(path) declares unsupported architecture \(architecture); DwarfStar requires general.architecture=deepseek4."
+        case .unreadableArchitecture(let path):
+            return "GGUF \(path) does not expose readable general.architecture metadata in its header."
         }
     }
 
@@ -52,6 +58,18 @@ public enum AFMDwarfStarHubSelectionError: LocalizedError, Equatable {
 }
 
 public enum AFMDwarfStarHubSelector {
+    public static func validateArchitecture(_ architecture: String?, path: String) throws {
+        guard let architecture else {
+            throw AFMDwarfStarHubSelectionError.unreadableArchitecture(path)
+        }
+        guard architecture == "deepseek4" else {
+            throw AFMDwarfStarHubSelectionError.unsupportedArchitecture(
+                path: path,
+                architecture: architecture
+            )
+        }
+    }
+
     public static func selectModel(
         from artifacts: [AFMDwarfStarHubArtifact],
         repositoryID: String,
@@ -134,34 +152,53 @@ public struct AFMDwarfStarHubResolver: Sendable {
         let expectedBytes = max(Int64(entry.size ?? 1), 1)
         let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: revision)
         let cachedArtifact = snapshot.appendingPathComponent(entry.path)
-        let cachedTarget = cachedArtifact.resolvingSymlinksInPath()
-        if AFMDwarfStarResumableDownload.fileSize(cachedTarget) == expectedBytes {
-            print("Using cached DwarfStar model: \(cachedArtifact.path)")
-            return cachedArtifact
-        }
         let blobKey = Self.hubBlobKey(repo: repo, revision: revision, entry: entry)
         let destination = try cache.blobPath(repo: repo, kind: .model, etag: blobKey)
         let partial = try cache.incompleteBlobPath(repo: repo, kind: .model, etag: blobKey)
         let segment = partial.appendingPathExtension("xet-segment")
-        print("Download destination: \(cacheDirectory.path)")
-        try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let token = try await TokenProvider.environment.getToken()
-        let listedSHA256 = entry.oid.flatMap(Self.normalizedSHA256)
-        let xetMetadata: AFMDwarfStarXetMetadata
-        do {
-            xetMetadata = try await AFMDwarfStarResumableDownload.fetchXetMetadata(
+        return try await AFMDwarfStarHubCacheCoordinator.withArtifactLock(
+            cacheDirectory: cacheDirectory,
+            artifact: destination
+        ) {
+            let cachedTarget = cachedArtifact.resolvingSymlinksInPath()
+            if AFMDwarfStarResumableDownload.fileSize(cachedTarget) == expectedBytes {
+                try AFMDwarfStarHubSelector.validateArchitecture(
+                    AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: cachedTarget),
+                    path: entry.path
+                )
+                print("Using cached DwarfStar model: \(cachedArtifact.path)")
+                return cachedArtifact
+            }
+
+            print("Download destination: \(cacheDirectory.path)")
+            try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let token = try await TokenProvider.environment.getToken()
+            let remoteArchitecture = try await AFMDwarfStarResumableDownload.fetchGGUFArchitecture(
                 repositoryID: repositoryID,
                 revision: revision,
                 path: entry.path,
-                expectedBytes: expectedBytes,
-                token: token)
-        } catch {
-            print("Hugging Face Xet metadata unavailable: \(AFMDwarfStarResumableDownload.detailedError(error)); using cache-local LFS")
-            xetMetadata = AFMDwarfStarXetMetadata(
-                fileID: nil,
-                expectedBytes: expectedBytes,
-                expectedSHA256: listedSHA256)
-        }
+                token: token
+            )
+            try AFMDwarfStarHubSelector.validateArchitecture(
+                remoteArchitecture,
+                path: entry.path
+            )
+            let listedSHA256 = entry.oid.flatMap(Self.normalizedSHA256)
+            let xetMetadata: AFMDwarfStarXetMetadata
+            do {
+                xetMetadata = try await AFMDwarfStarResumableDownload.fetchXetMetadata(
+                    repositoryID: repositoryID,
+                    revision: revision,
+                    path: entry.path,
+                    expectedBytes: expectedBytes,
+                    token: token)
+            } catch {
+                print("Hugging Face Xet metadata unavailable: \(AFMDwarfStarResumableDownload.detailedError(error)); using cache-local LFS")
+                xetMetadata = AFMDwarfStarXetMetadata(
+                    fileID: nil,
+                    expectedBytes: expectedBytes,
+                    expectedSHA256: listedSHA256)
+            }
         let aggregate = Progress(totalUnitCount: xetMetadata.expectedBytes)
         let file = AFMDownloadProgressUserInfo.File(
             path: entry.path,
@@ -276,7 +313,8 @@ public struct AFMDwarfStarHubResolver: Sendable {
         file.progress.completedUnitCount = xetMetadata.expectedBytes
         AFMDownloadProgressUserInfo.enrich(aggregate, files: [file])
         progress?(aggregate)
-        return snapshot.appendingPathComponent(entry.path)
+            return snapshot.appendingPathComponent(entry.path)
+        }
     }
 
     private static func hubBlobKey(
@@ -309,5 +347,27 @@ public struct AFMDwarfStarHubResolver: Sendable {
         }
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cache/huggingface/hub")
+    }
+}
+
+enum AFMDwarfStarHubCacheCoordinator {
+    static func withArtifactLock<T>(
+        cacheDirectory: URL,
+        artifact: URL,
+        operation: () async throws -> T
+    ) async throws -> T {
+        let cache = HubCache(cacheDirectory: cacheDirectory)
+        let lock = FileLock(
+            path: cache.lockPath(for: artifact),
+            maxRetries: nil,
+            retryDelay: 0.05
+        )
+        return try await lock.withLock(operation)
+    }
+
+    static func lockFileURL(cacheDirectory: URL, artifact: URL) -> URL {
+        HubCache(cacheDirectory: cacheDirectory)
+            .lockPath(for: artifact)
+            .appendingPathExtension("lock")
     }
 }

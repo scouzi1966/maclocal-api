@@ -17,6 +17,26 @@ public enum AFMBackend: Sendable {
     case provider(providerID: AFMProviderID, modelID: AFMModelID)
 }
 
+/// Provider-neutral startup configuration for an optional speculative decoder.
+public struct AFMSpeculativeDecodingConfiguration: Sendable {
+    public var mode: String
+    public var drafter: String?
+    public var maxDraftTokens: Int?
+    public var requirement: String
+
+    public init(
+        mode: String,
+        drafter: String? = nil,
+        maxDraftTokens: Int? = nil,
+        requirement: String = "preferred"
+    ) {
+        self.mode = mode
+        self.drafter = drafter
+        self.maxDraftTokens = maxDraftTokens
+        self.requirement = requirement
+    }
+}
+
 /// Engine-level configuration — set once when the engine is created. Mirrors the
 /// `afm`/`afm mlx` server flags that configure the runtime (not per-request sampling).
 public struct EngineConfig: Sendable {
@@ -32,6 +52,7 @@ public struct EngineConfig: Sendable {
     public var mtpDepth: Int
     public var mtpModelID: String?
     public var eagle3DrafterPath: String?
+    public var speculativeDecoding: AFMSpeculativeDecodingConfiguration?
     public var enableGrammarConstraints: Bool
     public var toolCallParser: String?
     public var maxConcurrent: Int
@@ -57,6 +78,7 @@ public struct EngineConfig: Sendable {
         mtpDepth: Int = 3,
         mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
+        speculativeDecoding: AFMSpeculativeDecodingConfiguration? = nil,
         enableGrammarConstraints: Bool = false,
         toolCallParser: String? = nil,
         maxConcurrent: Int = 0,
@@ -81,6 +103,7 @@ public struct EngineConfig: Sendable {
         self.mtpDepth = mtpDepth
         self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
+        self.speculativeDecoding = speculativeDecoding
         self.enableGrammarConstraints = enableGrammarConstraints
         self.toolCallParser = toolCallParser
         self.maxConcurrent = maxConcurrent
@@ -121,6 +144,19 @@ private extension EngineConfig {
         }
         if let mtpModelID {
             values["mtpModelID"] = .string(mtpModelID)
+        }
+        if let speculativeDecoding {
+            var speculative: [String: AFMJSONValue] = [
+                "mode": .string(speculativeDecoding.mode),
+                "requirement": .string(speculativeDecoding.requirement),
+            ]
+            if let drafter = speculativeDecoding.drafter {
+                speculative["drafter"] = .string(drafter)
+            }
+            if let maxDraftTokens = speculativeDecoding.maxDraftTokens {
+                speculative["maxDraftTokens"] = .integer(maxDraftTokens)
+            }
+            values["speculativeDecoding"] = .object(speculative)
         }
         if let toolCallParser {
             values["toolCallParser"] = .string(toolCallParser)

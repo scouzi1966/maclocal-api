@@ -528,6 +528,31 @@ private class MuseGlimmerTextModel: Module {
         }
         return norm(h)
     }
+
+    func dflash2Forward(
+        _ inputs: MLXArray,
+        captureLayerIDs: [Int],
+        cache: [KVCache]
+    ) -> (hidden: MLXArray, normalized: MLXArray) {
+        var h = embedNorm(embedTokens(inputs))
+        let fullMask = createAttentionMask(h: h, cache: cache[fullAttentionIndex])
+        var slidingMask = MLXFast.ScaledDotProductAttentionMaskMode.none
+        if let slidingAttentionIndex {
+            slidingMask = createAttentionMask(
+                h: h, cache: cache[slidingAttentionIndex], windowSize: config.slidingWindow)
+        }
+        let capture = Set(captureLayerIDs)
+        var selected: [MLXArray] = []
+        for (index, layer) in layers.enumerated() {
+            h = layer(
+                h,
+                mask: layer.isSliding ? slidingMask : fullMask,
+                cache: cache[index])
+            if capture.contains(index) { selected.append(h) }
+        }
+        precondition(selected.count == captureLayerIDs.count)
+        return (concatenated(selected, axis: -1), norm(h))
+    }
 }
 
 private class MuseGlimmerLanguageModel: Module, KVCacheDimensionProvider {
@@ -569,6 +594,26 @@ private class MuseGlimmerLanguageModel: Module, KVCacheDimensionProvider {
             logits = tanh(logits / cap) * cap
         }
         return LMOutput(logits: logits)
+    }
+
+    func projectDFlash2(_ hidden: MLXArray) -> MLXArray {
+        var logits = lmHead(hidden) * config.outputMultiplier
+        if config.finalLogitSoftcapping > 0 {
+            logits = tanh(logits / config.finalLogitSoftcapping)
+                * config.finalLogitSoftcapping
+        }
+        return logits
+    }
+
+    func dflash2Forward(
+        _ tokenIDs: MLXArray,
+        captureLayerIDs: [Int],
+        cache: [KVCache]
+    ) -> DFlash2TargetOutput {
+        let result = model.dflash2Forward(
+            tokenIDs, captureLayerIDs: captureLayerIDs, cache: cache)
+        return DFlash2TargetOutput(
+            hidden: result.hidden, logits: projectDFlash2(result.normalized))
     }
 }
 
@@ -1177,6 +1222,37 @@ public class MuseGlimmer: Module, VLMModel, KVCacheDimensionProvider {
 extension MuseGlimmer: LoRAModel {
     public var loraLayers: [Module] {
         languageModel.model.layers
+    }
+}
+
+extension MuseGlimmer: DFlash2Target {
+    public var dflash2HiddenSize: Int { config.textConfiguration.hiddenSize }
+    public var dflash2LayerCount: Int { config.textConfiguration.hiddenLayers }
+    public var dflash2VocabularySize: Int { config.textConfiguration.vocabularySize }
+
+    public func dflash2NewCache() -> [any KVCache] { newCache(parameters: nil) }
+    public func dflash2Embed(_ tokenIDs: MLXArray) -> MLXArray {
+        languageModel.model.embedNorm(languageModel.model.embedTokens(tokenIDs))
+    }
+    public func dflash2Project(_ hidden: MLXArray) -> MLXArray {
+        languageModel.projectDFlash2(hidden)
+    }
+    public func dflash2Forward(
+        _ tokenIDs: MLXArray,
+        captureLayerIDs: [Int],
+        cache: [any KVCache]
+    ) -> DFlash2TargetOutput {
+        languageModel.dflash2Forward(
+            tokenIDs, captureLayerIDs: captureLayerIDs, cache: cache)
+    }
+    public func dflash2CaptureCache(_ cache: [any KVCache]) -> Any {
+        DFlash2CacheSnapshot.capture(cache)
+    }
+    public func dflash2RestoreCache(_ snapshot: Any, into cache: [any KVCache]) {
+        guard let snapshot = snapshot as? [DFlash2CacheSnapshot.Layer] else {
+            preconditionFailure("Invalid Muse DFlash2 cache snapshot")
+        }
+        DFlash2CacheSnapshot.restore(snapshot, into: cache)
     }
 }
 

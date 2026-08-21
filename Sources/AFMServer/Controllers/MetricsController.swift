@@ -78,6 +78,11 @@ struct MetricsController: RouteCollection {
             out += "# TYPE \(name) counter\n"
             out += "\(name)\(modelLabel) \(value)\n"
         }
+        func floatingCounter(_ name: String, _ help: String, _ value: Double) {
+            out += "# HELP \(name) \(help)\n"
+            out += "# TYPE \(name) counter\n"
+            out += "\(name)\(modelLabel) \(formatDouble(value))\n"
+        }
 
         // ─── Gauges ─────────────────────────────────────────────────────────
         gauge(
@@ -156,6 +161,47 @@ struct MetricsController: RouteCollection {
             "Total number of prefix cache misses (radix tree) since server start.",
             s.cacheMissesTotal
         )
+        counter(
+            "afm:speculative_drafted_tokens_total",
+            "Total tokens proposed by speculative drafters.",
+            s.speculativeDraftedTokensTotal
+        )
+        counter(
+            "afm:speculative_accepted_tokens_total",
+            "Total proposed tokens accepted by target verification.",
+            s.speculativeAcceptedTokensTotal
+        )
+        counter(
+            "afm:speculative_emitted_tokens_total",
+            "Total output tokens committed by speculative verification.",
+            s.speculativeEmittedTokensTotal
+        )
+        counter(
+            "afm:speculative_verification_cycles_total",
+            "Total speculative target-verification cycles.",
+            s.speculativeVerificationCyclesTotal
+        )
+        floatingCounter(
+            "afm:speculative_draft_seconds_total",
+            "Cumulative speculative drafting time in seconds.",
+            s.speculativeDraftSecondsTotal
+        )
+        floatingCounter(
+            "afm:speculative_verification_seconds_total",
+            "Cumulative target verification time in seconds.",
+            s.speculativeVerificationSecondsTotal
+        )
+        floatingCounter(
+            "afm:speculative_rollback_seconds_total",
+            "Cumulative target cache restore/replay time in seconds.",
+            s.speculativeRollbackSecondsTotal
+        )
+        out += "# HELP afm:speculative_strategy_cycles_total Speculative verification cycles by strategy.\n"
+        out += "# TYPE afm:speculative_strategy_cycles_total counter\n"
+        for strategy in s.speculativeCyclesByStrategy.keys.sorted() {
+            let value = s.speculativeCyclesByStrategy[strategy] ?? 0
+            out += "afm:speculative_strategy_cycles_total{\(modelLabelOnly),strategy=\"\(labelEscape(strategy))\"} \(value)\n"
+        }
 
         // request_success_total{finished_reason=...} — vLLM-style labeled counter.
         out += "# HELP afm:request_success_total Count of successfully processed requests, broken out by finished_reason (stop|length|tool_calls|abort|error|...).\n"

@@ -5,6 +5,86 @@ import AFMOpenAICompat
 import XCTest
 
 final class AFMMLXRuntimeTests: XCTestCase {
+    private struct ExpectedFailure: Error {}
+
+    func testGPUCapturePolicyRejectsConcurrentModeOnly() {
+        XCTAssertEqual(
+            AFMMLXGPUCapturePolicy.incompatibility(
+                maxConcurrent: 8,
+                capturePath: "/tmp/capture.gputrace"),
+            AFMMLXGPUCapturePolicy.concurrentIncompatibility)
+        XCTAssertNil(AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: 1,
+            capturePath: "/tmp/capture.gputrace"))
+        XCTAssertNil(AFMMLXGPUCapturePolicy.incompatibility(
+            maxConcurrent: 8,
+            capturePath: nil))
+    }
+
+    func testConcurrentRuntimeRoutesNonStreamingAndPrewarmThroughSchedulerStream() {
+        XCTAssertEqual(
+            AFMMLXGenerationRoute.resolve(maxConcurrent: 8),
+            .schedulerStream
+        )
+        XCTAssertEqual(AFMMLXGenerationRoute.resolve(maxConcurrent: 1), .serial)
+        XCTAssertEqual(AFMMLXGenerationRoute.resolve(maxConcurrent: 0), .serial)
+    }
+
+    func testSchedulerBackedRespondReleasesOperationAfterCompletion() async throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        let operation = try service.beginOperation()
+        XCTAssertEqual(service.activeOperationCount, 1)
+        let upstream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            continuation.yield(StreamChunk(text: "done"))
+            continuation.finish()
+        }
+
+        let stream = MLXModelService.ownOperation(upstream, operation: operation)
+        for try await _ in stream {}
+
+        XCTAssertEqual(service.activeOperationCount, 0)
+    }
+
+    func testSchedulerBackedPrewarmReleasesOperationAfterFailure() async throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        let operation = try service.beginOperation()
+        let upstream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            continuation.finish(throwing: ExpectedFailure())
+        }
+
+        do {
+            for try await _ in MLXModelService.ownOperation(
+                upstream,
+                operation: operation) {}
+            XCTFail("prewarm stream should surface its failure")
+        } catch is ExpectedFailure {
+            // Expected.
+        }
+
+        XCTAssertEqual(service.activeOperationCount, 0)
+    }
+
+    func testUnloadWaitsForSchedulerBackedOperationCleanup() async throws {
+        let service = MLXModelService(resolver: MLXCacheResolver())
+        let operation = try service.beginOperation()
+        let (upstream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
+        let stream = MLXModelService.ownOperation(upstream, operation: operation)
+        let consumer = Task {
+            for try await _ in stream {}
+        }
+        let unload = Task {
+            await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+        }
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(service.activeOperationCount, 1)
+        continuation.finish()
+        try await consumer.value
+        await unload.value
+
+        XCTAssertEqual(service.activeOperationCount, 0)
+    }
+
     func testEngineConfigurationCarriesKernelSelection() {
         XCTAssertEqual(EngineConfig(mlxKernels: "ds4").mlxKernels, "ds4")
     }

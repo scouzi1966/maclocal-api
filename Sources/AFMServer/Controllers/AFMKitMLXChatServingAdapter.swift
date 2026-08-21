@@ -13,8 +13,9 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
     private let slotLock = NSLock()
+    private let fixedSchedulerID = UUID()
     private let fixedMaxConcurrent: Int
-    private var fixedSlotsReserved = 0
+    private var fixedReservationIDs = Set<UUID>()
 
     init(
         service: MLXModelService,
@@ -72,35 +73,43 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         service?.resolvedToolCallParser(logBypass: logBypass)
     }
 
-    func tryReserveSlot() -> Bool {
+    func tryReserveSlot() -> AFMMLXSchedulerAdmission {
         if let service { return service.tryReserveSlot() }
-        slotLock.lock()
-        defer { slotLock.unlock() }
-        guard fixedSlotsReserved < fixedMaxConcurrent else { return false }
-        fixedSlotsReserved += 1
-        return true
+        return slotLock.withLock {
+            guard fixedReservationIDs.count < fixedMaxConcurrent else {
+                return .unavailable
+            }
+            let reservation = AFMMLXSchedulerReservation(
+                schedulerID: fixedSchedulerID)
+            fixedReservationIDs.insert(reservation.reservationID)
+            return .reserved(reservation)
+        }
     }
 
-    func waitForSlot(timeout: TimeInterval) async -> Bool {
+    func waitForSlot(
+        timeout: TimeInterval
+    ) async -> AFMMLXSchedulerAdmission {
         if let service { return await service.waitForSlot(timeout: timeout) }
         if timeout <= 0 { return tryReserveSlot() }
         let deadline = ContinuousClock.now + .seconds(timeout)
         while ContinuousClock.now < deadline {
-            if Task.isCancelled { return false }
-            if tryReserveSlot() { return true }
+            if Task.isCancelled { return .unavailable }
+            let admission = tryReserveSlot()
+            if admission.isAdmitted { return admission }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return false
+        return .unavailable
     }
 
-    func releaseSlot() {
+    @discardableResult
+    func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool {
         if let service {
-            service.releaseSlot()
-            return
+            return service.releaseSlot(reservation)
         }
-        slotLock.lock()
-        fixedSlotsReserved = max(0, fixedSlotsReserved - 1)
-        slotLock.unlock()
+        guard reservation.schedulerID == fixedSchedulerID else { return false }
+        return slotLock.withLock {
+            fixedReservationIDs.remove(reservation.reservationID) != nil
+        }
     }
 
     func tokenize(text: String) async throws -> [Int] {
@@ -237,6 +246,94 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
+        try await generate(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: nil
+        )
+    }
+
+    func generate(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResult {
+        let enriched = try await generateWithTelemetry(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding)
+        return enriched.result
+    }
+
+    func generateWithTelemetry(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -255,7 +352,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
-                chatTemplateKwargs: chatTemplateKwargs
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding
             )
         )
         let response = try await afmModel(for: model).respond(to: request)
@@ -263,8 +361,10 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         let promptTime = metadata.double("promptTime") ?? 0
         let generateTime = metadata.double("generateTime") ?? 0
         let stoppedBySequence = metadata.bool("stoppedBySequence") ?? false
+        let speculativeTelemetry = metadata[AFMMLXSpeculativeTelemetry.metadataKey]
+            .flatMap(AFMMLXSpeculativeTelemetry.init(metadataValue:))
         let responseModelID = metadata.string("modelID") ?? normalizeModel(model)
-        return (
+        return AFMMLXChatGenerationResultWithTelemetry(
             modelID: responseModelID,
             content: rawContent(
                 text: response.text,
@@ -281,7 +381,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             cachedTokens: response.usage.cachedInputTokens,
             promptTime: promptTime,
             generateTime: generateTime,
-            stoppedBySequence: stoppedBySequence
+            stoppedBySequence: stoppedBySequence,
+            speculativeTelemetry: speculativeTelemetry
         )
     }
 
@@ -352,6 +453,155 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> AFMMLXChatStreamingResult {
+        try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: nil,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId
+        )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?
+    ) async throws -> AFMMLXChatStreamingResult {
+        try await generateStreamingWithAdmission(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId,
+            schedulerAdmission: nil)
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> AFMMLXChatStreamingResult {
+        try await generateStreamingWithAdmission(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId,
+            schedulerAdmission: schedulerAdmission)
+    }
+
+    private func generateStreamingWithAdmission(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission?
+    ) async throws -> AFMMLXChatStreamingResult {
+        if schedulerAdmission?.isAdmitted == false {
+            throw AFMError.unavailable("MLX scheduler is at capacity")
+        }
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -370,19 +620,25 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
-                chatTemplateKwargs: chatTemplateKwargs
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding,
+                preserveStructuralTags: preserveStructuralTags
             )
         )
         let modelID = normalizeModel(model)
-        let eventStream = afmModel(for: model).streamResponse(to: request)
+        let eventStream = afmModel(
+            for: model,
+            schedulerAdmission: schedulerAdmission
+        ).streamResponse(to: request)
         let startTag = thinkStartTag
         let endTag = thinkEndTag
+        let fixedReservation = service == nil ? schedulerAdmission?.reservation : nil
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
                 defer {
-                    if self.service == nil {
-                        self.releaseSlot()
+                    if let fixedReservation {
+                        self.releaseSlot(fixedReservation)
                     }
                 }
                 var promptTokens = 0
@@ -391,6 +647,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 var promptTime: Double = 0
                 var generateTime: Double = 0
                 var stoppedBySequence = false
+                var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
                 var insideReasoning = false
                 var toolIndices = [String: Int]()
 
@@ -442,6 +699,10 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                             generateTime = metadata.double("generateTime") ?? generateTime
                             stoppedBySequence =
                                 metadata.bool("stoppedBySequence") ?? stoppedBySequence
+                            if let value = metadata[AFMMLXSpeculativeTelemetry.metadataKey] {
+                                speculativeTelemetry = AFMMLXSpeculativeTelemetry(
+                                    metadataValue: value)
+                            }
                         case .completed:
                             if insideReasoning {
                                 continuation.yield(StreamChunk(text: endTag ?? ""))
@@ -455,7 +716,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                                     cachedTokens: cachedTokens,
                                     promptTime: promptTime,
                                     generateTime: generateTime,
-                                    stoppedBySequence: stoppedBySequence
+                                    stoppedBySequence: stoppedBySequence,
+                                    speculativeTelemetry: speculativeTelemetry
                                 )
                             )
                         case .custom:
@@ -481,13 +743,19 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         )
     }
 
-    private func afmModel(for model: String) -> AnyAFMModel {
+    private func afmModel(
+        for model: String,
+        schedulerAdmission: AFMMLXSchedulerAdmission? = nil
+    ) -> AnyAFMModel {
         if let fixedModel { return fixedModel }
         return AnyAFMModel(
             AFMMLXModel(
                 modelID: AFMModelID(rawValue: model),
                 resolver: resolver,
-                attachedService: service!))
+                attachedService: service!,
+                schedulerAdmissionOwnership: schedulerAdmission.map {
+                    .caller($0)
+                } ?? .model))
     }
 
     private static func profile(
@@ -526,7 +794,9 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool? = nil
     ) -> GenerationConfig {
         var metadata = [String: AFMJSONValue]()
         switch toolChoice {
@@ -545,6 +815,29 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             metadata["chatTemplateKwargs"] = .object(
                 chatTemplateKwargs.mapValues(\.afmJSONValue)
             )
+        }
+        if let speculativeDecoding {
+            var speculative = [String: AFMJSONValue]()
+            if let mode = speculativeDecoding.mode {
+                speculative["mode"] = .string(mode)
+            }
+            if let requirement = speculativeDecoding.requirement {
+                speculative["requirement"] = .string(requirement)
+            }
+            if let drafter = speculativeDecoding.drafter {
+                speculative["drafter"] = .string(drafter)
+            }
+            if let maxDraftTokens = speculativeDecoding.maxDraftTokens {
+                speculative["maxDraftTokens"] = .integer(maxDraftTokens)
+            }
+            if let forceAutoregressiveReason = speculativeDecoding.forceAutoregressiveReason {
+                speculative["forceAutoregressiveReason"] = .string(forceAutoregressiveReason)
+            }
+            metadata["speculativeDecoding"] = .object(speculative)
+        }
+        if let preserveStructuralTags {
+            metadata[AFMMLXRequestMetadata.preserveStructuralTags] =
+                .bool(preserveStructuralTags)
         }
         return GenerationConfig(
             temperature: temperature,
