@@ -1,6 +1,7 @@
 import XCTest
 import Vapor
 import XCTVapor
+import Darwin
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -1043,6 +1044,60 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(service.generateStreamingCallCount, 0)
     }
 
+    func testClientSocketDisconnectCancelsSuspendedMediaPreflightInBothModes() async throws {
+        let service = FakeMLXChatService(
+            preflightDelayNanoseconds: 30_000_000_000,
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        try app.boot()
+        try await app.server.start(address: .hostname("127.0.0.1", port: 0))
+        do {
+            guard let port = app.http.server.shared.localAddress?.port else {
+                XCTFail("Vapor did not publish its allocated test port")
+                await app.server.shutdown()
+                return
+            }
+
+            for (index, stream) in [false, true].enumerated() {
+                let body = imageRequestBody(stream: stream)
+                let socket = try openClientSocket(
+                    port: port,
+                    body: body,
+                    requestID: "req_socket_disconnect_\(index)"
+                )
+                let expectedCount = index + 1
+                for _ in 0..<200 where service.preflightCallCount < expectedCount {
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                XCTAssertEqual(service.preflightCallCount, expectedCount)
+
+                closeClientSocket(socket)
+                for _ in 0..<400
+                    where service.preflightCancellationCount < expectedCount
+                        || service.releaseSlotCallCount < expectedCount
+                {
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                XCTAssertEqual(service.preflightCancellationCount, expectedCount)
+                XCTAssertEqual(service.releaseSlotCallCount, expectedCount)
+            }
+        } catch {
+            await app.server.shutdown()
+            throw error
+        }
+        await app.server.shutdown()
+
+        XCTAssertEqual(service.generateCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
     func testStreamingMediaFailureUsesStructuredErrorEventNotAssistantMarkdown() async throws {
         let service = FakeMLXChatService(
             streamingFailure: MLXServiceError.invalidMediaInput(
@@ -1193,6 +1248,98 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         var buffer = ByteBufferAllocator().buffer(capacity: json.utf8.count)
         buffer.writeString(json)
         return buffer
+    }
+
+    private func openClientSocket(
+        port: Int,
+        body: ByteBuffer,
+        requestID: String
+    ) throws -> Int32 {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        do {
+            var noSignal = Int32(1)
+            guard setsockopt(
+                descriptor,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                &noSignal,
+                socklen_t(MemoryLayout.size(ofValue: noSignal))
+            ) == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(port).bigEndian
+            guard inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) == 1 else {
+                throw POSIXError(.EINVAL)
+            }
+            let connected = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(
+                        descriptor,
+                        $0,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+            guard connected == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+
+            let bodyString = body.getString(
+                at: body.readerIndex,
+                length: body.readableBytes
+            ) ?? ""
+            let request = """
+            POST /v1/chat/completions HTTP/1.1\r
+            Host: 127.0.0.1:\(port)\r
+            Content-Type: application/json\r
+            Content-Length: \(body.readableBytes)\r
+            X-Request-ID: \(requestID)\r
+            Connection: keep-alive\r
+            \r
+            \(bodyString)
+            """
+            let bytes = Array(request.utf8)
+            try bytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var sent = 0
+                while sent < rawBuffer.count {
+                    let count = Darwin.send(
+                        descriptor,
+                        baseAddress.advanced(by: sent),
+                        rawBuffer.count - sent,
+                        0
+                    )
+                    guard count > 0 else {
+                        throw POSIXError(.init(rawValue: errno) ?? .EIO)
+                    }
+                    sent += count
+                }
+            }
+            return descriptor
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+    }
+
+    private func closeClientSocket(_ descriptor: Int32) {
+        var reset = linger(l_onoff: 1, l_linger: 0)
+        _ = setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_LINGER,
+            &reset,
+            socklen_t(MemoryLayout.size(ofValue: reset))
+        )
+        Darwin.close(descriptor)
     }
 
     private func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {

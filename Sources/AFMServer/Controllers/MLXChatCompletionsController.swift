@@ -226,6 +226,18 @@ struct MLXChatCompletionsController: RouteCollection {
             let isStreamingRequest = chatRequest.stream == true && streamingEnabled
             let inflightRegistry = req.application.inflightRegistry
             let cancelHandle = CancellableTaskHandle()
+            let disconnectCancellation = RequestDisconnectCancellation(
+                cancelHandle: cancelHandle
+            )
+            var disconnectCancellationTransferred = false
+            defer {
+                if !disconnectCancellationTransferred {
+                    disconnectCancellation.disarm()
+                }
+            }
+            req.connectionCloseFuture?.whenComplete { [weak disconnectCancellation] _ in
+                disconnectCancellation?.cancel()
+            }
             if isStreamingRequest && !reqId.isEmpty {
                 await inflightRegistry.register(id: reqId, cancel: {
                     cancelHandle.cancel()
@@ -299,16 +311,19 @@ struct MLXChatCompletionsController: RouteCollection {
 
             if isStreamingRequest {
                 do {
-                    return try await createStreamingResponse(
+                    let response = try await createStreamingResponse(
                         req: req,
                         chatRequest: chatRequest,
                         preflightedMedia: preflightedMedia,
                         cancelHandle: cancelHandle,
+                        disconnectCancellation: disconnectCancellation,
                         extractThinking: extractThinking,
                         effectiveResponseFormat: effectiveResponseFormat,
                         grammarDowngraded: grammarDowngraded,
                         requestId: reqId
                     )
+                    disconnectCancellationTransferred = true
+                    return response
                 } catch {
                     service.releaseSlot()
                     if !reqId.isEmpty {
@@ -318,6 +333,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
             }
 
+            let nonStreamingTask = Task<Response, Error> {
             // In concurrent mode, non-streaming requests currently bypass the
             // BatchScheduler decode loop, so the controller must release the
             // reservation itself. Streaming requests are released by the
@@ -616,6 +632,13 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("\(Self.teal)[\(Self.timestamp())] SEND full response:\n\(encodeJSON(response))\(Self.reset)"); fflush(stdout)
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+            }
+            cancelHandle.assign(nonStreamingTask)
+            return try await withTaskCancellationHandler {
+                try await nonStreamingTask.value
+            } onCancel: {
+                cancelHandle.cancel()
+            }
         } catch let serviceError as MLXServiceError {
             let clientErrorCode: String?
             switch serviceError {
@@ -672,6 +695,7 @@ struct MLXChatCompletionsController: RouteCollection {
         chatRequest: ChatCompletionRequest,
         preflightedMedia: AFMMLXResolvedMediaRequest,
         cancelHandle: CancellableTaskHandle,
+        disconnectCancellation: RequestDisconnectCancellation,
         extractThinking: Bool,
         effectiveResponseFormat: ResponseFormat?,
         grammarDowngraded: Bool = false,
@@ -701,6 +725,7 @@ struct MLXChatCompletionsController: RouteCollection {
         // can release the cancel hook without re-resolving it.
         let inflightRegistry = req.application.inflightRegistry
         httpResponse.body = .init(asyncStream: { writer in
+            defer { disconnectCancellation.disarm() }
             // T1.4/T1.5: Wrap the streaming body in an explicit Task so we can
             // cancel it from outside (cancel endpoint, client disconnect detection).
             // Cooperative cancellation propagates through the AsyncThrowingStream
