@@ -5,12 +5,16 @@ import Foundation
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let vendoredMLXSwiftLMPath = "\(packageDir)/vendor/mlx-swift-lm"
-let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
-    atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
-) ? .package(path: vendoredMLXSwiftLMPath) : .package(
-    url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-    revision: "6bab4f5ac55e81903dd74090244c25feb3233338"
-)
+let bundledMLXSwiftLMPath = "\(packageDir)/Dependencies/mlx-swift-lm"
+let mlxSwiftLMDependency: Package.Dependency
+if let overridePath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_SWIFT_LM_PATH"],
+   !overridePath.isEmpty {
+    mlxSwiftLMDependency = .package(name: "mlx-swift-lm", path: overridePath)
+} else if FileManager.default.fileExists(atPath: "\(vendoredMLXSwiftLMPath)/Package.swift") {
+    mlxSwiftLMDependency = .package(path: vendoredMLXSwiftLMPath)
+} else {
+    mlxSwiftLMDependency = .package(path: bundledMLXSwiftLMPath)
+}
 
 let package = Package(
     name: "MacLocalAPI",
@@ -73,9 +77,9 @@ let package = Package(
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-        // Development checkouts compile the patched vendor directly so local source edits
-        // cannot be mistaken for successful stale builds. A plain downstream clone without
-        // initialized submodules falls back to the pre-patched URL fork and remains portable.
+        // Development checkouts compile the vanilla upstream vendor after the repository-owned
+        // patch workflow runs. A plain downstream clone without initialized submodules uses the
+        // checked-in snapshot generated from that same patch set.
         mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(
