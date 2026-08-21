@@ -12,18 +12,18 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Verify dependencies are publicly distributable
+      run: Scripts/check-public-release-eligibility.sh
+
     - name: Set up Node.js (for webui)
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    - name: Build from scratch
-      run: ./Scripts/build-from-scratch.sh
-
-    - name: Build required WebUI artifact
-      run: |
-        make webui
-        Scripts/verify-webui.sh Resources/webui/index.html.gz
+    - name: Run complete release gate
+      env:
+        AFMKIT_READ_TOKEN: ${{ secrets.AFMKIT_READ_TOKEN }}
+      run: Scripts/validate-release.sh
 
     - name: Create release package
       run: |
@@ -46,7 +46,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
 
         # Copy required runtime resource bundles beside the executable.
-        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/
@@ -55,11 +55,16 @@ jobs:
         cp README.md LICENSE release-package/ 2>/dev/null || true
 
         tar -czf afm-next-arm64.tar.gz -C release-package .
-        tar -xOzf afm-next-arm64.tar.gz ./Resources/webui/index.html.gz > archive-webui.html.gz
-        Scripts/verify-webui.sh archive-webui.html.gz
+        Scripts/verify-release-archive.sh afm-next-arm64.tar.gz
 
         echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
         echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"
+
+    - name: Build and install-test nightly wheel
+      run: |
+        Scripts/build-nightly-wheel.sh
+        NIGHTLY_WHEEL=$(ls -t dist/macafm_next-*.whl | head -1)
+        echo "NIGHTLY_WHEEL=${NIGHTLY_WHEEL}" >> "$GITHUB_ENV"
 
     - name: Generate changelog
       env:
@@ -81,9 +86,10 @@ jobs:
         fi
 
         # Save for next step (use file to preserve newlines)
-        echo "$CHANGELOG" > /tmp/changelog.txt
+        mkdir -p .build/workflow
+        echo "$CHANGELOG" > .build/workflow/changelog.txt
         echo "CHANGELOG<<CHANGELOG_EOF" >> "$GITHUB_ENV"
-        cat /tmp/changelog.txt >> "$GITHUB_ENV"
+        cat .build/workflow/changelog.txt >> "$GITHUB_ENV"
         echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
 
         # Set release tag for unique naming
@@ -143,7 +149,8 @@ jobs:
         EOF
         )" \
           --target main \
-          afm-next-arm64.tar.gz
+          afm-next-arm64.tar.gz \
+          "${NIGHTLY_WHEEL}"
 
         # Update the 'nightly' tag to point to this release (latest pointer)
         git tag -f nightly HEAD

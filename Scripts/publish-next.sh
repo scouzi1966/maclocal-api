@@ -65,6 +65,10 @@ done
 
 cd "$ROOT_DIR"
 
+# Nightly publication has the same downstream availability requirement as a
+# stable release. A valid development token must not bypass this gate.
+"$SCRIPT_DIR/check-public-release-eligibility.sh"
+
 # Verify prerequisites
 if ! command -v gh >/dev/null 2>&1; then
   log_error "gh CLI not found. Install with: brew install gh"
@@ -121,9 +125,9 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 log_info "Binary: $BIN"
-MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
+MLX_METALLIB="$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/default.metallib"
 if [ ! -f "$MLX_METALLIB" ]; then
-  MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib"
+  MLX_METALLIB="$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib"
 fi
 if [ ! -f "$MLX_METALLIB" ]; then
   log_error "Required MLX metallib missing beside release binary"
@@ -155,7 +159,7 @@ cp "$BIN" "$STAGING/"
 
 # Runtime resource bundles. Both must remain beside the relocated executable:
 # MLX supplies its compiled Metal library and DwarfStar supplies Metal sources.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"

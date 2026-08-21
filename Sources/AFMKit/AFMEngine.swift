@@ -199,7 +199,7 @@ public struct AFMResponse: Sendable {
     public let reasoningContent: String?
     public let toolCalls: [ResponseToolCall]?
     /// Per-token logprobs, when `GenerationConfig.logprobs == true` (MLX backend).
-    public let logprobs: [ResolvedLogprob]?
+    public let logprobs: [AFMTokenLogProbability]?
     public let promptTokens: Int
     public let cachedPromptTokens: Int
     public let completionTokens: Int
@@ -209,7 +209,7 @@ public struct AFMResponse: Sendable {
         content: String,
         reasoningContent: String? = nil,
         toolCalls: [ResponseToolCall]? = nil,
-        logprobs: [ResolvedLogprob]? = nil,
+        logprobs: [AFMTokenLogProbability]? = nil,
         promptTokens: Int = 0,
         cachedPromptTokens: Int = 0,
         completionTokens: Int = 0,

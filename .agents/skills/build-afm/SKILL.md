@@ -17,16 +17,14 @@ Scripts/swiftpm-reliable.sh test -c release
 ```
 
 The wrapper selects the known-good Xcode 27 SwiftPM driver, repairs stale
-explicit-module state, exports the canonical
-`Sources/AFMKitMLX/Resources/default.metallib`, and stages `mlx.metallib` for
-XCTest. Do not work around metallib failures with one-off environment values.
+explicit-module state, resolves AFMKit's committed `default.metallib`, and
+stages `mlx.metallib` for XCTest. Do not work around metallib failures with
+one-off environment values.
 
-It also fingerprints `vendor/mlx-swift-lm` and invalidates compiled products
-when those sources change. This prevents Xcode 27 Beta 3 from reporting a
-successful no-op build after applying an MLX source or Metal-kernel patch.
-The manifest compiles this vendor directly when initialized; a submodule-free
-consumer falls back to the pinned pre-patched URL fork.
-Run `Scripts/check-mlx-source-selection.sh` after dependency changes.
+Normal builds consume the immutable AFMKit revision and exact AFM-compatible
+MLX tags. They do not compile or mutate `vendor/mlx-swift-lm`. Use
+`Scripts/check-afmkit-consumer-boundary.sh` after dependency or packaging
+changes. The legacy patch stack requires an explicit maintenance opt-in.
 
 The comprehensive assertion harness must continue to delegate its Swift tests
 to this wrapper. Local copied XCTest binaries also have a source-checkout

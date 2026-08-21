@@ -104,6 +104,36 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         )
     }
 
+    func testServerGuidedJSONDefaultReachesGenericAFMKitAdapter() {
+        let serverDefault = responseFormat(named: "server-default")
+        let adapter = AFMKitMLXChatServingAdapter(
+            model: AnyAFMModel(CapturingModel(capture: RequestCapture())),
+            modelID: "capture",
+            defaultGuidedJsonSchema: serverDefault
+        )
+
+        XCTAssertEqual(adapter.defaultGuidedJsonSchema?.jsonSchema?.name, "server-default")
+        XCTAssertEqual(
+            adapter.effectiveResponseFormat(requestFormat: nil)?.jsonSchema?.name,
+            "server-default"
+        )
+    }
+
+    func testRequestGuidedJSONOverridesServerDefault() {
+        let adapter = AFMKitMLXChatServingAdapter(
+            model: AnyAFMModel(CapturingModel(capture: RequestCapture())),
+            modelID: "capture",
+            defaultGuidedJsonSchema: responseFormat(named: "server-default")
+        )
+
+        XCTAssertEqual(
+            adapter.effectiveResponseFormat(
+                requestFormat: responseFormat(named: "request")
+            )?.jsonSchema?.name,
+            "request"
+        )
+    }
+
     private func makeAdapter(
         capture: RequestCapture,
         defaults: [String: AnyCodable]
@@ -115,10 +145,22 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         )
     }
 
+    private func responseFormat(named name: String) -> ResponseFormat {
+        ResponseFormat(
+            type: "json_schema",
+            jsonSchema: ResponseJsonSchema(
+                name: name,
+                description: nil,
+                schema: AnyCodable(["type": "object"]),
+                strict: true
+            )
+        )
+    }
+
     private func generate(
         adapter: AFMKitMLXChatServingAdapter,
         kwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         try await adapter.generate(
             model: "capture",
             messages: [Message(role: "user", content: "hello")],

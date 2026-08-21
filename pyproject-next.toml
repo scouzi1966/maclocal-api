@@ -61,4 +61,4 @@ packages = ["macafm_next"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-macafm_next = ["bin/*", "bin/*/*", "bin/*/*/*", "share/webui/*"]
+macafm_next = ["bin/*", "bin/*/*", "bin/*/*/*", "bin/*/*/*/*", "bin/*/*/*/*/*", "share/webui/*"]

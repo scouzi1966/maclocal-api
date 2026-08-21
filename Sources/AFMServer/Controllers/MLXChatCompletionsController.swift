@@ -3,7 +3,6 @@ import AFMKit
 import AFMKitCore
 import AFMKitMLX
 import Foundation
-import MLXLMCommon
 
 struct FinalizedAssistantTurn {
     let finishReason: String
@@ -21,7 +20,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
     private let streamingEnabled: Bool
     private let modelID: String
-    private let service: any AFMMLXOpenAIChatServing
+    private let service: any AFMChatServing
     private let temperature: Double?
     private let topP: Double?
     private let maxTokens: Int?
@@ -39,7 +38,7 @@ struct MLXChatCompletionsController: RouteCollection {
     init(
         streamingEnabled: Bool = true,
         modelID: String,
-        service: any AFMMLXOpenAIChatServing,
+        service: any AFMChatServing,
         temperature: Double?,
         topP: Double? = nil,
         maxTokens: Int? = nil,
@@ -204,11 +203,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
-            // In concurrent mode, non-streaming requests currently bypass the
-            // BatchScheduler decode loop, so the controller must release the
-            // reservation itself. Streaming requests are released by the
-            // scheduler when the stream finishes.
-            defer { service.releaseSlot() }
+            // The controller owns the reservation until generation either uses
+            // the serial path or successfully returns a stream. A returned
+            // stream releases its transferred reservation on termination.
+            var reservationTransferredToStream = false
+            defer {
+                if !reservationTransferredToStream {
+                    service.releaseSlot()
+                }
+            }
 
             // AFM Profile: start GPU monitoring if client requests it
             let profileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
@@ -241,10 +244,10 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] [HTTPPipeline] req=\(reqId) json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
             }
 
-            let result: AFMMLXChatGenerationResult
+            let result: AFMChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
-                let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
+                let streamResult: AFMChatStreamingResult = try await service.generateStreaming(
                     model: modelID,
                     messages: chatRequest.messages,
                     temperature: effectiveTemp,
@@ -266,10 +269,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: reqId
                 )
+                reservationTransferredToStream = true
 
                 // Collect stream into complete response
                 var fullText = ""
-                var allLogprobs: [ResolvedLogprob] = []
+                var allLogprobs: [AFMServerResolvedLogprob] = []
                 var finalToolCalls: [ResponseToolCall]? = nil
                 var promptTokens = streamResult.promptTokens
                 var completionTokens = 0
@@ -307,46 +311,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
-                // Fallback tool call parsing: if no tool calls were detected by
-                // streaming runtime but content contains tool call patterns, try
-                // full-text parsing (handles missing <tool_call> wrapper, etc.)
-                // Raw mode (--tool-call-parser none) skips this entirely.
-                if finalToolCalls == nil && chatRequest.tools != nil && !fullText.isEmpty
-                    && !service.isToolCallParserDisabled(service.toolCallParser) {
-                    let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let parserName = self.service.resolvedToolCallParser(logBypass: false) ?? "auto"
-                    let looksLikeToolCall =
-                        fullText.contains("<function=") ||
-                        fullText.contains("<tool_call>") ||
-                        fullText.contains("<atem:function_calls>") ||
-                        fullText.contains("DSML｜tool_calls>") ||
-                        fullText.contains("DSML|tool_calls>") ||
-                        fullText.contains("[TOOL_CALLS]") ||
-                        fullText.contains("[ARGS]") ||
-                        (trimmed.hasPrefix("{") && trimmed.contains("\"name\""))
-                    if looksLikeToolCall {
-                        print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Post-generation parse (parser=\(parserName))\(Self.reset)")
-                        fflush(stdout)
-                        let (parsed, remaining) = ToolCallStreamingRuntime.parseCompletedToolCalls(
-                            from: fullText,
-                            toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
-                            tools: chatRequest.tools
-                        )
-                        if !parsed.isEmpty {
-                            let names = parsed.map { $0.function.name }.joined(separator: ", ")
-                            print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(names) (parser=\(parserName))\(Self.reset)")
-                            fflush(stdout)
-                            finalToolCalls = service.normalizeToolCalls(
-                                parsed,
-                                tools: chatRequest.tools,
-                            )
-                            fullText = remaining
-                        }
-                    }
-                }
-
-                // Tool-call argument coercion is handled in convertToolCall (pre-serialization)
-                // and in the streaming vendor path. No additional pass needed here.
+                // AFMKit owns model-specific parsing. The HTTP layer only serializes
+                // the typed tool calls emitted by the provider.
                 result = (
                     modelID: streamResult.modelID,
                     content: fullText,
@@ -551,12 +517,18 @@ struct MLXChatCompletionsController: RouteCollection {
             // its `onTermination` fires `task.cancel()` on the underlying model
             // generator (BatchScheduler / MLX serial path), stopping GPU work.
             let bodyTask = Task<Void, Never> {
+            var reservationTransferredToStream = false
+            defer {
+                if !reservationTransferredToStream {
+                    self.service.releaseSlot()
+                }
+            }
             // PR #122: Streaming routes account for their own
             // afm:num_active_connections — ActiveConnectionsMiddleware filters
             // them because its defer fires when the controller returns, not
             // when the SSE body finishes.
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            ActiveConnectionTracker.shared.connectionStarted()
+            defer { ActiveConnectionTracker.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()
@@ -612,6 +584,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
+                reservationTransferredToStream = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -637,7 +610,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 var museBuffer = ""
                 var verboseReasoningBuf = ""
                 var verboseContentBuf = ""
-                var logprobBuffer = [ResolvedLogprob]()
+                var logprobBuffer = [AFMServerResolvedLogprob]()
                 var collectedToolCalls = [ResponseToolCall]()
                 var hasToolCalls = false
                 let allowedToolName: String? = {
@@ -706,35 +679,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 var realPromptTime: Double? = nil
                 var realGenerateTime: Double? = nil
 
-                // Token-level tool call detection (mlx-lm style).
-                // Instead of buffering ALL content when tools are present, detect
-                // tool call start/end tags per-token. Content outside tool calls
-                // streams normally; only the tool call body is buffered and parsed.
-                let toolCallStartTag = res.toolCallStartTag
-                let toolCallEndTag = res.toolCallEndTag
-                let defaultDeepseekToolCallStartTag = "<｜DSML｜tool_calls>"
-                let defaultDeepseekToolCallEndTag = "</｜DSML｜tool_calls>"
-                let effectiveToolCallStartTag = toolCallStartTag ?? (
-                    effectiveTools?.isEmpty == false ? defaultDeepseekToolCallStartTag : nil
-                )
-                let effectiveToolCallEndTag = toolCallEndTag ?? (
-                    effectiveTools?.isEmpty == false ? defaultDeepseekToolCallEndTag : nil
-                )
                 let thinkStartTag = res.thinkStartTag
                 let thinkEndTag = res.thinkEndTag
-                let toolRuntime = (effectiveToolCallStartTag != nil && effectiveToolCallEndTag != nil) ? ToolCallStreamingRuntime(
-                    toolCallStartTag: effectiveToolCallStartTag!,
-                    toolCallEndTag: effectiveToolCallEndTag!,
-                    toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
-                    tools: effectiveTools,
-                    applyFixToolArgs: { rtc in
-                        return self.applyFixToolArgs(rtc, tools: effectiveTools)
-                    },
-                    remapSingleKey: { key, toolName in
-                        return self.remapSingleKey(key, toolName: toolName, tools: effectiveTools)
-                    }
-                ) : nil
-                let fallbackParamNameMapping = toolRuntime?.paramNameMapping ?? [:]
 
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
@@ -792,20 +738,6 @@ struct MLXChatCompletionsController: RouteCollection {
                                 permittedToolIndices: &permittedToolIndices
                             ) else { continue }
                             hasToolCalls = true
-                            // The vendor parser can publish a completed call on the same
-                            // chunk where the raw XML runtime is already assembling it.
-                            // Keep the completed value for final-state collection, but do
-                            // not send a second full argument payload: OpenAI clients
-                            // concatenate tool-call argument deltas.
-                            if toolRuntime?.madeToolCall == true {
-                                let toolIndex = coercedToolCall.index ?? 0
-                                if toolIndex < collectedToolCalls.count {
-                                    collectedToolCalls[toolIndex] = coercedToolCall
-                                } else {
-                                    collectedToolCalls.append(coercedToolCall)
-                                }
-                                continue
-                            }
                             let toolIndex = coercedToolCall.index ?? streamedVendorToolIndices.min() ?? collectedToolCalls.count
                             if toolIndex < collectedToolCalls.count {
                                 collectedToolCalls[toolIndex] = coercedToolCall
@@ -839,101 +771,6 @@ struct MLXChatCompletionsController: RouteCollection {
                             }
                         }
                         continue
-                    }
-
-                    if let toolRuntime {
-                        var toolPiece = piece
-                        if !toolRuntime.inToolCall,
-                           let effectiveToolCallStartTag,
-                           let range = toolPiece.range(of: effectiveToolCallStartTag),
-                           range.lowerBound != toolPiece.startIndex {
-                            let prefix = String(toolPiece[..<range.lowerBound])
-                            if !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                fullContent += prefix
-                            }
-                            toolPiece = String(toolPiece[range.lowerBound...])
-                        }
-                        let runtimeOutput = toolRuntime.process(piece: toolPiece)
-                        if runtimeOutput.handled {
-                            if let passthroughText = runtimeOutput.passthroughText, !passthroughText.isEmpty {
-                                fullContent += passthroughText
-                                if !deferStructuredOutputContent {
-                                    let passthroughChunk = ChatCompletionStreamResponse(
-                                        id: streamId,
-                                        model: res.modelID,
-                                        content: passthroughText,
-                                        isFirst: false
-                                    )
-                                    let passthroughData = try encoder.encode(passthroughChunk)
-                                    if let jsonString = String(data: passthroughData, encoding: .utf8) {
-                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                    }
-                                }
-                            }
-                            if runtimeOutput.events.contains(where: {
-                                if case .started = $0 { return true }
-                                return false
-                            }), extractThinking && !thinkBuffer.isEmpty {
-                                let flushed: String?
-                                let flushedReasoning: String?
-                                if insideThinkBlock {
-                                    flushedReasoning = thinkBuffer
-                                    flushed = nil
-                                } else {
-                                    flushed = thinkBuffer
-                                    flushedReasoning = nil
-                                }
-                                thinkBuffer = ""
-                                if !deferStructuredOutputContent && (flushed != nil || flushedReasoning != nil) {
-                                    let flushChunk = ChatCompletionStreamResponse(
-                                        id: streamId,
-                                        model: res.modelID,
-                                        content: flushed ?? "",
-                                        reasoningContent: flushedReasoning,
-                                        isFirst: false
-                                    )
-                                    if let flushData = try? encoder.encode(flushChunk),
-                                       let jsonString = String(data: flushData, encoding: .utf8) {
-                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                    }
-                                }
-                            }
-
-                            for event in runtimeOutput.events {
-                                switch event {
-                                case .started:
-                                    break
-                                case .appendCollected(let toolCall):
-                                    hasToolCalls = true
-                                    collectedToolCalls.append(toolCall)
-                                case .replaceCollected(let index, let toolCall):
-                                    hasToolCalls = true
-                                    if index < collectedToolCalls.count {
-                                        collectedToolCalls[index] = toolCall
-                                    } else {
-                                        collectedToolCalls.append(toolCall)
-                                    }
-                                case .delta(let delta):
-                                    guard shouldEmitToolDelta(delta) else { continue }
-                                    if let name = delta.function?.name { streamedToolCallNames[delta.index] = name }
-                                    if let id = delta.id { streamedToolCallIDs[delta.index] = id }
-                                    if let type = delta.type { streamedToolCallTypes[delta.index] = type }
-                                    emittedToolCallDeltaIndices.insert(delta.index)
-                                    hasToolCalls = true
-                                    let tcChunk = ChatCompletionStreamResponse(
-                                        id: streamId,
-                                        model: res.modelID,
-                                        toolCalls: [delta]
-                                    )
-                                    let tcData = try encoder.encode(tcChunk)
-                                    if let jsonString = String(data: tcData, encoding: .utf8) {
-                                        try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                                    }
-                                }
-                            }
-                            hasToolCalls = hasToolCalls || toolRuntime.hasToolCalls
-                            continue
-                        }
                     }
 
                     fullContent += piece
@@ -1134,63 +971,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                 }
 
-                // Handle incomplete tool call (model hit max tokens mid-tool-call)
-                if let toolRuntime {
-                    let trailingEvents = toolRuntime.finishIncompleteToolCall()
-                    for event in trailingEvents {
-                        switch event {
-                        case .started:
-                            break
-                        case .appendCollected(let toolCall):
-                            guard Self.isToolCallAllowed(
-                                toolCall,
-                                toolChoice: chatRequest.toolChoice,
-                                allowedFunctionName: allowedToolName,
-                                permittedToolIndices: &permittedToolIndices
-                            ) else { continue }
-                            hasToolCalls = true
-                            collectedToolCalls.append(toolCall)
-                        case .replaceCollected(let index, let toolCall):
-                            guard Self.isToolCallAllowed(
-                                toolCall,
-                                toolChoice: chatRequest.toolChoice,
-                                allowedFunctionName: allowedToolName,
-                                permittedToolIndices: &permittedToolIndices
-                            ) else { continue }
-                            hasToolCalls = true
-                            if index < collectedToolCalls.count {
-                                collectedToolCalls[index] = toolCall
-                            } else {
-                                collectedToolCalls.append(toolCall)
-                            }
-                        case .delta(let delta):
-                            guard Self.isToolDeltaAllowed(
-                                delta,
-                                toolChoice: chatRequest.toolChoice,
-                                allowedFunctionName: allowedToolName,
-                                permittedToolIndices: &permittedToolIndices
-                            ) else { continue }
-                            guard shouldEmitToolDelta(delta) else { continue }
-                            if let name = delta.function?.name { streamedToolCallNames[delta.index] = name }
-                            if let id = delta.id { streamedToolCallIDs[delta.index] = id }
-                            if let type = delta.type { streamedToolCallTypes[delta.index] = type }
-                            emittedToolCallDeltaIndices.insert(delta.index)
-                            hasToolCalls = true
-                            let tcChunk = ChatCompletionStreamResponse(
-                                id: streamId,
-                                model: res.modelID,
-                                toolCalls: [delta]
-                            )
-                            let tcData = try encoder.encode(tcChunk)
-                            if let jsonString = String(data: tcData, encoding: .utf8) {
-                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                            }
-                        }
-                    }
-                    hasToolCalls = hasToolCalls || toolRuntime.hasToolCalls
-                }
                 if !emittedToolCallDeltaIndices.isEmpty { hasToolCalls = true }
-                if toolRuntime?.madeToolCall == true { hasToolCalls = true }
 
                 if hasToolCalls && collectedToolCalls.isEmpty && !emittedToolCallDeltaIndices.isEmpty {
                     for index in emittedToolCallDeltaIndices.sorted() {
@@ -1204,69 +985,6 @@ struct MLXChatCompletionsController: RouteCollection {
                                 arguments: streamedToolArgumentBuffers[index] ?? ""
                             )
                         ))
-                    }
-                }
-
-                // Post-loop fallback: if tools were present but no tool calls detected
-                // by token-level matching, try full-content regex parsing.
-                // This handles edge cases where tags aren't single tokens.
-                let trimmedFull = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                let looksLikeBareJsonToolCall = trimmedFull.hasPrefix("{") && trimmedFull.contains("\"name\"")
-                let parserName = self.service.toolCallParser ?? "auto"
-                if !hasToolCalls && !service.isToolCallParserDisabled(service.toolCallParser) && (
-                    (effectiveToolCallStartTag != nil && fullContent.contains(effectiveToolCallStartTag!)) ||
-                    fullContent.contains("<atem:function_calls>") ||
-                    fullContent.contains("DSML｜tool_calls>") ||
-                    fullContent.contains("DSML|tool_calls>") ||
-                    fullContent.contains("[TOOL_CALLS]") ||
-                    fullContent.contains("[ARGS]") ||
-                    (chatRequest.tools != nil && looksLikeBareJsonToolCall) ||
-                    (chatRequest.tools != nil && fullContent.contains("<function="))
-                ) {
-                    print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Post-generation parse (parser=\(parserName))\(Self.reset)")
-                    fflush(stdout)
-                    let (parsed, _) = ToolCallStreamingRuntime.parseCompletedToolCalls(
-                        from: fullContent,
-                        toolCallParser: self.service.resolvedToolCallParser(logBypass: false),
-                        tools: chatRequest.tools
-                    )
-                    if !parsed.isEmpty {
-                        let fallbackNames = parsed.map { $0.function.name }.joined(separator: ", ")
-                        print("\(Self.gold)[\(Self.timestamp())] [ToolCallParser] Parsed \(parsed.count) call(s): \(fallbackNames) (parser=\(parserName))\(Self.reset)")
-                        fflush(stdout)
-                        for rtc in service.normalizeToolCalls(
-                            parsed,
-                            startIndex: collectedToolCalls.count,
-                            paramNameMapping: fallbackParamNameMapping,
-                            tools: chatRequest.tools
-                        ) {
-                            guard Self.isToolCallAllowed(
-                                rtc,
-                                toolChoice: chatRequest.toolChoice,
-                                allowedFunctionName: allowedToolName,
-                                permittedToolIndices: &permittedToolIndices
-                            ) else { continue }
-                            hasToolCalls = true
-                            collectedToolCalls.append(rtc)
-                            let delta = StreamDeltaToolCall(
-                                index: collectedToolCalls.count - 1,
-                                id: rtc.id,
-                                type: rtc.type,
-                                function: StreamDeltaFunction(
-                                    name: rtc.function.name,
-                                    arguments: rtc.function.arguments
-                                )
-                            )
-                            let tcChunk = ChatCompletionStreamResponse(
-                                id: streamId,
-                                model: res.modelID,
-                                toolCalls: [delta]
-                            )
-                            let tcData = try encoder.encode(tcChunk)
-                            if let jsonString = String(data: tcData, encoding: .utf8) {
-                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
-                            }
-                        }
                     }
                 }
 
@@ -1574,21 +1292,6 @@ struct MLXChatCompletionsController: RouteCollection {
         })
 
         return httpResponse
-    }
-
-    /// Remap a single argument key using the full heuristic chain when --fix-tool-args is enabled.
-    /// Returns the original key if no match or fixToolArgs is off.
-    private func remapSingleKey(_ key: String, toolName: String, tools: [RequestTool]?) -> String {
-        guard service.fixToolArgs, let tools, !tools.isEmpty else { return key }
-        // Build a single-entry dict, remap, return the (possibly changed) key
-        let dummy: [String: any Sendable] = [key: "" as String]
-        let remapped = service.remapArgumentKeys(dummy, toolName: toolName, tools: tools)
-        return remapped.keys.first ?? key
-    }
-
-    /// Apply heuristic argument key remapping to a ResponseToolCall when --fix-tool-args is enabled.
-    private func applyFixToolArgs(_ rtc: ResponseToolCall, tools: [RequestTool]?) -> ResponseToolCall {
-        service.remapToolCallArguments(rtc, tools: tools)
     }
 
     private func normalizedMaxTokens(_ requested: Int?) -> Int {
@@ -2171,7 +1874,7 @@ struct MLXChatCompletionsController: RouteCollection {
         completionTokens: Int,
         maxTokens: Int,
         sanitizeContent: (String) -> String,
-        responseChannelFormat: AFMMLXResponseChannelFormat = .none,
+        responseChannelFormat: AFMResponseChannelFormat = .none,
         stopSequences: [String]? = nil
     ) -> FinalizedAssistantTurn {
         var effectiveToolCalls = applyToolChoice(toolCalls, toolChoice: toolChoice)
@@ -2313,7 +2016,7 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]?) -> ChoiceLogprobs? {
+    static func buildChoiceLogprobs(_ resolved: [AFMServerResolvedLogprob]?) -> ChoiceLogprobs? {
         guard let resolved, !resolved.isEmpty else { return nil }
         let content = resolved.map { entry in
             let topEntries = entry.topTokens.map { top in

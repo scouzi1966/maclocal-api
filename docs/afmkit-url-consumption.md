@@ -1,71 +1,122 @@
-# Consuming AFMKit by URL (no submodules)
+# Consuming AFMKit by URL
 
-AFMKit is designed to be embedded by other Swift packages/apps (e.g.
-[vesta-mac](./vesta-integration.md), and macOS 27's pluggable SPM AI packages) with a plain:
+AFMKit is a standalone but private Swift package during API development.
+maclocal-api consumes this immutable checkpoint:
 
 ```swift
-.package(url: "https://github.com/scouzi1966/maclocal-api.git", branch: "feature/afmlib")
+.package(
+    url: "https://github.com/scouzi1966/AFMKit.git",
+    revision: "4c1b868df6c3aaa41e0f4d546e2353b8d6b55dce"
+)
 ```
 
-and **no `git submodule` step**. A `git clone` (without `--recursive`) followed by `swift build`
-resolves and compiles AFMKit. This document explains how that works and what maintainers must do.
+The revision is an immutable pre-tag checkpoint shared with Vesta. Replace it
+with an exact AFMKit version after the first package tag is published. Do not use
+a branch requirement for release builds.
 
-## How the vendored dependencies resolve
+## Production Blocker
 
-afm has two C/Swift dependencies that were historically git submodules — which broke URL
-consumption, because a consumer who clones without `--recursive` gets empty submodule
-directories and the build fails. Both are now resolved without submodules:
+This transition is not a versioned SwiftPM release while AFMKit is pinned by
+revision. Anonymous access to that commit would make it fetchable, but would
+not turn the dependency into an immutable public package version. This PR must
+not be used to publish release artifacts until one of these policy conditions
+is met:
 
-| Dependency | Before | Now (URL-consumable) |
-|------------|--------|----------------------|
-| **mlx-swift-lm** (patched Swift inference lib) | `.package(path: "vendor/mlx-swift-lm")` — a submodule patched at build time | `.package(url: "github.com/scouzi1966/mlx-swift-lm", revision: …)` — a **pre-patched fork** with the patch set already applied and `mlx-swift` pinned to 0.30.3 |
-| **xgrammar** (C++ grammar engine) | `Sources/CXGrammar/xgrammar` symlink → `vendor/xgrammar` submodule | the xgrammar source is **vendored in-repo** under `Sources/CXGrammar/xgrammar`, trimmed to the compile set (cpp/, include/, dlpack/include, header-only picojson) |
+1. AFMKit is published publicly and maclocal-api requires its exact semantic version.
+2. maclocal-api's source-package release surface is explicitly removed from the release policy and artifacts.
 
-The lower-level MLX **C++/Metal kernel** patches (`Scripts/apply-mlx-cpp-patches.sh`,
-`apply-mlx-sdpa-backport.sh`) do **not** travel through the fork — but they only affect the
-generated `default.metallib`, which is committed (`Sources/MacLocalAPI/Resources/default.metallib`)
-and copied into the build. So a URL consumer gets the correct, already-compiled kernels. Only a
-maintainer *regenerating* the metallib needs those C++ patch scripts and a forked `mlx-swift`.
+The current policy chooses the first option and fails closed. Private CI access
+and an anonymously fetchable revision are development mechanisms, not evidence
+of versioned SwiftPM readiness. As observed on 2026-08-20, GitHub Actions are
+also disabled for the maclocal-api repository. The workflow definitions are
+complete, but hosted enforcement requires a repository administrator to
+re-enable Actions.
 
-## Verifying URL consumption
+Every tag, nightly, and manual publishing entry point runs
+`Scripts/check-public-release-eligibility.sh` before building or uploading. The
+gate first requires an exact semantic-version manifest and matching resolved
+version, then removes ambient credentials and proves that the locked revision
+can be fetched anonymously. Authentication can keep development CI working,
+but neither authentication nor a public bare revision makes this source-package
+surface publishable.
+
+## Authenticated Resolution
+
+Local developers must authenticate a GitHub identity with read access:
 
 ```bash
-# Simulate a plain consumer: clone WITHOUT --recursive, then build AFMKit.
-git clone --branch feature/afmlib --single-branch https://github.com/scouzi1966/maclocal-api /tmp/afmkit-url
-cd /tmp/afmkit-url
-swift build --target AFMKit          # resolves the fork from GitHub, compiles vendored xgrammar
+gh auth login
+gh auth setup-git
+Scripts/resolve-release-dependencies.sh
 ```
 
-This is exactly the check run when the fork dependency was introduced: all `vendor/*` submodules
-stay empty and AFMKit still builds. `Examples/AFMKitConsumer` is the equivalent proof from a
-*separate* package importing `AFMKit`.
+CI and release jobs provide a masked `AFMKIT_READ_TOKEN` secret with repository
+read access. The resolver uses an ephemeral `GIT_ASKPASS` helper containing no
+credential material, never writes the token to the manifest or lock, and emits
+an actionable error when access is missing. GitHub's default repository token
+does not grant cross-repository access to a separate private dependency.
 
-## Maintainer workflow — IMPORTANT
+The Swift CodeQL job uses that same authenticated resolver on trusted branches.
+Fork and Dependabot pull requests never receive the secret: their analysis job
+is skipped with an explicit transition notice, and maintainers must run CodeQL
+from a trusted branch until AFMKit is publicly resolvable.
 
-The build depends on the **fork**, not on `vendor/mlx-swift-lm`. The submodule + `Scripts/patches/`
-are retained only to *regenerate* the fork.
+## Immutable Release Graph
 
-> ⚠️ Applying patches to `vendor/mlx-swift-lm` (as `Scripts/build-from-scratch.sh` does) has **no
-> effect on the build** until you regenerate the fork and bump the pinned revision. Editing the
-> patch set without regenerating the fork means the build silently keeps the old code.
+The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
-When you change anything under `Scripts/patches/` (or bump the upstream mlx-swift-lm submodule):
+| Dependency | Requirement | Purpose |
+| --- | --- | --- |
+| `AFMKit` | revision `4c1b868d...` (publication-blocking checkpoint) | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
+| `mlx-swift-afm` | exact `0.31.6-afm.1` | AFM-compatible MLX Swift/C++/Metal runtime |
+| `mlx-swift-lm` | exact `0.31.6-afm.3` | AFM model architectures and generation behavior |
+
+The tracked root `Package.resolved` is the release lock for all 40 direct and
+transitive SwiftPM dependencies, not only AFMKit and MLX. The boundary gate
+requires a full 40-character revision for every pin, rejects branch state and
+local release dependencies, validates direct manifest requirements, verifies
+the clean AFMKit checkout against its lock and origin, and checks the remaining
+consumer-owned vendor gitlinks. Release resolution uses
+`swift package --force-resolved-versions resolve` and fails if the lock is stale.
+
+AFMKit owns `Sources/AFMKitMLX/Resources/default.metallib` and DwarfStar's Metal
+sources. SwiftPM emits those as `AFMKit_AFMKitMLX.bundle` and
+`AFMKit_AFMKitDwarfStar.bundle`. maclocal-api packages the bundles unchanged
+beside `afm`; it does not rebuild or rename them.
+
+## Local Development Overrides
+
+Normal builds leave all overrides unset. AFMKit development may opt into a
+writable checkout with `MACLOCAL_AFMKIT_PATH` when invoking
+`Scripts/swiftpm-reliable.sh`. The wrapper copies the consumer manifest and
+sources into an ignored `.build-local-afmkit-workspace`, applies the local path
+only there, and keeps the tracked release manifest and `Package.resolved`
+byte-for-byte unchanged. Compatibility-package maintenance
+may additionally set `MACLOCAL_MLX_SWIFT_LM_PATH`,
+`AFMKIT_MLX_SWIFT_PATH`, and `MACLOCAL_USE_LEGACY_MLX_PATCH_STACK=1`.
+These variables are build-only maintenance controls and are not supported
+release inputs.
+
+## Verification
+
+Run the boundary and graph checks before building:
 
 ```bash
-./Scripts/build-mlx-swift-lm-fork.sh          # applies patches, pushes a new fork revision
-# then update the revision it prints in the root Package.swift:
-#   .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "<new-sha>"),
-swift build                                    # verify green against the new revision
+Scripts/check-afmkit-consumer-boundary.sh
+Scripts/resolve-release-dependencies.sh
+Scripts/swiftpm-reliable.sh build -c release --product afm
+Scripts/validate-release.sh
 ```
 
-`vendor/xgrammar` (still a submodule) is for bumping the pinned xgrammar version; after updating it,
-re-sync the in-repo copy under `Sources/CXGrammar/xgrammar` (same trim) and rebuild.
+The boundary check rejects restored shadow targets, provider-owned C/C++ roots
+or gitlinks, provider-internal consumer tests and API baselines, mutable
+dependency drift, normal Make targets that invoke the legacy patch stack,
+server access to known provider implementation types, and stale
+maclocal-api-owned resource names in release packaging.
 
-## Why a fork for mlx-swift-lm but in-repo for xgrammar?
-
-- **mlx-swift-lm** is patched at build time via a 27-file overwrite set; keeping it a fork
-  preserves the "never edit vendor/ directly, patches are the source of truth" model and keeps the
-  main repo lean (the fork carries the 2.9 MB Swift tree).
-- **xgrammar** has no build-time patch step (one small `grammar_functor.cc` tweak, captured in the
-  vendored copy) and its compile subset is ~1.1 MB, so committing it in-repo is simpler than
-  maintaining a second fork and needs no extra remote.
+The package deployment target and release artifact compatibility floor are
+macOS 26. Xcode 27 is required to compile the current Apple provider adapters;
+symbols that require macOS 27 remain in availability-gated products and source
+blocks. The release gate checks the executable and Metal libraries for a macOS
+26 minimum while exercising the macOS 27 bundle layout
+`AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib`.

@@ -220,7 +220,7 @@ nm -a .build/arm64-apple-macosx/release/afm 2>/dev/null | grep -c 'xgrammar'
 #### Check 5: Metallib bundle present
 
 ```bash
-METALLIB=".build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib"
+METALLIB=".build/arm64-apple-macosx/release/AFMKit_AFMKitMLX.bundle/default.metallib"
 test -f "$METALLIB" && echo "OK: metallib $(du -h "$METALLIB" | cut -f1)" || echo "FAIL: metallib missing"
 # Must exist and be > 1MB (typically ~3.7MB)
 ```
@@ -266,7 +266,7 @@ This is the most critical distribution check. SPM auto-generates `resource_bundl
 # Simulate pip install: copy binary + loose metallib to a temp dir (NO SPM bundle directory)
 TMPDIR=$(mktemp -d)
 cp .build/arm64-apple-macosx/release/afm "$TMPDIR/"
-cp .build/arm64-apple-macosx/release/MacLocalAPI_AFMKit.bundle/default.metallib "$TMPDIR/"
+cp .build/arm64-apple-macosx/release/AFMKit_AFMKitMLX.bundle/default.metallib "$TMPDIR/"
 
 # Must NOT crash with "could not load resource bundle" fatalError
 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \

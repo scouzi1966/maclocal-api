@@ -1,20 +1,31 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
 
-// Minimal standalone package proving AFMKitCore is importable without the
-// optional MLX, FoundationModels, Services, OpenAI compatibility, server, or
-// CLI implementation products.
+let afmKitDependency: Package.Dependency
+if let localPath = ProcessInfo.processInfo.environment["AFMKIT_EXAMPLE_PATH"],
+   !localPath.isEmpty {
+    afmKitDependency = .package(name: "AFMKit", path: localPath)
+} else {
+    afmKitDependency = .package(
+        url: "https://github.com/scouzi1966/AFMKit.git",
+        revision: "4c1b868df6c3aaa41e0f4d546e2353b8d6b55dce"
+    )
+}
+
+// Minimal independent package proving AFMKitCore is consumable directly from
+// the AFMKit package without maclocal-api, MLX, FoundationModels, or Vapor.
 let package = Package(
     name: "AFMKitCoreOnlyConsumer",
     platforms: [.macOS("26.0")],
     dependencies: [
-        .package(name: "MacLocalAPI", path: "../..")
+        afmKitDependency
     ],
     targets: [
         .executableTarget(
             name: "AFMKitCoreOnlyConsumer",
             dependencies: [
-                .product(name: "AFMKitCore", package: "MacLocalAPI")
+                .product(name: "AFMKitCore", package: "AFMKit")
             ]
         )
     ]

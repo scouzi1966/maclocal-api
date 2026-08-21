@@ -168,20 +168,7 @@ extension AFMResponse {
                     )
                 )
             },
-            logprobs: modelResponse.tokenLogprobs?.map {
-                ResolvedLogprob(
-                    token: $0.token,
-                    tokenId: $0.tokenID,
-                    logprob: $0.logprob,
-                    topTokens: $0.topTokens.map {
-                        (
-                            token: $0.token,
-                            tokenId: $0.tokenID,
-                            logprob: $0.logprob
-                        )
-                    }
-                )
-            },
+            logprobs: modelResponse.tokenLogprobs,
             promptTokens: modelResponse.usage.inputTokens,
             cachedPromptTokens: modelResponse.usage.cachedInputTokens,
             completionTokens: modelResponse.usage.outputTokens,

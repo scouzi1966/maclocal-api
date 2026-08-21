@@ -239,42 +239,54 @@ afm mlx -m <model> --no-thinking
 afm mlx -m <model> --chat-template-kwargs '{"enable_thinking":false}'
 ```
 
-## Use AFM as a Swift package
+## Use AFMKit and AFM as Swift packages
 
-The repository publishes focused Swift Package Manager products:
+The independent `scouzi1966/AFMKit` package defines the provider products:
 
 - `AFMKitCore` — provider contracts and core types
 - `AFMOpenAICompat` — OpenAI-compatible request/response types
 - `AFMKitMLX` — MLX model loading and inference
-- `AFMKitFoundationModels` — Apple Foundation Models backend
-- `AFMKitFoundationModels27` — macOS 27 provider protocol adapters
-- `AFMKitFoundationModels27DwarfStar` — opt-in DwarfStar macOS 27 adapter
+- `AFMKitApple` — Apple Foundation Models backend
+- `AFMKitFoundationModelsMLX` — macOS 27 MLX executor bridge
 - `AFMKitDwarfStar` — DwarfStar runtime integration
+
+This maclocal-api consumer package separately defines its application adapters:
+
+- `AFMKitFoundationModels` — compatibility re-export of `AFMKitApple`
+- `AFMKitFoundationModels27` — macOS 27 application adapters
+- `AFMKitFoundationModels27DwarfStar` — opt-in DwarfStar macOS 27 adapter
 - `AFMKitServices` — vision, speech, and embedding services
 - `AFMKit` — high-level headless inference facade
 - `AFMServer` — Vapor HTTP layer
 - `afm` — CLI executable
 
-```swift
-dependencies: [
-    .package(
-        url: "https://github.com/scouzi1966/maclocal-api.git",
-        branch: "main"
-    )
-]
-```
+AFMKit is revision-pinned while its API is under development. That checkpoint
+is valid for authenticated development, but it is not a versioned SwiftPM
+publication contract even if the revision is anonymously fetchable. See
+[AFMKit URL consumption](docs/afmkit-url-consumption.md) for the dependency and
+publication policy. Release workflows fail closed until AFMKit is required by
+an exact public semantic version, or the source-package release surface is
+explicitly excluded.
 
-Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the [consumer examples](Examples/).
+Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the
+[independent AFMKitCore consumer](Examples/AFMKitCoreOnlyConsumer/).
 
 ## Build from source
 
 ```bash
 git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
+gh auth login
+gh auth setup-git
 ./build.sh
 ```
 
-The complete build initializes submodules, applies AFM-owned vendor patches, builds the WebUI, rebuilds Metal resources when the toolchain is available, and creates the release executable. Add `--install` to install it on your `PATH`.
+The authenticated build resolves only the revisions in the tracked
+`Package.resolved`, initializes pinned submodules, builds the locked WebUI, and
+packages AFMKit-owned runtime resources without mutating dependency sources. CI
+uses a masked `AFMKIT_READ_TOKEN` with read access to the private AFMKit
+repository. Add `--install` to install under `INSTALL_PREFIX` (default
+`/usr/local`).
 
 ## Requirements
 

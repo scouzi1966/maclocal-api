@@ -10,46 +10,33 @@ The server exposes `/v1/chat/completions` and `/v1/models` endpoints compatible 
 
 ## Project Structure
 
-The package vends **two SPM products**: a `.library(AFMKit)` (headless, importable
-`import AFMKit`) and a `.executable(afm)` thin CLI. Library import is proven by
-`Examples/AFMKitConsumer`. (The clean Vapor-free `AFMServer` split is a tracked follow-up —
-today AFMKit also contains the server.)
+The package vends a maclocal-api aggregate library (`AFMKit`), the Vapor HTTP
+layer (`AFMServer`), compatibility libraries, and the `afm` executable. Stable
+provider contracts and runtimes come from the standalone AFMKit package at an
+immutable revision. AFMServer remains local and adapts those provider facades
+into OpenAI-compatible HTTP responses.
 
 ```
 Sources/
-├── AFMKit/                             # LIBRARY target (importable via SPM)
-│   ├── AFMEngine.swift                 # Public facade: AFMEngine actor + EngineConfig/GenerationConfig/AFMResponse
-│   ├── AFMLanguageModel.swift          # WWDC26-shaped provider protocol (AFMEngine conforms)
-│   ├── Server.swift                    # Vapor HTTP server (currently in AFMKit)
-│   ├── Controllers/
-│   │   ├── MLXChatCompletionsController.swift  # Streaming/non-streaming SSE handler
-│   │   └── ...
-│   ├── Models/
-│   │   ├── MLXModelService.swift       # Model loading, generation, prompt caching
-│   │   ├── OpenAIRequest.swift         # Request types (ChatCompletionRequest, etc.)
-│   │   ├── OpenAIResponse.swift        # Response types
-│   │   └── ...
-│   ├── BuildInfo.swift                 # version string (SHA injected by build.sh)
-│   └── Resources/default.metallib      # MLX Metal kernels → bundle MacLocalAPI_AFMKitMLX.bundle
-├── AFMCLI/                             # EXECUTABLE target (product name: afm)
-│   ├── main.swift                      # CLI entry point (ArgumentParser)
-│   ├── {Mlx,Serve,Vision,Speech,Embeddings}Command.swift
-│   └── Info.plist                      # embedded into the binary (privacy usage descriptions)
-Examples/AFMKitConsumer/                # standalone SPM package proving `import AFMKit`
-docs/wwdc26-migration.md                # WWDC26 Foundation Models adoption seam map
+├── AFMKit/                   # maclocal-api aggregate facade and services
+├── AFMServer/                # Vapor routes, HTTP lifecycle, metrics, files
+├── AFMCLI/                   # executable entry point and commands
+├── AFMKitFoundationModels/   # macOS 26 Apple service compatibility
+└── AFMKitFoundationModels27/ # facade over AFMKit macOS 27 products
 vendor/
-├── mlx-swift-lm/                       # Git submodule — DO NOT modify directly
-├── llama.cpp/                          # Git submodule
-├── ds4/                                # Canonical antirez/ds4 submodule
+├── mlx-swift-lm/             # legacy maintenance checkout; not a normal build input
+└── llama.cpp/                # WebUI source
 Scripts/
-├── patches/                            # Our patches to vendor code (copied over originals)
-├── apply-mlx-patches.sh                # Applies patches from Scripts/patches/ to vendor/
-├── build-from-scratch.sh               # Full build: submodules + patches + webui + build
+├── patches/                  # legacy compatibility-package maintenance sources
+├── check-afmkit-consumer-boundary.sh
+└── build-from-scratch.sh     # clean immutable consumer build
 ```
 
 ## Vendor Patch System
 
-**NEVER modify files in `vendor/` directly.** All changes go through `Scripts/patches/`.
+**NEVER modify files in `vendor/` directly.** Normal builds do not use the MLX
+vendor tree. Compatibility-package maintenance goes through `Scripts/patches/`
+and explicit legacy patch commands.
 
 The patch script (`Scripts/apply-mlx-patches.sh`) copies complete Swift files from `Scripts/patches/` to vendor targets. Three arrays define the mapping:
 - `PATCH_FILES=()` — filenames in `Scripts/patches/`
@@ -60,19 +47,17 @@ Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
 ### DwarfStar dependency boundary
 
-`vendor/ds4` is pinned directly to canonical `https://github.com/antirez/ds4.git`.
-Do not point the submodule at an AFM fork, patch its loader, sampler, cache, or
-Metal kernels, or require a DS4 pull request for AFM integration. Keep interface
-adaptations in `Sources/CDwarfStar` and `Sources/AFMKitDwarfStar` using the
-public upstream C API. `Scripts/swiftpm-reliable.sh` fingerprints the pinned
-submodule revision to prevent Xcode's native driver from reusing stale C objects.
+AFMKit owns the canonical DwarfStar and xgrammar dependencies, their C/C++
+bridges, and provider regressions. maclocal-api consumes those products only
+through its resolved AFMKit dependency. `Scripts/swiftpm-reliable.sh` validates
+and fingerprints that checkout so Xcode cannot reuse products compiled from a
+different provider revision.
 
 ### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
 
-The Swift patches above target the `vendor/mlx-swift-lm` submodule. The low-level MLX **C++/Metal**
-code lives in a *different* tree — the `mlx-swift` remote SwiftPM dependency at
-`.build/checkouts/mlx-swift` (ephemeral; wiped by `swift package clean`/re-resolve). Three scripts
-patch it, applied by `build.sh` after `swift package resolve` and before the metallib rebuild:
+These low-level MLX scripts are retained only for AFM compatibility-package
+maintenance. Normal maclocal-api builds never patch resolved SwiftPM checkouts
+or rebuild AFMKit's committed Metal resource:
 
 - `Scripts/apply-mlx-qmv-wide-backport.sh` — backports mlx **PR #3764's `qmv_wide`** small-batch
   quantized matvec (affine int4/int8 only, GPU gen 15+): each weight group is dequantized once and
@@ -95,42 +80,38 @@ patch it, applied by `build.sh` after `swift package resolve` and before the met
 
 ## Build
 
-**IMPORTANT:** Always run the full build with ALL steps (submodules, patches, webui, metallib) unless the user explicitly asks to skip a step. Never add `--skip-webui`, `--skip-patches`, `--skip-submodules`, or `--skip-metallib` on your own.
+**IMPORTANT:** Normal and release builds consume immutable AFMKit and AFM-compatible
+MLX dependencies. Do not apply the legacy patch stack or rebuild a resolved
+package checkout. `--legacy-patches` is restricted to explicit dependency
+maintenance, and `--rebuild-metallib` requires a writable `MACLOCAL_AFMKIT_PATH`.
 
 ```bash
-swift build                              # Debug build
-swift build -c release                   # Release build
-./Scripts/build-from-scratch.sh          # Full build (submodules + patches + webui + clean + metallib + build)
+Scripts/swiftpm-reliable.sh build
+Scripts/swiftpm-reliable.sh build -c release --product afm
+./Scripts/build-from-scratch.sh
 ```
 
 ### MLX Metal shader library (`default.metallib`)
 
-`swift build` does **NOT** compile any Metal. The MLX kernels ship as a prebuilt
-`Sources/AFMKitMLX/Resources/default.metallib` (committed to git) that `swift build` only
-copies into the app bundle. The kernel *sources* live in the resolved `mlx-swift` dependency
-(`.build/checkouts/mlx-swift/.../kernels/*.metal`), so editing a kernel (e.g. `sdpa_vector.h`)
-has **zero effect** until the metallib is regenerated. (Editing the dispatch C++ in
-`scaled_dot_product_attention.cpp` *does* recompile — so a kernel/dispatch mismatch silently
-produces garbage at every context length.)
+`swift build` does **NOT** compile any Metal. AFMKit owns and ships the prebuilt
+`Sources/AFMKitMLX/Resources/default.metallib`; maclocal-api resolves that resource
+from its AFMKit dependency and packages `AFMKit_AFMKitMLX.bundle` unchanged.
+Metallib maintenance is performed in the AFMKit repository with
+`Scripts/rebuild-mlx-metallib.sh`, never against `.build/checkouts` in this consumer.
 
 All SwiftPM test invocations must use `Scripts/swiftpm-reliable.sh test`. The
-wrapper stages this canonical committed metallib beside every XCTest executable
+wrapper stages the resolved AFMKit metallib beside every XCTest executable
 before each build/run attempt, which is where MLX's C++ runtime searches. It
 also exports `MACAFM_MLX_METALLIB` for AFMKit's locator.
-The same wrapper fingerprints `vendor/mlx-swift-lm` and removes stale compiled
-products when those sources change; Xcode 27 Beta 3 can otherwise report a
-successful no-op build after applying a Swift or custom-Metal kernel patch.
-The package manifest compiles that vendor directly whenever its submodule is
-initialized; only submodule-free downstream clones resolve the pinned URL fork.
-Use `Scripts/check-mlx-source-selection.sh` to enforce this invariant after
-dependency or manifest changes.
+Use `Scripts/check-afmkit-consumer-boundary.sh` after dependency, package, or
+release-layout changes. It verifies immutable revisions, removed shadow targets,
+the server facade boundary, and AFMKit-owned resource bundle names.
 Explicit overrides remain supported for metallib qualification.
 The release assertion harness delegates to this wrapper too. Never replace it
 with raw `swift test` or use a one-off metallib override as a workflow fix.
 
-`./build.sh` regenerates the metallib from source as step 4b via `Scripts/rebuild-metallib.sh`
-(compiles the pinned kernel set, links with `metal -o`, verifies kernel-symbol parity, installs).
-This needs the **Metal Toolchain**, which Xcode 26 ships as a separate downloadable component:
+`./build.sh --rebuild-metallib` delegates to a writable AFMKit checkout through
+`MACLOCAL_AFMKIT_PATH`. This AFMKit maintainer operation needs the Metal Toolchain:
 
 ```bash
 xcodebuild -showComponent MetalToolchain        # status (installed/uninstalled)
@@ -140,8 +121,8 @@ xcodebuild -downloadComponent MetalToolchain    # one-time ~688 MB install
 ./Scripts/rebuild-metallib.sh --no-install        # build to /tmp + parity check, don't replace committed
 ```
 
-If the toolchain is absent, `build.sh` falls back to the committed prebuilt metallib (after
-offering to download). There is no separate `metallib` tool on Xcode 26 — link via `metal -o lib.metallib *.air`.
+Normal builds always use AFMKit's committed prebuilt metallib. There is no separate
+`metallib` tool on Xcode 26; maintainer rebuilds link with `metal -o`.
 
 ## Running the Server
 

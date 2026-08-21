@@ -4,7 +4,7 @@ import AFMKitMLX
 import Foundation
 
 struct BatchAPIController: RouteCollection {
-    private let service: any AFMMLXOpenAIChatServing
+    private let service: any AFMChatServing
     private let store: BatchStore
     private let modelID: String
     private let temperature: Double?
@@ -18,7 +18,7 @@ struct BatchAPIController: RouteCollection {
     private let maxLogprobs: Int
 
     init(
-        service: any AFMMLXOpenAIChatServing,
+        service: any AFMChatServing,
         store: BatchStore,
         modelID: String,
         temperature: Double? = nil,
@@ -189,10 +189,11 @@ struct BatchAPIController: RouteCollection {
         // Each request individually reserves a slot via tryReserveSlot() in processOneRequest.
         // This allows partial batch execution — some requests may get 503 while others succeed,
         // which is acceptable per OpenAI batch semantics (per-request errors don't fail the batch).
-        Task {
+        let dispatchTask = Task {
+            defer { service.releaseBatchReference() }
             await self.dispatchBatchRequests(batchId: batchId, requests: inputLines)
-            service.releaseBatchReference()
         }
+        await store.registerDispatchTask(dispatchTask, for: batchId)
 
         guard let obj = await store.getBatch(batchId) else {
             throw Abort(.internalServerError)
@@ -227,7 +228,12 @@ struct BatchAPIController: RouteCollection {
 
         await store.markBatchCancelling(batchId)
 
-        // Actually cancel in-flight scheduler slots
+        // The server owns the HTTP batch lifecycle. Cancelling this task works
+        // for every AFM provider and does not require exposing scheduler state.
+        _ = await store.cancelDispatchTask(for: batchId)
+
+        // Preserve the legacy provider-specific fast path while older MLX
+        // adapters still expose scheduler slot identifiers during migration.
         let slotIds = await store.getSlotIds(batchId)
         if !slotIds.isEmpty {
             await service.cancelBatchSlots(ids: Set(slotIds))
@@ -246,7 +252,12 @@ struct BatchAPIController: RouteCollection {
     private func dispatchBatchRequests(batchId: String, requests: [BatchInputLine]) async {
         await withTaskGroup(of: Void.self) { group in
             for inputLine in requests {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
                 group.addTask {
+                    guard !Task.isCancelled else { return }
                     await self.processOneRequest(batchId: batchId, inputLine: inputLine)
                 }
             }
@@ -254,6 +265,7 @@ struct BatchAPIController: RouteCollection {
     }
 
     private func processOneRequest(batchId: String, inputLine: BatchInputLine) async {
+        guard !Task.isCancelled else { return }
         let requestId = "req_\(UUID().uuidString.lowercased().prefix(12))"
         let resultId = "batch_req_\(UUID().uuidString.lowercased().prefix(12))"
         let chatReq = inputLine.body
@@ -297,7 +309,9 @@ struct BatchAPIController: RouteCollection {
                 parallelToolCalls: chatReq.parallelToolCalls,
                 stop: chatReq.stop,
                 responseFormat: chatReq.responseFormat,
-                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs
+                chatTemplateKwargs: chatReq.effectiveChatTemplateKwargs,
+                preserveStructuralTags: false,
+                requestId: requestId
             )
             reservationTransferred = true
 

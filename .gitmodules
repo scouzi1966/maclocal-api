@@ -4,9 +4,3 @@
 [submodule "vendor/mlx-swift-lm"]
 	path = vendor/mlx-swift-lm
 	url = https://github.com/scouzi1966/mlx-swift-lm.git
-[submodule "vendor/xgrammar"]
-	path = vendor/xgrammar
-	url = https://github.com/mlc-ai/xgrammar.git
-[submodule "vendor/ds4"]
-	path = vendor/ds4
-	url = https://github.com/antirez/ds4.git
