@@ -4,6 +4,176 @@ import CDwarfStar
 @testable import AFMKitDwarfStar
 
 final class AFMDwarfStarProviderTests: XCTestCase {
+    func testModelErasureRetainsRawCompletionCapability() {
+        let model = AFMDwarfStarModel(modelID: "raw", modelPath: "/missing/model.gguf")
+        XCTAssertNotNil(AnyAFMModel(model).rawTextGenerator)
+        XCTAssertNotNil(AnyAFMModel(model).generationAdmitter)
+    }
+
+    func testGenerationAdmissionDoesNotOverAdmitOrReleaseAReplacement() async throws {
+        let model = AFMDwarfStarModel(
+            modelID: "admission",
+            modelPath: "/missing/model.gguf",
+            maxConcurrent: 2,
+            runtime: AFMDwarfStarRuntimeCoordinator()
+        )
+        let admitter = try XCTUnwrap(AnyAFMModel(model).generationAdmitter)
+        let first = try await admitter.admitGeneration(timeout: .zero)
+        let second = try await admitter.admitGeneration(timeout: .zero)
+
+        await assertCapacityRejected(admitter)
+
+        first.release()
+        let replacement = try await admitter.admitGeneration(timeout: .zero)
+        first.release()
+
+        await assertCapacityRejected(admitter)
+
+        second.release()
+        replacement.release()
+        let final = try await admitter.admitGeneration(timeout: .zero)
+        final.release()
+    }
+
+    private func assertCapacityRejected(
+        _ admitter: AnyAFMGenerationAdmitter,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            _ = try await admitter.admitGeneration(timeout: .zero)
+            XCTFail("admission exceeded configured capacity", file: file, line: line)
+        } catch let error as AFMGenerationAdmissionError {
+            XCTAssertEqual(error, .capacity, file: file, line: line)
+        } catch {
+            XCTFail("unexpected admission error: \(error)", file: file, line: line)
+        }
+    }
+
+    func testIgnoreEOSSuppressesOnlyTheEOSTerminalCandidate() {
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: false
+        ))
+        XCTAssertFalse(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: false,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertFalse(AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: false,
+            ignoreEndOfSequence: true
+        ))
+    }
+
+    func testStreamingIgnoreEOSDoesNotConsumeVisibleBudgetOrTelemetry() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 3)
+        var telemetryTokens = 0
+        var streamedText = ""
+
+        for _ in 1..<AFMDwarfStarOutputAccounting
+            .maximumConsecutiveSuppressedEndOfSequenceTokens
+        {
+            let disposition = accounting.disposition(
+                isEndOfSequence: true,
+                isRuntimeStop: true,
+                ignoreEndOfSequence: true
+            )
+            if disposition == .expose {
+                streamedText += "<eos>"
+            }
+            XCTAssertEqual(disposition, .suppress)
+        }
+
+        XCTAssertEqual(streamedText, "")
+        XCTAssertEqual(accounting.visibleTokens, 0)
+        XCTAssertEqual(telemetryTokens, 0)
+        XCTAssertFalse(accounting.isExhausted)
+    }
+
+    func testRepeatedSuppressedEOSStopsWithoutChangingUsage() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 4)
+        var telemetryTokens = 0
+
+        var disposition = AFMDwarfStarOutputAccounting.Disposition.suppress
+        for _ in 0..<AFMDwarfStarOutputAccounting
+            .maximumConsecutiveSuppressedEndOfSequenceTokens
+        {
+            disposition = accounting.disposition(
+                isEndOfSequence: true,
+                isRuntimeStop: true,
+                ignoreEndOfSequence: true
+            )
+        }
+
+        let usage = AFMUsage(outputTokens: accounting.visibleTokens)
+        XCTAssertEqual(disposition, .stop)
+        XCTAssertEqual(usage.outputTokens, 0)
+        XCTAssertEqual(telemetryTokens, 0)
+        XCTAssertFalse(accounting.isExhausted)
+    }
+
+    func testVisibleTokenAfterSuppressedEOSConsumesOneOutputToken() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 2)
+        var telemetryTokens = 0
+
+        XCTAssertEqual(accounting.disposition(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ), .suppress)
+        XCTAssertEqual(accounting.disposition(
+            isEndOfSequence: false,
+            isRuntimeStop: false,
+            ignoreEndOfSequence: true
+        ), .expose)
+        accounting.recordVisible { telemetryTokens += 1 }
+
+        XCTAssertEqual(accounting.visibleTokens, 1)
+        XCTAssertEqual(telemetryTokens, 1)
+        XCTAssertEqual(accounting.consecutiveSuppressedEndOfSequenceTokens, 0)
+    }
+
+    func testRawStopPolicyWithholdsStopAcrossTokenPieces() {
+        var buffer = ""
+        let first = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "answer EN",
+            stopSequences: ["END"]
+        )
+        XCTAssertEqual(first, .init(visibleText: "answer ", stopped: false))
+        XCTAssertEqual(buffer, "EN")
+
+        let second = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "D trailing text",
+            stopSequences: ["END"]
+        )
+        XCTAssertEqual(second, .init(visibleText: "", stopped: true))
+        XCTAssertEqual(buffer, "")
+    }
+
+    func testRawStopPolicyDrainsAnIncompletePrefixAtLengthBoundary() {
+        var buffer = ""
+        let result = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "value ST",
+            stopSequences: ["STOP"]
+        )
+        XCTAssertEqual(result, .init(visibleText: "value ", stopped: false))
+        XCTAssertEqual(AFMDwarfStarRawStopPolicy.drain(buffer: &buffer), "ST")
+        XCTAssertEqual(buffer, "")
+    }
     func testProviderContractDescribesInProcessDeviceRuntime() {
         let descriptor = AFMDwarfStarProviderFactory().descriptor
 

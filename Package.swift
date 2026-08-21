@@ -255,6 +255,7 @@ let package = Package(
             name: "AFMServer",
             dependencies: [
                 "AFMKit",
+                "AFMKitServices",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
@@ -270,6 +271,7 @@ let package = Package(
         .executableTarget(
             name: "AFMCLI",
             dependencies: [
+                "AFMKitCore",
                 "AFMKit",
                 "AFMKitDwarfStar",
                 "AFMKitMLX",
@@ -314,6 +316,7 @@ let package = Package(
         .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
+                "AFMKitCore",
                 "AFMKit",
                 "AFMKitDwarfStar",
                 "AFMKitMLX",
@@ -329,6 +332,9 @@ let package = Package(
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
                 // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
                 .product(name: "MLXLLM", package: "mlx-swift-lm")
+            ],
+            resources: [
+                .copy("Fixtures")
             ],
             swiftSettings: [
                 // Xcode 27 Beta 3 reports a false circular reference while

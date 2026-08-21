@@ -20,6 +20,7 @@ public struct ChatCompletionRequest: Codable, Sendable {
     public let stop: [String]?
     public let stream: Bool?
     public let streamOptions: StreamOptions?
+    public let ignoreEOS: Bool?
     public let user: String?
     public let tools: [RequestTool]?
     public let toolChoice: ToolChoice?
@@ -48,6 +49,7 @@ public struct ChatCompletionRequest: Codable, Sendable {
         case stop
         case stream
         case streamOptions = "stream_options"
+        case ignoreEOS = "ignore_eos"
         case user
         case tools
         case toolChoice = "tool_choice"
@@ -100,6 +102,36 @@ public struct ChatCompletionRequest: Codable, Sendable {
         self.stop = stop
         self.stream = stream
         self.streamOptions = streamOptions
+        self.ignoreEOS = nil
+        self.user = user
+        self.tools = tools
+        self.toolChoice = toolChoice
+        self.parallelToolCalls = parallelToolCalls
+        self.responseFormat = responseFormat
+        self.chatTemplateKwargs = chatTemplateKwargs
+        self.reasoningEffort = reasoningEffort
+    }
+
+    public init(model: String?, messages: [Message], temperature: Double?, maxTokens: Int?, maxCompletionTokens: Int?, topP: Double?, repetitionPenalty: Double?, repeatPenalty: Double?, frequencyPenalty: Double?, presencePenalty: Double?, topK: Int?, minP: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?, stop: [String]?, stream: Bool?, streamOptions: StreamOptions?, user: String?, tools: [RequestTool]?, toolChoice: ToolChoice?, parallelToolCalls: Bool?, responseFormat: ResponseFormat?, chatTemplateKwargs: [String: AnyCodable]?, reasoningEffort: String? = nil, ignoreEOS: Bool?) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.maxCompletionTokens = maxCompletionTokens
+        self.topP = topP
+        self.repetitionPenalty = repetitionPenalty
+        self.repeatPenalty = repeatPenalty
+        self.frequencyPenalty = frequencyPenalty
+        self.presencePenalty = presencePenalty
+        self.topK = topK
+        self.minP = minP
+        self.seed = seed
+        self.logprobs = logprobs
+        self.topLogprobs = topLogprobs
+        self.stop = stop
+        self.stream = stream
+        self.streamOptions = streamOptions
+        self.ignoreEOS = ignoreEOS
         self.user = user
         self.tools = tools
         self.toolChoice = toolChoice
@@ -113,12 +145,20 @@ public struct ChatCompletionRequest: Codable, Sendable {
 /// OpenAI-compatible `stream_options`. Currently models `include_usage`. (T1.2)
 public struct StreamOptions: Codable, Sendable {
     public let includeUsage: Bool?
+    public let continuousUsageStats: Bool?
 
     public enum CodingKeys: String, CodingKey {
         case includeUsage = "include_usage"
+        case continuousUsageStats = "continuous_usage_stats"
     }
     public init(includeUsage: Bool?) {
         self.includeUsage = includeUsage
+        self.continuousUsageStats = nil
+    }
+
+    public init(includeUsage: Bool?, continuousUsageStats: Bool?) {
+        self.includeUsage = includeUsage
+        self.continuousUsageStats = continuousUsageStats
     }
 }
 

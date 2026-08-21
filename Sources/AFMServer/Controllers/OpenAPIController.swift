@@ -16,6 +16,12 @@ import Foundation
 /// renderer from a CDN. The page works offline only if the CDN is reachable;
 /// agents that need a fully offline UI should consume `/openapi.json` directly.
 struct OpenAPIController: RouteCollection {
+    private let renderedSpec: String
+
+    init(rawCompletionsAvailable: Bool = false) {
+        renderedSpec = Self.specJSON(rawCompletionsAvailable: rawCompletionsAvailable)
+    }
+
     func boot(routes: RoutesBuilder) throws {
         routes.get("openapi.json", use: openAPI)
         routes.get("docs", use: docs)
@@ -25,7 +31,7 @@ struct OpenAPIController: RouteCollection {
         let response = Response(status: .ok)
         response.headers.add(name: .contentType, value: "application/json")
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
-        response.body = .init(string: Self.specJSON)
+        response.body = .init(string: renderedSpec)
         return response
     }
 
@@ -56,7 +62,32 @@ struct OpenAPIController: RouteCollection {
     /// Hand-curated OpenAPI 3.1 spec. Intentionally kept compact — describes
     /// the surface agents actually call rather than every property of every
     /// payload. JSON-encoded inline so we don't fight SPM resource bundling.
-    static let specJSON: String = #"""
+    static let specJSON = specJSON(rawCompletionsAvailable: true)
+
+    static func specJSON(rawCompletionsAvailable: Bool) -> String {
+        guard !rawCompletionsAvailable else { return completeSpecJSON }
+        guard
+            let data = completeSpecJSON.data(using: .utf8),
+            var document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            var paths = document["paths"] as? [String: Any]
+        else {
+            preconditionFailure("The embedded OpenAPI document must be valid JSON")
+        }
+        paths.removeValue(forKey: "/v1/completions")
+        document["paths"] = paths
+        guard
+            let rendered = try? JSONSerialization.data(
+                withJSONObject: document,
+                options: [.sortedKeys]
+            ),
+            let json = String(data: rendered, encoding: .utf8)
+        else {
+            preconditionFailure("The filtered OpenAPI document must remain valid JSON")
+        }
+        return json
+    }
+
+    private static let completeSpecJSON: String = #"""
     {
       "openapi": "3.1.0",
       "info": {
@@ -107,6 +138,7 @@ struct OpenAPIController: RouteCollection {
               "min_p": { "type": "number" },
               "max_tokens": { "type": "integer" },
               "max_completion_tokens": { "type": "integer" },
+              "ignore_eos": { "type": "boolean", "description": "Suppress model EOS until an explicit stop, context bound, maximum-token bound, cancellation, or failure." },
               "presence_penalty": { "type": "number" },
               "repetition_penalty": { "type": "number" },
               "seed": { "type": "integer" },
@@ -117,7 +149,8 @@ struct OpenAPIController: RouteCollection {
               "stream_options": {
                 "type": "object",
                 "properties": {
-                  "include_usage": { "type": "boolean", "description": "When false, the final SSE chunk does not carry a usage block. Default true." }
+                  "include_usage": { "type": "boolean", "description": "When false, the final SSE chunk does not carry a usage block. Default true." },
+                  "continuous_usage_stats": { "type": "boolean", "description": "Accepted for GuideLLM compatibility; AFM emits only one final exact usage event." }
                 }
               },
               "tools": { "type": "array", "items": { "$ref": "#/components/schemas/Tool" } },
@@ -180,6 +213,42 @@ struct OpenAPIController: RouteCollection {
               "usage": { "type": "object" }
             }
           },
+          "CompletionRequest": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+              "model": { "type": "string" },
+              "prompt": { "type": "string", "description": "One raw prompt. Arrays are rejected." },
+              "max_tokens": { "type": "integer", "minimum": 0 },
+              "temperature": { "type": "number" },
+              "top_p": { "type": "number" },
+              "top_k": { "type": "integer" },
+              "min_p": { "type": "number" },
+              "repetition_penalty": { "type": "number" },
+              "presence_penalty": { "type": "number" },
+              "seed": { "type": "integer" },
+              "stop": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+              "stream": { "type": "boolean" },
+              "ignore_eos": { "type": "boolean", "description": "Suppress model EOS until an explicit stop, context bound, maximum-token bound, cancellation, or failure." },
+              "stream_options": {
+                "type": "object",
+                "properties": {
+                  "include_usage": { "type": "boolean" },
+                  "continuous_usage_stats": { "type": "boolean", "description": "Accepted; only one final exact usage event is emitted." }
+                }
+              }
+            }
+          },
+          "CompletionResponse": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "object": { "type": "string", "const": "text_completion" },
+              "model": { "type": "string" },
+              "choices": { "type": "array" },
+              "usage": { "type": "object" }
+            }
+          },
           "OpenAIError": {
             "type": "object",
             "properties": {
@@ -189,6 +258,7 @@ struct OpenAPIController: RouteCollection {
                   "message": { "type": "string" },
                   "type": { "type": "string" },
                   "code": { "type": "string", "nullable": true },
+                  "param": { "type": "string", "nullable": true },
                   "request_id": { "type": "string", "nullable": true }
                 }
               }
@@ -232,6 +302,42 @@ struct OpenAPIController: RouteCollection {
         }
       },
       "paths": {
+        "/v1/completions": {
+          "post": {
+            "tags": ["chat"],
+            "summary": "Create a raw-prompt legacy completion",
+            "parameters": [{ "$ref": "#/components/parameters/RequestIdHeader" }],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": { "schema": { "$ref": "#/components/schemas/CompletionRequest" } }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Legacy completion (or SSE stream when `stream:true`).",
+                "content": {
+                  "application/json": { "schema": { "$ref": "#/components/schemas/CompletionResponse" } },
+                  "text/event-stream": { "schema": { "type": "string" } }
+                }
+              },
+              "400": { "description": "Invalid or unsupported request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "404": { "description": "Requested model not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "500": { "description": "Generation failed or ended without a terminal event", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "503": {
+                "description": "Generation capacity is temporarily unavailable",
+                "headers": {
+                  "Retry-After": {
+                    "description": "Seconds to wait before retrying the request.",
+                    "schema": { "type": "integer", "minimum": 0 },
+                    "example": 2
+                  }
+                },
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } }
+              }
+            }
+          }
+        },
         "/v1/chat/completions": {
           "post": {
             "tags": ["chat"],

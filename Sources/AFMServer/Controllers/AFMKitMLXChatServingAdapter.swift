@@ -2,9 +2,18 @@ import Foundation
 import AFMKit
 import AFMKitMLX
 
+protocol AFMMLXGenerationAdmitterProviding: Sendable {
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter? { get }
+}
+
 /// Bridges the existing OpenAI-compatible HTTP controllers onto AFMKit while
 /// preserving their current `AFMMLXOpenAIChatServing` contract.
-final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokenizing, @unchecked Sendable {
+final class AFMKitMLXChatServingAdapter:
+    AFMMLXOpenAIChatServing,
+    AFMMLXGenerationAdmitterProviding,
+    AFMTextTokenizing,
+    @unchecked Sendable
+{
     private let service: MLXModelService?
     private let resolver: MLXCacheResolver
     private let fixedModel: AnyAFMModel?
@@ -55,6 +64,9 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     }
 
     var maxConcurrent: Int { service?.maxConcurrent ?? fixedMaxConcurrent }
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter? {
+        service?.generationAdmitter ?? fixedModel?.generationAdmitter
+    }
     var servingConfiguration: AFMMLXServingConfiguration {
         service?.servingConfiguration ?? fixedServingConfiguration
     }
@@ -380,11 +392,6 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
-                defer {
-                    if self.service == nil {
-                        self.releaseSlot()
-                    }
-                }
                 var promptTokens = 0
                 var completionTokens = 0
                 var cachedTokens = 0

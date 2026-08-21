@@ -6,9 +6,19 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
     public static let providerID: AFMProviderID = "mlx"
 
     private let resolver: MLXCacheResolver
+    private let telemetryObserver: any AFMInferenceTelemetryObserving
 
     public init(resolver: MLXCacheResolver = .init()) {
         self.resolver = resolver
+        self.telemetryObserver = AFMInferenceTelemetryRelay()
+    }
+
+    public init(
+        resolver: MLXCacheResolver = .init(),
+        telemetryObserver: any AFMInferenceTelemetryObserving
+    ) {
+        self.resolver = resolver
+        self.telemetryObserver = telemetryObserver
     }
 
     public var descriptor: AFMProviderDescriptor {
@@ -42,7 +52,10 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
     }
 
     public func modelDescriptors() async throws -> [AFMModelDescriptor] {
-        let service = MLXModelService(resolver: resolver)
+        let service = MLXModelService(
+            resolver: resolver,
+            telemetryObserver: telemetryObserver
+        )
         return try service.revalidateRegistry().map {
             AFMMLXModelDescriptor.describe(modelID: $0, resolver: resolver)
         }
@@ -56,13 +69,21 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
             AFMMLXModel(
                 modelID: id,
                 configuration: configuration,
-                resolver: resolver
+                resolver: resolver,
+                telemetryObserver: telemetryObserver
             )
         )
     }
 }
 
-public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable {
+public final class AFMMLXModel:
+    AFMModel,
+    AFMTextTokenizing,
+    AFMRawTextGenerating,
+    AFMGenerationAdmitting,
+    AFMInferenceTelemetryConnecting,
+    @unchecked Sendable
+{
     public let descriptor: AFMModelDescriptor
 
     private let runtime: AFMMLXRuntime
@@ -78,6 +99,27 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         let runtime = AFMMLXRuntime(
             modelID: modelID.rawValue,
             providerConfiguration: configuration,
+            resolver: resolver,
+            service: providedService
+        )
+
+        self.runtime = runtime
+        self.service = runtime.service
+        self.modelID = runtime.modelID
+        self.descriptor = runtime.descriptor
+    }
+
+    public init(
+        modelID: AFMModelID,
+        configuration: AFMProviderConfiguration = .init(),
+        resolver: MLXCacheResolver = .init(),
+        telemetryObserver: any AFMInferenceTelemetryObserving,
+        service providedService: MLXModelService? = nil
+    ) {
+        let runtime = AFMMLXRuntime(
+            modelID: modelID.rawValue,
+            providerConfiguration: configuration,
+            telemetryObserver: telemetryObserver,
             resolver: resolver,
             service: providedService
         )
@@ -110,6 +152,16 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         .available
     }
 
+    public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        try await service.admitGeneration(timeout: timeout)
+    }
+
+    public func connectInferenceTelemetry(
+        to observer: any AFMInferenceTelemetryObserving
+    ) {
+        service.connectInferenceTelemetry(to: observer)
+    }
+
     public func load(
         progress: (@Sendable (Double) -> Void)?
     ) async throws -> AFMModelDescriptor {
@@ -126,25 +178,33 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         _ = try await load(progress: nil)
         do {
             let tools = request.effectiveOpenAITools()
-            let result = try await service.generate(
-                model: modelID,
-                messages: try request.openAIMessages(),
-                temperature: request.options.temperature,
-                maxTokens: request.options.maximumResponseTokens,
-                topP: request.options.topP,
-                repetitionPenalty: request.options.repetitionPenalty,
-                topK: request.options.topK,
-                minP: request.options.minP,
-                presencePenalty: request.options.presencePenalty,
-                seed: request.options.seed,
-                logprobs: request.options.logprobs,
-                topLogprobs: request.options.topLogprobs,
-                tools: tools,
-                parallelToolCalls: request.parallelToolCalls,
-                stop: request.options.stopSequences,
-                responseFormat: request.openAIResponseFormat(),
-                chatTemplateKwargs: request.chatTemplateKwargs()
-            )
+            let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                request.options.maximumResponseTokens
+            ) {
+                try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                    request.options.ignoreEndOfSequence
+                ) {
+                    try await service.generate(
+                        model: modelID,
+                        messages: try request.openAIMessages(),
+                        temperature: request.options.temperature,
+                        maxTokens: request.options.maximumResponseTokens,
+                        topP: request.options.topP,
+                        repetitionPenalty: request.options.repetitionPenalty,
+                        topK: request.options.topK,
+                        minP: request.options.minP,
+                        presencePenalty: request.options.presencePenalty,
+                        seed: request.options.seed,
+                        logprobs: request.options.logprobs,
+                        topLogprobs: request.options.topLogprobs,
+                        tools: tools,
+                        parallelToolCalls: request.parallelToolCalls,
+                        stop: request.options.stopSequences,
+                        responseFormat: request.openAIResponseFormat(),
+                        chatTemplateKwargs: request.chatTemplateKwargs()
+                    )
+                }
+            }
             let split = Self.splitReasoning(
                 result.content,
                 startTag: service.thinkStartTag,
@@ -213,26 +273,34 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 do {
                     _ = try await load(progress: nil)
                     let tools = request.effectiveOpenAITools()
-                    let result = try await service.generateStreaming(
-                        model: modelID,
-                        messages: try request.openAIMessages(),
-                        temperature: request.options.temperature,
-                        maxTokens: request.options.maximumResponseTokens,
-                        topP: request.options.topP,
-                        repetitionPenalty: request.options.repetitionPenalty,
-                        topK: request.options.topK,
-                        minP: request.options.minP,
-                        presencePenalty: request.options.presencePenalty,
-                        seed: request.options.seed,
-                        logprobs: request.options.logprobs,
-                        topLogprobs: request.options.topLogprobs,
-                        tools: tools,
-                        parallelToolCalls: request.parallelToolCalls,
-                        stop: request.options.stopSequences,
-                        responseFormat: request.openAIResponseFormat(),
-                        chatTemplateKwargs: request.chatTemplateKwargs(),
-                        requestId: nil
-                    )
+                    let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        request.options.maximumResponseTokens
+                    ) {
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            request.options.ignoreEndOfSequence
+                        ) {
+                            try await service.generateStreaming(
+                                model: modelID,
+                                messages: try request.openAIMessages(),
+                                temperature: request.options.temperature,
+                                maxTokens: request.options.maximumResponseTokens,
+                                topP: request.options.topP,
+                                repetitionPenalty: request.options.repetitionPenalty,
+                                topK: request.options.topK,
+                                minP: request.options.minP,
+                                presencePenalty: request.options.presencePenalty,
+                                seed: request.options.seed,
+                                logprobs: request.options.logprobs,
+                                topLogprobs: request.options.topLogprobs,
+                                tools: tools,
+                                parallelToolCalls: request.parallelToolCalls,
+                                stop: request.options.stopSequences,
+                                responseFormat: request.openAIResponseFormat(),
+                                chatTemplateKwargs: request.chatTemplateKwargs(),
+                                requestId: nil
+                            )
+                        }
+                    }
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
                         thinkEndTag: result.thinkEndTag,
@@ -302,6 +370,93 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func rawTextGenerationEvents(
+        for request: AFMRawTextGenerationRequest
+    ) -> AsyncStream<AFMRawTextGenerationEvent> {
+        AsyncStream { continuation in
+            let task = Task {
+                do {
+                    _ = try await load(progress: nil)
+                    let result = try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        request.maximumOutputTokens
+                    ) {
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            request.ignoreEndOfSequence
+                        ) {
+                            try await AFMMLXPromptContext.$rawPrompt.withValue(request.prompt) {
+                                try await service.generateStreaming(
+                                    model: modelID,
+                                    messages: [],
+                                    temperature: request.temperature,
+                                    maxTokens: request.maximumOutputTokens,
+                                    topP: request.topP,
+                                    repetitionPenalty: request.repetitionPenalty,
+                                    topK: request.topK,
+                                    minP: request.minP,
+                                    presencePenalty: request.presencePenalty,
+                                    seed: request.seed,
+                                    stop: request.stopSequences,
+                                    preserveStructuralTags: true
+                                )
+                            }
+                        }
+                    }
+
+                    var promptTokens: Int?
+                    var completionTokens: Int?
+                    var stoppedBySequence = false
+                    for try await chunk in result.stream {
+                        try Task.checkCancellation()
+                        if !chunk.text.isEmpty {
+                            continuation.yield(.textDelta(
+                                text: chunk.text,
+                                tokenID: nil,
+                                timestamp: ProcessInfo.processInfo.systemUptime
+                            ))
+                        }
+                        promptTokens = chunk.promptTokens ?? promptTokens
+                        completionTokens = chunk.completionTokens ?? completionTokens
+                        stoppedBySequence = chunk.stoppedBySequence ?? stoppedBySequence
+                    }
+
+                    guard let promptTokens, let completionTokens else {
+                        continuation.yield(.failed(
+                            reason: .internal,
+                            message: "MLX raw generation ended without exact usage"
+                        ))
+                        continuation.finish()
+                        return
+                    }
+                    let reachedLimit = request.maximumOutputTokens.map {
+                        completionTokens >= max(0, $0)
+                    } ?? false
+                    let finishReason: AFMInferenceFinishReason =
+                        reachedLimit && !stoppedBySequence ? .length : .stop
+                    continuation.yield(.completed(AFMRawTextGenerationResult(
+                        finishReason: finishReason,
+                        promptTokens: promptTokens,
+                        completionTokens: completionTokens,
+                        totalTokens: promptTokens + completionTokens
+                    )))
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.yield(.failed(
+                        reason: .cancelled,
+                        message: "MLX raw generation was cancelled"
+                    ))
+                    continuation.finish()
+                } catch {
+                    continuation.yield(.failed(
+                        reason: .inference,
+                        message: error.localizedDescription
+                    ))
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

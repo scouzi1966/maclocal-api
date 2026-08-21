@@ -87,6 +87,7 @@ struct TokenizeAndOpenAPITests {
         let paths = parsed?["paths"] as? [String: Any] ?? [:]
         let expected = [
             "/v1/chat/completions",
+            "/v1/completions",
             "/v1/chat/completions/{id}/cancel",
             "/v1/tokenize",
             "/v1/count_tokens",
@@ -105,11 +106,66 @@ struct TokenizeAndOpenAPITests {
         }
     }
 
+    @Test("T1.7 OpenAPI documents GuideLLM compatibility controls")
+    func openAPIDocumentsGuideLLMControls() {
+        let spec = OpenAPIController.specJSON
+        #expect(spec.contains(#""ignore_eos""#))
+        #expect(spec.contains(#""continuous_usage_stats""#))
+        #expect(spec.contains("only one final exact usage event"))
+    }
+
+    @Test("T1.7 Foundation and gateway OpenAPI omit unavailable raw completions")
+    func openAPIOmitsRawCompletionsWithoutProviderCapability() throws {
+        for mode in ["foundation", "gateway"] {
+            let paths = try Self.paths(
+                OpenAPIController.specJSON(rawCompletionsAvailable: false)
+            )
+            #expect(paths["/v1/completions"] == nil, "unexpected raw route for \(mode)")
+        }
+    }
+
+    @Test("T1.7 MLX and DwarfStar OpenAPI declare available raw completions")
+    func openAPIIncludesRawCompletionsForQualifiedProviders() throws {
+        for mode in ["mlx", "dwarfstar"] {
+            let paths = try Self.paths(
+                OpenAPIController.specJSON(rawCompletionsAvailable: true)
+            )
+            #expect(paths["/v1/completions"] != nil, "missing raw route for \(mode)")
+        }
+    }
+
+    @Test("T1.7 raw completions document runtime errors and capacity retry header")
+    func openAPIDocumentsRawCompletionErrorResponses() throws {
+        let paths = try Self.paths(
+            OpenAPIController.specJSON(rawCompletionsAvailable: true)
+        )
+        let completionPath = try #require(paths["/v1/completions"] as? [String: Any])
+        let post = try #require(completionPath["post"] as? [String: Any])
+        let responses = try #require(post["responses"] as? [String: Any])
+
+        for status in ["200", "400", "404", "500", "503"] {
+            #expect(responses[status] != nil, "missing raw completion response \(status)")
+        }
+        let unavailable = try #require(responses["503"] as? [String: Any])
+        let headers = try #require(unavailable["headers"] as? [String: Any])
+        let retryAfter = try #require(headers["Retry-After"] as? [String: Any])
+        let schema = try #require(retryAfter["schema"] as? [String: Any])
+        #expect(schema["type"] as? String == "integer")
+        #expect(retryAfter["example"] as? Int == 2)
+    }
+
     @Test("T1.7 docs page references /openapi.json on same origin")
     func docsHTMLReferencesSpec() {
         let html = OpenAPIController.docsHTML
         #expect(html.contains("/openapi.json"))
         #expect(html.contains("scalar"))
+    }
+
+    private static func paths(_ spec: String) throws -> [String: Any] {
+        let document = try #require(
+            JSONSerialization.jsonObject(with: Data(spec.utf8)) as? [String: Any]
+        )
+        return try #require(document["paths"] as? [String: Any])
     }
 }
 

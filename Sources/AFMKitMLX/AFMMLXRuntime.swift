@@ -234,6 +234,29 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         )
     }
 
+    public init(
+        modelID: String,
+        configuration: AFMMLXRuntimeConfiguration = .init(),
+        telemetryObserver: any AFMInferenceTelemetryObserving,
+        resolver: MLXCacheResolver = .init(),
+        service providedService: MLXModelService? = nil
+    ) {
+        let service = providedService ?? MLXModelService(
+            resolver: resolver,
+            telemetryObserver: telemetryObserver
+        )
+        configuration.apply(to: service)
+
+        self.configuration = configuration
+        self.initializesSchedulerOnLoad = true
+        self.service = service
+        self.modelID = service.normalizeModel(modelID)
+        self.descriptor = AFMMLXModelDescriptor.describe(
+            modelID: self.modelID,
+            resolver: resolver
+        )
+    }
+
     /// Attach AFMKit lifecycle and model metadata to a service that the host has
     /// already configured. Request adapters must not reapply provider defaults.
     public init(
@@ -272,6 +295,24 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             configuration: AFMMLXRuntimeConfiguration(
                 providerConfiguration: providerConfiguration
             ),
+            resolver: resolver,
+            service: providedService
+        )
+    }
+
+    public convenience init(
+        modelID: String,
+        providerConfiguration: AFMProviderConfiguration,
+        telemetryObserver: any AFMInferenceTelemetryObserving,
+        resolver: MLXCacheResolver = .init(),
+        service providedService: MLXModelService? = nil
+    ) {
+        self.init(
+            modelID: modelID,
+            configuration: AFMMLXRuntimeConfiguration(
+                providerConfiguration: providerConfiguration
+            ),
+            telemetryObserver: telemetryObserver,
             resolver: resolver,
             service: providedService
         )

@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 import AFMOpenAICompat
 import MLX
 @preconcurrency import MLXLLM
@@ -43,6 +44,43 @@ extension Gemma4VLM: FixedDecodeCohortModel {
 /// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
 /// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
+    enum SerialGenerationDisposition: Equatable {
+        case cancel
+        case length
+        case stop
+        case suppress
+        case emit
+    }
+
+    static func serialGenerationDisposition(
+        cancellationRequested: Bool,
+        tokenCount: Int,
+        maxTokens: Int,
+        tokenID: Int,
+        unknownTokenID: Int?,
+        ignoreEndOfSequence: Bool,
+        eosTokenIDs: Set<Int>,
+        consecutiveSuppressedEndOfSequenceTokens: Int = 0
+    ) -> SerialGenerationDisposition {
+        if cancellationRequested { return .cancel }
+        if tokenCount >= maxTokens { return .length }
+        if unknownTokenID == tokenID { return .stop }
+        if eosTokenIDs.contains(tokenID) {
+            guard ignoreEndOfSequence else { return .stop }
+            return consecutiveSuppressedEndOfSequenceTokens + 1
+                >= maximumConsecutiveSuppressedEndOfSequenceTokens
+                ? .stop
+                : .suppress
+        }
+        return .emit
+    }
+
+    static func shouldDispatchFirstToken(maxTokens: Int?) -> Bool {
+        maxTokens.map { $0 > 0 } ?? true
+    }
+
     struct ConstraintRuntimeConfiguration: @unchecked Sendable {
         let mode: String
         let matcherHandle: GrammarMatcherHandle?
@@ -68,6 +106,7 @@ actor BatchScheduler {
     nonisolated let tokenizer: Tokenizer
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
+    private let telemetryObserver: any AFMInferenceTelemetryObserving
     private let cacheProfilePath: String?
     private let admissionWindowNanoseconds: UInt64
     /// Some models change attention behavior when a later, shorter sequence is
@@ -89,19 +128,20 @@ actor BatchScheduler {
     private class SlotState {
         let id: UUID
         let requestId: String
+        let telemetryToken: AFMInferenceRequestToken
+        let admissionLease: AFMGenerationLease?
+        let ignoreEndOfSequence: Bool
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
-        /// Wall-clock instant the request was accepted by `submit()` —
+        /// Monotonic instant the request was accepted by `submit()` —
         /// drives e2e latency, queue time, and TTFT in `/metrics`.
-        let queuedAt: Date
+        let queuedAt: Double
         /// Set to the moment prefill begins (prefillStart), so elapsed includes prefill + decode.
         let startTime: Date
         let prefillTime: TimeInterval
         var tokenCount = 0
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         var firstTokenTime: TimeInterval = 0
-        /// Wall-clock instant the first generated token was yielded to the
-        /// continuation, or nil if the request finished before producing any.
-        var firstTokenAt: Date?
         let inputTokens: [Int]
         let cachedTokens: Int
         /// Token boundary represented by the persisted prefix snapshot. DeepSeek
@@ -126,6 +166,7 @@ actor BatchScheduler {
         var processor: LogitProcessor?
         var detokenizer: NaiveStreamingDetokenizer
         let maxTokens: Int?
+        let requestedMaximumOutputTokens: Int?
         let toolRuntime: ToolCallStreamingRuntime?
         let constraintRuntime: ConstraintRuntimeConfiguration?
 
@@ -149,9 +190,12 @@ actor BatchScheduler {
         init(
             id: UUID,
             requestId: String = "",
+            telemetryToken: AFMInferenceRequestToken,
+            admissionLease: AFMGenerationLease?,
+            ignoreEndOfSequence: Bool,
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
-            queuedAt: Date,
+            queuedAt: Double,
             startTime: Date,
             prefillTime: TimeInterval,
             inputTokens: [Int],
@@ -166,6 +210,7 @@ actor BatchScheduler {
             processor: LogitProcessor?,
             detokenizer: NaiveStreamingDetokenizer,
             maxTokens: Int?,
+            requestedMaximumOutputTokens: Int?,
             toolRuntime: ToolCallStreamingRuntime?,
             constraintRuntime: ConstraintRuntimeConfiguration?,
             activeStops: [String],
@@ -177,6 +222,9 @@ actor BatchScheduler {
         ) {
             self.id = id
             self.requestId = requestId
+            self.telemetryToken = telemetryToken
+            self.admissionLease = admissionLease
+            self.ignoreEndOfSequence = ignoreEndOfSequence
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
             self.queuedAt = queuedAt
@@ -200,6 +248,7 @@ actor BatchScheduler {
             self.processor = processor
             self.detokenizer = detokenizer
             self.maxTokens = maxTokens
+            self.requestedMaximumOutputTokens = requestedMaximumOutputTokens
             self.toolRuntime = toolRuntime
             self.constraintRuntime = constraintRuntime
             self.activeStops = activeStops
@@ -401,9 +450,13 @@ actor BatchScheduler {
     struct PendingRequest: @unchecked Sendable {
         let id: UUID
         let requestId: String
-        /// Wall-clock instant the request was accepted by `submit()`. Used to
+        let telemetryToken: AFMInferenceRequestToken
+        let admissionLease: AFMGenerationLease?
+        let ignoreEndOfSequence: Bool
+        let requestedMaximumOutputTokens: Int?
+        /// Monotonic instant the request was accepted by `submit()`. Used to
         /// derive queue time, e2e latency, and TTFT in `/metrics`.
-        let queuedAt: Date
+        let queuedAt: Double
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
@@ -426,6 +479,9 @@ actor BatchScheduler {
     /// decremented in finishSlot() and error paths. Used for capacity checks.
     private let _inFlightCount = OSAllocatedUnfairLock(initialState: 0)
 
+    /// Requests admitted to the provider queue but not yet holding capacity.
+    private let _admissionWaitCount = OSAllocatedUnfairLock(initialState: 0)
+
     /// Cancellation must be observable from the synchronous GPU loop without
     /// waiting for an actor hop. The generation loop intentionally contains no
     /// suspension point while slots are active.
@@ -433,11 +489,13 @@ actor BatchScheduler {
 
     /// Atomically reserve a slot if under capacity. Returns true if reserved.
     nonisolated func tryReserve() -> Bool {
-        _inFlightCount.withLock { count in
+        let reserved = _inFlightCount.withLock { count in
             if count >= maxConcurrent { return false }
             count += 1
             return true
         }
+        if reserved { publishProviderState() }
+        return reserved
     }
 
     /// Exponential backoff constants for slot polling.
@@ -463,21 +521,67 @@ actor BatchScheduler {
         return false
     }
 
+    nonisolated func admitGeneration(timeout: TimeInterval) async throws -> AFMGenerationLease {
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
+        let token = telemetryObserver.requestAccepted(at: acceptedAt)
+        _admissionWaitCount.withLock { $0 += 1 }
+        publishProviderState()
+
+        let reserved = await waitForSlot(timeout: timeout)
+        _admissionWaitCount.withLock { $0 = max(0, $0 - 1) }
+        guard reserved else {
+            let shutdown = _isShutdown.withLock { $0 }
+            let reason: AFMInferenceFailureReason = Task.isCancelled
+                ? .cancelled
+                : (shutdown ? .internal : .inference)
+            _ = telemetryObserver.requestFailed(
+                token,
+                reason: reason,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+            publishProviderState()
+            if Task.isCancelled {
+                throw AFMGenerationAdmissionError.cancelled
+            }
+            if shutdown {
+                throw AFMGenerationAdmissionError.internalFailure
+            }
+            throw timeout <= 0
+                ? AFMGenerationAdmissionError.capacity
+                : AFMGenerationAdmissionError.timedOut
+        }
+
+        telemetryObserver.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
+        publishProviderState()
+        return AFMGenerationLease(telemetryToken: token) { [weak self] in
+            self?.releaseReservation()
+        } onAbandon: { [telemetryObserver] in
+            _ = telemetryObserver.requestFailed(
+                token,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
+    }
+
     /// Release a reserved slot (call if request fails before reaching submit).
     nonisolated func releaseReservation() {
         _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+        publishProviderState()
     }
 
     /// Atomically reserve N slots. Returns true if all N were reserved,
     /// false if insufficient capacity (no slots reserved in that case).
     nonisolated func tryReserveMultiple(count: Int) -> Bool {
-        _inFlightCount.withLock { current in
+        let reserved = _inFlightCount.withLock { current in
             if current + count <= maxConcurrent {
                 current += count
                 return true
             }
             return false
         }
+        if reserved { publishProviderState() }
+        return reserved
     }
 
     /// Release N slot reservations at once.
@@ -485,11 +589,25 @@ actor BatchScheduler {
         _inFlightCount.withLock { current in
             current = max(0, current - count)
         }
+        publishProviderState()
     }
 
     /// Current number of active + pending slots (for teardown decisions).
     nonisolated var activeSlotCount: Int {
         _inFlightCount.withLock { $0 }
+    }
+
+    nonisolated private func publishProviderState() {
+        let queued = _pendingQueue.withLock { $0.count }
+        let admissionWaiting = _admissionWaitCount.withLock { $0 }
+        let inFlight = _inFlightCount.withLock { $0 }
+        telemetryObserver.updateProviderState(
+            AFMInferenceProviderState(
+                runningRequests: max(0, inFlight - queued),
+                waitingRequests: queued + admissionWaiting,
+                prefixCacheFill: nil
+            )
+        )
     }
 
     /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
@@ -511,11 +629,16 @@ actor BatchScheduler {
 
         _inFlightCount.withLock { $0 = max(0, $0 - removed.count) }
         for request in removed {
+            request.admissionLease?.transferReleaseToProvider()
             clearCancellation(request.id)
             request.continuation.finish(throwing: CancellationError())
-            StatsAggregator.shared.requestSucceeded(reason: "abort")
-            StatsAggregator.shared.requestCompleted()
+            _ = telemetryObserver.requestFailed(
+                request.telemetryToken,
+                reason: .cancelled,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
+        publishProviderState()
     }
 
     nonisolated private func isCancellationRequested(_ id: UUID) -> Bool {
@@ -543,6 +666,7 @@ actor BatchScheduler {
         tokenizer: Tokenizer,
         processor: any UserInputProcessor,
         configuration: ModelConfiguration,
+        telemetryObserver: any AFMInferenceTelemetryObserving,
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
         enablePrefixCaching: Bool = false,
         cacheProfilePath: String? = nil,
@@ -552,6 +676,7 @@ actor BatchScheduler {
         self.tokenizer = tokenizer
         self.processor = processor
         self.configuration = configuration
+        self.telemetryObserver = telemetryObserver
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
@@ -576,27 +701,7 @@ actor BatchScheduler {
         }
         self.eosTokenIds = eos
 
-        // Wire gauge readers into the global stats aggregator. `num_running`
-        // is (inflight - waiting), since _inFlightCount covers both actively
-        // decoding and still-pending requests. `num_waiting` reads the
-        // pending queue directly. Both closures read nonisolated state
-        // through existing unfair locks — no actor hop, no async.
-        //
-        // These closures hold weak references to `self` via the unowned
-        // nonisolated lock pointers, so they do not extend scheduler
-        // lifetime beyond MLXModelService's hold.
-        let pending = self._pendingQueue
-        let inflight = self._inFlightCount
-        StatsAggregator.shared.registerGaugeReaders(
-            running: {
-                let total = inflight.withLock { $0 }
-                let queued = pending.withLock { $0.count }
-                return max(0, total - queued)
-            },
-            waiting: {
-                return pending.withLock { $0.count }
-            }
-        )
+        publishProviderState()
     }
 
     /// Number of requests currently generating.
@@ -621,24 +726,39 @@ actor BatchScheduler {
         thinkEndTag: String? = nil,
         requestId: String = ""
     ) -> AsyncThrowingStream<StreamChunk, Error> {
-        if _isShutdown.withLock({ $0 }) {
-            return AsyncThrowingStream { $0.finish(throwing: MLXServiceError.serviceShuttingDown) }
-        }
-
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
         let slotID = UUID()
+        let acceptedAt = AFMGenerationContext.acceptedAt ?? ProcessInfo.processInfo.systemUptime
+        let telemetryToken: AFMInferenceRequestToken
+        if let admittedToken = AFMGenerationContext.telemetryToken {
+            telemetryToken = admittedToken
+        } else {
+            telemetryToken = telemetryObserver.requestAccepted(at: acceptedAt)
+            telemetryObserver.requestStarted(
+                telemetryToken,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
 
         continuation.onTermination = { [weak self] termination in
             guard case .cancelled = termination else { return }
             self?.cancelSlots(ids: [slotID])
         }
 
-        // Note: slot already reserved by tryReserve() in the controller layer.
-        _pendingQueue.withLock {
-            $0.append(PendingRequest(
+        let admissionLease = AFMGenerationContext.admissionLease
+        let enqueued = _pendingQueue.withLock { queue -> Bool in
+            guard !_isShutdown.withLock({ $0 }) else { return false }
+            // The slot was reserved by admission. Once enqueued, the scheduler
+            // owns both terminal telemetry and capacity release on every exit.
+            admissionLease?.transferReleaseToProvider()
+            queue.append(PendingRequest(
                 id: slotID,
                 requestId: requestId,
-                queuedAt: Date(),
+                telemetryToken: telemetryToken,
+                admissionLease: admissionLease,
+                ignoreEndOfSequence: AFMGenerationContext.ignoreEndOfSequence,
+                requestedMaximumOutputTokens: AFMGenerationContext.requestedMaximumOutputTokens,
+                queuedAt: acceptedAt,
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
@@ -649,9 +769,24 @@ actor BatchScheduler {
                 thinkEndTag: thinkEndTag,
                 continuation: continuation
             ))
+            return true
         }
 
-        StatsAggregator.shared.requestStarted()
+        guard enqueued else {
+            if let admissionLease {
+                admissionLease.transferReleaseToProvider()
+                releaseReservation()
+            }
+            _ = telemetryObserver.requestFailed(
+                telemetryToken,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+            continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            return stream
+        }
+
+        publishProviderState()
         DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
@@ -711,7 +846,13 @@ actor BatchScheduler {
             let result = q; q.removeAll(); return result
         }
         for req in pending {
+            req.admissionLease?.transferReleaseToProvider()
             req.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            _ = telemetryObserver.requestFailed(
+                req.telemetryToken,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
 
         if let task = loopTask {
@@ -721,8 +862,14 @@ actor BatchScheduler {
         }
 
         for slot in slots {
+            slot.admissionLease?.transferReleaseToProvider()
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             slot.constraintRuntime?.matcherHandle?.release()
+            _ = telemetryObserver.requestFailed(
+                slot.telemetryToken,
+                reason: .internal,
+                at: ProcessInfo.processInfo.systemUptime
+            )
         }
         // Reset in-flight counter
         _inFlightCount.withLock { $0 = 0 }
@@ -730,6 +877,7 @@ actor BatchScheduler {
         batchCaches = []
         batchState = nil
         cacheMode = .empty
+        publishProviderState()
     }
 
     // MARK: - Private
@@ -784,11 +932,15 @@ actor BatchScheduler {
             }
             if Task.isCancelled || _isShutdown.withLock({ $0 }) {
                 for req in newRequests {
+                    req.admissionLease?.transferReleaseToProvider()
                     _inFlightCount.withLock { $0 = max(0, $0 - 1) }
                     req.continuation.finish(
                         throwing: MLXServiceError.serviceShuttingDown)
-                    StatsAggregator.shared.requestSucceeded(reason: "abort")
-                    StatsAggregator.shared.requestCompleted()
+                    _ = telemetryObserver.requestFailed(
+                        req.telemetryToken,
+                        reason: .internal,
+                        at: ProcessInfo.processInfo.systemUptime
+                    )
                 }
                 if !slots.isEmpty {
                     // Drain in-flight GPU work before shutdown tears down cache.
@@ -802,10 +954,14 @@ actor BatchScheduler {
                 for req in newRequests {
                     if isCancellationRequested(req.id) {
                         clearCancellation(req.id)
+                        req.admissionLease?.transferReleaseToProvider()
                         _inFlightCount.withLock { $0 = max(0, $0 - 1) }
                         req.continuation.finish(throwing: CancellationError())
-                        StatsAggregator.shared.requestSucceeded(reason: "abort")
-                        StatsAggregator.shared.requestCompleted()
+                        _ = telemetryObserver.requestFailed(
+                            req.telemetryToken,
+                            reason: .cancelled,
+                            at: ProcessInfo.processInfo.systemUptime
+                        )
                         continue
                     }
                     if slots.count + accepted.count < maxConcurrent {
@@ -973,32 +1129,54 @@ actor BatchScheduler {
                         slot.pendingLogprobData = nil
                     }
 
-                    if slot.firstTokenTime == 0 {
-                        let now = Date()
-                        slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
-                        slot.firstTokenAt = now
-                    }
-
-                    if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
-                        completedIndices.append(i)
-                        continue
-                    }
-
-                    if let max = slot.maxTokens, slot.tokenCount >= max {
+                    let disposition = Self.serialGenerationDisposition(
+                        cancellationRequested: false,
+                        tokenCount: slot.tokenCount,
+                        maxTokens: slot.maxTokens ?? Int.max,
+                        tokenID: token,
+                        unknownTokenID: tokenizer.unknownTokenId,
+                        ignoreEndOfSequence: slot.ignoreEndOfSequence,
+                        eosTokenIDs: eosTokenIds,
+                        consecutiveSuppressedEndOfSequenceTokens:
+                            slot.consecutiveSuppressedEndOfSequenceTokens
+                    )
+                    if disposition == .stop || disposition == .length {
                         completedIndices.append(i)
                         continue
                     }
 
                     slot.lastTokenId = token
+                    if disposition == .suppress {
+                        slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                        slot.pendingLogprobData = nil
+                        continue
+                    }
 
+                    slot.consecutiveSuppressedEndOfSequenceTokens = 0
+                    if slot.firstTokenTime == 0 {
+                        let now = Date()
+                        slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
+                    }
                     slot.tokenCount += 1
-                    StatsAggregator.shared.addGenTokens(1)
-                    slot.detokenizer.append(token: token)
-                    if let chunk = slot.detokenizer.next() {
-                        if yieldTextChunk(chunk, for: slot, logprobs: logprobsForThisToken) {
-                            completedIndices.append(i)
+                    telemetryObserver.outputToken(
+                        slot.telemetryToken,
+                        at: ProcessInfo.processInfo.systemUptime
+                    )
+                    var shouldFinish = false
+                    if disposition == .emit {
+                        slot.detokenizer.append(token: token)
+                        if let chunk = slot.detokenizer.next() {
+                            shouldFinish = yieldTextChunk(
+                                chunk,
+                                for: slot,
+                                logprobs: logprobsForThisToken
+                            )
                         }
                     }
+                    if let max = slot.maxTokens, slot.tokenCount >= max {
+                        shouldFinish = true
+                    }
+                    if shouldFinish { completedIndices.append(i) }
                 }
 
                 for i in completedIndices.sorted().reversed() {
@@ -1059,25 +1237,50 @@ actor BatchScheduler {
                     logprobsForToken = nil
                 }
 
-                if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
-                    finishSlot(at: i)
-                    continue
-                }
-                if let max = slot.maxTokens, slot.tokenCount >= max {
+                let disposition = Self.serialGenerationDisposition(
+                    cancellationRequested: isCancellationRequested(slot.id),
+                    tokenCount: slot.tokenCount,
+                    maxTokens: slot.maxTokens ?? Int.max,
+                    tokenID: token,
+                    unknownTokenID: tokenizer.unknownTokenId,
+                    ignoreEndOfSequence: slot.ignoreEndOfSequence,
+                    eosTokenIDs: eosTokenIds,
+                    consecutiveSuppressedEndOfSequenceTokens:
+                        slot.consecutiveSuppressedEndOfSequenceTokens
+                )
+                if disposition == .cancel || disposition == .stop || disposition == .length {
                     finishSlot(at: i)
                     continue
                 }
 
                 slot.lastTokenId = token
+                if disposition == .suppress {
+                    slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                    finishSlot(at: i)
+                    continue
+                }
+
+                slot.consecutiveSuppressedEndOfSequenceTokens = 0
                 slot.tokenCount += 1
-                StatsAggregator.shared.addGenTokens(1)
-                slot.detokenizer.append(token: token)
-                if let chunk = slot.detokenizer.next() {
-                    if yieldTextChunk(chunk, for: slot, logprobs: logprobsForToken) {
-                        finishSlot(at: i)
-                        continue
+                telemetryObserver.outputToken(
+                    slot.telemetryToken,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
+                var shouldFinish = false
+                if disposition == .emit {
+                    slot.detokenizer.append(token: token)
+                    if let chunk = slot.detokenizer.next() {
+                        shouldFinish = yieldTextChunk(
+                            chunk,
+                            for: slot,
+                            logprobs: logprobsForToken
+                        )
                     }
                 }
+                if let max = slot.maxTokens, slot.tokenCount >= max {
+                    shouldFinish = true
+                }
+                if shouldFinish { finishSlot(at: i) }
             }
         }
 
@@ -1329,6 +1532,16 @@ actor BatchScheduler {
 
         let firstToken = tokenArray.item(Int.self)
         let prefillTime = Date().timeIntervalSince(prefillStart)
+        telemetryObserver.prefixCacheObserved(
+            queriedTokens: inputTokens.count,
+            hitTokens: cachedTokens
+        )
+        telemetryObserver.promptTokensProcessed(
+            req.telemetryToken,
+            fullPromptTokens: inputTokens.count,
+            computedPromptTokens: max(0, inputTokens.count - cachedTokens),
+            at: ProcessInfo.processInfo.systemUptime
+        )
 
         let unsupportedCacheTypes = cache.compactMap { layerCache -> String? in
             Self.supportsDenseBatchMerge(layerCache)
@@ -1352,20 +1565,12 @@ actor BatchScheduler {
 
         mergeCacheIntoBatch(individualCache: cache, modelState: result.state)
 
-        // Only count the un-cached suffix in prompt_tokens_total so the
-        // counter reflects tokens the GPU actually prefilled, not tokens
-        // served from the radix cache. This matches vLLM semantics.
-        let suffixPromptTokens = max(0, inputTokens.count - cachedTokens)
-        StatsAggregator.shared.addPromptTokens(suffixPromptTokens)
-        if cachedTokens > 0 {
-            StatsAggregator.shared.cacheHit()
-        } else if !isMultimodal {
-            StatsAggregator.shared.cacheMiss()
-        }
-
         let slot = SlotState(
             id: req.id,
             requestId: req.requestId,
+            telemetryToken: req.telemetryToken,
+            admissionLease: req.admissionLease,
+            ignoreEndOfSequence: req.ignoreEndOfSequence,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
             queuedAt: req.queuedAt,
@@ -1383,6 +1588,7 @@ actor BatchScheduler {
             processor: logitProcessor,
             detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
             maxTokens: req.parameters.maxTokens,
+            requestedMaximumOutputTokens: req.requestedMaximumOutputTokens,
             toolRuntime: req.toolCallRuntimeConfig.map { config in
                 ToolCallStreamingRuntime(
                     toolCallStartTag: config.startTag,
@@ -1415,16 +1621,38 @@ actor BatchScheduler {
             )
         }
 
-        // Dispatch the first token (from prefill) to the detokenizer.
-        // The generationLoop dispatch starts from the SECOND token, so without this
-        // the first generated token would be lost (e.g., `{` in JSON output).
-        // Guard: don't dispatch EOS or unknown tokens as text.
-        if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+        // The generation loop starts with the token after this prefill candidate.
+        // Apply the same stop/suppression/accounting policy here as decode dispatch.
+        let firstTokenDisposition = Self.serialGenerationDisposition(
+            cancellationRequested: isCancellationRequested(slot.id),
+            tokenCount: slot.tokenCount,
+            maxTokens: slot.maxTokens ?? Int.max,
+            tokenID: firstToken,
+            unknownTokenID: tokenizer.unknownTokenId,
+            ignoreEndOfSequence: slot.ignoreEndOfSequence,
+            eosTokenIDs: eosTokenIds,
+            consecutiveSuppressedEndOfSequenceTokens:
+                slot.consecutiveSuppressedEndOfSequenceTokens
+        )
+        var finishAfterPrefill = firstTokenDisposition == .cancel
+            || firstTokenDisposition == .length
+            || firstTokenDisposition == .stop
+        if firstTokenDisposition == .suppress {
+            slot.consecutiveSuppressedEndOfSequenceTokens += 1
+            slot.pendingLogprobData = nil
+        } else if firstTokenDisposition == .emit {
+            slot.consecutiveSuppressedEndOfSequenceTokens = 0
             slot.tokenCount += 1
-            StatsAggregator.shared.addGenTokens(1)
+            telemetryObserver.outputToken(
+                slot.telemetryToken,
+                at: ProcessInfo.processInfo.systemUptime
+            )
             slot.detokenizer.append(token: firstToken)
             if let firstChunk = slot.detokenizer.next() {
-                _ = yieldTextChunk(firstChunk, for: slot)
+                finishAfterPrefill = yieldTextChunk(firstChunk, for: slot)
+            }
+            if let max = slot.maxTokens, slot.tokenCount >= max {
+                finishAfterPrefill = true
             }
         }
 
@@ -1452,6 +1680,9 @@ actor BatchScheduler {
         print("[\(batchTs())] [ChunkStats] stage=preliminary | stream=true | cached_tokens=\(cachedTokens) | prompt_tokens=pending | completion_tokens=pending | prompt_time=pending | generate_time=pending")
 
         slots.append(slot)
+        if finishAfterPrefill {
+            finishSlot(at: slots.count - 1)
+        }
         DebugLogger.log("[BatchScheduler] Prefilled slot req=\(slot.requestId) (B=\(slots.count), \(cachedTokens > 0 ? "cache hit \(cachedTokens) tokens" : "full prefill"), \(String(format: "%.0f", prefillTime * 1000))ms)")
     }
 
@@ -1470,6 +1701,11 @@ actor BatchScheduler {
         cacheTruncateTime: Double?,
         logitProcessor: LogitProcessor?, logitSampler: LogitSampler
     ) {
+        if isCancellationRequested(req.id) {
+            finishSerialCancellation(req)
+            return
+        }
+
         // Emit cached token count
         if cachedTokens > 0 {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
@@ -1489,18 +1725,65 @@ actor BatchScheduler {
         var currentToken = firstToken
         var state = modelState
         var tokenCount = 0
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         let maxTokens = req.parameters.maxTokens ?? 4096
         var detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+        var stopBuffer = MLXSerialStopSequenceBuffer(stopSequences: req.stopSequences)
+        var stoppedBySequence = false
+        var reachedLength = false
         let genStart = Date()
 
-        while tokenCount < maxTokens {
+        generation: while true {
             let tokenId = currentToken.item(Int.self)
-            if eosTokenIds.contains(tokenId) { break }
+            let disposition = Self.serialGenerationDisposition(
+                cancellationRequested: isCancellationRequested(req.id),
+                tokenCount: tokenCount,
+                maxTokens: maxTokens,
+                tokenID: tokenId,
+                unknownTokenID: tokenizer.unknownTokenId,
+                ignoreEndOfSequence: req.ignoreEndOfSequence,
+                eosTokenIDs: eosTokenIds,
+                consecutiveSuppressedEndOfSequenceTokens:
+                    consecutiveSuppressedEndOfSequenceTokens
+            )
+            switch disposition {
+            case .cancel:
+                finishSerialCancellation(req)
+                return
+            case .length:
+                reachedLength = true
+                break generation
+            case .stop:
+                break generation
+            case .suppress, .emit:
+                break
+            }
 
-            tokenCount += 1
-            detokenizer.append(token: tokenId)
-            if let chunk = detokenizer.next() {
-                req.continuation.yield(StreamChunk(text: chunk))
+            if disposition == .suppress {
+                consecutiveSuppressedEndOfSequenceTokens += 1
+            } else {
+                consecutiveSuppressedEndOfSequenceTokens = 0
+                tokenCount += 1
+                telemetryObserver.outputToken(
+                    req.telemetryToken,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
+                detokenizer.append(token: tokenId)
+                if let chunk = detokenizer.next() {
+                    let visible = stopBuffer.append(chunk)
+                    if !visible.isEmpty {
+                        req.continuation.yield(StreamChunk(text: visible))
+                    }
+                    if stopBuffer.stopped {
+                        stoppedBySequence = true
+                        break generation
+                    }
+                }
+            }
+
+            if tokenCount >= maxTokens {
+                reachedLength = true
+                break generation
             }
 
             // Next token — shape [1, 1] (batch=1, seqLen=1)
@@ -1516,10 +1799,21 @@ actor BatchScheduler {
             _ = currentToken.item(Int.self)
         }
 
+        if isCancellationRequested(req.id) {
+            finishSerialCancellation(req)
+            return
+        }
+        let trailingText = stopBuffer.finish()
+        if !trailingText.isEmpty {
+            req.continuation.yield(StreamChunk(text: trailingText))
+        }
+
         let generateTime = Date().timeIntervalSince(genStart)
         print("[\(batchTs())] [BatchScheduler] Serial cache generation done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
 
-        // Signal completion
+        // Signal completion. Mark scheduler ownership before exposing the
+        // terminal event so stream teardown cannot race a second release.
+        req.admissionLease?.transferReleaseToProvider()
         req.continuation.yield(StreamChunk(
             text: "",
             promptTokens: inputTokens.count,
@@ -1527,12 +1821,41 @@ actor BatchScheduler {
             cachedTokens: cachedTokens,
             promptTime: prefillTime,
             generateTime: generateTime,
-            stoppedBySequence: false
+            stoppedBySequence: stoppedBySequence
         ))
         req.continuation.finish()
 
+        let reason: AFMInferenceFinishReason = reachedLength ? .length : .stop
+        _ = telemetryObserver.requestFinished(
+            req.telemetryToken,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: reason,
+                completedAt: ProcessInfo.processInfo.systemUptime,
+                fullPromptTokens: inputTokens.count,
+                computedPromptTokens: max(0, inputTokens.count - cachedTokens),
+                generatedTokens: tokenCount,
+                maximumOutputTokens: req.requestedMaximumOutputTokens
+            )
+        )
+        clearCancellation(req.id)
+        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+        publishProviderState()
+
         // Prefix-cache persistence for model-specific hybrid caches requires a
         // dedicated snapshot contract. Do not reinterpret their state as KVCacheSimple.
+    }
+
+    private func finishSerialCancellation(_ req: PendingRequest) {
+        req.admissionLease?.transferReleaseToProvider()
+        req.continuation.finish(throwing: CancellationError())
+        _ = telemetryObserver.requestFailed(
+            req.telemetryToken,
+            reason: .cancelled,
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        clearCancellation(req.id)
+        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+        publishProviderState()
     }
 
     // MARK: - Batched Prefill
@@ -1695,6 +2018,7 @@ actor BatchScheduler {
         }
 
         // Create SlotState for each request
+        var finishAfterPrefill: [UUID] = []
         for i in 0..<B {
             let req = requests[i]
             let firstToken = tokenArrays[i].item(Int.self)
@@ -1702,6 +2026,9 @@ actor BatchScheduler {
             let slot = SlotState(
                 id: req.id,
                 requestId: req.requestId,
+                telemetryToken: req.telemetryToken,
+                admissionLease: req.admissionLease,
+                ignoreEndOfSequence: req.ignoreEndOfSequence,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
                 queuedAt: req.queuedAt,
@@ -1716,6 +2043,7 @@ actor BatchScheduler {
                 processor: logitProcessors[i],
                 detokenizer: NaiveStreamingDetokenizer(tokenizer: tokenizer),
                 maxTokens: req.parameters.maxTokens,
+                requestedMaximumOutputTokens: req.requestedMaximumOutputTokens,
                 toolRuntime: req.toolCallRuntimeConfig.map { config in
                     ToolCallStreamingRuntime(
                         toolCallStartTag: config.startTag,
@@ -1750,15 +2078,39 @@ actor BatchScheduler {
                 )
             }
 
-            // Dispatch prefill first token to detokenizer (same fix as prefillOne)
-            if !eosTokenIds.contains(firstToken) && firstToken != tokenizer.unknownTokenId {
+            let firstTokenDisposition = Self.serialGenerationDisposition(
+                cancellationRequested: isCancellationRequested(slot.id),
+                tokenCount: slot.tokenCount,
+                maxTokens: slot.maxTokens ?? Int.max,
+                tokenID: firstToken,
+                unknownTokenID: tokenizer.unknownTokenId,
+                ignoreEndOfSequence: slot.ignoreEndOfSequence,
+                eosTokenIDs: eosTokenIds,
+                consecutiveSuppressedEndOfSequenceTokens:
+                    slot.consecutiveSuppressedEndOfSequenceTokens
+            )
+            var shouldFinish = firstTokenDisposition == .cancel
+                || firstTokenDisposition == .length
+                || firstTokenDisposition == .stop
+            if firstTokenDisposition == .suppress {
+                slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                slot.pendingLogprobData = nil
+            } else if firstTokenDisposition == .emit {
+                slot.consecutiveSuppressedEndOfSequenceTokens = 0
                 slot.tokenCount += 1
-                StatsAggregator.shared.addGenTokens(1)
+                telemetryObserver.outputToken(
+                    slot.telemetryToken,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
                 slot.detokenizer.append(token: firstToken)
                 if let firstChunk = slot.detokenizer.next() {
-                    _ = yieldTextChunk(firstChunk, for: slot)
+                    shouldFinish = yieldTextChunk(firstChunk, for: slot)
+                }
+                if let max = slot.maxTokens, slot.tokenCount >= max {
+                    shouldFinish = true
                 }
             }
+            if shouldFinish { finishAfterPrefill.append(slot.id) }
 
             if let constraintRuntime = req.constraintRuntimeConfig {
                 DebugLogger.log("[BatchScheduler] Constrained slot \(slot.id.uuidString.prefix(8)) mode=\(constraintRuntime.mode)")
@@ -1770,11 +2122,23 @@ actor BatchScheduler {
         let totalInputTokens = lengths.reduce(0, +)
         print("[\(batchTs())] [BatchScheduler] Batched prefill: B=\(B), maxLen=\(maxLen), totalTokens=\(totalInputTokens), leftPads=\(leftPads), time=\(String(format: "%.3f", prefillTime))s (\(String(format: "%.0f", Double(totalInputTokens) / prefillTime)) tok/s)")
         DebugLogger.log("[BatchScheduler] Batched prefill complete: B=\(B), \(String(format: "%.0f", prefillTime * 1000))ms")
-        StatsAggregator.shared.addPromptTokens(totalInputTokens)
-        // Batched prefill requires fresh (empty) caches — every request in
-        // it is a cache miss by definition. Requests that hit the radix
-        // cache go through prefillOne and are counted there.
-        for _ in 0..<B { StatsAggregator.shared.cacheMiss() }
+        for (index, tokens) in allInputTokens.enumerated() {
+            telemetryObserver.prefixCacheObserved(
+                queriedTokens: tokens.count,
+                hitTokens: 0
+            )
+            telemetryObserver.promptTokensProcessed(
+                requests[index].telemetryToken,
+                fullPromptTokens: tokens.count,
+                computedPromptTokens: tokens.count,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
+        for id in finishAfterPrefill {
+            if let index = slots.firstIndex(where: { $0.id == id }) {
+                finishSlot(at: index)
+            }
+        }
     }
 
     /// Merge a newly-prefilled individual cache into the batch.
@@ -1946,6 +2310,9 @@ actor BatchScheduler {
             insertTime: saveInsertTime
         )
 
+        // Mark scheduler ownership before exposing the terminal event so the
+        // controller's stream cleanup cannot release the reservation twice.
+        slot.admissionLease?.transferReleaseToProvider()
         slot.continuation.yield(StreamChunk(
             text: "",
             promptTokens: slot.promptTokenCount,
@@ -1965,31 +2332,39 @@ actor BatchScheduler {
         // terminal state. Order matters: stop-sequence first (stoppedBySequence
         // implies an explicit stop string match), then length-cap, otherwise
         // a clean stop (EOS / model-emitted end).
-        let finishedReason: String
+        let finishedReason: AFMInferenceFinishReason
         if wasCancelled {
-            finishedReason = "abort"
+            finishedReason = .abort
         } else if slot.stoppedBySequence {
-            finishedReason = "stop"
+            finishedReason = .stop
         } else if let max = slot.maxTokens, slot.tokenCount >= max {
-            finishedReason = "length"
+            finishedReason = .length
         } else {
-            finishedReason = "stop"
+            finishedReason = .stop
         }
-        let completedAt = Date()
-        StatsAggregator.shared.observeRequest(
-            StatsAggregator.RequestObservation(
-                queuedAt: slot.queuedAt.timeIntervalSince1970,
-                startedAt: slot.startTime.timeIntervalSince1970,
-                firstTokenAt: slot.firstTokenAt?.timeIntervalSince1970,
-                completedAt: completedAt.timeIntervalSince1970,
-                promptTokens: slot.promptTokenCount,
-                generationTokens: slot.tokenCount,
-                paramsN: 1,
-                paramsBestOf: 1
+        let completedAt = ProcessInfo.processInfo.systemUptime
+        if wasCancelled {
+            _ = telemetryObserver.requestFailed(
+                slot.telemetryToken,
+                reason: .cancelled,
+                at: completedAt
             )
-        )
-        StatsAggregator.shared.requestSucceeded(reason: finishedReason)
-        StatsAggregator.shared.requestCompleted()
+        } else {
+            _ = telemetryObserver.requestFinished(
+                slot.telemetryToken,
+                observation: AFMInferenceRequestFinishObservation(
+                    reason: finishedReason,
+                    completedAt: completedAt,
+                    fullPromptTokens: slot.promptTokenCount,
+                    computedPromptTokens: max(
+                        0,
+                        slot.promptTokenCount - slot.cachedTokens
+                    ),
+                    generatedTokens: slot.tokenCount,
+                    maximumOutputTokens: slot.requestedMaximumOutputTokens
+                )
+            )
+        }
         clearCancellation(slot.id)
 
         DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
@@ -2042,6 +2417,7 @@ actor BatchScheduler {
             DebugLogger.log("[BatchScheduler] finishSlot timing: total=\(String(format: "%.1f", totalTime))ms cache_save=\(String(format: "%.1f", cacheTime))ms")
         }
         slots.remove(at: index)
+        publishProviderState()
     }
 
     /// Compute per-token logprob data from processed logits and sampled token.
@@ -2218,8 +2594,10 @@ actor BatchScheduler {
                 stopBuffer += text
             }
 
-            if let match = activeStops.first(where: { stopBuffer.contains($0) }),
-               let range = stopBuffer.range(of: match) {
+            if let range = MLXStopSequenceMatcher.earliestRange(
+                in: stopBuffer,
+                stopSequences: activeStops
+            ) {
                 let before = String(stopBuffer[..<range.lowerBound])
                 chunks.append(StreamChunk(text: before, stoppedBySequence: true))
                 return (chunks, true)

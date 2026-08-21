@@ -1,0 +1,123 @@
+# Representative Prometheus exposition generated from vLLM commit 9633933dd81228fbcae07969f20881ad0b7cb766.
+# Values are fixtures; HELP, TYPE, labels, and histogram bounds are contractual.
+# HELP vllm:num_requests_running Number of requests in model execution batches.
+# TYPE vllm:num_requests_running gauge
+vllm:num_requests_running{model_name="fixture-model",engine="0"} 1
+# HELP vllm:num_requests_waiting Number of requests waiting to be processed.
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{model_name="fixture-model",engine="0"} 2
+# HELP vllm:num_requests_waiting_by_reason Number of waiting requests by reason. Reason labels: 'capacity' = waiting for scheduling capacity; 'deferred' = deferred by transient constraints (LoRA budget, KV transfer, blocked status). Sum of all reasons equals vllm:num_requests_waiting.
+# TYPE vllm:num_requests_waiting_by_reason gauge
+vllm:num_requests_waiting_by_reason{model_name="fixture-model",engine="0",reason="capacity"} 2
+vllm:num_requests_waiting_by_reason{model_name="fixture-model",engine="0",reason="deferred"} 0
+# HELP vllm:engine_sleep_state Engine sleep state; awake = 0 means engine is sleeping; awake = 1 means engine is awake; weights_offloaded = 1 means sleep level 1; discard_all = 1 means sleep level 2.
+# TYPE vllm:engine_sleep_state gauge
+vllm:engine_sleep_state{model_name="fixture-model",engine="0",sleep_state="awake"} 1
+vllm:engine_sleep_state{model_name="fixture-model",engine="0",sleep_state="weights_offloaded"} 0
+vllm:engine_sleep_state{model_name="fixture-model",engine="0",sleep_state="discard_all"} 0
+# HELP vllm:kv_cache_usage_perc KV-cache usage. 1 means 100 percent usage.
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{model_name="fixture-model",engine="0"} 0.25
+# HELP vllm:num_preemptions_total Cumulative number of preemption from the engine.
+# TYPE vllm:num_preemptions_total counter
+vllm:num_preemptions_total{model_name="fixture-model",engine="0"} 0
+# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
+# TYPE vllm:prompt_tokens_total counter
+vllm:prompt_tokens_total{model_name="fixture-model",engine="0"} 10
+# HELP vllm:prompt_tokens_by_source_total Number of prompt tokens by source.
+# TYPE vllm:prompt_tokens_by_source_total counter
+vllm:prompt_tokens_by_source_total{model_name="fixture-model",engine="0",source="local_compute"} 4
+vllm:prompt_tokens_by_source_total{model_name="fixture-model",engine="0",source="local_cache_hit"} 6
+vllm:prompt_tokens_by_source_total{model_name="fixture-model",engine="0",source="external_kv_transfer"} 0
+# HELP vllm:prompt_tokens_cached_total Number of cached prompt tokens (local + external).
+# TYPE vllm:prompt_tokens_cached_total counter
+vllm:prompt_tokens_cached_total{model_name="fixture-model",engine="0"} 6
+# HELP vllm:generation_tokens_total Number of generation tokens processed.
+# TYPE vllm:generation_tokens_total counter
+vllm:generation_tokens_total{model_name="fixture-model",engine="0"} 2
+# HELP vllm:prefix_cache_queries_total Prefix cache queries, in terms of number of queried tokens.
+# TYPE vllm:prefix_cache_queries_total counter
+vllm:prefix_cache_queries_total{model_name="fixture-model",engine="0"} 10
+# HELP vllm:prefix_cache_hits_total Prefix cache hits, in terms of number of cached tokens.
+# TYPE vllm:prefix_cache_hits_total counter
+vllm:prefix_cache_hits_total{model_name="fixture-model",engine="0"} 6
+# HELP vllm:external_prefix_cache_queries_total External prefix cache queries from KV connector cross-instance cache sharing, in terms of number of queried tokens.
+# TYPE vllm:external_prefix_cache_queries_total counter
+vllm:external_prefix_cache_queries_total{model_name="fixture-model",engine="0"} 0
+# HELP vllm:external_prefix_cache_hits_total External prefix cache hits from KV connector cross-instance cache sharing, in terms of number of cached tokens.
+# TYPE vllm:external_prefix_cache_hits_total counter
+vllm:external_prefix_cache_hits_total{model_name="fixture-model",engine="0"} 0
+# HELP vllm:mm_cache_queries_total Multi-modal cache queries, in terms of number of queried items.
+# TYPE vllm:mm_cache_queries_total counter
+vllm:mm_cache_queries_total{model_name="fixture-model",engine="0"} 0
+# HELP vllm:mm_cache_hits_total Multi-modal cache hits, in terms of number of cached items.
+# TYPE vllm:mm_cache_hits_total counter
+vllm:mm_cache_hits_total{model_name="fixture-model",engine="0"} 0
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{model_name="fixture-model",engine="0",finished_reason="stop"} 1
+# HELP vllm:request_prompt_tokens Number of prefill tokens processed.
+# TYPE vllm:request_prompt_tokens histogram
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="1.0"} 0
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="2.0"} 0
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="5.0"} 0
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="10.0"} 1
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="20.0"} 1
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="50.0"} 1
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="100.0"} 1
+vllm:request_prompt_tokens_bucket{model_name="fixture-model",engine="0",le="+Inf"} 1
+vllm:request_prompt_tokens_sum{model_name="fixture-model",engine="0"} 10
+vllm:request_prompt_tokens_count{model_name="fixture-model",engine="0"} 1
+# HELP vllm:time_to_first_token_seconds Histogram of time to first token in seconds.
+# TYPE vllm:time_to_first_token_seconds histogram
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.001"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.005"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.01"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.02"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.04"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.06"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.08"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.1"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.25"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.5"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="0.75"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="1.0"} 0
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="2.5"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="5.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="7.5"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="10.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="20.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="40.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="80.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="160.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="640.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="2560.0"} 1
+vllm:time_to_first_token_seconds_bucket{model_name="fixture-model",engine="0",le="+Inf"} 1
+vllm:time_to_first_token_seconds_sum{model_name="fixture-model",engine="0"} 2
+vllm:time_to_first_token_seconds_count{model_name="fixture-model",engine="0"} 1
+# HELP vllm:e2e_request_latency_seconds Histogram of e2e request latency in seconds.
+# TYPE vllm:e2e_request_latency_seconds histogram
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="0.3"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="0.5"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="0.8"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="1.0"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="1.5"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="2.0"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="2.5"} 0
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="5.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="10.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="15.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="20.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="30.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="40.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="50.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="60.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="120.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="240.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="480.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="960.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="1920.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="7680.0"} 1
+vllm:e2e_request_latency_seconds_bucket{model_name="fixture-model",engine="0",le="+Inf"} 1
+vllm:e2e_request_latency_seconds_sum{model_name="fixture-model",engine="0"} 4
+vllm:e2e_request_latency_seconds_count{model_name="fixture-model",engine="0"} 1

@@ -563,4 +563,108 @@ struct ConcurrentBatchTests {
         #expect(result.chunks[0].text == "<think>plan\n\nUser:")
         #expect(insideThink == true)
     }
+
+    @Test("BatchScheduler raw stop helper treats literal think tags as output")
+    func rawStopHelperStopsInsideLiteralThinkTags() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let result = BatchScheduler.stopChunksToEmit(
+            from: "<think>reply with one short word",
+            stopBuffer: &stopBuffer,
+            activeStops: ["one short"],
+            maxStopLength: "one short".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+
+        #expect(result.stopped)
+        #expect(result.chunks.count == 1)
+        #expect(result.chunks[0].text == "<think>reply with ")
+        #expect(result.chunks[0].stoppedBySequence == true)
+        #expect(insideThink == false)
+    }
+
+    @Test("BatchScheduler stop helper uses earliest output match not request order")
+    func stopHelperUsesEarliestOutputMatch() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let result = BatchScheduler.stopChunksToEmit(
+            from: "before EARLY middle LATE after",
+            stopBuffer: &stopBuffer,
+            activeStops: ["LATE", "EARLY"],
+            maxStopLength: "EARLY".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+
+        #expect(result.stopped)
+        #expect(result.chunks.map(\.text) == ["before "])
+    }
+
+    @Test("Serial fallback cancellation wins before token emission")
+    func serialFallbackCancellationWinsBeforeEmission() {
+        let disposition = BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: true,
+            tokenCount: 0,
+            maxTokens: 32,
+            tokenID: 42,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: false,
+            eosTokenIDs: []
+        )
+
+        #expect(disposition == .cancel)
+    }
+
+    @Test("max_tokens zero suppresses prefill and serial token dispatch")
+    func maxTokensZeroSuppressesFirstToken() {
+        #expect(BatchScheduler.shouldDispatchFirstToken(maxTokens: 0) == false)
+        #expect(BatchScheduler.shouldDispatchFirstToken(maxTokens: nil))
+        #expect(BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: false,
+            tokenCount: 0,
+            maxTokens: 0,
+            tokenID: 42,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: false,
+            eosTokenIDs: []
+        ) == .length)
+    }
+
+    @Test("Scheduler paths suppress ignored EOS without consuming visible budget")
+    func concurrentSchedulerSuppressesIgnoredEOS() {
+        #expect(BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: false,
+            tokenCount: 0,
+            maxTokens: 3,
+            tokenID: 2,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: true,
+            eosTokenIDs: [2]
+        ) == .suppress)
+        #expect(BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: false,
+            tokenCount: 0,
+            maxTokens: 3,
+            tokenID: 2,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: true,
+            eosTokenIDs: [2],
+            consecutiveSuppressedEndOfSequenceTokens:
+                BatchScheduler.maximumConsecutiveSuppressedEndOfSequenceTokens - 1
+        ) == .stop)
+        #expect(BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: false,
+            tokenCount: 0,
+            maxTokens: 3,
+            tokenID: 2,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: false,
+            eosTokenIDs: [2]
+        ) == .stop)
+    }
 }

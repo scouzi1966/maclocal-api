@@ -134,31 +134,33 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
 /// endpoint itself so a Prometheus scrape doesn't show up as a
 /// connection — that would be self-referential noise on every poll.
 ///
-/// Streaming endpoints (chat completions when `stream:true`) account
-/// for themselves: their handler returns the Response object
-/// immediately while the SSE body keeps writing for the duration of
-/// the generation. If we counted them here, the gauge would
-/// undercount — defer fires when `next.respond` returns, not when the
-/// body finishes. Streaming controllers wrap the asyncStream body in
-/// their own connectionStarted/connectionEnded bracket.
+/// Streaming endpoints also retain a controller-owned token for the
+/// lifetime of the SSE body. Middleware still records request parsing
+/// and response construction, which is the complete lifetime for
+/// non-streaming requests.
 struct ActiveConnectionsMiddleware: AsyncMiddleware {
     static let nonStreamingExcluded: Set<String> = ["/metrics", "/health", "/healthz", "/openapi.json", "/docs"]
     static let streamingPaths: Set<String> = [
-        "/v1/chat/completions",
         "/v1/batch/completions"
     ]
 
+    let telemetry: AFMServerTelemetryAdapter
+
     static func shouldTrackInMiddleware(path: String) -> Bool {
         if nonStreamingExcluded.contains(path) { return false }
-        // Filter the streaming chat path — its controller handles its own counting.
+        // Batch streaming still owns its complete connection lifecycle.
         if streamingPaths.contains(path) { return false }
         return true
     }
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let track = Self.shouldTrackInMiddleware(path: request.url.path)
-        if track { StatsAggregator.shared.connectionStarted() }
-        defer { if track { StatsAggregator.shared.connectionEnded() } }
+        let token = track ? telemetry.connectionOpened() : nil
+        defer {
+            if let token {
+                telemetry.connectionClosed(token)
+            }
+        }
         return try await next.respond(to: request)
     }
 }
@@ -202,6 +204,8 @@ public class Server: @unchecked Sendable {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
+    private let telemetry: AFMServerTelemetryAdapter
+    private let modelCreatedEpoch: Int
     private var telegramBridge: TelegramBridge?
 
     private static let audioAvailable: Bool = {
@@ -209,7 +213,7 @@ public class Server: @unchecked Sendable {
         return false
     }()
 
-    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil) async throws {
+    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModelService: MLXModelService? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -243,6 +247,12 @@ public class Server: @unchecked Sendable {
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
+        self.modelCreatedEpoch = Int(Date().timeIntervalSince1970)
+        self.telemetry = Self.composeTelemetry(
+            telemetry: telemetry,
+            mlxModelService: mlxModelService,
+            afmModel: afmModel
+        )
 
         // Create environment without command line arguments to prevent Vapor from parsing them
         var env = Environment(name: "development", arguments: ["afm"])
@@ -268,6 +278,19 @@ public class Server: @unchecked Sendable {
 
         try configure()
     }
+
+    static func composeTelemetry(
+        telemetry: AFMServerTelemetryAdapter?,
+        mlxModelService: MLXModelService?,
+        afmModel: AnyAFMModel?
+    ) -> AFMServerTelemetryAdapter {
+        let telemetry = telemetry ?? .standalone()
+        if let observer = telemetry.providerTelemetryObserver {
+            mlxModelService?.connectInferenceTelemetry(to: observer)
+            afmModel?.connectInferenceTelemetry(to: observer)
+        }
+        return telemetry
+    }
     
     private func configure() throws {
         app.http.server.configuration.port = port
@@ -287,7 +310,7 @@ public class Server: @unchecked Sendable {
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
         // Track concurrent client connections for /metrics' afm:num_active_connections gauge.
-        app.middleware.use(ActiveConnectionsMiddleware())
+        app.middleware.use(ActiveConnectionsMiddleware(telemetry: telemetry))
 
         try routes()
     }
@@ -309,6 +332,24 @@ public class Server: @unchecked Sendable {
         } else {
             mlxChatService = mlxServiceAdapter
         }
+        let rawTextGenerator: AnyAFMRawTextGenerator?
+        let rawTextGenerationAdmitter: AnyAFMGenerationAdmitter?
+        if let retained = afmModel?.rawTextGenerator {
+            rawTextGenerator = retained
+            rawTextGenerationAdmitter = afmModel?.generationAdmitter
+        } else if let mlxModelService, let mlxModelID {
+            rawTextGenerator = AnyAFMRawTextGenerator(AFMMLXModel(
+                modelID: AFMModelID(rawValue: mlxModelID),
+                attachedService: mlxModelService
+            ))
+            rawTextGenerationAdmitter = mlxModelService.generationAdmitter
+        } else {
+            rawTextGenerator = nil
+            rawTextGenerationAdmitter = nil
+        }
+        let rawCompletionRouteAvailable = rawTextGenerator != nil
+            && mlxModelID != nil
+            && mlxChatService != nil
 
         app.get("health") { req async -> HealthResponse in
             return HealthResponse(
@@ -322,7 +363,9 @@ public class Server: @unchecked Sendable {
             // Apple NL embedding models are served on the unified endpoint (lazily
             // loaded on first /v1/embeddings). Advertise them so clients discover
             // embedding capability on the main server, not just on `afm embed`. (#132/#133)
-            let embeddingCatalog = EmbeddingModelRegistry().shippedModels()
+            let embeddingCatalog = EmbeddingModelRegistry().shippedModels().sorted {
+                $0.id < $1.id
+            }
             let embeddingModelInfos = embeddingCatalog.map { m in
                 ModelInfo(id: m.id, object: "model", created: m.createdEpoch, owned_by: "apple", loaded: false)
             }
@@ -337,7 +380,7 @@ public class Server: @unchecked Sendable {
                         ModelInfo(
                             id: mlxModelID,
                             object: "model",
-                            created: Int(Date().timeIntervalSince1970),
+                            created: self.modelCreatedEpoch,
                             owned_by: "mlx",
                             loaded: true,
                             max_context_length: self.contextWindow
@@ -357,7 +400,7 @@ public class Server: @unchecked Sendable {
                 ModelInfo(
                     id: "foundation",
                     object: "model",
-                    created: Int(Date().timeIntervalSince1970),
+                    created: self.modelCreatedEpoch,
                     owned_by: "apple",
                     loaded: true
                 )
@@ -369,7 +412,9 @@ public class Server: @unchecked Sendable {
             if let discovery = req.application.backendDiscovery {
                 // Rescan backends if stale so new models/backends appear quickly
                 await discovery.refreshIfStale()
-                let discovered = await discovery.allDiscoveredModels()
+                let discovered = await discovery.allDiscoveredModels().sorted {
+                    $0.id < $1.id
+                }
                 for dm in discovered {
                     models.append(ModelInfo(
                         id: dm.id,
@@ -390,7 +435,15 @@ public class Server: @unchecked Sendable {
 
             models += embeddingModelInfos
             details += embeddingDetails
-            return ModelsResponse(object: "list", data: models, models: details)
+            let loaded = models.removeFirst()
+            let loadedDetails = details.removeFirst()
+            models.sort { $0.id < $1.id }
+            details.sort { $0.model < $1.model }
+            return ModelsResponse(
+                object: "list",
+                data: [loaded] + models,
+                models: [loadedDetails] + details
+            )
         }
 
         // Stub /models/load and /models/unload for router mode compatibility
@@ -449,7 +502,9 @@ public class Server: @unchecked Sendable {
             contextWindow: contextWindow
         ))
         // GET /openapi.json + /docs — schema discovery for self-configuring agents (T1.7).
-        try app.register(collection: OpenAPIController())
+        try app.register(collection: OpenAPIController(
+            rawCompletionsAvailable: rawCompletionRouteAvailable
+        ))
 
         if let mlxModelID = mlxModelID,
            let mlxChatService {
@@ -469,9 +524,18 @@ public class Server: @unchecked Sendable {
                 veryVerbose: veryVerbose,
                 trace: trace,
                 rawOutput: mlxRawOutput,
-                stop: stop
+                stop: stop,
+                telemetry: telemetry
             )
             try app.register(collection: mlxController)
+            if let rawTextGenerator {
+                try app.register(collection: CompletionsController(
+                    modelID: mlxModelID,
+                    generator: rawTextGenerator,
+                    generationAdmitter: rawTextGenerationAdmitter,
+                    telemetry: telemetry
+                ))
+            }
 
             if mlxModelService != nil {
                 // Batch endpoints remain MLX-specific. Fixed-schedule providers
@@ -513,9 +577,10 @@ public class Server: @unchecked Sendable {
             // Seed the metrics aggregator with the live model id and the
             // configured concurrency so /metrics labels are correct from
             // the first scrape.
-            StatsAggregator.shared.setModel(
-                mlxModelID,
-                maxConcurrent: mlxChatService.maxConcurrent
+            telemetry.configure(
+                modelName: mlxModelID,
+                maximumConcurrentRequests: mlxChatService.maxConcurrent,
+                maximumContextTokens: contextWindow ?? 0
             )
         } else {
             let chatController = ChatCompletionsController(
@@ -527,14 +592,15 @@ public class Server: @unchecked Sendable {
                 permissiveGuardrails: permissiveGuardrails,
                 veryVerbose: veryVerbose,
                 stop: stop,
-                defaultGuidedJsonSchema: defaultGuidedJsonSchema
+                defaultGuidedJsonSchema: defaultGuidedJsonSchema,
+                telemetry: telemetry
             )
             try app.register(collection: chatController)
         }
 
         // Prometheus metrics — always on, regardless of backend.
         // GET /metrics returns afm:* counters/gauges modelled after vLLM.
-        try app.register(collection: MetricsController())
+        try app.register(collection: MetricsController(snapshotSource: telemetry))
 
         // Props endpoint for llama.cpp webui compatibility (per-model capabilities)
         app.get("props") { [self] req async -> PropsResponse in
@@ -1674,8 +1740,12 @@ public class Server: @unchecked Sendable {
         print("")
         print("  📡 Endpoints:")
         print("     • POST   /v1/chat/completions    - Chat completion (streaming supported)")
+        if mlxModelID != nil {
+            print("     • POST   /v1/completions         - Raw text completion (streaming supported)")
+        }
         print("     • GET    /v1/models              - List available models")
         print("     • GET    /health                 - Health check")
+        print("     • GET    /metrics                - Prometheus metrics (AFM and vLLM families)")
         print("")
         print("  ⚙️  Configuration:")
         print("     • Streaming:          \(streamingEnabled ? "✓ enabled" : "✗ disabled")")

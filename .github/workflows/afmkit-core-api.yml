@@ -1,0 +1,33 @@
+name: AFMKitCore API
+
+on:
+  pull_request:
+    paths:
+      - 'Sources/AFMKitCore/**'
+      - 'docs/api-baselines/AFMKitCore.symbols.json'
+      - 'Scripts/check-afmkit-core-api.sh'
+      - 'Package.swift'
+      - '.github/workflows/afmkit-core-api.yml'
+  push:
+    branches:
+      - main
+      - 'codex/**'
+    paths:
+      - 'Sources/AFMKitCore/**'
+      - 'docs/api-baselines/AFMKitCore.symbols.json'
+      - 'Scripts/check-afmkit-core-api.sh'
+      - 'Package.swift'
+      - '.github/workflows/afmkit-core-api.yml'
+  workflow_dispatch:
+
+jobs:
+  symbol-baseline:
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check AFMKitCore public API
+        run: ./Scripts/check-afmkit-core-api.sh

@@ -17,6 +17,176 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testProviderAdmissionTokenRecordsStreamingTelemetryInSharedCollector() async throws {
+        let collector = InferenceTelemetryCollector()
+        collector.configure(modelName: "test-model", maximumConcurrentRequests: 1)
+        let service = FakeMLXChatService(
+            streamingHandler: { _ in
+                guard let token = AFMGenerationContext.telemetryToken else {
+                    preconditionFailure(
+                        "provider generation did not receive the admission telemetry token"
+                    )
+                }
+                let now = Date().timeIntervalSince1970
+                collector.promptTokensProcessed(
+                    token,
+                    fullPromptTokens: 7,
+                    computedPromptTokens: 7,
+                    at: now
+                )
+                collector.outputToken(token, at: now + 0.01)
+                _ = collector.requestFinished(
+                    token,
+                    observation: AFMInferenceRequestFinishObservation(
+                        reason: .length,
+                        completedAt: now + 0.02,
+                        fullPromptTokens: 7,
+                        computedPromptTokens: 7,
+                        generatedTokens: 3,
+                        maximumOutputTokens: 3
+                    )
+                )
+                return Self.makeDelayedStreamingResult(
+                    modelID: "test-model",
+                    chunks: [
+                        StreamChunk(text: "ok"),
+                        StreamChunk(
+                            text: "",
+                            promptTokens: 7,
+                            completionTokens: 3,
+                            cachedTokens: 0,
+                            promptTime: 0.01,
+                            generateTime: 0.02
+                        ),
+                    ],
+                    delayNanoseconds: nil
+                )
+            }
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter { _ in
+            let now = Date().timeIntervalSince1970
+            let token = collector.requestAccepted(at: now)
+            collector.requestStarted(token, at: now)
+            return AFMGenerationLease(telemetryToken: token) {}
+        }
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, "data: [DONE]")
+        }
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "length" }?.count, 1)
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 7)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 3)
+    }
+
+    func testTwoConsecutiveSerialStreamsReleaseAdmissionCapacity() async throws {
+        let admitter = SerialGenerationAdmitterProbe()
+        let service = FakeMLXChatService(
+            streamingHandler: { _ in
+                // MLX serial generation owns terminal telemetry, while the
+                // controller remains responsible for releasing serial capacity.
+                admitter.finishProviderTelemetry()
+                return Self.makeDelayedStreamingResult(
+                    modelID: "test-model",
+                    chunks: [
+                        StreamChunk(text: "ok"),
+                        StreamChunk(
+                            text: "",
+                            promptTokens: 1,
+                            completionTokens: 1,
+                            cachedTokens: 0,
+                            promptTime: 0.01,
+                            generateTime: 0.01
+                        ),
+                    ],
+                    delayNanoseconds: nil
+                )
+            }
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter(admitter)
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let testable = try app.testable(method: .running(port: 0))
+        for _ in 0..<2 {
+            let body = try requestBody(stream: true)
+            try await testable.test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { response async in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertContains(response.body.string, "data: [DONE]")
+            }
+        }
+
+        XCTAssertEqual(admitter.admissionCount, 2)
+        XCTAssertEqual(admitter.releaseCount, 2)
+        XCTAssertEqual(admitter.terminalTelemetryCount, 2)
+        XCTAssertFalse(admitter.isOccupied)
+    }
+
+    func testAdmissionCancellationIsNonRetryableAndNotIngressCapacity() async throws {
+        let collector = InferenceTelemetryCollector()
+        let service = FakeMLXChatService(
+            streamingResult: Self.makeDelayedStreamingResult(
+                modelID: "test-model",
+                chunks: [],
+                delayNanoseconds: nil
+            )
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter { _ in
+            let now = ProcessInfo.processInfo.systemUptime
+            let token = collector.requestAccepted(at: now)
+            _ = collector.requestFailed(token, reason: .cancelled, at: now)
+            throw AFMGenerationAdmissionError.cancelled
+        }
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil,
+            telemetry: AFMServerTelemetryAdapter(collector: collector)
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: false)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status.code, 499)
+            XCTAssertNil(response.headers.first(name: "Retry-After"))
+            XCTAssertContains(response.body.string, #""code":"cancelled""#)
+        }
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "cancelled" }?.count, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 0)
+    }
+
     func testStreamingControllerParsesRawToolCallTextIntoSSEToolCalls() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
@@ -1001,7 +1171,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Sendable {
+private final class FakeMLXChatService:
+    AFMMLXOpenAIChatServing,
+    AFMMLXGenerationAdmitterProviding,
+    @unchecked Sendable
+{
     let maxConcurrent: Int
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
@@ -1028,6 +1202,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private(set) var recordedGenerateToolChoices: [String] = []
     private(set) var recordedStreamingToolChoices: [String] = []
     private(set) var recordedPreserveStructuralTags: [Bool] = []
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter?
 
     init(
         maxConcurrent: Int = 1,
@@ -1333,4 +1508,70 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
         thinkStartTag: nil,
         thinkEndTag: nil
     )
+}
+
+private final class SerialGenerationAdmitterProbe: AFMGenerationAdmitting, @unchecked Sendable {
+    private struct State {
+        var occupied = false
+        var admissions = 0
+        var releases = 0
+    }
+
+    private let lock = NSLock()
+    private let collector = InferenceTelemetryCollector()
+    private var state = State()
+
+    var admissionCount: Int { lock.withLock { state.admissions } }
+    var releaseCount: Int { lock.withLock { state.releases } }
+    var isOccupied: Bool { lock.withLock { state.occupied } }
+    var terminalTelemetryCount: UInt64 { collector.metricsSnapshot().terminalRequestsTotal }
+
+    func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        let admitted = lock.withLock { () -> Bool in
+            guard !state.occupied else { return false }
+            state.occupied = true
+            state.admissions += 1
+            return true
+        }
+        guard admitted else { throw AFMGenerationAdmissionError.capacity }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let token = collector.requestAccepted(at: now)
+        collector.requestStarted(token, at: now)
+        return AFMGenerationLease(
+            telemetryToken: token,
+            release: { [weak self] in
+                self?.releaseCapacity()
+            }
+        )
+    }
+
+    func finishProviderTelemetry() {
+        guard
+            let lease = AFMGenerationContext.admissionLease,
+            let token = AFMGenerationContext.telemetryToken
+        else {
+            preconditionFailure("serial provider did not receive its admitted telemetry context")
+        }
+        lease.transferTelemetryToProvider()
+        _ = collector.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .stop,
+                completedAt: ProcessInfo.processInfo.systemUptime,
+                fullPromptTokens: 1,
+                computedPromptTokens: 1,
+                generatedTokens: 1,
+                maximumOutputTokens: 1
+            )
+        )
+    }
+
+    private func releaseCapacity() {
+        lock.withLock {
+            precondition(state.occupied, "serial generation capacity released twice")
+            state.occupied = false
+            state.releases += 1
+        }
+    }
 }

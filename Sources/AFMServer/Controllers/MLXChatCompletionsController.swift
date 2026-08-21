@@ -35,6 +35,12 @@ struct MLXChatCompletionsController: RouteCollection {
     private let trace: Bool
     private let rawOutput: Bool
     private let stop: String?
+    private let telemetry: AFMServerTelemetryAdapter
+
+    private struct GenerationAdmission: @unchecked Sendable {
+        let lease: AFMGenerationLease
+        let acceptedAt: Double
+    }
 
     init(
         streamingEnabled: Bool = true,
@@ -52,7 +58,8 @@ struct MLXChatCompletionsController: RouteCollection {
         veryVerbose: Bool = false,
         trace: Bool = false,
         rawOutput: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -70,6 +77,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.trace = trace
         self.rawOutput = rawOutput
         self.stop = stop
+        self.telemetry = telemetry
     }
 
     /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
@@ -101,6 +109,61 @@ struct MLXChatCompletionsController: RouteCollection {
 
     private static let debugPipeline = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
 
+    private func admitGeneration() async throws -> GenerationAdmission {
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
+        if let admitting = service as? any AFMMLXGenerationAdmitting {
+            let lease = try await admitting.generationAdmitter.admitGeneration(
+                timeout: .seconds(Self.slotQueueTimeout)
+            )
+            return GenerationAdmission(
+                lease: lease,
+                acceptedAt: acceptedAt
+            )
+        }
+        if let providing = service as? any AFMMLXGenerationAdmitterProviding,
+           let admitter = providing.providerGenerationAdmitter {
+            let lease = try await admitter.admitGeneration(
+                timeout: .seconds(Self.slotQueueTimeout)
+            )
+            return GenerationAdmission(
+                lease: lease,
+                acceptedAt: acceptedAt
+            )
+        }
+
+        let adapter = LegacyAFMMLXAdmissionAdapter(scheduler: service)
+        return GenerationAdmission(
+            lease: try await adapter.admitGeneration(
+                timeout: .seconds(Self.slotQueueTimeout)
+            ),
+            acceptedAt: acceptedAt
+        )
+    }
+
+    private func withGenerationContext<Value>(
+        _ admission: GenerationAdmission,
+        ignoreEndOfSequence: Bool,
+        requestedMaximumOutputTokens: Int?,
+        operation: () async throws -> Value
+    ) async rethrows -> Value {
+        try await AFMGenerationContext.$telemetryToken.withValue(
+            admission.lease.telemetryToken
+        ) {
+            try await AFMGenerationContext.$admissionLease.withValue(admission.lease) {
+                try await AFMGenerationContext.$acceptedAt.withValue(admission.acceptedAt) {
+                    try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                        requestedMaximumOutputTokens
+                    ) {
+                        try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            ignoreEndOfSequence,
+                            operation: operation
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     func chatCompletions(req: Request) async throws -> Response {
         // RequestIDMiddleware sets this; controller piggybacks for log correlation. (T1.1)
         let reqId = req.afmRequestID
@@ -125,11 +188,13 @@ struct MLXChatCompletionsController: RouteCollection {
             )
 
             guard !chatRequest.messages.isEmpty else {
+                telemetry.recordRejection(.validation)
                 return try await createErrorResponse(req: req, error: OpenAIError(message: "At least one message is required"), status: .badRequest)
             }
 
             // Validate top_logprobs against server max (vLLM-compatible)
             if let requestedTopLogprobs = chatRequest.topLogprobs, requestedTopLogprobs > maxLogprobs {
+                telemetry.recordRejection(.validation)
                 return try await createErrorResponse(
                     req: req,
                     error: OpenAIError(
@@ -175,22 +240,11 @@ struct MLXChatCompletionsController: RouteCollection {
 
             let tJsonParse = Self.debugPipeline ? Date() : Date.distantPast
 
-            // Reserve a concurrent slot — waits up to 4 minutes for a slot to free up.
-            // RotatingKVCache models (Gemma 4) fall back to serial execution, so
-            // queued requests can wait a long time when all slots are occupied.
-            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
-                let peer = req.peerAddress?.description ?? "unknown"
-                let ua = req.headers.first(name: .userAgent) ?? "unknown"
-                req.logger.warning("Connection refused: at capacity after \(Int(Self.slotQueueTimeout))s wait (\(service.maxConcurrent)/\(service.maxConcurrent)) — client=\(peer) ua=\(ua)")
-                let response = Response(status: .serviceUnavailable)
-                response.headers.add(name: .contentType, value: "application/json")
-                response.headers.add(name: .accessControlAllowOrigin, value: "*")
-                response.headers.add(name: "Retry-After", value: "2")
-                try response.content.encode(OpenAIError(
-                    message: "Server at capacity (\(service.maxConcurrent) concurrent requests). Please retry shortly.",
-                    type: "server_busy"
-                ))
-                return response
+            let admission: GenerationAdmission
+            do {
+                admission = try await admitGeneration()
+            } catch {
+                return try admissionErrorResponse(request: req, error: error)
             }
 
             // Reset peak memory before each request so usage.peak_memory_gib
@@ -201,14 +255,13 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
+                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, admission: admission, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
-            // In concurrent mode, non-streaming requests currently bypass the
-            // BatchScheduler decode loop, so the controller must release the
-            // reservation itself. Streaming requests are released by the
-            // scheduler when the stream finishes.
-            defer { service.releaseSlot() }
+            // The controller releases serial reservations. A successfully
+            // enqueued batch stream transfers release ownership to its scheduler,
+            // making this defer a no-op for that path.
+            defer { admission.lease.release() }
 
             // AFM Profile: start GPU monitoring if client requests it
             let profileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
@@ -244,29 +297,34 @@ struct MLXChatCompletionsController: RouteCollection {
             let result: AFMMLXChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
-                let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: reqId
-                )
-
+                let streamResult: AFMMLXChatStreamingResult = try await withGenerationContext(
+                    admission,
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
+                ) {
+                    try await service.generateStreaming(
+                        model: modelID,
+                        messages: chatRequest.messages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                        preserveStructuralTags: !extractThinking,
+                        requestId: reqId
+                    )
+                }
                 // Collect stream into complete response
                 var fullText = ""
                 var allLogprobs: [ResolvedLogprob] = []
@@ -361,26 +419,32 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             } else {
                 // Serial mode: use existing generate() path
-                result = try await service.generate(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
-                )
+                result = try await withGenerationContext(
+                    admission,
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
+                ) {
+                    try await service.generate(
+                        model: modelID,
+                        messages: chatRequest.messages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
+                    )
+                }
             }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
@@ -496,6 +560,9 @@ struct MLXChatCompletionsController: RouteCollection {
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
         } catch let abort as Abort {
+            if abort.status == .badRequest {
+                telemetry.recordRejection(.validation)
+            }
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(abort)")
             return try await createErrorResponse(
                 req: req,
@@ -505,13 +572,24 @@ struct MLXChatCompletionsController: RouteCollection {
                 ),
                 status: abort.status
             )
+        } catch let decodingError as DecodingError {
+            telemetry.recordRejection(.decode)
+            req.logger.error("[\(Self.timestamp())] MLX request decode error: \(decodingError)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: "Invalid request body: \(decodingError.localizedDescription)",
+                    type: "invalid_request_error"
+                ),
+                status: .badRequest
+            )
         } catch {
             req.logger.error("[\(Self.timestamp())] MLX completions error: \(error)")
             return try await createErrorResponse(req: req, error: OpenAIError(message: error.localizedDescription, type: "mlx_error"), status: .badRequest)
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
+    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, admission: GenerationAdmission, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -551,12 +629,9 @@ struct MLXChatCompletionsController: RouteCollection {
             // its `onTermination` fires `task.cancel()` on the underlying model
             // generator (BatchScheduler / MLX serial path), stopping GPU work.
             let bodyTask = Task<Void, Never> {
-            // PR #122: Streaming routes account for their own
-            // afm:num_active_connections — ActiveConnectionsMiddleware filters
-            // them because its defer fires when the controller returns, not
-            // when the SSE body finishes.
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            defer { admission.lease.release() }
+            let connectionToken = telemetry.connectionOpened()
+            defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()
@@ -590,28 +665,34 @@ struct MLXChatCompletionsController: RouteCollection {
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     ); fflush(stdout)
                 }
-                let res = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: streamReqId
-                )
+                let res = try await withGenerationContext(
+                    admission,
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false,
+                    requestedMaximumOutputTokens: chatRequest.effectiveMaxTokens
+                ) {
+                    try await service.generateStreaming(
+                        model: modelID,
+                        messages: chatRequest.messages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                        preserveStructuralTags: !extractThinking,
+                        requestId: streamReqId
+                    )
+                }
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,
@@ -1658,6 +1739,49 @@ struct MLXChatCompletionsController: RouteCollection {
         httpResponse.headers.add(name: .accessControlAllowOrigin, value: "*")
         try httpResponse.content.encode(error)
         return httpResponse
+    }
+
+    private func admissionErrorResponse(request: Request, error: Error) throws -> Response {
+        let status: HTTPStatus
+        let detail: OpenAIError
+        let retryable: Bool
+
+        switch error as? AFMGenerationAdmissionError {
+        case .capacity, .timedOut:
+            status = .serviceUnavailable
+            detail = OpenAIError(
+                message: "Server at capacity (\(service.maxConcurrent) concurrent requests). Please retry shortly.",
+                type: "server_busy",
+                code: "server_busy",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = true
+        case .cancelled:
+            status = HTTPStatus(statusCode: 499, reasonPhrase: "Client Closed Request")
+            detail = OpenAIError(
+                message: "Request cancelled while waiting for generation capacity.",
+                type: "cancelled",
+                code: "cancelled",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = false
+        case .internalFailure, .none:
+            status = .internalServerError
+            detail = OpenAIError(
+                message: "Generation admission failed.",
+                type: "server_error",
+                code: "internal_error",
+                requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+            )
+            retryable = false
+        }
+
+        let response = Response(status: status)
+        response.headers.add(name: .contentType, value: "application/json")
+        response.headers.add(name: .accessControlAllowOrigin, value: "*")
+        if retryable { response.headers.add(name: "Retry-After", value: "2") }
+        try response.content.encode(detail)
+        return response
     }
 
     private func estimateTokens(_ text: String) -> Int {

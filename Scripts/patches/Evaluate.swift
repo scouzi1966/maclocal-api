@@ -129,6 +129,10 @@ public struct GenerateParameters: Sendable {
     /// tool call, so consumers can drain normal completion metadata.
     public var stopAfterToolCall: Bool
 
+    /// Continue generating through model end-of-sequence tokens until another
+    /// stopping condition (normally maxTokens) is reached.
+    public var ignoreEndOfSequence: Bool
+
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
@@ -146,6 +150,7 @@ public struct GenerateParameters: Sendable {
         computeLogprobs: Bool = false,
         topLogprobsCount: Int = 0,
         stopAfterToolCall: Bool = false,
+        ignoreEndOfSequence: Bool = false,
         prefillStepSize: Int = 512
     ) {
         self.maxTokens = maxTokens
@@ -164,6 +169,7 @@ public struct GenerateParameters: Sendable {
         self.computeLogprobs = computeLogprobs
         self.topLogprobsCount = min(max(topLogprobsCount, 0), 20)
         self.stopAfterToolCall = stopAfterToolCall
+        self.ignoreEndOfSequence = ignoreEndOfSequence
         self.prefillStepSize = prefillStepSize
     }
 
@@ -559,6 +565,8 @@ public struct RepetitionContext: LogitProcessor {
 ///
 /// Note: this uses `asyncEval()` and there may be an async evaluation running after a call to `next()`.
 public struct TokenIterator: Sequence, IteratorProtocol {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
     let model: any LanguageModel
     var state: LMOutput.State?
 
@@ -878,6 +886,11 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         return result
     }
 
+    mutating func excludeLastTokenFromGenerationLimit() {
+        tokenCount = Swift.max(0, tokenCount - 1)
+        lastLogprobInfo = nil
+    }
+
     /// Print performance summary (call after generation loop completes)
     public func printPerfSummary() {
         guard Self.perfEnabled, perfTokenCount > 0 else { return }
@@ -1050,7 +1063,9 @@ public func generate(
     let iterator = try TokenIterator(
         input: input, model: context.model, parameters: parameters)
     return generate(
-        input: input, context: context, iterator: iterator, didGenerate: didGenerate)
+        input: input, context: context, iterator: iterator,
+        ignoreEndOfSequence: parameters.ignoreEndOfSequence,
+        didGenerate: didGenerate)
 }
 
 /// Low-level token generation using a ``TokenIterator``.
@@ -1071,6 +1086,7 @@ public func generate(
 public func generate(
     input: LMInput, context: ModelContext,
     iterator: TokenIterator,
+    ignoreEndOfSequence: Bool = false,
     didGenerate: ([Int]) -> GenerateDisposition
 ) -> GenerateResult {
     var start = Date.timeIntervalSinceReferenceDate
@@ -1088,15 +1104,27 @@ public func generate(
     }
 
     var tokens = [Int]()
+    var iterator = iterator
+    var sawFirstCandidate = false
+    var consecutiveSuppressedEndOfSequenceTokens = 0
 
-    for token in iterator {
+    while let token = iterator.next() {
         // compute the timing for the prompt
-        if tokens.isEmpty {
+        if !sawFirstCandidate {
+            sawFirstCandidate = true
             let now = Date.timeIntervalSinceReferenceDate
             promptTime = now - start
             start = now
         }
 
+        if ignoreEndOfSequence && eosTokenIds.contains(token) {
+            iterator.excludeLastTokenFromGenerationLimit()
+            consecutiveSuppressedEndOfSequenceTokens += 1
+            if consecutiveSuppressedEndOfSequenceTokens
+                >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+            continue
+        }
+        consecutiveSuppressedEndOfSequenceTokens = 0
         if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
             break
         }
@@ -1146,7 +1174,9 @@ public func generate(
     let iterator = try TokenIterator(
         input: input, model: context.model, parameters: parameters)
     return generate(
-        input: input, context: context, iterator: iterator, didGenerate: didGenerate)
+        input: input, context: context, iterator: iterator,
+        ignoreEndOfSequence: parameters.ignoreEndOfSequence,
+        didGenerate: didGenerate)
 }
 
 /// Low-level token generation using a ``TokenIterator``.
@@ -1167,6 +1197,7 @@ public func generate(
 public func generate(
     input: LMInput, context: ModelContext,
     iterator: TokenIterator,
+    ignoreEndOfSequence: Bool = false,
     didGenerate: (Int) -> GenerateDisposition
 ) -> GenerateCompletionInfo {
     var start = Date.timeIntervalSinceReferenceDate
@@ -1184,16 +1215,27 @@ public func generate(
     }
 
     var tokenCount = 0
+    var iterator = iterator
+    var sawFirstCandidate = false
+    var consecutiveSuppressedEndOfSequenceTokens = 0
 
-    for token in iterator {
+    while let token = iterator.next() {
         // Compute the timing for the prompt
-        if promptTime == 0 {
+        if !sawFirstCandidate {
+            sawFirstCandidate = true
             let now = Date.timeIntervalSinceReferenceDate
             promptTime = now - start
             start = now
         }
 
-        // Check for end-of-sequence tokens
+        if ignoreEndOfSequence && eosTokenIds.contains(token) {
+            iterator.excludeLastTokenFromGenerationLimit()
+            consecutiveSuppressedEndOfSequenceTokens += 1
+            if consecutiveSuppressedEndOfSequenceTokens
+                >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+            continue
+        }
+        consecutiveSuppressedEndOfSequenceTokens = 0
         if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
             break
         }
@@ -1276,7 +1318,8 @@ public func generate(
         modelConfiguration: context.configuration,
         tokenizer: context.tokenizer,
         iterator: iterator,
-        stopAfterToolCall: parameters.stopAfterToolCall)
+        stopAfterToolCall: parameters.stopAfterToolCall,
+        ignoreEndOfSequence: parameters.ignoreEndOfSequence)
     return stream
 }
 
@@ -1313,7 +1356,8 @@ public func generateTask(
     modelConfiguration: ModelConfiguration,
     tokenizer: Tokenizer,
     iterator: consuming TokenIterator,
-    stopAfterToolCall: Bool = false
+    stopAfterToolCall: Bool = false,
+    ignoreEndOfSequence: Bool = false
 ) -> (AsyncStream<Generation>, Task<Void, Never>) {
 
     let (stream, continuation) = AsyncStream<Generation>.makeStream()
@@ -1344,6 +1388,7 @@ public func generateTask(
             format: modelConfiguration.toolCallFormat ?? .json
         )
         var pendingLogprobs = [TokenLogprobData]()
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         let perfEnabled = TokenIterator.perfEnabled
         var perfDetokNs: UInt64 = 0
         var perfLoopOverheadNs: UInt64 = 0
@@ -1367,6 +1412,14 @@ public func generateTask(
                 start = now
             }
 
+            if ignoreEndOfSequence && eosTokenIds.contains(token) {
+                iterator.excludeLastTokenFromGenerationLimit()
+                consecutiveSuppressedEndOfSequenceTokens += 1
+                if consecutiveSuppressedEndOfSequenceTokens
+                    >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+                continue
+            }
+            consecutiveSuppressedEndOfSequenceTokens = 0
             if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
                 break
             }

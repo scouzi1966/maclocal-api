@@ -1,5 +1,6 @@
 @testable import AFMServer
 import AFMKit
+import AFMKitServices
 import XCTest
 
 final class AFMKitMLXReasoningPropagationTests: XCTestCase {
@@ -15,7 +16,7 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         }
     }
 
-    private struct CapturingModel: AFMModel {
+    private struct CapturingModel: AFMModel, AFMGenerationAdmitting {
         let descriptor = AFMModelDescriptor(
             providerID: "test.capture",
             modelID: "capture",
@@ -24,6 +25,16 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             metadata: ["maxConcurrent": .integer(1)]
         )
         let capture: RequestCapture
+        let telemetryObserver: any AFMInferenceTelemetryObserving
+
+        init(
+            capture: RequestCapture,
+            telemetryObserver: any AFMInferenceTelemetryObserving =
+                AFMNoopInferenceTelemetryObserver()
+        ) {
+            self.capture = capture
+            self.telemetryObserver = telemetryObserver
+        }
 
         func availability() async -> AFMModelAvailability { .available }
 
@@ -43,6 +54,14 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
             AsyncThrowingStream { continuation in
                 continuation.finish()
+            }
+        }
+
+        func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+            let token = telemetryObserver.requestAccepted(at: 1)
+            telemetryObserver.requestStarted(token, at: 2)
+            return AFMGenerationLease(telemetryToken: token) {} onAbandon: {
+                _ = telemetryObserver.requestFailed(token, reason: .internal, at: 3)
             }
         }
     }
@@ -102,6 +121,59 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
                 "reasoning_effort": .string("max"),
             ])
         )
+    }
+
+    func testFixedModelForwardsProviderGenerationAdmitterAndTelemetry() async throws {
+        let collector = InferenceTelemetryCollector()
+        let adapter = AFMKitMLXChatServingAdapter(
+            model: AnyAFMModel(CapturingModel(
+                capture: RequestCapture(),
+                telemetryObserver: collector
+            )),
+            modelID: "capture"
+        )
+
+        let admitter = try XCTUnwrap(adapter.providerGenerationAdmitter)
+        let lease = try await admitter.admitGeneration(timeout: .zero)
+        lease.release()
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "internal" }?.count, 1)
+    }
+
+    func testFixedStreamingProducerDoesNotReleaseControllerOwnedReservation() async throws {
+        let adapter = makeAdapter(capture: RequestCapture(), defaults: [:])
+        XCTAssertTrue(adapter.tryReserveSlot())
+
+        let result = try await adapter.generateStreaming(
+            model: "capture",
+            messages: [Message(role: "user", content: "hello")],
+            temperature: nil,
+            maxTokens: 8,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: nil,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            preserveStructuralTags: false,
+            requestId: "ownership-test"
+        )
+        for try await _ in result.stream {}
+
+        XCTAssertFalse(adapter.tryReserveSlot())
+        adapter.releaseSlot()
+        XCTAssertTrue(adapter.tryReserveSlot())
+        adapter.releaseSlot()
     }
 
     private func makeAdapter(

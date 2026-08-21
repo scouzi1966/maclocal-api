@@ -113,6 +113,129 @@ enum AFMDwarfStarSpeculativePolicy {
     }
 }
 
+enum AFMDwarfStarStoppingPolicy {
+    static func shouldStop(
+        isEndOfSequence: Bool,
+        isRuntimeStop: Bool,
+        ignoreEndOfSequence: Bool
+    ) -> Bool {
+        isRuntimeStop && !(ignoreEndOfSequence && isEndOfSequence)
+    }
+
+    static func shouldExposeToken(
+        isEndOfSequence: Bool,
+        ignoreEndOfSequence: Bool
+    ) -> Bool {
+        !(ignoreEndOfSequence && isEndOfSequence)
+    }
+}
+
+struct AFMDwarfStarOutputAccounting {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
+    enum Disposition: Equatable {
+        case stop
+        case suppress
+        case expose
+    }
+
+    let maximumTokens: Int
+    private(set) var visibleTokens = 0
+    private(set) var consecutiveSuppressedEndOfSequenceTokens = 0
+
+    init(maximumTokens: Int) {
+        self.maximumTokens = max(0, maximumTokens)
+    }
+
+    var isExhausted: Bool {
+        visibleTokens >= maximumTokens
+    }
+
+    mutating func disposition(
+        isEndOfSequence: Bool,
+        isRuntimeStop: Bool,
+        ignoreEndOfSequence: Bool
+    ) -> Disposition {
+        if AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: isEndOfSequence,
+            isRuntimeStop: isRuntimeStop,
+            ignoreEndOfSequence: ignoreEndOfSequence
+        ) {
+            return .stop
+        }
+        let shouldExpose = AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: isEndOfSequence,
+            ignoreEndOfSequence: ignoreEndOfSequence
+        )
+        guard !shouldExpose else {
+            consecutiveSuppressedEndOfSequenceTokens = 0
+            return .expose
+        }
+
+        consecutiveSuppressedEndOfSequenceTokens += 1
+        return consecutiveSuppressedEndOfSequenceTokens
+            >= Self.maximumConsecutiveSuppressedEndOfSequenceTokens
+            ? .stop
+            : .suppress
+    }
+
+    mutating func recordVisible(_ onVisible: () -> Void) {
+        visibleTokens += 1
+        onVisible()
+    }
+}
+
+enum AFMDwarfStarRawStopPolicy {
+    struct Result: Equatable {
+        var visibleText: String
+        var stopped: Bool
+    }
+
+    static func consume(
+        buffer: inout String,
+        piece: String,
+        stopSequences: [String]
+    ) -> Result {
+        buffer += piece
+        let stops = stopSequences.filter { !$0.isEmpty }
+        guard !stops.isEmpty else {
+            return Result(visibleText: drain(buffer: &buffer), stopped: false)
+        }
+
+        let matches = stops.compactMap { buffer.range(of: $0) }
+        if let first = matches.min(by: { $0.lowerBound < $1.lowerBound }) {
+            let visible = String(buffer[..<first.lowerBound])
+            buffer.removeAll(keepingCapacity: true)
+            return Result(visibleText: visible, stopped: true)
+        }
+
+        let retain = stops.reduce(0) { current, stop in
+            let limit = min(buffer.count, max(0, stop.count - 1))
+            guard limit > current else { return current }
+            for length in stride(from: limit, through: current + 1, by: -1) {
+                if buffer.suffix(length) == stop.prefix(length) {
+                    return length
+                }
+            }
+            return current
+        }
+        let visibleCount = buffer.count - retain
+        guard visibleCount > 0 else {
+            return Result(visibleText: "", stopped: false)
+        }
+        let split = buffer.index(buffer.startIndex, offsetBy: visibleCount)
+        let visible = String(buffer[..<split])
+        buffer = String(buffer[split...])
+        return Result(visibleText: visible, stopped: false)
+    }
+
+    static func drain(buffer: inout String) -> String {
+        let text = buffer
+        buffer.removeAll(keepingCapacity: false)
+        return text
+    }
+}
+
 enum AFMDwarfStarPrefixCachePolicy {
     static let defaultBudgetMB: UInt64 = 4_096
 
@@ -141,6 +264,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
         let request: AFMRequest
         let onEvent: @Sendable (AFMGenerationEvent) -> Void
         let continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
+        let telemetryObserver: any AFMInferenceTelemetryObserving
+        let telemetryToken: AFMInferenceRequestToken
+        let telemetryStarted: Bool
         var prompt: ds4_tokens
         var promptReleased = false
         var prefilled = false
@@ -149,11 +275,12 @@ public actor AFMDwarfStarRuntimeCoordinator {
         var promptSeconds = 0.0
         var generationStart: ContinuousClock.Instant?
         var generatedText = ""
+        var rawEmissionBuffer = ""
         var generatedReasoning = ""
         var toolCalls: [AFMToolCall] = []
         var toolParser: AFMDwarfStarToolCodec.StreamParser
         var pendingUTF8 = Data()
-        var outputTokens = 0
+        var outputAccounting: AFMDwarfStarOutputAccounting
         var randomState: UInt64
         var peakBatchSize = 1
         let reasoningMode: AFMDwarfStarReasoningMode
@@ -165,23 +292,45 @@ public actor AFMDwarfStarRuntimeCoordinator {
             id: UUID,
             request: AFMRequest,
             prompt: ds4_tokens,
+            telemetryObserver: any AFMInferenceTelemetryObserving,
+            telemetryToken: AFMInferenceRequestToken,
+            telemetryStarted: Bool,
             onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void,
             continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
         ) {
             self.id = id
             self.request = request
             self.prompt = prompt
+            self.telemetryObserver = telemetryObserver
+            self.telemetryToken = telemetryToken
+            self.telemetryStarted = telemetryStarted
             self.onEvent = onEvent
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
             reasoningMode = .resolve(metadata: request.metadata)
+            outputAccounting = AFMDwarfStarOutputAccounting(
+                maximumTokens: request.options.maximumResponseTokens ?? 512
+            )
             toolParser = AFMDwarfStarToolCodec.StreamParser(
                 startsInReasoning: reasoningMode != .chat
             )
         }
 
         var maximumTokens: Int {
-            max(0, request.options.maximumResponseTokens ?? 512)
+            outputAccounting.maximumTokens
+        }
+
+        var outputTokens: Int {
+            outputAccounting.visibleTokens
+        }
+
+        var requestedMaximumTokens: Int? {
+            request.options.maximumResponseTokens
+        }
+
+        var isRawPrompt: Bool {
+            if case .string = request.metadata["afm.rawPrompt"] { return true }
+            return false
         }
 
         func releasePrompt() {
@@ -356,6 +505,18 @@ public actor AFMDwarfStarRuntimeCoordinator {
         request: AFMRequest,
         onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void
     ) async throws -> AFMDwarfStarGenerationResult {
+        try await generate(
+            request: request,
+            telemetryObserver: AFMNoopInferenceTelemetryObserver(),
+            onEvent: onEvent
+        )
+    }
+
+    func generate(
+        request: AFMRequest,
+        telemetryObserver: any AFMInferenceTelemetryObserving,
+        onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void
+    ) async throws -> AFMDwarfStarGenerationResult {
         guard let engine, !slots.isEmpty else {
             throw AFMError.unavailable("DwarfStar is not loaded.")
         }
@@ -370,14 +531,26 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
+                let admittedTelemetryToken = AFMGenerationContext.telemetryToken
+                let acceptedAt = AFMGenerationContext.acceptedAt
+                    ?? ProcessInfo.processInfo.systemUptime
+                let telemetryToken = admittedTelemetryToken
+                    ?? telemetryObserver.requestAccepted(at: acceptedAt)
+                if admittedTelemetryToken != nil {
+                    AFMGenerationContext.admissionLease?.transferTelemetryToProvider()
+                }
                 pendingJobs.append(
                     GenerationJob(
                         id: id,
                         request: request,
                         prompt: prompt,
+                        telemetryObserver: telemetryObserver,
+                        telemetryToken: telemetryToken,
+                        telemetryStarted: admittedTelemetryToken != nil,
                         onEvent: onEvent,
                         continuation: continuation)
                 )
+                publishProviderState()
                 startSchedulerIfNeeded()
             }
         } onCancel: {
@@ -474,7 +647,22 @@ public actor AFMDwarfStarRuntimeCoordinator {
             }
             job.cachedInputTokens = cachedTokens
             slots[slotIndex].job = job
+            let now = ProcessInfo.processInfo.systemUptime
+            if !job.telemetryStarted {
+                job.telemetryObserver.requestStarted(job.telemetryToken, at: now)
+            }
+            job.telemetryObserver.promptTokensProcessed(
+                job.telemetryToken,
+                fullPromptTokens: Int(job.prompt.len),
+                computedPromptTokens: max(0, Int(job.prompt.len) - cachedTokens),
+                at: now
+            )
+            job.telemetryObserver.prefixCacheObserved(
+                queriedTokens: Int(job.prompt.len),
+                hitTokens: cachedTokens
+            )
         }
+        publishProviderState()
     }
 
     /// Advance one bounded prefill quantum. When other slots are decoding, use
@@ -554,6 +742,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 finish(slotIndex: slotIndex, reason: .length)
             }
         }
+        publishProviderState()
     }
 
     private func decodeCycle() {
@@ -600,6 +789,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 finish(slotIndex: slotIndex, throwing: CancellationError())
                 continue
             }
+            if Int(ds4_session_pos(slots[slotIndex].session)) >= loadedContextWindow {
+                finish(slotIndex: slotIndex, reason: .length)
+                continue
+            }
 
             let temperature = Float(job.request.options.temperature ?? 0)
             let token = temperature <= 0
@@ -612,7 +805,16 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     Float(job.request.options.minP ?? 0.05),
                     &job.randomState)
 
-            if ds4_token_is_stop_for_think_mode(engine, token, job.reasoningMode.thinkMode) {
+            let isEOS = token == ds4_token_eos(engine)
+            if AFMDwarfStarStoppingPolicy.shouldStop(
+                isEndOfSequence: isEOS,
+                isRuntimeStop: ds4_token_is_stop_for_think_mode(
+                    engine,
+                    token,
+                    job.reasoningMode.thinkMode
+                ),
+                ignoreEndOfSequence: job.request.options.ignoreEndOfSequence
+            ) {
                 finish(slotIndex: slotIndex, reason: .stop)
                 continue
             }
@@ -629,7 +831,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                         slots[slotIndex].session,
                         token,
                         Int32(remaining),
-                        ds4_token_eos(engine),
+                        job.request.options.ignoreEndOfSequence ? -1 : ds4_token_eos(engine),
                         buffer.baseAddress,
                         Int32(buffer.count),
                         &error,
@@ -645,6 +847,13 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 if acceptedCount > 0 {
                     job.speculativeCycles += 1
                     job.speculativeAcceptedTokens += max(0, Int(acceptedCount) - 1)
+                    job.telemetryObserver.speculativeRound(
+                        draftTokens: min(
+                            max(0, Int(ds4_engine_mtp_draft_tokens(engine))),
+                            max(0, remaining - 1)
+                        ),
+                        acceptedTokens: max(0, Int(acceptedCount) - 1)
+                    )
                     for acceptedToken in accepted.prefix(Int(acceptedCount)) {
                         guard slots[slotIndex].job != nil else { break }
                         emit(token: acceptedToken, engine: engine, slotIndex: slotIndex)
@@ -679,8 +888,22 @@ public actor AFMDwarfStarRuntimeCoordinator {
 
     private func emit(token: Int32, engine: OpaquePointer, slotIndex: Int) {
         guard let job = slots[slotIndex].job else { return }
-        if ds4_token_is_stop_for_think_mode(engine, token, job.reasoningMode.thinkMode) {
+        let isEOS = token == ds4_token_eos(engine)
+        let disposition = job.outputAccounting.disposition(
+            isEndOfSequence: isEOS,
+            isRuntimeStop: ds4_token_is_stop_for_think_mode(
+                engine,
+                token,
+                job.reasoningMode.thinkMode
+            ),
+            ignoreEndOfSequence: job.request.options.ignoreEndOfSequence
+        )
+        if disposition == .stop {
             finish(slotIndex: slotIndex, reason: .stop)
+            return
+        }
+
+        if disposition == .suppress {
             return
         }
 
@@ -696,25 +919,33 @@ public actor AFMDwarfStarRuntimeCoordinator {
             UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self),
             count: byteCount)
         afm_ds4_free(bytes)
-        job.outputTokens += 1
+        recordOutputToken(for: job)
 
         if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
             job.pendingUTF8.removeAll(keepingCapacity: true)
-            do {
-                let completedToolCall = process(
-                    try job.toolParser.consume(piece),
-                    for: job,
-                    tokenCount: 1
-                )
-                if completedToolCall {
-                    finish(slotIndex: slotIndex, reason: .toolCalls)
+            if job.isRawPrompt {
+                if processRawText(piece, for: job, tokenCount: 1) {
+                    finish(slotIndex: slotIndex, reason: .stop)
                     return
                 }
-            } catch {
-                finish(slotIndex: slotIndex, throwing: error)
-                return
+            } else {
+                do {
+                    let completedToolCall = process(
+                        try job.toolParser.consume(piece),
+                        for: job,
+                        tokenCount: 1
+                    )
+                    if completedToolCall {
+                        finish(slotIndex: slotIndex, reason: .toolCalls)
+                        return
+                    }
+                } catch {
+                    finish(slotIndex: slotIndex, throwing: error)
+                    return
+                }
             }
-            if job.request.options.stopSequences.contains(where: job.generatedText.hasSuffix) {
+            if !job.isRawPrompt,
+               job.request.options.stopSequences.contains(where: job.generatedText.hasSuffix) {
                 finish(slotIndex: slotIndex, reason: .stop)
                 return
             }
@@ -725,10 +956,22 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
     }
 
+    private func recordOutputToken(for job: GenerationJob) {
+        job.outputAccounting.recordVisible {
+            job.telemetryObserver.outputToken(
+                job.telemetryToken,
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        }
+    }
+
     private func finish(slotIndex: Int, reason: AFMFinishReason) {
         guard let job = slots[slotIndex].job else { return }
         flushPendingUTF8(job)
-        _ = process(job.toolParser.finish(), for: job, tokenCount: 0)
+        flushRawEmissionBuffer(job)
+        if !job.isRawPrompt {
+            _ = process(job.toolParser.finish(), for: job, tokenCount: 0)
+        }
         persistPrefixIfIdle(slotIndex: slotIndex, job: job, reason: "continued")
         let generationSeconds = job.generationStart.map(Self.seconds(since:)) ?? 0
         let result = AFMDwarfStarGenerationResult(
@@ -757,6 +1000,18 @@ public actor AFMDwarfStarRuntimeCoordinator {
                 "persistedPrefixTokens": .integer(job.persistedPrefixTokens),
             ])
         slots[slotIndex].job = nil
+        _ = job.telemetryObserver.requestFinished(
+            job.telemetryToken,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: Self.telemetryFinishReason(reason),
+                completedAt: ProcessInfo.processInfo.systemUptime,
+                fullPromptTokens: Int(job.prompt.len),
+                computedPromptTokens: max(0, Int(job.prompt.len) - job.cachedInputTokens),
+                generatedTokens: job.outputTokens,
+                maximumOutputTokens: job.requestedMaximumTokens
+            )
+        )
+        publishProviderState(additionalObservers: [job.telemetryObserver])
         job.releasePrompt()
         job.continuation.resume(returning: result)
     }
@@ -764,11 +1019,23 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func finish(slotIndex: Int, throwing error: any Error) {
         guard let job = slots[slotIndex].job else { return }
         slots[slotIndex].job = nil
+        _ = job.telemetryObserver.requestFailed(
+            job.telemetryToken,
+            reason: error is CancellationError ? .cancelled : .inference,
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        publishProviderState(additionalObservers: [job.telemetryObserver])
         job.releasePrompt()
         job.continuation.resume(throwing: error)
     }
 
     private func finishPending(_ job: GenerationJob, throwing error: any Error) {
+        _ = job.telemetryObserver.requestFailed(
+            job.telemetryToken,
+            reason: error is CancellationError ? .cancelled : .inference,
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        publishProviderState(additionalObservers: [job.telemetryObserver])
         job.releasePrompt()
         job.continuation.resume(throwing: error)
     }
@@ -777,8 +1044,39 @@ public actor AFMDwarfStarRuntimeCoordinator {
         guard !job.pendingUTF8.isEmpty else { return }
         let piece = String(decoding: job.pendingUTF8, as: UTF8.self)
         job.pendingUTF8.removeAll(keepingCapacity: false)
-        guard let outputs = try? job.toolParser.consume(piece) else { return }
-        _ = process(outputs, for: job, tokenCount: 0)
+        if job.isRawPrompt {
+            _ = processRawText(piece, for: job, tokenCount: 0)
+        } else {
+            guard let outputs = try? job.toolParser.consume(piece) else { return }
+            _ = process(outputs, for: job, tokenCount: 0)
+        }
+    }
+
+    /// Raw completion streams must not expose caller stop sequences. Retain
+    /// only the suffix that could still become a stop prefix on the next token.
+    private func processRawText(
+        _ piece: String,
+        for job: GenerationJob,
+        tokenCount: Int
+    ) -> Bool {
+        let result = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &job.rawEmissionBuffer,
+            piece: piece,
+            stopSequences: job.request.options.stopSequences
+        )
+        emitRawText(result.visibleText, for: job, tokenCount: tokenCount)
+        return result.stopped
+    }
+
+    private func flushRawEmissionBuffer(_ job: GenerationJob, tokenCount: Int = 0) {
+        let text = AFMDwarfStarRawStopPolicy.drain(buffer: &job.rawEmissionBuffer)
+        emitRawText(text, for: job, tokenCount: tokenCount)
+    }
+
+    private func emitRawText(_ text: String, for job: GenerationJob, tokenCount: Int) {
+        guard !text.isEmpty else { return }
+        job.generatedText += text
+        job.onEvent(.responseText(action: .append, text: text, tokenCount: tokenCount))
     }
 
     @discardableResult
@@ -824,10 +1122,11 @@ public actor AFMDwarfStarRuntimeCoordinator {
     private func unloadCurrent() {
         schedulerTask?.cancel()
         schedulerTask = nil
-        for job in pendingJobs {
+        let abandonedPendingJobs = pendingJobs
+        pendingJobs.removeAll(keepingCapacity: false)
+        for job in abandonedPendingJobs {
             finishPending(job, throwing: CancellationError())
         }
-        pendingJobs.removeAll(keepingCapacity: false)
         for index in slots.indices {
             if slots[index].job != nil {
                 finish(slotIndex: index, throwing: CancellationError())
@@ -846,6 +1145,41 @@ public actor AFMDwarfStarRuntimeCoordinator {
         prefixCachingEnabled = false
         dsparkEnabled = false
         lastPrefillSlot = -1
+    }
+
+    private func publishProviderState(
+        additionalObservers: [any AFMInferenceTelemetryObserving] = []
+    ) {
+        let activeSlots = slots.indices.filter { slots[$0].job != nil }
+        let state = AFMInferenceProviderState(
+            runningRequests: activeSlots.count,
+            waitingRequests: pendingJobs.count,
+            activeLogicalCachePositions: activeSlots.reduce(into: 0) { total, index in
+                total += max(0, Int(ds4_session_pos(slots[index].session)))
+            },
+            logicalCacheCapacity: max(0, loadedContextWindow) * slots.count
+        )
+        let observers = additionalObservers
+            + pendingJobs.map(\.telemetryObserver)
+            + activeSlots.compactMap { slots[$0].job?.telemetryObserver }
+        for observer in observers {
+            observer.updateProviderState(state)
+        }
+    }
+
+    private static func telemetryFinishReason(
+        _ reason: AFMFinishReason
+    ) -> AFMInferenceFinishReason {
+        switch reason {
+        case .stop, .toolCalls, .contentFilter:
+            return .stop
+        case .length:
+            return .length
+        case .cancelled:
+            return .abort
+        case .error, .unknown:
+            return .error
+        }
     }
 
     /// Disk serialization can synchronize GPU state. Keep it off the hot path
@@ -913,6 +1247,10 @@ public actor AFMDwarfStarRuntimeCoordinator {
     ) throws -> ds4_tokens {
         var prompt = ds4_tokens()
         afm_ds4_tokens_init(&prompt)
+        if case .string(let rawPrompt)? = request.metadata["afm.rawPrompt"] {
+            rawPrompt.withCString { ds4_tokenize_text(engine, $0, &prompt) }
+            return prompt
+        }
         ds4_chat_begin(engine, &prompt)
         do {
             let reasoningMode = AFMDwarfStarReasoningMode.resolve(metadata: request.metadata)
