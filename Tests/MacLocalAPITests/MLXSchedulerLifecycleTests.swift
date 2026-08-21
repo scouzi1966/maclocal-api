@@ -448,7 +448,7 @@ private actor SchedulerCancellationProbe {
         for waiter in waiters {
             waiter.resume()
         }
-        try await Task.sleep(for: .seconds(60))
+        try await Task.sleep(for: .seconds(5))
     }
 
     func waitUntilEntered() async {
