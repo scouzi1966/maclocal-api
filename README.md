@@ -93,6 +93,56 @@ Or use Apple’s on-device model:
 afm -w
 ```
 
+### Native terminal chat
+
+Use `--tui` when you want a private, full-screen chat without running an HTTP server:
+
+```bash
+# Apple Foundation Models
+afm --tui
+
+# Any supported MLX model (all normal sampling/runtime flags still apply)
+afm mlx -m Qwen3-0.6B-4bit --tui
+```
+
+TUI changes have a model-free regression harness. `make test-tui` runs stable
+Markdown/math/code snapshots and exercises keyboard input, terminal sizing,
+alternate-screen cleanup, and raw-mode restoration through a real macOS
+pseudo-terminal. If an intentional visual change updates the expected output,
+run `Scripts/test-tui.sh --record`, inspect the snapshot diff, then rerun
+`make test-tui` normally. The same focused suite runs automatically on relevant
+pull requests.
+
+The terminal UI streams responses, separates optional reasoning, and renders both answers
+and visible reasoning through a native CommonMark/GFM renderer. Headings, nested/task lists,
+quotes, tables, links, inline formatting, fenced code, and raw HTML are presented as inert
+terminal output. Code uses source-compiled Tree-sitter grammars for semantic highlighting
+and line numbers ([details](docs/tui-syntax-highlighting.md)); unified diffs
+have distinct file, hunk, addition, and deletion styling. Inline and display LaTeX are rendered
+as readable Unicode math, including fractions, roots, super/subscripts, operators, Greek
+symbols, matrices, and cases. The UI also reports token and throughput statistics.
+
+Reasoning is collapsed by default into a live activity row with its phase, animated cursor,
+elapsed time, and generated character count. Press `Tab` during generation to expand or
+collapse the reasoning panel without interrupting the model. Use `/reasoning expanded`,
+`/reasoning collapsed`, `/reasoning off`, or `/reasoning last` to control it explicitly.
+
+It supports multiline editing, prompt history, cancellation, persisted/searchable sessions
+under `~/.afm/sessions`, transcript export, attachments, terminal-width-aware tables, themes,
+and safe actions for response artifacts. Use `/help` for the command palette.
+
+The navigation follows Codex CLI conventions. Normal chat output remains in Terminal
+scrollback. Press `Ctrl+T` to open the full transcript overlay, then scroll with a Mac
+trackpad or mouse wheel, arrows, Page Up/Down, Ctrl-U/Ctrl-D, or Home/End; press `Ctrl+T`
+again to close it. Add `--no-alt-screen` to keep overlays inline too. `/blocks` opens a
+session-wide code-block list: navigate with arrows or paging keys, press Enter for
+Copy/Save/Preview actions, and Escape to return. Numbered `/save`, `/copy`, and `/open`
+commands remain available for direct use.
+
+Code is never executed automatically. `/save` refuses overwrites unless `/save!` is used,
+and only an explicit `/open` previews HTML or JavaScript in the browser. iTerm2 and Kitty
+can display local images inline; Terminal.app uses an explicit `/image` Quick Look fallback.
+
 ## Choose your runtime
 
 | Runtime | Best for | Start it |

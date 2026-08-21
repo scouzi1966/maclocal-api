@@ -1,0 +1,28 @@
+name: Terminal UI tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/tui-tests.yml"
+      - "Package.swift"
+      - "Package.resolved"
+      - "Scripts/swiftpm-reliable.sh"
+      - "Scripts/test-tui.sh"
+      - "Sources/AFMTerminalUI/**"
+      - "Tests/TUIHarness/**"
+  workflow_dispatch:
+
+concurrency:
+  group: tui-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-tui:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Run snapshot and pseudo-terminal tests
+        run: Scripts/test-tui.sh

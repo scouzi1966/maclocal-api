@@ -1,0 +1,23 @@
+▸ Limits and continuity
+
+A limit lim_(x → c) f(x)=L means
+┌─ math
+│ ∀ ε > 0, ∃ δ > 0 such that |x-c|<δ ⇒ |f(x)-L|<ε.
+└─
+
+
+▸ Single-variable calculus
+
+
+┌─ math
+│ f'(a)=lim_(h→0)(f(a+h)-f(a))/(h),
+│ ∫ₐᵇ f(x) dx=lim_(n→∞)∑ᵢ₌₁ⁿ f(tᵢ)Δ xᵢ.
+└─
+
+
+▸ Multivariable calculus
+
+For f:ℝⁿ→ℝ, the gradient is
+┌─ math
+│ ∇ f(a)=((∂ f)/(∂ x₁),…,(∂ f)/(∂ xₙ)).
+└─
