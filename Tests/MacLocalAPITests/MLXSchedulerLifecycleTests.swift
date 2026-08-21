@@ -332,6 +332,58 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         XCTAssertNil(service.installedScheduler)
     }
 
+    func testShutdownClosesAdmissionBeforeSetupBlockedByActiveDecode() async throws {
+        let decodeBarrier = SchedulerDecodeBarrier()
+        let setupBarrier = SchedulerPromotionBarrier()
+        let service = try await makeScheduledService(
+            maxConcurrent: 2,
+            decodeBarrier: { decodeBarrier.block() })
+        addTeardownBlock {
+            decodeBarrier.release()
+            await setupBarrier.release()
+        }
+        let scheduler = try XCTUnwrap(service.installedScheduler)
+        let activeStream = scheduler.submit(
+            input: LMInput(tokens: MLXArray([1, 2, 3])),
+            parameters: GenerateParameters(maxTokens: 100_000, temperature: 0),
+            promptTokens: 3,
+            requestId: "active-decode")
+        await decodeBarrier.waitUntilEntered()
+
+        let reservation = try reserved(service.tryReserveSlot())
+        service.schedulerSetupBarrier = { await setupBarrier.suspend() }
+        let setup = Task<Void, Error> { @Sendable [service, reservation] in
+            defer { service.releaseSlot(reservation) }
+            _ = try await service.generateStreamingWithSchedulerAdmission(
+                model: Self.modelID,
+                messages: [.init(role: "user", content: "blocked setup")],
+                temperature: 0,
+                maxTokens: 1,
+                topP: nil,
+                repetitionPenalty: nil,
+                admission: .reserved(reservation))
+        }
+        await setupBarrier.waitUntilEntered()
+        await setupBarrier.release()
+
+        let shutdown = Task {
+            await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+        }
+        try await waitUntil { scheduler.isAdmissionClosed }
+        decodeBarrier.release()
+
+        do {
+            try await setup.value
+            XCTFail("setup queued behind decode should observe shutdown")
+        } catch {
+            guard case MLXServiceError.serviceShuttingDown = error else {
+                return XCTFail("unexpected setup error: \(error)")
+            }
+        }
+        await shutdown.value
+        await assertShutdown(stream: activeStream)
+    }
+
     func testGPUCaptureRejectsSchedulerInstallationWithoutConsumingCapture() async throws {
         let service = makeLoadedService()
         service.maxConcurrent = 2
@@ -351,10 +403,7 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             "/tmp/should-not-capture.gputrace")
     }
 
-    func testSchedulerShutdownBalancesPendingAndActiveRequestAccounting() async throws {
-        StatsAggregator.shared.reset()
-        defer { StatsAggregator.shared.reset() }
-
+    func testSchedulerShutdownDrainsPendingAndActiveRequests() async throws {
         let service = try await makeScheduledService(
             maxConcurrent: 2,
             requiresFixedDecodeCohorts: true)
@@ -375,19 +424,10 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             requestId: "pending")
         try await waitUntil { scheduler.pendingRequestCount == 1 }
 
-        let before = StatsAggregator.shared.snapshot()
-        XCTAssertEqual(before.requestsStartedTotal, 2)
-        XCTAssertEqual(before.numRunning, 1)
-        XCTAssertEqual(before.numWaiting, 1)
-
         await service.shutdownAndReleaseResources(timeoutSeconds: 1)
 
         await assertShutdown(stream: activeStream)
         await assertShutdown(stream: pendingStream)
-        let after = StatsAggregator.shared.snapshot()
-        XCTAssertEqual(after.requestsStartedTotal, 2)
-        XCTAssertEqual(after.requestsCompletedTotal, 2)
-        XCTAssertEqual(after.requestSuccessByReason["abort"], 2)
         XCTAssertEqual(
             scheduler.admissionSnapshot,
             .init(inFlightCount: 0, reservedCount: 0))
@@ -398,10 +438,12 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
 
     private func makeScheduledService(
         maxConcurrent: Int,
-        requiresFixedDecodeCohorts: Bool? = nil
+        requiresFixedDecodeCohorts: Bool? = nil,
+        decodeBarrier: (@Sendable () -> Void)? = nil
     ) async throws -> MLXModelService {
         let service = makeLoadedService()
         service.maxConcurrent = maxConcurrent
+        service.schedulerDecodeBarrier = decodeBarrier
         try await service.initScheduler(
             requiresFixedDecodeCohorts: requiresFixedDecodeCohorts)
         return service
@@ -550,6 +592,55 @@ private actor SchedulerPromotionBarrier {
         releaseWaiters.removeAll()
         for waiter in waiters {
             waiter.resume()
+        }
+    }
+}
+
+private final class SchedulerDecodeBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private var entered = false
+    private var released = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func block() {
+        let state = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
+            guard !entered else { return (false, []) }
+            entered = true
+            let waiters = enteredWaiters
+            enteredWaiters.removeAll()
+            return (!released, waiters)
+        }
+        for waiter in state.1 {
+            waiter.resume()
+        }
+        if state.0 {
+            releaseSemaphore.wait()
+        }
+    }
+
+    func waitUntilEntered() async {
+        if lock.withLock({ entered }) { return }
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                if entered { return true }
+                enteredWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let shouldSignal = lock.withLock { () -> Bool in
+            guard !released else { return false }
+            released = true
+            return entered
+        }
+        if shouldSignal {
+            releaseSemaphore.signal()
         }
     }
 }

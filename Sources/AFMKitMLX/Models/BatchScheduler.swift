@@ -177,6 +177,7 @@ actor BatchScheduler {
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
     private let admissionWindowNanoseconds: UInt64
+    private let testingDecodeBarrier: (@Sendable () -> Void)?
     /// Some models change attention behavior when a later, shorter sequence is
     /// left-padded into an active batch. Keep their decode cohorts fixed so
     /// staggered arrivals retain the same path as serial generation.
@@ -608,6 +609,10 @@ actor BatchScheduler {
         admissionState.snapshot
     }
 
+    nonisolated var isAdmissionClosed: Bool {
+        _isShutdown.withLock { $0 }
+    }
+
     /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
     /// stream's termination handler can signal the synchronous GPU loop.
     nonisolated func cancelSlots(ids: Set<UUID>) {
@@ -663,7 +668,8 @@ actor BatchScheduler {
         enablePrefixCaching: Bool = false,
         cacheProfilePath: String? = nil,
         admissionWindowNanoseconds: UInt64 = BatchScheduler.defaultAdmissionWindowNanoseconds,
-        requiresFixedDecodeCohorts: Bool? = nil
+        requiresFixedDecodeCohorts: Bool? = nil,
+        testingDecodeBarrier: (@Sendable () -> Void)? = nil
     ) {
         self.model = model
         self.tokenizer = tokenizer
@@ -674,6 +680,7 @@ actor BatchScheduler {
             maxConcurrent: maxConcurrent)
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
+        self.testingDecodeBarrier = testingDecodeBarrier
         self.requiresFixedDecodeCohorts = requiresFixedDecodeCohorts
             ?? Self.requiresFixedDecodeCohorts(for: type(of: model))
 
@@ -728,7 +735,14 @@ actor BatchScheduler {
     /// Prepare UserInput into LMInput (tokenization + chat template).
     /// Actor-isolated — processor.prepare may not be thread-safe despite Sendable conformance.
     func prepareInput(_ userInput: UserInput) async throws -> LMInput {
-        try await processor.prepare(input: userInput)
+        guard !isAdmissionClosed else {
+            throw MLXServiceError.serviceShuttingDown
+        }
+        let input = try await processor.prepare(input: userInput)
+        guard !isAdmissionClosed else {
+            throw MLXServiceError.serviceShuttingDown
+        }
+        return input
     }
 
     /// Submit a generation request. Returns a stream of StreamChunks immediately.
@@ -859,10 +873,8 @@ actor BatchScheduler {
         return requests
     }
 
-    /// Gracefully shut down. Closing admission and draining the pending queue
-    /// are nonisolated so shutdown does not wait behind the synchronous decode
-    /// loop before making forward progress.
-    nonisolated func shutdown() async {
+    /// Close admission immediately without waiting for the actor decode loop.
+    nonisolated func beginShutdown() {
         let pending = admissionLock.withLock { () -> [PendingRequest] in
             _isShutdown.withLock { $0 = true }
             return _pendingQueue.withLock { q in
@@ -877,11 +889,15 @@ actor BatchScheduler {
             StatsAggregator.shared.requestSucceeded(reason: "abort")
             StatsAggregator.shared.requestCompleted()
         }
-
-        await finishShutdown()
     }
 
-    private func finishShutdown() async {
+    /// Gracefully close admission, then drain actor-isolated decode state.
+    nonisolated func shutdown() async {
+        beginShutdown()
+        await finishShutdownAfterAdmissionClosed()
+    }
+
+    func finishShutdownAfterAdmissionClosed() async {
         if let task = loopTask {
             task.cancel()
             await task.value
@@ -1024,6 +1040,8 @@ actor BatchScheduler {
                 Stream.gpu.synchronize()
                 return
             }
+
+            testingDecodeBarrier?()
 
             // --- Batched decode: build graph from lastTokenArray (CPU, ~2.7ms) ---
             let activeB = slots.count

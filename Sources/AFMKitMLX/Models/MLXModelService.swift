@@ -85,20 +85,32 @@ actor MLXModelExecutionCoordinator {
     struct Snapshot: Equatable, Sendable {
         let activeSerialGenerations: Int
         let activeSchedulerUsers: Int
+        let waitingGenerationAcquisitions: Int
         let promotionInProgress: Bool
         let schedulerInstalled: Bool
     }
 
     private var activeSerialGenerations = 0
     private var activeSchedulerUsers = 0
+    private var waitingGenerationAcquisitions = 0
     private var promotionInProgress = false
     private var schedulerInstalled = false
     private var shutdownRequested = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func acquireGeneration() async -> Lease {
+        var registeredAsWaiting = false
         while promotionInProgress {
+            if !registeredAsWaiting {
+                waitingGenerationAcquisitions += 1
+                registeredAsWaiting = true
+                signalChange()
+            }
             await waitForChange()
+        }
+        if registeredAsWaiting {
+            waitingGenerationAcquisitions -= 1
+            signalChange()
         }
         if schedulerInstalled {
             activeSchedulerUsers += 1
@@ -176,6 +188,7 @@ actor MLXModelExecutionCoordinator {
         Snapshot(
             activeSerialGenerations: activeSerialGenerations,
             activeSchedulerUsers: activeSchedulerUsers,
+            waitingGenerationAcquisitions: waitingGenerationAcquisitions,
             promotionInProgress: promotionInProgress,
             schedulerInstalled: schedulerInstalled)
     }
@@ -722,6 +735,9 @@ public final class MLXModelService: @unchecked Sendable {
 
     /// Deterministic test barrier between promotion ownership and construction.
     var schedulerPromotionBarrier: (@Sendable () async -> Void)?
+    /// Deterministic test hooks around scheduler setup and active decode.
+    var schedulerSetupBarrier: (@Sendable () async -> Void)?
+    var schedulerDecodeBarrier: (@Sendable () -> Void)?
 
     /// Scheduled teardown work item (cancelled if new batch arrives).
     private var teardownWorkItem: DispatchWorkItem?
@@ -2505,6 +2521,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
         let prefixCaching = self.enablePrefixCaching
         let limit = self.maxConcurrent
+        let decodeBarrier = withStateLock { schedulerDecodeBarrier }
         let sched = await container.perform { context -> BatchScheduler in
             BatchScheduler(
                 model: context.model,
@@ -2514,7 +2531,8 @@ public final class MLXModelService: @unchecked Sendable {
                 maxConcurrent: limit,
                 enablePrefixCaching: prefixCaching,
                 cacheProfilePath: self.cacheProfilePath,
-                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts,
+                testingDecodeBarrier: decodeBarrier
             )
         }
         let published = withStateLock { () -> Bool in
@@ -2560,6 +2578,7 @@ public final class MLXModelService: @unchecked Sendable {
         // Promote: create scheduler
         let limit = max(concurrency, 8)
         self.maxConcurrent = limit
+        let decodeBarrier = withStateLock { schedulerDecodeBarrier }
 
         guard let container = withStateLock({ currentContainer }) else {
             await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
@@ -2574,7 +2593,8 @@ public final class MLXModelService: @unchecked Sendable {
                 configuration: context.configuration,
                 maxConcurrent: limit,
                 enablePrefixCaching: true,
-                cacheProfilePath: self.cacheProfilePath
+                cacheProfilePath: self.cacheProfilePath,
+                testingDecodeBarrier: decodeBarrier
             )
         }
 
@@ -4129,6 +4149,9 @@ public final class MLXModelService: @unchecked Sendable {
             }
 
             let tToolSetup = debugLogging ? Date() : Date.distantPast
+            if let setupBarrier = withStateLock({ schedulerSetupBarrier }) {
+                await setupBarrier()
+            }
             let input = try await scheduler.prepareInput(userInput)
             let tTokenize = debugLogging ? Date() : Date.distantPast
             let preparedPromptTokens = input.text.tokens.reshaped(-1).asArray(Int.self).count
@@ -5022,19 +5045,22 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
-        _ = beginShutdown()
+        let scheduler = beginShutdown()
+        // Closing admission is nonisolated and must happen before coordinator
+        // waits: setup may itself be queued behind the active decode actor.
+        scheduler?.beginShutdown()
         await modelExecutionCoordinator.beginShutdown()
-        let scheduler = withStateLock { self.scheduler }
 
-        // Shut down concurrent scheduler first (cancels pending + active)
+        // Drain concurrent scheduler state after setup users observe closure.
         if let scheduler {
-            if await modelExecutionCoordinator.beginSchedulerRemoval() {
-                await scheduler.shutdown()
-                withStateLock {
-                    if self.scheduler === scheduler {
-                        self.scheduler = nil
-                    }
+            let ownsRemoval = await modelExecutionCoordinator.beginSchedulerRemoval()
+            await scheduler.finishShutdownAfterAdmissionClosed()
+            withStateLock {
+                if self.scheduler === scheduler {
+                    self.scheduler = nil
                 }
+            }
+            if ownsRemoval {
                 await modelExecutionCoordinator.finishSchedulerRemoval()
             }
         }

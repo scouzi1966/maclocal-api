@@ -158,7 +158,9 @@ final class DFlash2ProductionPathTests: XCTestCase {
             await coordinator.snapshot().promotionInProgress
         }
         let blockedGeneration = Task { await coordinator.acquireGeneration() }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        try await waitUntil {
+            await coordinator.snapshot().waitingGenerationAcquisitions == 1
+        }
         var snapshot = await coordinator.snapshot()
         XCTAssertEqual(snapshot.activeSerialGenerations, 1)
         XCTAssertTrue(snapshot.promotionInProgress)
@@ -190,7 +192,9 @@ final class DFlash2ProductionPathTests: XCTestCase {
             await coordinator.snapshot().promotionInProgress
         }
         let blockedGeneration = Task { await coordinator.acquireGeneration() }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        try await waitUntil {
+            await coordinator.snapshot().waitingGenerationAcquisitions == 1
+        }
 
         var snapshot = await coordinator.snapshot()
         XCTAssertEqual(snapshot.activeSchedulerUsers, 1)
