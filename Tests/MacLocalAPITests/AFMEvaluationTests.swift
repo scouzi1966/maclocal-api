@@ -241,6 +241,16 @@ final class AFMEvaluationTests: XCTestCase {
             baseParameters: base)) { error in
             XCTAssertTrue(error.localizedDescription.contains("1000000 output tokens"))
         }
+
+        let oneCase = AFMEvaluationSuite(
+            name: "one-case",
+            description: "Valid suite whose CLI default is invalid.",
+            cases: [.init(id: "case", prompt: "test")])
+        XCTAssertThrowsError(try AFMEvaluationRunPolicy.validatePlannedOutput(
+            suites: [oneCase],
+            baseParameters: .init(maxTokens: 0))) { error in
+            XCTAssertTrue(error.localizedDescription.contains("maxTokens must be 1...32768"))
+        }
     }
 
     func testSnapshotPolicyIsBoundedByCaseCountAndElapsedTime() {

@@ -351,6 +351,10 @@ package enum AFMEvaluationRunPolicy {
                     .merging(suite.defaults)
                     .merging(testCase.parameters)
                 let caseTokens = parameters.maxTokens ?? 256
+                guard (1...32_768).contains(caseTokens) else {
+                    throw AFMEvaluationError.runTooLarge(
+                        "maxTokens must be 1...32768 for every evaluation case")
+                }
                 let (next, overflow) = total.addingReportingOverflow(caseTokens)
                 guard !overflow, next <= maximumPlannedOutputTokens else {
                     throw AFMEvaluationError.runTooLarge(
