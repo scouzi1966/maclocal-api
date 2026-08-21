@@ -52,7 +52,8 @@ public enum TUIInvocationError: Error, LocalizedError, Equatable {
     public var errorDescription: String? { if case .conflict(let value) = self { return value }; return nil }
 }
 
-private struct GenerationSnapshot: Sendable {
+struct GenerationSnapshot: Sendable {
+    let revision: UInt64
     let text: String
     let reasoning: String
     let tools: [AFMToolCall]
@@ -65,7 +66,7 @@ private struct GenerationSnapshot: Sendable {
     let error: String?
 }
 
-private actor GenerationBuffer {
+actor GenerationBuffer {
     private var text = ""
     private var reasoning = ""
     private var tools: [AFMToolCall] = []
@@ -76,8 +77,10 @@ private actor GenerationBuffer {
     private var completed = false
     private var cancelled = false
     private var error: String?
+    private var revision: UInt64 = 0
 
     func accept(_ event: AFMStreamEvent) {
+        guard !completed else { return }
         switch event {
         case .text(let value, let tokens): text += value; completionTokens = max(completionTokens, tokens)
         case .reasoning(let value, _): reasoning += value
@@ -94,9 +97,11 @@ private actor GenerationBuffer {
         case .completed: completed = true
         case .tokenLogprobs, .metadata, .custom: break
         }
+        revision &+= 1
     }
 
     func accept(_ response: AFMResponse) {
+        guard !completed else { return }
         text = response.content
         reasoning = response.reasoningContent ?? ""
         promptTokens = response.promptTokens
@@ -107,34 +112,59 @@ private actor GenerationBuffer {
             toolStages.append(.completed)
         }
         completed = true
+        revision &+= 1
     }
 
-    func fail(_ value: Error) { error = value.localizedDescription; completed = true }
-    func cancel() { cancelled = true; completed = true }
-    func finish() { completed = true }
+    func fail(_ value: Error) {
+        guard !completed else { return }
+        error = value.localizedDescription; completed = true; revision &+= 1
+    }
+    func cancel() {
+        guard !completed else { return }
+        cancelled = true; completed = true; revision &+= 1
+    }
+    func finish() {
+        guard !completed else { return }
+        completed = true; revision &+= 1
+    }
     func snapshot() -> GenerationSnapshot {
         GenerationSnapshot(
+            revision: revision,
             text: text, reasoning: reasoning, tools: tools, toolStages: toolStages,
             promptTokens: promptTokens, completionTokens: completionTokens,
             cachedTokens: cachedTokens, completed: completed,
             cancelled: cancelled, error: error
         )
     }
+
+    func snapshot(ifChangedSince priorRevision: UInt64) -> GenerationSnapshot? {
+        guard revision != priorRevision else { return nil }
+        return snapshot()
+    }
 }
 
-private final class TUISignalMonitor: @unchecked Sendable {
+private actor GenerationTaskState {
+    private var finished = false
+    func markFinished() { finished = true }
+    func isFinished() -> Bool { finished }
+}
+
+final class TUISignalMonitor: @unchecked Sendable {
+    private typealias SignalHandler = @convention(c) (Int32) -> Void
     private let lock = NSLock()
     private var terminated = false
+    private var stopped = false
     private var sources: [DispatchSourceSignal] = []
+    private var previousHandlers: [(Int32, SignalHandler?)] = []
     private let monitoredSignals = [SIGTERM, SIGHUP]
+    private let queue = DispatchQueue(label: "ai.maclocal.afm.tui-signals")
 
-    init(onTermination: @escaping @Sendable () -> Void) {
+    init() {
         for signalNumber in monitoredSignals {
-            signal(signalNumber, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global(qos: .userInteractive))
+            previousHandlers.append((signalNumber, signal(signalNumber, SIG_IGN)))
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: queue)
             source.setEventHandler { [weak self] in
                 self?.lock.lock(); self?.terminated = true; self?.lock.unlock()
-                onTermination()
             }
             source.resume()
             sources.append(source)
@@ -142,10 +172,22 @@ private final class TUISignalMonitor: @unchecked Sendable {
     }
 
     var shouldTerminate: Bool { lock.lock(); defer { lock.unlock() }; return terminated }
-    deinit {
+    func stop() {
+        lock.lock()
+        guard !stopped else { lock.unlock(); return }
+        stopped = true
+        let sources = sources
+        self.sources.removeAll()
+        let handlers = previousHandlers
+        previousHandlers.removeAll()
+        lock.unlock()
+
         for source in sources { source.cancel() }
-        for signalNumber in monitoredSignals { signal(signalNumber, SIG_DFL) }
+        queue.sync {}
+        for (signalNumber, handler) in handlers { signal(signalNumber, handler) }
     }
+
+    deinit { stop() }
 }
 
 public final class AFMTerminalChat: @unchecked Sendable {
@@ -192,8 +234,9 @@ public final class AFMTerminalChat: @unchecked Sendable {
         }
         try terminal.enter()
         terminal.enterAlternateScreen()
-        let signalMonitor = TUISignalMonitor { [terminal] in terminal.restore() }
+        let signalMonitor = TUISignalMonitor()
         defer {
+            signalMonitor.stop()
             Task { await engine.unload() }
             terminal.restore()
         }
@@ -236,6 +279,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         terminal.write("\n\(style("you", "1;34")) › \(input)\n\n")
 
         let buffer = GenerationBuffer()
+        let taskState = GenerationTaskState()
         let messages = session.messages
         let generation = configuration.generation
         let task = Task {
@@ -254,6 +298,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             } catch {
                 await buffer.fail(error)
             }
+            await taskState.markFinished()
         }
 
         var previousRows = 0
@@ -264,14 +309,25 @@ public final class AFMTerminalChat: @unchecked Sendable {
                 task.cancel()
                 await buffer.cancel()
             }
-            lastSnapshot = await buffer.snapshot()
-            previousRows = redrawGeneration(lastSnapshot, previousRows: previousRows)
+            if let changed = await buffer.snapshot(ifChangedSince: lastSnapshot.revision) {
+                lastSnapshot = changed
+                previousRows = redrawGeneration(lastSnapshot, previousRows: previousRows, final: false)
+            }
         }
         if signalMonitor.shouldTerminate { task.cancel() }
-        await task.value
+        let clock = ContinuousClock()
+        let cancellationRequested = lastSnapshot.cancelled || signalMonitor.shouldTerminate
+        if cancellationRequested {
+            task.cancel()
+        }
+        let deadline = clock.now.advanced(by: cancellationRequested ? .milliseconds(500) : .seconds(1))
+        while !(await taskState.isFinished()), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        if !(await taskState.isFinished()) { task.cancel() }
         lastSnapshot = await buffer.snapshot()
         lastReasoning = lastSnapshot.reasoning
-        _ = redrawGeneration(lastSnapshot, previousRows: previousRows)
+        _ = redrawGeneration(lastSnapshot, previousRows: previousRows, final: true)
         terminal.write("\n")
 
         if let error = lastSnapshot.error {
@@ -290,11 +346,15 @@ public final class AFMTerminalChat: @unchecked Sendable {
                 function: MessageToolCallFunction(name: $0.name, arguments: $0.arguments)
             )
         }
+        let assistantIndex = session.messages.count
         session.messages.append(Message(
             role: "assistant",
             content: lastSnapshot.text.isEmpty ? nil : .text(lastSnapshot.text),
             toolCalls: messageToolCalls.isEmpty ? nil : messageToolCalls
         ))
+        if !lastSnapshot.reasoning.isEmpty {
+            session.reasoningByMessage[String(assistantIndex)] = lastSnapshot.reasoning
+        }
         session.updatedAt = Date()
         _ = try? store.save(session)
         let rendered = renderMarkdown(lastSnapshot.text)
@@ -313,7 +373,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         terminal.write("\n")
     }
 
-    private func redrawGeneration(_ snapshot: GenerationSnapshot, previousRows: Int) -> Int {
+    private func redrawGeneration(_ snapshot: GenerationSnapshot, previousRows: Int, final: Bool) -> Int {
         if previousRows > 0 {
             for index in 0..<previousRows {
                 terminal.clearLine()
@@ -324,12 +384,12 @@ public final class AFMTerminalChat: @unchecked Sendable {
         var display = ""
         if !snapshot.reasoning.isEmpty {
             if showReasoning {
-                display += style("reasoning", "2;35") + " ›\n" + renderMarkdown(snapshot.reasoning).text + "\n\n"
+                display += style("reasoning", "2;35") + " ›\n" + renderGenerationMarkdown(snapshot.reasoning, final: final) + "\n\n"
             } else {
                 display += style("… reasoning hidden (\(snapshot.reasoning.count) chars; /reasoning show)", "2") + "\n"
             }
         }
-        display += style("assistant", "1;32") + " › " + renderMarkdown(snapshot.text).text
+        display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(snapshot.text, final: final)
         if snapshot.text.isEmpty && snapshot.reasoning.isEmpty { display += style("thinking…", "2") }
         if !snapshot.tools.isEmpty {
             let lines = zip(snapshot.tools, snapshot.toolStages).map { call, stage in
@@ -339,6 +399,13 @@ public final class AFMTerminalChat: @unchecked Sendable {
         }
         terminal.write(display)
         return displayRows(display, width: terminal.width())
+    }
+
+    private func renderGenerationMarkdown(_ source: String, final: Bool) -> String {
+        let limit = 12_000
+        guard !final, source.count > limit else { return renderMarkdown(source).text }
+        let suffix = String(source.suffix(limit))
+        return style("… earlier streaming output omitted from redraw …", "2") + "\n" + renderMarkdown(suffix).text
     }
 
     private func readInput(initial: String?, signalMonitor: TUISignalMonitor) -> String? {
@@ -595,7 +662,8 @@ public final class AFMTerminalChat: @unchecked Sendable {
         session = try store.load(id: id)
         promptHistory = session.messages.filter { $0.role == "user" }.map(\.textContent)
         lastInput = promptHistory.last
-        lastReasoning = ""
+        let lastAssistantIndex = session.messages.indices.reversed().first { session.messages[$0].role == "assistant" }
+        lastReasoning = lastAssistantIndex.flatMap { session.reasoning(atMessageIndex: $0) } ?? ""
         codeBlocks = []
         images = []
         terminal.clearScreen(); drawWelcome()

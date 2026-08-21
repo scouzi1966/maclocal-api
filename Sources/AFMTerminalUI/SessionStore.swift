@@ -9,6 +9,9 @@ public struct TUISession: Codable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
     public var messages: [Message]
+    /// Reasoning is UI metadata rather than part of the OpenAI request message. Keys are
+    /// message indexes encoded as strings so older session files remain decodable.
+    public var reasoningByMessage: [String: String]
 
     public init(
         id: UUID = UUID(),
@@ -17,7 +20,8 @@ public struct TUISession: Codable, Sendable {
         model: String,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
-        messages: [Message] = []
+        messages: [Message] = [],
+        reasoningByMessage: [String: String] = [:]
     ) {
         self.id = id
         self.title = title
@@ -26,6 +30,27 @@ public struct TUISession: Codable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.messages = messages
+        self.reasoningByMessage = reasoningByMessage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, backend, model, createdAt, updatedAt, messages, reasoningByMessage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        backend = try values.decode(String.self, forKey: .backend)
+        model = try values.decode(String.self, forKey: .model)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        messages = try values.decode([Message].self, forKey: .messages)
+        reasoningByMessage = try values.decodeIfPresent([String: String].self, forKey: .reasoningByMessage) ?? [:]
+    }
+
+    public func reasoning(atMessageIndex index: Int) -> String? {
+        reasoningByMessage[String(index)]
     }
 }
 
@@ -85,8 +110,11 @@ public final class TUISessionStore: @unchecked Sendable {
     public func exportMarkdown(_ session: TUISession, to url: URL, overwrite: Bool = false) throws {
         var markdown = "# \(session.title)\n\n"
         markdown += "- Backend: \(session.backend)\n- Model: \(session.model)\n- Updated: \(ISO8601DateFormatter().string(from: session.updatedAt))\n\n"
-        for message in session.messages {
+        for (index, message) in session.messages.enumerated() {
             markdown += "## \(message.role.capitalized)\n\n\(message.textContent)\n\n"
+            if let reasoning = session.reasoning(atMessageIndex: index), !reasoning.isEmpty {
+                markdown += "<details><summary>Reasoning</summary>\n\n\(reasoning)\n\n</details>\n\n"
+            }
         }
         try TUIArtifactActions.save(Data(markdown.utf8), to: url, overwrite: overwrite)
     }
@@ -105,7 +133,8 @@ public final class TUISessionStore: @unchecked Sendable {
             guard let lowered, !lowered.isEmpty else {
                 return TUISessionSummary(id: session.id, title: session.title, updatedAt: session.updatedAt, matchingSnippet: nil)
             }
-            let matching = session.messages.map(\.textContent).first { $0.lowercased().contains(lowered) }
+            let matching = (session.messages.map(\.textContent) + Array(session.reasoningByMessage.values))
+                .first { $0.lowercased().contains(lowered) }
             guard session.title.lowercased().contains(lowered) || matching != nil else { return nil }
             return TUISessionSummary(id: session.id, title: session.title, updatedAt: session.updatedAt, matchingSnippet: matching)
         }.sorted { $0.updatedAt > $1.updatedAt }

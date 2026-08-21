@@ -220,6 +220,52 @@ final class TUISessionStoreTests: XCTestCase {
         try store.exportMarkdown(session, to: export)
         XCTAssertTrue(try String(contentsOf: export, encoding: .utf8).contains("## Assistant"))
     }
+
+    func testPersistsReasoningAndDecodesLegacySessions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(directory: root)
+        var session = TUISession(backend: "MLX", model: "test/model")
+        session.messages = [.init(role: "assistant", content: "Answer")]
+        session.reasoningByMessage["0"] = "Private reasoning"
+
+        try store.save(session)
+        XCTAssertEqual(try store.load(id: session.id).reasoning(atMessageIndex: 0), "Private reasoning")
+        XCTAssertEqual(try store.search("private reasoning").first?.id, session.id)
+
+        let export = root.appendingPathComponent("reasoning.md")
+        try store.exportMarkdown(session, to: export)
+        let markdown = try String(contentsOf: export, encoding: .utf8)
+        XCTAssertTrue(markdown.contains("<summary>Reasoning</summary>"))
+        XCTAssertTrue(markdown.contains("Private reasoning"))
+
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": session.id.uuidString,
+            "title": "Legacy",
+            "backend": "MLX",
+            "model": "test/model",
+            "createdAt": ISO8601DateFormatter().string(from: session.createdAt),
+            "updatedAt": ISO8601DateFormatter().string(from: session.updatedAt),
+            "messages": [["role": "assistant", "content": "Answer"]]
+        ])
+        try data.write(to: root.appendingPathComponent("\(session.id.uuidString).json"))
+        XCTAssertTrue(try store.load(id: session.id).reasoningByMessage.isEmpty)
+    }
+}
+
+final class GenerationBufferTests: XCTestCase {
+    func testCompletedBufferRejectsLateEventsAndSkipsUnchangedSnapshots() async {
+        let buffer = GenerationBuffer()
+        await buffer.accept(.text("one", tokenCount: 1))
+        await buffer.finish()
+        let completed = await buffer.snapshot()
+
+        await buffer.accept(.text("late", tokenCount: 2))
+        let unchanged = await buffer.snapshot(ifChangedSince: completed.revision)
+        let final = await buffer.snapshot()
+        XCTAssertNil(unchanged)
+        XCTAssertEqual(final.text, "one")
+    }
 }
 
 final class TerminalLifecycleAndInvocationTests: XCTestCase {
