@@ -32,7 +32,7 @@ private extension Dictionary where Key == String, Value == AnyCodable {
 
 enum AFMMLXSpeculativeDecodeCancellation {
     static func run<Output>(
-        _ decode: (_ onToken: (Int) -> Bool) -> Output
+        _ decode: (_ onToken: @escaping (Int) -> Bool) -> Output
     ) throws -> Output {
         let output = decode { _ in !Task.isCancelled }
         try Task.checkCancellation()
