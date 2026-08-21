@@ -195,7 +195,36 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertFalse(qualification.isAssetUsable)
     }
 
+    func testMXFPModelRejectsUnquantizedVisionShapeMismatch() throws {
+        let directory = try makeModelDirectory()
+        let weight = "vision_tower.blocks.0.attn.proj.weight"
+        try rewriteVisionShard(
+            in: directory,
+            metadata: [weight: ("F16", [1])]
+        )
+
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
+    }
+
     func testMXFPPackedVisionWeightWithScaleQualifiesWithoutAffineBiases() throws {
+        let directory = try makeModelDirectory()
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [32, 8]),
+                "\(base).scales": ("F8_E8M0", [32, 1]),
+            ]
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.isAssetUsable)
+        XCTAssertEqual(qualification.visionTensorCount, 34)
+    }
+
+    func testMXFPOneElementPackedWeightAndScaleAreRejected() throws {
         let directory = try makeModelDirectory()
         let base = "vision_tower.blocks.0.attn.proj"
         try rewriteVisionShard(
@@ -207,10 +236,58 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             ]
         )
 
-        let qualification = try qualify(directory)
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
+    }
 
-        XCTAssertTrue(qualification.isAssetUsable)
-        XCTAssertEqual(qualification.visionTensorCount, 34)
+    func testMXFPPackedWeightWithWrongLogicalGeometryIsRejected() throws {
+        let directory = try makeModelDirectory()
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [32, 4]),
+                "\(base).scales": ("U8", [32, 1]),
+            ]
+        )
+
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
+    }
+
+    func testMXFPScaleWithWrongGroupGeometryIsRejected() throws {
+        let directory = try makeModelDirectory()
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [32, 8]),
+                "\(base).scales": ("U8", [32, 2]),
+            ]
+        )
+
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
+    }
+
+    func testMXFPModeRejectsIncompatibleBits() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        config["quantization"] = ["group_size": 32, "bits": 4, "mode": "mxfp8"]
+        config["quantization_config"] = [
+            "group_size": 32, "bits": 4, "mode": "mxfp8",
+        ]
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+        let base = "vision_tower.blocks.0.attn.proj"
+        try rewriteVisionShard(
+            in: directory,
+            additionalNames: ["\(base).scales"],
+            metadata: [
+                "\(base).weight": ("U32", [32, 4]),
+                "\(base).scales": ("U8", [32, 1]),
+            ]
+        )
+
+        XCTAssertFalse(try qualify(directory).isAssetUsable)
     }
 
     func testAffinePackedVisionWeightRequiresScalesAndBiases() throws {
@@ -226,8 +303,8 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             in: directory,
             additionalNames: ["\(base).scales"],
             metadata: [
-                "\(base).weight": ("U32", [1]),
-                "\(base).scales": ("F16", [1]),
+                "\(base).weight": ("U32", [32, 4]),
+                "\(base).scales": ("F16", [32, 1]),
             ]
         )
         XCTAssertFalse(try qualify(directory).isAssetUsable)
@@ -236,9 +313,9 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             in: directory,
             additionalNames: ["\(base).scales", "\(base).biases"],
             metadata: [
-                "\(base).weight": ("U32", [1]),
-                "\(base).scales": ("F16", [1]),
-                "\(base).biases": ("F16", [1]),
+                "\(base).weight": ("U32", [32, 4]),
+                "\(base).scales": ("F16", [32, 1]),
+                "\(base).biases": ("F16", [32, 1]),
             ]
         )
         XCTAssertTrue(try qualify(directory).isAssetUsable)
@@ -263,6 +340,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         try Self.writeSafetensorHeader(
             tensorNames: Self.requiredVisionTensorNames(depth: 2)
                 .union(["language_model.embed_tokens.weight"]),
+            metadata: Self.requiredVisionTensorMetadata(depth: 2),
             to: directory.appendingPathComponent("weights.safetensors")
         )
 
@@ -348,6 +426,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             )
             try Self.writeSafetensorHeader(
                 tensorNames: tensorNames,
+                metadata: Self.requiredVisionTensorMetadata(depth: 2),
                 to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
             )
         }
@@ -369,9 +448,13 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             ["weight_map": weightMap],
             to: directory.appendingPathComponent("model.safetensors.index.json")
         )
+        var completeMetadata = Self.requiredVisionTensorMetadata(depth: 2)
+        for (name, value) in metadata {
+            completeMetadata[name] = value
+        }
         try Self.writeSafetensorHeader(
             tensorNames: tensorNames,
-            metadata: metadata,
+            metadata: completeMetadata,
             to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
         )
     }
@@ -392,7 +475,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             let tensor = metadata[name] ?? ("F16", [1])
             let byteWidth: Int
             switch tensor.dtype {
-            case "U8", "I8": byteWidth = 1
+            case "U8", "I8", "F8_E8M0": byteWidth = 1
             case "U32", "I32": byteWidth = 4
             default: byteWidth = 2
             }
@@ -420,8 +503,49 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         var vision = config["vision_config"] as! [String: Any]
         vision["depth"] = 2
         vision["deepstack_visual_indexes"] = []
+        vision["hidden_size"] = 32
+        vision["intermediate_size"] = 64
+        vision["out_hidden_size"] = 64
+        vision["num_heads"] = 4
+        vision["num_position_embeddings"] = 16
+        vision["patch_size"] = 2
+        vision["spatial_merge_size"] = 2
+        vision["temporal_patch_size"] = 2
+        vision["in_channels"] = 3
         config["vision_config"] = vision
         return config
+    }
+
+    private static func requiredVisionTensorMetadata(
+        depth: Int
+    ) -> [String: (dtype: String, shape: [Int])] {
+        var metadata: [String: (dtype: String, shape: [Int])] = [
+            "vision_tower.patch_embed.proj.weight": ("F16", [32, 2, 2, 2, 3]),
+            "vision_tower.patch_embed.proj.bias": ("F16", [32]),
+            "vision_tower.pos_embed.weight": ("F16", [16, 32]),
+            "vision_tower.merger.linear_fc1.weight": ("F16", [128, 128]),
+            "vision_tower.merger.linear_fc1.bias": ("F16", [128]),
+            "vision_tower.merger.linear_fc2.weight": ("F16", [64, 128]),
+            "vision_tower.merger.linear_fc2.bias": ("F16", [64]),
+            "vision_tower.merger.norm.weight": ("F16", [32]),
+            "vision_tower.merger.norm.bias": ("F16", [32]),
+        ]
+        for block in 0..<depth {
+            let prefix = "vision_tower.blocks.\(block)"
+            metadata["\(prefix).attn.proj.weight"] = ("F16", [32, 32])
+            metadata["\(prefix).attn.proj.bias"] = ("F16", [32])
+            metadata["\(prefix).attn.qkv.weight"] = ("F16", [96, 32])
+            metadata["\(prefix).attn.qkv.bias"] = ("F16", [96])
+            metadata["\(prefix).mlp.linear_fc1.weight"] = ("F16", [64, 32])
+            metadata["\(prefix).mlp.linear_fc1.bias"] = ("F16", [64])
+            metadata["\(prefix).mlp.linear_fc2.weight"] = ("F16", [32, 64])
+            metadata["\(prefix).mlp.linear_fc2.bias"] = ("F16", [32])
+            metadata["\(prefix).norm1.weight"] = ("F16", [32])
+            metadata["\(prefix).norm1.bias"] = ("F16", [32])
+            metadata["\(prefix).norm2.weight"] = ("F16", [32])
+            metadata["\(prefix).norm2.bias"] = ("F16", [32])
+        }
+        return metadata
     }
 
     private static func requiredVisionTensorNames(depth: Int) -> Set<String> {

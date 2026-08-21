@@ -308,31 +308,184 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         tensors: [String: SafetensorEvidence.TensorMetadata],
         config: [String: Any]
     ) -> Bool {
+        guard let expectedShapes = expectedQwenVisionTensorShapes(config: config),
+              required.allSatisfy({ expectedShapes[$0] != nil })
+        else { return false }
+
         let quantization = (config["quantization_config"] as? [String: Any])
             ?? (config["quantization"] as? [String: Any])
         let mode = (quantization?["mode"] as? String)?.lowercased()
         let isMXFP = mode == "mxfp4" || mode == "mxfp8"
 
+        for tensorName in required where !tensorName.hasSuffix(".weight") {
+            guard tensors[tensorName]?.shape == expectedShapes[tensorName] else {
+                return false
+            }
+        }
+
         for weightName in required where weightName.hasSuffix(".weight") {
-            guard let metadata = tensors[weightName] else { return false }
+            guard let metadata = tensors[weightName],
+                  let logicalShape = expectedShapes[weightName]
+            else { return false }
             let base = String(weightName.dropLast(".weight".count))
-            let hasScales = tensors["\(base).scales"] != nil
-            let hasBiases = tensors["\(base).biases"] != nil
+            let scales = tensors["\(base).scales"]
+            let biases = tensors["\(base).biases"]
+            let hasScales = scales != nil
+            let hasBiases = biases != nil
             let packedWeight = ["U8", "U16", "U32", "I8", "I16", "I32"]
                 .contains(metadata.dtype.uppercased())
             let hasQuantizedRepresentation = packedWeight || hasScales || hasBiases
             guard !hasQuantizedRepresentation || quantization != nil else {
                 return false
             }
-            guard hasQuantizedRepresentation else { continue }
-            guard hasScales else { return false }
+            guard hasQuantizedRepresentation else {
+                guard metadata.shape == logicalShape else { return false }
+                continue
+            }
+            guard metadata.dtype.uppercased() == "U32",
+                  let bits = integer(quantization?["bits"]),
+                  let groupSize = integer(quantization?["group_size"]),
+                  let packedShape = quantizedPackedShape(
+                    logicalShape: logicalShape,
+                    bits: bits
+                  ),
+                  let companionShape = quantizedCompanionShape(
+                    logicalShape: logicalShape,
+                    groupSize: groupSize
+                  ),
+                  metadata.shape == packedShape,
+                  scales?.shape == companionShape
+            else { return false }
             if isMXFP {
-                guard !hasBiases else { return false }
+                let expectedBits = mode == "mxfp8" ? 8 : 4
+                let scaleDType = scales?.dtype.uppercased()
+                guard bits == expectedBits,
+                      groupSize == 32,
+                      scaleDType == "U8" || scaleDType == "F8_E8M0",
+                      !hasBiases
+                else { return false }
             } else {
-                guard hasBiases else { return false }
+                guard biases?.shape == companionShape else { return false }
             }
         }
         return true
+    }
+
+    private static func expectedQwenVisionTensorShapes(
+        config: [String: Any]
+    ) -> [String: [Int]]? {
+        guard let vision = config["vision_config"] as? [String: Any],
+              let depth = positiveInteger(vision["depth"]),
+              let hidden = positiveInteger(vision["hidden_size"]),
+              let intermediate = positiveInteger(vision["intermediate_size"]),
+              let outHidden = positiveInteger(vision["out_hidden_size"]),
+              let inChannels = positiveInteger(vision["in_channels"] ?? 3),
+              let patchSize = positiveInteger(vision["patch_size"]),
+              let temporalPatchSize = positiveInteger(vision["temporal_patch_size"]),
+              let positionCount = positiveInteger(vision["num_position_embeddings"]),
+              let spatialMergeSize = positiveInteger(vision["spatial_merge_size"]),
+              let tripleHidden = multiplied(hidden, by: 3),
+              let spatialMergeArea = multiplied(spatialMergeSize, by: spatialMergeSize),
+              let mergedHidden = multiplied(hidden, by: spatialMergeArea)
+        else { return nil }
+
+        let deepstackIndexes = (vision["deepstack_visual_indexes"] as? [Any])?
+            .compactMap(integer) ?? []
+        guard deepstackIndexes.allSatisfy({ $0 >= 0 && $0 < depth }) else {
+            return nil
+        }
+
+        var shapes: [String: [Int]] = [
+            "vision_tower.patch_embed.proj.weight": [
+                hidden, temporalPatchSize, patchSize, patchSize, inChannels,
+            ],
+            "vision_tower.patch_embed.proj.bias": [hidden],
+            "vision_tower.pos_embed.weight": [positionCount, hidden],
+        ]
+        for block in 0..<depth {
+            let prefix = "vision_tower.blocks.\(block)"
+            shapes["\(prefix).attn.proj.weight"] = [hidden, hidden]
+            shapes["\(prefix).attn.proj.bias"] = [hidden]
+            shapes["\(prefix).attn.qkv.weight"] = [tripleHidden, hidden]
+            shapes["\(prefix).attn.qkv.bias"] = [tripleHidden]
+            shapes["\(prefix).mlp.linear_fc1.weight"] = [intermediate, hidden]
+            shapes["\(prefix).mlp.linear_fc1.bias"] = [intermediate]
+            shapes["\(prefix).mlp.linear_fc2.weight"] = [hidden, intermediate]
+            shapes["\(prefix).mlp.linear_fc2.bias"] = [hidden]
+            shapes["\(prefix).norm1.weight"] = [hidden]
+            shapes["\(prefix).norm1.bias"] = [hidden]
+            shapes["\(prefix).norm2.weight"] = [hidden]
+            shapes["\(prefix).norm2.bias"] = [hidden]
+        }
+
+        addQwenMergerShapes(
+            prefix: "vision_tower.merger",
+            normSize: hidden,
+            mergedHidden: mergedHidden,
+            outHidden: outHidden,
+            to: &shapes
+        )
+        for index in deepstackIndexes.indices {
+            addQwenMergerShapes(
+                prefix: "vision_tower.deepstack_merger_list.\(index)",
+                normSize: mergedHidden,
+                mergedHidden: mergedHidden,
+                outHidden: outHidden,
+                to: &shapes
+            )
+        }
+        return shapes
+    }
+
+    private static func addQwenMergerShapes(
+        prefix: String,
+        normSize: Int,
+        mergedHidden: Int,
+        outHidden: Int,
+        to shapes: inout [String: [Int]]
+    ) {
+        shapes["\(prefix).norm.weight"] = [normSize]
+        shapes["\(prefix).norm.bias"] = [normSize]
+        shapes["\(prefix).linear_fc1.weight"] = [mergedHidden, mergedHidden]
+        shapes["\(prefix).linear_fc1.bias"] = [mergedHidden]
+        shapes["\(prefix).linear_fc2.weight"] = [outHidden, mergedHidden]
+        shapes["\(prefix).linear_fc2.bias"] = [outHidden]
+    }
+
+    private static func quantizedPackedShape(
+        logicalShape: [Int],
+        bits: Int
+    ) -> [Int]? {
+        guard bits > 0, bits <= 32, 32.isMultiple(of: bits),
+              let last = logicalShape.last,
+              last.isMultiple(of: 32 / bits)
+        else { return nil }
+        var shape = logicalShape
+        shape[shape.count - 1] = last / (32 / bits)
+        return shape
+    }
+
+    private static func quantizedCompanionShape(
+        logicalShape: [Int],
+        groupSize: Int
+    ) -> [Int]? {
+        guard groupSize > 0,
+              let last = logicalShape.last,
+              last.isMultiple(of: groupSize)
+        else { return nil }
+        var shape = logicalShape
+        shape[shape.count - 1] = last / groupSize
+        return shape
+    }
+
+    private static func positiveInteger(_ value: Any?) -> Int? {
+        guard let value = integer(value), value > 0 else { return nil }
+        return value
+    }
+
+    private static func multiplied(_ lhs: Int, by rhs: Int) -> Int? {
+        let (result, overflow) = lhs.multipliedReportingOverflow(by: rhs)
+        return overflow ? nil : result
     }
 
     private static func safetensorEvidence(in url: URL) -> SafetensorEvidence? {
