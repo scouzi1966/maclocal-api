@@ -76,12 +76,14 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         ))
     }
 
-    func testStreamingIgnoreEOSConsumesRepeatedEOSBudgetWithoutEmittingText() {
+    func testStreamingIgnoreEOSDoesNotConsumeVisibleBudgetOrTelemetry() {
         var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 3)
         var telemetryTokens = 0
         var streamedText = ""
 
-        while !accounting.isExhausted {
+        for _ in 1..<AFMDwarfStarOutputAccounting
+            .maximumConsecutiveSuppressedEndOfSequenceTokens
+        {
             let disposition = accounting.disposition(
                 isEndOfSequence: true,
                 isRuntimeStop: true,
@@ -91,36 +93,55 @@ final class AFMDwarfStarProviderTests: XCTestCase {
                 streamedText += "<eos>"
             }
             XCTAssertEqual(disposition, .suppress)
-            accounting.recordConsumed { telemetryTokens += 1 }
         }
 
         XCTAssertEqual(streamedText, "")
-        XCTAssertEqual(accounting.consumedTokens, 3)
-        XCTAssertEqual(telemetryTokens, 3)
+        XCTAssertEqual(accounting.visibleTokens, 0)
+        XCTAssertEqual(telemetryTokens, 0)
+        XCTAssertFalse(accounting.isExhausted)
     }
 
-    func testNonStreamingIgnoreEOSReportsRepeatedEOSInUsageAtLengthBoundary() {
+    func testRepeatedSuppressedEOSStopsWithoutChangingUsage() {
         var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 4)
         var telemetryTokens = 0
-        var responseText = ""
 
-        while !accounting.isExhausted {
-            let disposition = accounting.disposition(
+        var disposition = AFMDwarfStarOutputAccounting.Disposition.suppress
+        for _ in 0..<AFMDwarfStarOutputAccounting
+            .maximumConsecutiveSuppressedEndOfSequenceTokens
+        {
+            disposition = accounting.disposition(
                 isEndOfSequence: true,
                 isRuntimeStop: true,
                 ignoreEndOfSequence: true
             )
-            if disposition == .expose {
-                responseText += "<eos>"
-            }
-            accounting.recordConsumed { telemetryTokens += 1 }
         }
 
-        let usage = AFMUsage(outputTokens: accounting.consumedTokens)
-        XCTAssertEqual(responseText, "")
-        XCTAssertEqual(usage.outputTokens, 4)
-        XCTAssertEqual(telemetryTokens, 4)
-        XCTAssertTrue(accounting.isExhausted)
+        let usage = AFMUsage(outputTokens: accounting.visibleTokens)
+        XCTAssertEqual(disposition, .stop)
+        XCTAssertEqual(usage.outputTokens, 0)
+        XCTAssertEqual(telemetryTokens, 0)
+        XCTAssertFalse(accounting.isExhausted)
+    }
+
+    func testVisibleTokenAfterSuppressedEOSConsumesOneOutputToken() {
+        var accounting = AFMDwarfStarOutputAccounting(maximumTokens: 2)
+        var telemetryTokens = 0
+
+        XCTAssertEqual(accounting.disposition(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ), .suppress)
+        XCTAssertEqual(accounting.disposition(
+            isEndOfSequence: false,
+            isRuntimeStop: false,
+            ignoreEndOfSequence: true
+        ), .expose)
+        accounting.recordVisible { telemetryTokens += 1 }
+
+        XCTAssertEqual(accounting.visibleTokens, 1)
+        XCTAssertEqual(telemetryTokens, 1)
+        XCTAssertEqual(accounting.consecutiveSuppressedEndOfSequenceTokens, 0)
     }
 
     func testRawStopPolicyWithholdsStopAcrossTokenPieces() {

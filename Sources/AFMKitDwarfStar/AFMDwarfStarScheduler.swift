@@ -131,6 +131,8 @@ enum AFMDwarfStarStoppingPolicy {
 }
 
 struct AFMDwarfStarOutputAccounting {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
     enum Disposition: Equatable {
         case stop
         case suppress
@@ -138,17 +140,18 @@ struct AFMDwarfStarOutputAccounting {
     }
 
     let maximumTokens: Int
-    private(set) var consumedTokens = 0
+    private(set) var visibleTokens = 0
+    private(set) var consecutiveSuppressedEndOfSequenceTokens = 0
 
     init(maximumTokens: Int) {
         self.maximumTokens = max(0, maximumTokens)
     }
 
     var isExhausted: Bool {
-        consumedTokens >= maximumTokens
+        visibleTokens >= maximumTokens
     }
 
-    func disposition(
+    mutating func disposition(
         isEndOfSequence: Bool,
         isRuntimeStop: Bool,
         ignoreEndOfSequence: Bool
@@ -160,15 +163,25 @@ struct AFMDwarfStarOutputAccounting {
         ) {
             return .stop
         }
-        return AFMDwarfStarStoppingPolicy.shouldExposeToken(
+        let shouldExpose = AFMDwarfStarStoppingPolicy.shouldExposeToken(
             isEndOfSequence: isEndOfSequence,
             ignoreEndOfSequence: ignoreEndOfSequence
-        ) ? .expose : .suppress
+        )
+        guard !shouldExpose else {
+            consecutiveSuppressedEndOfSequenceTokens = 0
+            return .expose
+        }
+
+        consecutiveSuppressedEndOfSequenceTokens += 1
+        return consecutiveSuppressedEndOfSequenceTokens
+            >= Self.maximumConsecutiveSuppressedEndOfSequenceTokens
+            ? .stop
+            : .suppress
     }
 
-    mutating func recordConsumed(_ onConsumed: () -> Void) {
-        consumedTokens += 1
-        onConsumed()
+    mutating func recordVisible(_ onVisible: () -> Void) {
+        visibleTokens += 1
+        onVisible()
     }
 }
 
@@ -308,7 +321,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
 
         var outputTokens: Int {
-            outputAccounting.consumedTokens
+            outputAccounting.visibleTokens
         }
 
         var requestedMaximumTokens: Int? {
@@ -891,10 +904,6 @@ public actor AFMDwarfStarRuntimeCoordinator {
         }
 
         if disposition == .suppress {
-            recordOutputToken(for: job)
-            if job.outputAccounting.isExhausted {
-                finish(slotIndex: slotIndex, reason: .length)
-            }
             return
         }
 
@@ -948,7 +957,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
     }
 
     private func recordOutputToken(for job: GenerationJob) {
-        job.outputAccounting.recordConsumed {
+        job.outputAccounting.recordVisible {
             job.telemetryObserver.outputToken(
                 job.telemetryToken,
                 at: ProcessInfo.processInfo.systemUptime

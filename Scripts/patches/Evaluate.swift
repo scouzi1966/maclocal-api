@@ -565,6 +565,8 @@ public struct RepetitionContext: LogitProcessor {
 ///
 /// Note: this uses `asyncEval()` and there may be an async evaluation running after a call to `next()`.
 public struct TokenIterator: Sequence, IteratorProtocol {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
     let model: any LanguageModel
     var state: LMOutput.State?
 
@@ -884,6 +886,11 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         return result
     }
 
+    mutating func excludeLastTokenFromGenerationLimit() {
+        tokenCount = max(0, tokenCount - 1)
+        lastLogprobInfo = nil
+    }
+
     /// Print performance summary (call after generation loop completes)
     public func printPerfSummary() {
         guard Self.perfEnabled, perfTokenCount > 0 else { return }
@@ -1097,17 +1104,28 @@ public func generate(
     }
 
     var tokens = [Int]()
+    var iterator = iterator
+    var sawFirstCandidate = false
+    var consecutiveSuppressedEndOfSequenceTokens = 0
 
-    for token in iterator {
+    while let token = iterator.next() {
         // compute the timing for the prompt
-        if tokens.isEmpty {
+        if !sawFirstCandidate {
+            sawFirstCandidate = true
             let now = Date.timeIntervalSinceReferenceDate
             promptTime = now - start
             start = now
         }
 
-        if token == context.tokenizer.unknownTokenId
-            || (!ignoreEndOfSequence && eosTokenIds.contains(token)) {
+        if ignoreEndOfSequence && eosTokenIds.contains(token) {
+            iterator.excludeLastTokenFromGenerationLimit()
+            consecutiveSuppressedEndOfSequenceTokens += 1
+            if consecutiveSuppressedEndOfSequenceTokens
+                >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+            continue
+        }
+        consecutiveSuppressedEndOfSequenceTokens = 0
+        if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
             break
         }
         tokens.append(token)
@@ -1197,18 +1215,28 @@ public func generate(
     }
 
     var tokenCount = 0
+    var iterator = iterator
+    var sawFirstCandidate = false
+    var consecutiveSuppressedEndOfSequenceTokens = 0
 
-    for token in iterator {
+    while let token = iterator.next() {
         // Compute the timing for the prompt
-        if promptTime == 0 {
+        if !sawFirstCandidate {
+            sawFirstCandidate = true
             let now = Date.timeIntervalSinceReferenceDate
             promptTime = now - start
             start = now
         }
 
-        // Check for end-of-sequence tokens
-        if token == context.tokenizer.unknownTokenId
-            || (!ignoreEndOfSequence && eosTokenIds.contains(token)) {
+        if ignoreEndOfSequence && eosTokenIds.contains(token) {
+            iterator.excludeLastTokenFromGenerationLimit()
+            consecutiveSuppressedEndOfSequenceTokens += 1
+            if consecutiveSuppressedEndOfSequenceTokens
+                >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+            continue
+        }
+        consecutiveSuppressedEndOfSequenceTokens = 0
+        if token == context.tokenizer.unknownTokenId || eosTokenIds.contains(token) {
             break
         }
 
@@ -1360,6 +1388,7 @@ public func generateTask(
             format: modelConfiguration.toolCallFormat ?? .json
         )
         var pendingLogprobs = [TokenLogprobData]()
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         let perfEnabled = TokenIterator.perfEnabled
         var perfDetokNs: UInt64 = 0
         var perfLoopOverheadNs: UInt64 = 0
@@ -1383,8 +1412,15 @@ public func generateTask(
                 start = now
             }
 
-            if token == tokenizer.unknownTokenId
-                || (!ignoreEndOfSequence && eosTokenIds.contains(token)) {
+            if ignoreEndOfSequence && eosTokenIds.contains(token) {
+                iterator.excludeLastTokenFromGenerationLimit()
+                consecutiveSuppressedEndOfSequenceTokens += 1
+                if consecutiveSuppressedEndOfSequenceTokens
+                    >= TokenIterator.maximumConsecutiveSuppressedEndOfSequenceTokens { break }
+                continue
+            }
+            consecutiveSuppressedEndOfSequenceTokens = 0
+            if token == tokenizer.unknownTokenId || eosTokenIds.contains(token) {
                 break
             }
 

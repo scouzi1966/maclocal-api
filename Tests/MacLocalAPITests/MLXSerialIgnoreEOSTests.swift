@@ -16,7 +16,7 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
 
         XCTAssertEqual(defaultObservation.tokenCount, 0)
         XCTAssertEqual(defaultObservation.text, "")
-        XCTAssertEqual(ignoredEOSObservation.tokenCount, 3)
+        XCTAssertEqual(ignoredEOSObservation.tokenCount, 0)
         XCTAssertEqual(ignoredEOSObservation.text, "")
     }
 
@@ -26,11 +26,83 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
 
         XCTAssertEqual(defaultObservation.tokenCount, 0)
         XCTAssertEqual(defaultObservation.text, "")
-        XCTAssertEqual(ignoredEOSObservation.tokenCount, 3)
+        XCTAssertEqual(ignoredEOSObservation.tokenCount, 0)
         XCTAssertEqual(ignoredEOSObservation.text, "")
     }
 
-    func testConcurrentSchedulerIgnoreEOSConsumesRepeatedEOSWithoutText() async throws {
+    func testNativeSynchronousPathsExcludeSuppressedEOSFromUsageAndCallbacks() throws {
+        let tokenizer = FixedEOSTokenizer()
+        let model = FixedEOSTokenModel()
+        var configuration = ModelConfiguration(id: "serial-eos-test")
+        configuration.eosTokenIds = [FixedEOSTokenizer.eosTokenID]
+        let context = ModelContext(
+            configuration: configuration,
+            model: model,
+            processor: StandInUserInputProcessor(),
+            tokenizer: tokenizer
+        )
+        let input = LMInput(tokens: MLXArray([1]))
+        let parameters = GenerateParameters(
+            maxTokens: 3,
+            temperature: 0,
+            ignoreEndOfSequence: true
+        )
+        var callbackTokens = [Int]()
+        let callbackResult = MLXLMCommon.generate(
+            input: input,
+            context: context,
+            iterator: try TokenIterator(
+                input: input,
+                model: model,
+                parameters: parameters
+            ),
+            ignoreEndOfSequence: true
+        ) { (token: Int) in
+            callbackTokens.append(token)
+            return .more
+        }
+        let arrayResult = MLXLMCommon.generate(
+            input: input,
+            context: context,
+            iterator: try TokenIterator(
+                input: input,
+                model: model,
+                parameters: parameters
+            ),
+            ignoreEndOfSequence: true
+        ) { (_: [Int]) in .more }
+
+        XCTAssertEqual(callbackTokens, [])
+        XCTAssertEqual(callbackResult.generationTokenCount, 0)
+        XCTAssertEqual(arrayResult.tokens, [])
+        XCTAssertEqual(arrayResult.generationTokenCount, 0)
+    }
+
+    func testSingleSchedulerPrefillAndDecodeExcludeSuppressedEOS() async throws {
+        let collector = InferenceTelemetryCollector()
+        let scheduler = makeScheduler(
+            collector: collector,
+            admissionWindowNanoseconds: 0
+        )
+        let stream = AFMGenerationContext.$ignoreEndOfSequence.withValue(true) {
+            scheduler.submit(
+                input: LMInput(tokens: MLXArray([1])),
+                parameters: GenerateParameters(maxTokens: 3, temperature: 0),
+                promptTokens: 1
+            )
+        }
+
+        let observation = try await schedulerObservation(from: stream)
+        await scheduler.shutdown()
+
+        XCTAssertEqual(observation.text, "")
+        XCTAssertEqual(observation.tokenCount, 0)
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.generatedTokensTotal, 0)
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "stop" }?.count, 1)
+    }
+
+    func testConcurrentSchedulerBatchPrefillAndDecodeExcludeSuppressedEOS() async throws {
         let collector = InferenceTelemetryCollector()
         let scheduler = makeScheduler(
             collector: collector,
@@ -52,11 +124,11 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
         await scheduler.shutdown()
 
         XCTAssertEqual(observations.map(\.text), ["", ""])
-        XCTAssertEqual(observations.map(\.tokenCount), [3, 3])
+        XCTAssertEqual(observations.map(\.tokenCount), [0, 0])
         let snapshot = collector.metricsSnapshot()
-        XCTAssertEqual(snapshot.generatedTokensTotal, 6)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 0)
         XCTAssertEqual(snapshot.terminalRequestsTotal, 2)
-        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "length" }?.count, 2)
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "stop" }?.count, 2)
     }
 
     func testSchedulerCancellationImmediatelyAfterSubmissionCountsSingleAbort() async throws {

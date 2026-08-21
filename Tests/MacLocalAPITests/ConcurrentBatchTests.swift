@@ -635,7 +635,7 @@ struct ConcurrentBatchTests {
         ) == .length)
     }
 
-    @Test("Concurrent scheduler suppresses ignored EOS while consuming its token budget")
+    @Test("Scheduler paths suppress ignored EOS without consuming visible budget")
     func concurrentSchedulerSuppressesIgnoredEOS() {
         #expect(BatchScheduler.serialGenerationDisposition(
             cancellationRequested: false,
@@ -646,6 +646,17 @@ struct ConcurrentBatchTests {
             ignoreEndOfSequence: true,
             eosTokenIDs: [2]
         ) == .suppress)
+        #expect(BatchScheduler.serialGenerationDisposition(
+            cancellationRequested: false,
+            tokenCount: 0,
+            maxTokens: 3,
+            tokenID: 2,
+            unknownTokenID: -1,
+            ignoreEndOfSequence: true,
+            eosTokenIDs: [2],
+            consecutiveSuppressedEndOfSequenceTokens:
+                BatchScheduler.maximumConsecutiveSuppressedEndOfSequenceTokens - 1
+        ) == .stop)
         #expect(BatchScheduler.serialGenerationDisposition(
             cancellationRequested: false,
             tokenCount: 0,

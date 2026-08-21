@@ -44,6 +44,8 @@ extension Gemma4VLM: FixedDecodeCohortModel {
 /// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
 /// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
     enum SerialGenerationDisposition: Equatable {
         case cancel
         case length
@@ -59,13 +61,18 @@ actor BatchScheduler {
         tokenID: Int,
         unknownTokenID: Int?,
         ignoreEndOfSequence: Bool,
-        eosTokenIDs: Set<Int>
+        eosTokenIDs: Set<Int>,
+        consecutiveSuppressedEndOfSequenceTokens: Int = 0
     ) -> SerialGenerationDisposition {
         if cancellationRequested { return .cancel }
         if tokenCount >= maxTokens { return .length }
         if unknownTokenID == tokenID { return .stop }
         if eosTokenIDs.contains(tokenID) {
-            return ignoreEndOfSequence ? .suppress : .stop
+            guard ignoreEndOfSequence else { return .stop }
+            return consecutiveSuppressedEndOfSequenceTokens + 1
+                >= maximumConsecutiveSuppressedEndOfSequenceTokens
+                ? .stop
+                : .suppress
         }
         return .emit
     }
@@ -133,6 +140,7 @@ actor BatchScheduler {
         let startTime: Date
         let prefillTime: TimeInterval
         var tokenCount = 0
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         var firstTokenTime: TimeInterval = 0
         let inputTokens: [Int]
         let cachedTokens: Int
@@ -1121,11 +1129,6 @@ actor BatchScheduler {
                         slot.pendingLogprobData = nil
                     }
 
-                    if slot.firstTokenTime == 0 {
-                        let now = Date()
-                        slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
-                    }
-
                     let disposition = Self.serialGenerationDisposition(
                         cancellationRequested: false,
                         tokenCount: slot.tokenCount,
@@ -1133,7 +1136,9 @@ actor BatchScheduler {
                         tokenID: token,
                         unknownTokenID: tokenizer.unknownTokenId,
                         ignoreEndOfSequence: slot.ignoreEndOfSequence,
-                        eosTokenIDs: eosTokenIds
+                        eosTokenIDs: eosTokenIds,
+                        consecutiveSuppressedEndOfSequenceTokens:
+                            slot.consecutiveSuppressedEndOfSequenceTokens
                     )
                     if disposition == .stop || disposition == .length {
                         completedIndices.append(i)
@@ -1141,6 +1146,17 @@ actor BatchScheduler {
                     }
 
                     slot.lastTokenId = token
+                    if disposition == .suppress {
+                        slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                        slot.pendingLogprobData = nil
+                        continue
+                    }
+
+                    slot.consecutiveSuppressedEndOfSequenceTokens = 0
+                    if slot.firstTokenTime == 0 {
+                        let now = Date()
+                        slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
+                    }
                     slot.tokenCount += 1
                     telemetryObserver.outputToken(
                         slot.telemetryToken,
@@ -1228,7 +1244,9 @@ actor BatchScheduler {
                     tokenID: token,
                     unknownTokenID: tokenizer.unknownTokenId,
                     ignoreEndOfSequence: slot.ignoreEndOfSequence,
-                    eosTokenIDs: eosTokenIds
+                    eosTokenIDs: eosTokenIds,
+                    consecutiveSuppressedEndOfSequenceTokens:
+                        slot.consecutiveSuppressedEndOfSequenceTokens
                 )
                 if disposition == .cancel || disposition == .stop || disposition == .length {
                     finishSlot(at: i)
@@ -1236,6 +1254,13 @@ actor BatchScheduler {
                 }
 
                 slot.lastTokenId = token
+                if disposition == .suppress {
+                    slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                    finishSlot(at: i)
+                    continue
+                }
+
+                slot.consecutiveSuppressedEndOfSequenceTokens = 0
                 slot.tokenCount += 1
                 telemetryObserver.outputToken(
                     slot.telemetryToken,
@@ -1605,22 +1630,26 @@ actor BatchScheduler {
             tokenID: firstToken,
             unknownTokenID: tokenizer.unknownTokenId,
             ignoreEndOfSequence: slot.ignoreEndOfSequence,
-            eosTokenIDs: eosTokenIds
+            eosTokenIDs: eosTokenIds,
+            consecutiveSuppressedEndOfSequenceTokens:
+                slot.consecutiveSuppressedEndOfSequenceTokens
         )
         var finishAfterPrefill = firstTokenDisposition == .cancel
             || firstTokenDisposition == .length
             || firstTokenDisposition == .stop
-        if firstTokenDisposition == .suppress || firstTokenDisposition == .emit {
+        if firstTokenDisposition == .suppress {
+            slot.consecutiveSuppressedEndOfSequenceTokens += 1
+            slot.pendingLogprobData = nil
+        } else if firstTokenDisposition == .emit {
+            slot.consecutiveSuppressedEndOfSequenceTokens = 0
             slot.tokenCount += 1
             telemetryObserver.outputToken(
                 slot.telemetryToken,
                 at: ProcessInfo.processInfo.systemUptime
             )
-            if firstTokenDisposition == .emit {
-                slot.detokenizer.append(token: firstToken)
-                if let firstChunk = slot.detokenizer.next() {
-                    finishAfterPrefill = yieldTextChunk(firstChunk, for: slot)
-                }
+            slot.detokenizer.append(token: firstToken)
+            if let firstChunk = slot.detokenizer.next() {
+                finishAfterPrefill = yieldTextChunk(firstChunk, for: slot)
             }
             if let max = slot.maxTokens, slot.tokenCount >= max {
                 finishAfterPrefill = true
@@ -1696,6 +1725,7 @@ actor BatchScheduler {
         var currentToken = firstToken
         var state = modelState
         var tokenCount = 0
+        var consecutiveSuppressedEndOfSequenceTokens = 0
         let maxTokens = req.parameters.maxTokens ?? 4096
         var detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
         var stopBuffer = MLXSerialStopSequenceBuffer(stopSequences: req.stopSequences)
@@ -1712,7 +1742,9 @@ actor BatchScheduler {
                 tokenID: tokenId,
                 unknownTokenID: tokenizer.unknownTokenId,
                 ignoreEndOfSequence: req.ignoreEndOfSequence,
-                eosTokenIDs: eosTokenIds
+                eosTokenIDs: eosTokenIds,
+                consecutiveSuppressedEndOfSequenceTokens:
+                    consecutiveSuppressedEndOfSequenceTokens
             )
             switch disposition {
             case .cancel:
@@ -1727,12 +1759,15 @@ actor BatchScheduler {
                 break
             }
 
-            tokenCount += 1
-            telemetryObserver.outputToken(
-                req.telemetryToken,
-                at: ProcessInfo.processInfo.systemUptime
-            )
-            if disposition == .emit {
+            if disposition == .suppress {
+                consecutiveSuppressedEndOfSequenceTokens += 1
+            } else {
+                consecutiveSuppressedEndOfSequenceTokens = 0
+                tokenCount += 1
+                telemetryObserver.outputToken(
+                    req.telemetryToken,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
                 detokenizer.append(token: tokenId)
                 if let chunk = detokenizer.next() {
                     let visible = stopBuffer.append(chunk)
@@ -2050,22 +2085,26 @@ actor BatchScheduler {
                 tokenID: firstToken,
                 unknownTokenID: tokenizer.unknownTokenId,
                 ignoreEndOfSequence: slot.ignoreEndOfSequence,
-                eosTokenIDs: eosTokenIds
+                eosTokenIDs: eosTokenIds,
+                consecutiveSuppressedEndOfSequenceTokens:
+                    slot.consecutiveSuppressedEndOfSequenceTokens
             )
             var shouldFinish = firstTokenDisposition == .cancel
                 || firstTokenDisposition == .length
                 || firstTokenDisposition == .stop
-            if firstTokenDisposition == .suppress || firstTokenDisposition == .emit {
+            if firstTokenDisposition == .suppress {
+                slot.consecutiveSuppressedEndOfSequenceTokens += 1
+                slot.pendingLogprobData = nil
+            } else if firstTokenDisposition == .emit {
+                slot.consecutiveSuppressedEndOfSequenceTokens = 0
                 slot.tokenCount += 1
                 telemetryObserver.outputToken(
                     slot.telemetryToken,
                     at: ProcessInfo.processInfo.systemUptime
                 )
-                if firstTokenDisposition == .emit {
-                    slot.detokenizer.append(token: firstToken)
-                    if let firstChunk = slot.detokenizer.next() {
-                        shouldFinish = yieldTextChunk(firstChunk, for: slot)
-                    }
+                slot.detokenizer.append(token: firstToken)
+                if let firstChunk = slot.detokenizer.next() {
+                    shouldFinish = yieldTextChunk(firstChunk, for: slot)
                 }
                 if let max = slot.maxTokens, slot.tokenCount >= max {
                     shouldFinish = true
