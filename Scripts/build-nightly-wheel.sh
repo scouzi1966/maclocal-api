@@ -54,7 +54,7 @@ sed -i '' "s/^version = .*/version = \"${DEV_VERSION}\"/" pyproject-next.toml
 echo "[INFO] Staging assets into macafm_next/"
 mkdir -p macafm_next/bin
 cp "$BIN" macafm_next/bin/
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
     BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
     if [ ! -d "$BUNDLE_DIR" ]; then
         echo "[ERROR] Required runtime bundle missing: $BUNDLE_DIR"

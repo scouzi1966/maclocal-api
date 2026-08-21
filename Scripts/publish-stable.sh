@@ -136,8 +136,8 @@ mkdir -p "$STAGING"
 
 cp "$BIN" "$STAGING/"
 
-# Runtime resource bundles. Both must remain beside the relocated executable.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+# Runtime resource bundles must remain beside the relocated executable.
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -250,6 +250,15 @@ if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.
   log_error "Homebrew stable formula does not install the required WebUI"
   exit 1
 fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm.rb; then
+  sed -i '' '/libexec.install "afm"/a\
+    libexec.install "MacLocalAPI_AFMKit.bundle"
+' afm.rb
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm.rb; then
+  log_error "Homebrew stable formula does not install the bundled evaluation suites"
+  exit 1
+fi
 
 git add afm.rb
 git commit -m "afm ${VERSION}"
@@ -269,7 +278,7 @@ log_info "Staging assets into macafm/ for Python package..."
 mkdir -p "$ROOT_DIR/macafm/bin"
 cp "$BIN" "$ROOT_DIR/macafm/bin/"
 
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"

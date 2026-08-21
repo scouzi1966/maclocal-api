@@ -154,6 +154,28 @@ can display local images inline; Terminal.app uses an explicit `/image` Quick Lo
 
 Model IDs without an organization default to `mlx-community`, so `Qwen3-0.6B-4bit` and `mlx-community/Qwen3-0.6B-4bit` both work.
 
+## Evaluate a local model
+
+AFM ships all 91 labeled variants from the repository's comprehensive MLX test as a
+deterministic, no-judge suite. The model loads once, every output and timing measurement is
+retained locally, and a self-contained HTML report opens when the run finishes.
+
+```bash
+afm mlx -m mlx-community/Qwen3-0.6B-4bit --eval
+
+# Headless run, suite discovery, and custom-suite scaffolding
+afm mlx -m <model> --eval --no-open
+afm mlx --eval-list
+afm mlx --eval-init my-suite
+afm mlx --eval-validate ~/.afm/evals/my-suite.json
+afm mlx -m <model> --eval-suite comprehensive --eval-suite my-suite
+```
+
+Run artifacts are stored in collision-safe
+`~/.afm/evals/<date-time>-<model>-<suite>/` directories. See
+[Local model evaluations](docs/model-evaluations.md) for the suite schema, deterministic
+checks, report contents, and security limits.
+
 ## Why AFM works well for agents
 
 AFM is built for multi-turn, tool-using clients—not only chat demos.

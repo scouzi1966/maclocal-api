@@ -419,6 +419,19 @@ trap - EXIT
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
 
+# AFMKit owns the bundled, no-judge evaluation suites. Keep its SwiftPM
+# resource bundle beside the executable in every install layout.
+EVAL_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKit.bundle"
+if [ -f "$EVAL_BUNDLE_DIR/Evals/comprehensive.json" ]; then
+  EVAL_SUITE="$EVAL_BUNDLE_DIR/Evals/comprehensive.json"
+elif [ -f "$EVAL_BUNDLE_DIR/Contents/Resources/Evals/comprehensive.json" ]; then
+  EVAL_SUITE="$EVAL_BUNDLE_DIR/Contents/Resources/Evals/comprehensive.json"
+else
+  log_error "Missing bundled evaluation suite under: $EVAL_BUNDLE_DIR"
+  exit 1
+fi
+log_info "Bundled evaluation suite OK: $EVAL_SUITE"
+
 # Verify the MLX metallib resource bundle is present. SwiftPM uses a flat bundle
 # with some toolchains and a macOS Contents/Resources bundle with Xcode 27.
 METALLIB_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKitMLX.bundle"
@@ -482,6 +495,7 @@ log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle)"
 if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
   BUNDLE_SRC="$METALLIB_BUNDLE_DIR"
+  EVAL_BUNDLE_SRC="$EVAL_BUNDLE_DIR"
   WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
 
   SUDO=""
@@ -501,6 +515,11 @@ if $DO_INSTALL; then
   $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
   $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle" \
     "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKitMLX.bundle"
+
+  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
+  $SUDO cp -R "$EVAL_BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
+  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle" \
+    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"
 
   if [ -f "$WEBUI_SRC" ]; then
     $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"

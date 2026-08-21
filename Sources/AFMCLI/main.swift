@@ -287,6 +287,13 @@ struct MlxCommand: ParsableCommand {
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --gpu-profile-bw: Also sample DRAM bandwidth with mactop
           --openclaw-config: Print OpenClaw provider config JSON and exit
+          --eval: Run the bundled comprehensive local evaluation and open its HTML report
+          --bench: Alias for --eval
+          --eval-suite: Select a bundled/custom suite (repeatable; implies --eval)
+          --eval-list: List bundled and ~/.afm/evals custom suites
+          --eval-init: Scaffold a custom JSON suite under ~/.afm/evals
+          --eval-validate: Validate a suite name or JSON file without loading a model
+          --no-open: Do not open the evaluation report in a browser
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
         features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, huggingface-gguf-resolution, openclaw-integration]
@@ -557,12 +564,45 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
+    @Flag(name: .long, help: "Run the bundled comprehensive local model evaluation and open its HTML report")
+    var eval: Bool = false
+
+    @Flag(name: .long, help: "Alias for --eval")
+    var bench: Bool = false
+
+    @Option(name: .customLong("eval-suite"), help: "Bundled/custom evaluation suite name; repeat to run multiple suites (implies --eval)")
+    var evalSuites: [String] = []
+
+    @Flag(name: .customLong("eval-list"), help: "List bundled and ~/.afm/evals custom suites, then exit")
+    var evalList: Bool = false
+
+    @Option(name: .customLong("eval-init"), help: "Create a safe example suite at ~/.afm/evals/<name>.json, then exit")
+    var evalInit: String?
+
+    @Option(name: .customLong("eval-validate"), help: "Validate a suite name or JSON file, then exit")
+    var evalValidate: String?
+
+    @Flag(name: .customLong("no-open"), help: "Do not open the generated evaluation HTML report")
+    var noOpen: Bool = false
+
     @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
     var helpJson: Bool = false
 
     func run() throws {
         if helpJson {
             printHelpJson(command: "afm mlx")
+            return
+        }
+
+        let evaluationAction = try AFMEvaluationCLIPlan.resolve(
+            evaluate: eval,
+            bench: bench,
+            suites: evalSuites,
+            list: evalList,
+            scaffold: evalInit,
+            validate: evalValidate,
+            noOpen: noOpen)
+        if try handleEvaluationManagement(evaluationAction) {
             return
         }
 
@@ -728,6 +768,18 @@ struct MlxCommand: ParsableCommand {
 
         let resolvedModel = try resolveRemoteDwarfStarModelIfNeeded(rawModel)
         let runtimeBackend = try resolveRuntimeBackend(model: resolvedModel)
+        if case .run(let suites, let openReport) = evaluationAction {
+            guard runtimeBackend == .mlx else {
+                throw ValidationError("--eval currently supports MLX directory checkpoints; DwarfStar GGUF evaluation is not yet available")
+            }
+            guard singlePrompt == nil, media.isEmpty, !webui, !openclawConfig,
+                  telegramBotToken == nil, telegramAllow == nil else {
+                throw ValidationError("--eval cannot be combined with -s, --media, --webui, Telegram, or --openclaw-config")
+            }
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            try runEvaluation(modelID: resolvedModel, suites: suites, openReport: openReport)
+            return
+        }
         if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
             throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
         }
@@ -2306,7 +2358,7 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
-private final class MLXLoadReporter: @unchecked Sendable {
+final class MLXLoadReporter: @unchecked Sendable {
     private static let reporterLock = NSLock()
     nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
 
