@@ -38,6 +38,63 @@ public struct TerminalChatConfiguration: Sendable {
     }
 }
 
+struct TUIUserTurn: Sendable {
+    let input: String
+    let message: Message
+
+    init(input: String, message: Message) {
+        self.input = input
+        self.message = message
+    }
+
+    init?(message: Message) {
+        guard message.role == "user", let content = message.content else { return nil }
+        self.message = message
+        switch content {
+        case .text(let text):
+            input = text
+        case .parts(let parts):
+            input = parts.first { $0.type == "text" }?.text ?? ""
+        }
+    }
+
+    func replacingInput(with revisedInput: String) -> TUIUserTurn {
+        let revisedContent: MessageContent?
+        switch message.content {
+        case .some(.text):
+            revisedContent = .text(revisedInput)
+        case .some(.parts(let parts)):
+            var replacedPrimaryText = false
+            var revisedParts = parts.map { part in
+                guard !replacedPrimaryText, part.type == "text" else { return part }
+                replacedPrimaryText = true
+                return ContentPart(
+                    type: part.type,
+                    text: revisedInput,
+                    image_url: part.image_url,
+                    input_audio: part.input_audio
+                )
+            }
+            if !replacedPrimaryText {
+                revisedParts.insert(ContentPart(type: "text", text: revisedInput), at: 0)
+            }
+            revisedContent = .parts(revisedParts)
+        case .none:
+            revisedContent = .text(revisedInput)
+        }
+        return TUIUserTurn(
+            input: revisedInput,
+            message: Message(
+                role: message.role,
+                content: revisedContent,
+                toolCalls: message.toolCalls,
+                toolCallId: message.toolCallId,
+                name: message.name
+            )
+        )
+    }
+}
+
 public enum TUIInvocationPolicy {
     public static func validate(
         tui: Bool,
@@ -296,7 +353,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
     private var images: [TUIImageReference] = []
     private var attachments: [URL] = []
     private var lastStatistics = "No generation yet"
-    private var lastInput: String?
+    private var lastUserTurn: TUIUserTurn?
     private var lastReasoning = ""
     private var lastInputWasRolledBack = false
 
@@ -352,7 +409,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
                         }
                         continue
                     }
-                    try await send(input, signalMonitor: signalMonitor)
+                    try await send(try makeUserTurn(input), signalMonitor: signalMonitor)
                 }
             }
         } catch {
@@ -407,16 +464,16 @@ public final class AFMTerminalChat: @unchecked Sendable {
         return try await task.value
     }
 
-    private func send(_ input: String, signalMonitor: TUISignalMonitor) async throws {
+    private func send(_ userTurn: TUIUserTurn, signalMonitor: TUISignalMonitor) async throws {
+        let input = userTurn.input
         lastInputWasRolledBack = false
         promptHistory.append(input)
-        lastInput = input
-        let userMessage = try makeUserMessage(input)
+        lastUserTurn = userTurn
         attachments.removeAll()
         if !session.messages.contains(where: { $0.role == "user" }) {
             session.title = String(input.replacingOccurrences(of: "\n", with: " ").prefix(72))
         }
-        session.messages.append(userMessage)
+        session.messages.append(userTurn.message)
         let pendingUserIndex = session.messages.index(before: session.messages.endIndex)
         session.updatedAt = Date()
         terminal.write("\n\(style("you", "1;34")) › \(input)\n\n")
@@ -505,7 +562,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             session.reasoningByMessage[String(assistantIndex)] = lastSnapshot.reasoning
         }
         session.updatedAt = Date()
-        _ = try? store.save(session)
+        reportPersistenceResult(store.persistRecoveringTranscript(session))
         let rendered = renderMarkdown(lastSnapshot.text)
         codeBlocks = rendered.codeBlocks
         images = rendered.images
@@ -520,6 +577,32 @@ public final class AFMTerminalChat: @unchecked Sendable {
         if !codeBlocks.isEmpty { terminal.write("\(style("\(codeBlocks.count) code block(s): /blocks, /copy, /save, /open", "2;36"))\n") }
         if !images.isEmpty { presentImages(images) }
         terminal.write("\n")
+    }
+
+    private func reportPersistenceResult(_ result: TUISessionPersistenceResult) {
+        guard let notice = Self.persistenceNotice(for: result) else { return }
+        terminal.write(TerminalOutputSanitizer.sanitize(notice))
+    }
+
+    static func persistenceNotice(for result: TUISessionPersistenceResult) -> String? {
+        switch result {
+        case .saved:
+            return nil
+        case .recovered(let saveError, let transcriptURL):
+            return """
+            warning: Session save failed: \(saveError)
+            Recovery transcript: \(transcriptURL.path)
+            Inline image data is omitted from Markdown. This chat remains in memory; use /export <path> for another text copy before quitting.
+
+            """
+        case .failed(let saveError, let recoveryError):
+            return """
+            error: Session save failed: \(saveError)
+            Automatic recovery export also failed: \(recoveryError)
+            This chat remains in memory. Use /export <path> before quitting.
+
+            """
+        }
     }
 
     private func redrawGeneration(_ snapshot: GenerationSnapshot, previousRows: Int, final: Bool) -> Int {
@@ -665,16 +748,16 @@ public final class AFMTerminalChat: @unchecked Sendable {
         case "/search": try searchSessions(pieces)
         case "/resume": try await resumeSession(pieces)
         case "/retry":
-            guard let lastInput else { terminal.write("Nothing to retry.\n"); return false }
+            guard let lastUserTurn else { terminal.write("Nothing to retry.\n"); return false }
             if !lastInputWasRolledBack { session.removeLastExchange() }
             try await engine.resetConversation(with: session.messages)
-            try await send(lastInput, signalMonitor: signalMonitor)
+            try await send(lastUserTurn, signalMonitor: signalMonitor)
         case "/edit":
-            guard let lastInput else { terminal.write("Nothing to edit.\n"); return false }
-            if let revised = readInput(initial: lastInput, signalMonitor: signalMonitor), !revised.isEmpty {
+            guard let lastUserTurn else { terminal.write("Nothing to edit.\n"); return false }
+            if let revised = readInput(initial: lastUserTurn.input, signalMonitor: signalMonitor), !revised.isEmpty {
                 if !lastInputWasRolledBack { session.removeLastExchange() }
                 try await engine.resetConversation(with: session.messages)
-                try await send(revised, signalMonitor: signalMonitor)
+                try await send(lastUserTurn.replacingInput(with: revised), signalMonitor: signalMonitor)
             }
         case "/theme":
             guard let value = pieces.dropFirst().first, let theme = TerminalMarkdownRenderer.Theme(rawValue: value) else {
@@ -687,8 +770,10 @@ public final class AFMTerminalChat: @unchecked Sendable {
         return false
     }
 
-    private func makeUserMessage(_ input: String) throws -> Message {
-        guard !attachments.isEmpty else { return Message(role: "user", content: input) }
+    private func makeUserTurn(_ input: String) throws -> TUIUserTurn {
+        guard !attachments.isEmpty else {
+            return TUIUserTurn(input: input, message: Message(role: "user", content: input))
+        }
         var parts = [ContentPart(type: "text", text: input)]
         for url in attachments {
             let ext = url.pathExtension.lowercased()
@@ -704,7 +789,10 @@ public final class AFMTerminalChat: @unchecked Sendable {
                 parts.append(ContentPart(type: "text", text: "\n<attachment path=\"\(url.lastPathComponent)\">\n\(text)\n</attachment>"))
             }
         }
-        return Message(role: "user", content: .parts(parts))
+        return TUIUserTurn(
+            input: input,
+            message: Message(role: "user", content: .parts(parts))
+        )
     }
 
     private func drawWelcome() {
@@ -830,8 +918,9 @@ public final class AFMTerminalChat: @unchecked Sendable {
         restored.pruneReasoningMetadata()
         try await engine.resetConversation(with: restored.messages)
         session = restored
-        promptHistory = session.messages.filter { $0.role == "user" }.map(\.textContent)
-        lastInput = promptHistory.last
+        let restoredUserTurns = session.messages.compactMap(TUIUserTurn.init(message:))
+        promptHistory = restoredUserTurns.map(\.input)
+        lastUserTurn = restoredUserTurns.last
         lastInputWasRolledBack = false
         let lastAssistantIndex = session.messages.indices.reversed().first { session.messages[$0].role == "assistant" }
         lastReasoning = lastAssistantIndex.flatMap { session.reasoning(atMessageIndex: $0) } ?? ""
@@ -851,7 +940,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         images = []
         attachments = []
         lastStatistics = "No generation yet"
-        lastInput = nil
+        lastUserTurn = nil
         lastReasoning = ""
         lastInputWasRolledBack = false
     }

@@ -101,6 +101,12 @@ public enum TUISessionStoreError: Error, LocalizedError, Equatable {
     }
 }
 
+public enum TUISessionPersistenceResult: Equatable, Sendable {
+    case saved(URL)
+    case recovered(saveError: String, transcriptURL: URL)
+    case failed(saveError: String, recoveryError: String)
+}
+
 public final class TUISessionStore: @unchecked Sendable {
     public static let defaultMaximumSessionBytes = 32_000_000
     public let directory: URL
@@ -177,25 +183,27 @@ public final class TUISessionStore: @unchecked Sendable {
                 url: url,
                 modificationDate: values?.contentModificationDate ?? .distantPast
             ))
-            candidates.sort { $0.modificationDate > $1.modificationDate }
-            if candidates.count > limit { candidates.removeLast(candidates.count - limit) }
         }
+        candidates.sort { $0.modificationDate > $1.modificationDate }
 
-        return candidates.compactMap { candidate in
+        var summaries: [TUISessionSummary] = []
+        for candidate in candidates {
             guard let metadata = try? decoder.decode(
                 SessionMetadata.self,
                 from: TUIArtifactActions.readRegularFile(
                     at: candidate.url,
                     maximumBytes: maximumSessionBytes
                 )
-            ) else { return nil }
-            return TUISessionSummary(
+            ) else { continue }
+            summaries.append(TUISessionSummary(
                 id: metadata.id,
                 title: metadata.title,
                 updatedAt: metadata.updatedAt,
                 matchingSnippet: nil
-            )
+            ))
+            if summaries.count == limit { break }
         }
+        return summaries
     }
 
     public func search(_ query: String, limit: Int = 20) throws -> [TUISessionSummary] {
@@ -236,6 +244,28 @@ public final class TUISessionStore: @unchecked Sendable {
             }
         }
         try TUIArtifactActions.save(Data(markdown.utf8), to: url, overwrite: overwrite)
+    }
+
+    public func persistRecoveringTranscript(_ session: TUISession) -> TUISessionPersistenceResult {
+        do {
+            return .saved(try save(session))
+        } catch {
+            let saveError = error.localizedDescription
+            do {
+                let recoveryDirectory = directory.appendingPathComponent("recovery", isDirectory: true)
+                try fileManager.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+                try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryDirectory.path)
+                let transcriptURL = recoveryDirectory.appendingPathComponent("\(session.id.uuidString).md")
+                try exportMarkdown(session, to: transcriptURL, overwrite: true)
+                try? fileManager.setAttributes(
+                    [.posixPermissions: 0o600, .modificationDate: session.updatedAt],
+                    ofItemAtPath: transcriptURL.path
+                )
+                return .recovered(saveError: saveError, transcriptURL: transcriptURL)
+            } catch {
+                return .failed(saveError: saveError, recoveryError: error.localizedDescription)
+            }
+        }
     }
 
     private struct SessionMetadata: Decodable {

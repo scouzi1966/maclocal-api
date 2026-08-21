@@ -345,6 +345,31 @@ final class TUISessionStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(id: session.id).title, "original")
     }
 
+    func testOversizedPersistenceExportsRecoveryTranscriptAndRetainsLastSavedSession() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(directory: root, maximumSessionBytes: 1_024)
+        var session = TUISession(title: "saved version", backend: "MLX", model: "test/model")
+        try store.save(session)
+
+        session.title = "unsaved version"
+        session.messages = [
+            .init(role: "user", content: "latest turn " + String(repeating: "x", count: 2_000))
+        ]
+        let result = store.persistRecoveringTranscript(session)
+        guard case .recovered(let saveError, let transcriptURL) = result else {
+            return XCTFail("Expected an oversized save to produce a recovery transcript")
+        }
+
+        XCTAssertTrue(saveError.contains("save/load limit"))
+        XCTAssertEqual(try store.load(id: session.id).title, "saved version")
+        let recovery = try String(contentsOf: transcriptURL, encoding: .utf8)
+        XCTAssertTrue(recovery.contains("unsaved version"))
+        XCTAssertTrue(recovery.contains("latest turn"))
+        let permissions = try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o600)
+    }
+
     func testRecentHistoryUsesBoundedMetadataDecoding() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -369,6 +394,39 @@ final class TUISessionStoreTests: XCTestCase {
         XCTAssertEqual(recent.map(\.title), ["Metadata 3", "Metadata 2"])
         XCTAssertThrowsError(try store.load(id: ids[3]))
         XCTAssertTrue(try store.recent(limit: 0).isEmpty)
+    }
+
+    func testRecentHistoryBackfillsPastNewerCorruptAndOversizedFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(directory: root, maximumSessionBytes: 1_024)
+        let validSessions = (1...3).map { index in
+            TUISession(
+                title: "Valid \(index)",
+                backend: "MLX",
+                model: "test/model",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        for session in validSessions { try store.save(session) }
+
+        let corruptURL = root.appendingPathComponent("\(UUID().uuidString).json")
+        try Data("not json".utf8).write(to: corruptURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 5)],
+            ofItemAtPath: corruptURL.path
+        )
+        let oversizedURL = root.appendingPathComponent("\(UUID().uuidString).json")
+        try Data(repeating: 0x41, count: 2_000).write(to: oversizedURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 4)],
+            ofItemAtPath: oversizedURL.path
+        )
+
+        let recent = try store.recent(limit: 2)
+        XCTAssertEqual(recent.map(\.id), [validSessions[2].id, validSessions[1].id])
+        XCTAssertEqual(recent.map(\.title), ["Valid 3", "Valid 2"])
     }
 
     func testConcurrentStoresAtomicallyReplaceTheSameSession() async throws {
@@ -575,6 +633,52 @@ final class TUIConversationPolicyTests: XCTestCase {
         XCTAssertNoThrow(try AFMTerminalChat.validateRestoredSession(session, backendName: "MLX", modelName: "one"))
         XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "Foundation", modelName: "one"))
         XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "MLX", modelName: "two"))
+    }
+
+    func testRetryPreservesExactMultipartTurnAndEditPreservesAttachments() throws {
+        let original = Message(role: "user", content: .parts([
+            ContentPart(type: "text", text: "original prompt"),
+            ContentPart(
+                type: "image_url",
+                image_url: ImageURL(url: "data:image/png;base64,AQID", detail: "high")
+            ),
+            ContentPart(type: "text", text: "<attachment>reference text</attachment>"),
+            ContentPart(
+                type: "input_audio",
+                input_audio: InputAudio(data: "BAUG", format: "wav", language: "en-US")
+            )
+        ]))
+        let turn = try XCTUnwrap(TUIUserTurn(message: original))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        XCTAssertEqual(turn.input, "original prompt")
+        XCTAssertEqual(try encoder.encode(turn.message), try encoder.encode(original))
+
+        let edited = turn.replacingInput(with: "revised prompt")
+        guard case .some(.parts(let originalParts)) = original.content,
+              case .some(.parts(let editedParts)) = edited.message.content else {
+            return XCTFail("Expected multipart user messages")
+        }
+        XCTAssertEqual(edited.input, "revised prompt")
+        XCTAssertEqual(editedParts.first?.text, "revised prompt")
+        XCTAssertEqual(
+            try encoder.encode(Array(editedParts.dropFirst())),
+            try encoder.encode(Array(originalParts.dropFirst()))
+        )
+    }
+
+    func testPersistenceFailureNoticeIncludesRecoveryAndManualExportPaths() throws {
+        let recoveryURL = URL(fileURLWithPath: "/safe/recovery/session.md")
+        let notice = try XCTUnwrap(AFMTerminalChat.persistenceNotice(for: .recovered(
+            saveError: "Session exceeds limit",
+            transcriptURL: recoveryURL
+        )))
+
+        XCTAssertTrue(notice.contains("Session save failed: Session exceeds limit"))
+        XCTAssertTrue(notice.contains(recoveryURL.path))
+        XCTAssertTrue(notice.contains("/export <path>"))
+        XCTAssertNil(AFMTerminalChat.persistenceNotice(for: .saved(recoveryURL)))
     }
 
     func testMLXMaximumLogprobsEnablesLogprobCollection() {
