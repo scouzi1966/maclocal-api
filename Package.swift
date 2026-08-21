@@ -38,7 +38,7 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WO
     // revision with an exact AFMKit version after its first release tag.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        revision: "b6f2b830782491a6a680724db3c6da4a31c13aaa"
+        revision: "4c1b868df6c3aaa41e0f4d546e2353b8d6b55dce"
     )
 }
 

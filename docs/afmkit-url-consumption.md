@@ -6,7 +6,7 @@ maclocal-api consumes this immutable checkpoint:
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    revision: "b6f2b830782491a6a680724db3c6da4a31c13aaa"
+    revision: "4c1b868df6c3aaa41e0f4d546e2353b8d6b55dce"
 )
 ```
 
@@ -67,7 +67,7 @@ The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
 | Dependency | Requirement | Purpose |
 | --- | --- | --- |
-| `AFMKit` | revision `b6f2b830...` (publication-blocking checkpoint) | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
+| `AFMKit` | revision `4c1b868d...` (publication-blocking checkpoint) | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
 | `mlx-swift-afm` | exact `0.31.6-afm.1` | AFM-compatible MLX Swift/C++/Metal runtime |
 | `mlx-swift-lm` | exact `0.31.6-afm.3` | AFM model architectures and generation behavior |
 
