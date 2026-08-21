@@ -33,6 +33,27 @@ enum AFMDwarfStarDownloadError: LocalizedError {
 }
 
 enum AFMDwarfStarResumableDownload {
+    private static let ggufHeaderProbeBytes = 1_048_576
+
+    static func fetchGGUFArchitecture(
+        repositoryID: String,
+        revision: String,
+        path: String,
+        token: String?
+    ) async throws -> String? {
+        let url = try resolveURL(repositoryID: repositoryID, revision: revision, path: path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("bytes=0-\(ggufHeaderProbeBytes - 1)", forHTTPHeaderField: "Range")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let delegate = AFMDwarfStarBoundedRangeDataDelegate(maximumBytes: ggufHeaderProbeBytes)
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let data = try await delegate.run(request: request, session: session)
+        return AFMDwarfStarCheckpointCatalog.ggufArchitecture(in: data)
+    }
+
     static func fetchXetMetadata(
         repositoryID: String,
         revision: String,
@@ -253,6 +274,78 @@ private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unche
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         completionHandler(nil)
+    }
+}
+
+final class AFMDwarfStarBoundedRangeDataDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let maximumBytes: Int
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data, Error>?
+    private var received = Data()
+    private var responseError: Error?
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+    }
+
+    var acceptedByteCount: Int { received.count }
+
+    func run(request: URLRequest, session: URLSession) async throws -> Data {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.withLock { self.continuation = continuation }
+                session.dataTask(with: request).resume()
+            }
+        } onCancel: {
+            session.invalidateAndCancel()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            responseError = AFMDwarfStarDownloadError.invalidResponse(
+                "GGUF header probe did not return HTTP metadata")
+            completionHandler(.cancel)
+            return
+        }
+        guard http.statusCode == 206 else {
+            responseError = AFMDwarfStarDownloadError.invalidResponse(
+                "GGUF header probe did not honor its byte range (HTTP \(http.statusCode))")
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard data.count <= maximumBytes,
+              received.count <= maximumBytes - data.count else {
+            responseError = AFMDwarfStarDownloadError.invalidResponse(
+                "GGUF header probe exceeded its byte limit")
+            dataTask.cancel()
+            return
+        }
+        received.append(data)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        let result = responseError ?? error
+        let data = received
+        let continuation = lock.withLock { () -> CheckedContinuation<Data, Error>? in
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        if let result { continuation?.resume(throwing: result) }
+        else { continuation?.resume(returning: data) }
     }
 }
 

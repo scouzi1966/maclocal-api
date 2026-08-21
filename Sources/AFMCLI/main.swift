@@ -913,12 +913,16 @@ struct MlxCommand: ParsableCommand {
             }
             return .mlx
         }
-        guard AFMDwarfStarCheckpointCatalog.isDwarfStarCompatibleGGUF(at: modelURL) else {
+        let ggufArchitecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: modelURL)
+        guard ggufArchitecture == "deepseek4" else {
             if requested == .dwarfstar {
-                let architecture = AFMDwarfStarCheckpointCatalog.ggufArchitecture(at: modelURL)
-                    ?? "unreadable"
+                let architecture = ggufArchitecture ?? "unreadable"
                 throw ValidationError(
                     "DwarfStar does not support GGUF architecture \(architecture)")
+            }
+            if let ggufArchitecture {
+                throw ValidationError(
+                    "Auto runtime cannot execute GGUF architecture \(ggufArchitecture): DwarfStar requires deepseek4 and MLX requires a safetensors checkpoint")
             }
             return .mlx
         }
