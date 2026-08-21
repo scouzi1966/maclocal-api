@@ -207,6 +207,40 @@ final class MLXModelServiceOperationToken: @unchecked Sendable {
     }
 }
 
+struct MLXGenerationDiagnosticsMetrics: Equatable, Sendable {
+    var promptTokens = 0
+    var completionTokens = 0
+    var promptTime = 0.0
+    var generateTime = 0.0
+}
+
+/// Owns request-scoped GPU diagnostics and guarantees one cleanup call.
+final class MLXGenerationDiagnosticsScope: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finishHandler: ((MLXGenerationDiagnosticsMetrics) -> Void)?
+
+    init(start: () -> ((MLXGenerationDiagnosticsMetrics) -> Void)) {
+        finishHandler = start()
+    }
+
+    var isFinished: Bool {
+        lock.withLock { finishHandler == nil }
+    }
+
+    func finish(metrics: MLXGenerationDiagnosticsMetrics = .init()) {
+        let handler = lock.withLock {
+            let handler = finishHandler
+            finishHandler = nil
+            return handler
+        }
+        handler?(metrics)
+    }
+
+    deinit {
+        finish()
+    }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 public struct ResolvedLogprob: Sendable {
     public let token: String
@@ -755,6 +789,38 @@ public final class MLXModelService: @unchecked Sendable {
             return capped
         }
         return maxTokens
+    }
+
+    private func beginGenerationDiagnostics() -> MLXGenerationDiagnosticsScope {
+        let capturePath = gpuCapturePath
+        return MLXGenerationDiagnosticsScope {
+            let capturing = self.beginGPUCaptureIfNeeded()
+            let tracing = self.beginGPUTraceIfNeeded()
+            let profiling = self.gpuProfile
+            if profiling {
+                self.printGPUProfileHeader()
+            }
+
+            return { [weak self] metrics in
+                guard let self else { return }
+                if capturing || tracing || profiling {
+                    Stream.gpu.synchronize()
+                }
+                if capturing, let capturePath {
+                    self.endGPUCapture(path: capturePath)
+                }
+                if tracing {
+                    self.endGPUTrace()
+                }
+                if profiling {
+                    self.printGPUProfileFooter(
+                        promptTokens: metrics.promptTokens,
+                        completionTokens: metrics.completionTokens,
+                        promptTime: metrics.promptTime,
+                        generateTime: metrics.generateTime)
+                }
+            }
+        }
     }
 
     /// Active xctrace Process (launched by beginGPUTrace, stopped by endGPUTrace).
@@ -2593,11 +2659,10 @@ public final class MLXModelService: @unchecked Sendable {
                         ? (dflash2State?.fallbackReason ?? "unavailable")
                         : (speculativeCompatibility.denialReason ?? "incompatible_request")))
             : nil
-        // GPU capture/trace/profile: start before inference
-        let capturePath = gpuCapturePath
-        let capturing = beginGPUCaptureIfNeeded()
-        let tracing = beginGPUTraceIfNeeded()
-        if gpuProfile { printGPUProfileHeader() }
+        // Scope diagnostics across every generation exit, including speculative fast paths.
+        let diagnostics = beginGenerationDiagnostics()
+        var diagnosticsMetrics = MLXGenerationDiagnosticsMetrics()
+        defer { diagnostics.finish(metrics: diagnosticsMetrics) }
         // ---- Embedded DSpARK fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // DeepSeek V4 checkpoints advertise this capability through metadata and carry the
         // drafter weights themselves; no model-id allowlist or separately loaded package.
@@ -2634,6 +2699,8 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
             }) {
+                diagnosticsMetrics.promptTokens = result.1
+                diagnosticsMetrics.completionTokens = result.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
@@ -2701,6 +2768,11 @@ public final class MLXModelService: @unchecked Sendable {
                     endTag: self.thinkEndTag)
                 return (text, promptIDs.count, ids.count, promptTime, generateTime, telemetry)
             }) {
+                diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    promptTime: result.3,
+                    generateTime: result.4)
                 recordSpeculativeRequestCompletion(
                     queuedAt: serialQueuedAt,
                     promptTokens: result.1,
@@ -2744,6 +2816,8 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
+                diagnosticsMetrics.promptTokens = mtpResult.1
+                diagnosticsMetrics.completionTokens = mtpResult.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
@@ -2786,6 +2860,8 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 return (text, promptIds.count, outIds.count)
             }) {
+                diagnosticsMetrics.promptTokens = e3Result.1
+                diagnosticsMetrics.completionTokens = e3Result.2
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
@@ -2904,20 +2980,6 @@ public final class MLXModelService: @unchecked Sendable {
                 generationTask.cancel()
             }
 
-            if capturing, let path = capturePath {
-                endGPUCapture(path: path)
-            }
-            if tracing {
-                endGPUTrace()
-            }
-            if gpuProfile {
-                let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
-                let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-                let pTime = completionInfo?.promptTime ?? 0
-                let gTime = completionInfo?.generateTime ?? 0
-                printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
-            }
-
             var finalToolCalls = collectedToolCalls
             var finalContent = generated
             if finalToolCalls.isEmpty && tools != nil && !self.toolCallParserDisabled {
@@ -2945,6 +3007,11 @@ public final class MLXModelService: @unchecked Sendable {
             let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
             let promptTime = completionInfo?.promptTime ?? 0
             let generateTime = completionInfo?.generateTime ?? 0
+            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
             self.logCacheProfile(
                 phase: "restore",
                 mode: "non-streaming",
@@ -3440,21 +3507,6 @@ public final class MLXModelService: @unchecked Sendable {
         let saveTruncateTime = scratch.saveTruncateTime
         let saveInsertTime = scratch.saveInsertTime
 
-        // GPU capture/trace/profile: end after GPU sync completes inside container.perform
-        if capturing, let path = capturePath {
-            endGPUCapture(path: path)
-        }
-        if tracing {
-            endGPUTrace()
-        }
-        if gpuProfile {
-            let pTok = completionInfo?.promptTokenCount ?? estimateTokens(promptText)
-            let cTok = completionInfo?.generationTokenCount ?? estimateTokens(generated)
-            let pTime = completionInfo?.promptTime ?? 0
-            let gTime = completionInfo?.generateTime ?? 0
-            printGPUProfileFooter(promptTokens: pTok, completionTokens: cTok, promptTime: pTime, generateTime: gTime)
-        }
-
         // If the vendor ToolCallProcessor didn't detect tool calls, try fallback parsing.
         // Qwen3-Coder outputs <tool_call><function=name>...</function></tool_call> which
         // the vendor's XMLFunctionParser misses (regex doesn't match multiline content).
@@ -3489,6 +3541,11 @@ public final class MLXModelService: @unchecked Sendable {
             let completionTokens = completionInfo?.generationTokenCount ?? estimateTokens(generated)
             let promptTime = completionInfo?.promptTime ?? 0
             let generateTime = completionInfo?.generateTime ?? 0
+            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                promptTime: promptTime,
+                generateTime: generateTime)
             self.logCacheProfile(
                 phase: "restore",
                 mode: "non-streaming",
@@ -3898,9 +3955,13 @@ public final class MLXModelService: @unchecked Sendable {
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging
                 let thinkStartTag = self.thinkStartTag
+                let diagnostics = beginGenerationDiagnostics()
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
+                        var diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                            promptTokens: promptIds.count)
                         defer {
+                            diagnostics.finish(metrics: diagnosticsMetrics)
                             self.cleanupTempFiles(mediaTempFiles)
                             operation.finish()
                             Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
@@ -3996,6 +4057,11 @@ public final class MLXModelService: @unchecked Sendable {
                             }
                             let gt = Date.timeIntervalSinceReferenceDate - t0
                             let outCount = generation.tokenCount
+                            diagnosticsMetrics = MLXGenerationDiagnosticsMetrics(
+                                promptTokens: promptIds.count,
+                                completionTokens: outCount,
+                                promptTime: generation.promptTime,
+                                generateTime: generation.generateTime)
                             if dbg {
                                 let tps = gt > 0 ? Double(outCount) / gt : 0
                                 let engine = useDSpark ? "DSpARK"

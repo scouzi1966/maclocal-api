@@ -211,6 +211,45 @@ final class DFlash2ProductionPathTests: XCTestCase {
         await coordinator.releaseSerialGeneration()
     }
 
+    func testDFlash2FastPathDiagnosticsInitializeAndCleanupOnce() {
+        var events: [String] = []
+        var finishedMetrics: MLXGenerationDiagnosticsMetrics?
+        let scope = MLXGenerationDiagnosticsScope {
+            events.append("start")
+            return { metrics in
+                events.append("finish")
+                finishedMetrics = metrics
+            }
+        }
+
+        XCTAssertEqual(events, ["start"])
+        XCTAssertFalse(scope.isFinished)
+
+        let metrics = MLXGenerationDiagnosticsMetrics(
+            promptTokens: 7,
+            completionTokens: 3,
+            promptTime: 0.25,
+            generateTime: 0.5)
+        scope.finish(metrics: metrics)
+        scope.finish(metrics: .init())
+
+        XCTAssertEqual(events, ["start", "finish"])
+        XCTAssertEqual(finishedMetrics, metrics)
+        XCTAssertTrue(scope.isFinished)
+    }
+
+    func testDFlash2FastPathDiagnosticsCleanupOnAbandonedScope() {
+        var cleanupCount = 0
+        var scope: MLXGenerationDiagnosticsScope? = MLXGenerationDiagnosticsScope {
+            return { _ in cleanupCount += 1 }
+        }
+
+        XCTAssertFalse(scope!.isFinished)
+        scope = nil
+
+        XCTAssertEqual(cleanupCount, 1)
+    }
+
     private func makeDFlash2Draft(
         hidden: Int,
         targetLayers: Int,
