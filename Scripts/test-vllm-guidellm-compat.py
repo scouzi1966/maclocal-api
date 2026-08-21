@@ -403,11 +403,12 @@ def qualify_guidellm(args: argparse.Namespace) -> dict[str, Any]:
     benchmarks = report.get("benchmarks")
     require(isinstance(benchmarks, list) and benchmarks, "GuideLLM JSON has no benchmarks")
     checked: list[dict[str, float]] = []
+    requires_throughput = False
     positive_paths = {
         "latency_seconds": "metrics.request_latency.successful.mean",
-        "throughput_tokens_per_second": "metrics.output_tokens_per_second.successful.mean",
         "prompt_tokens": "metrics.prompt_token_count.successful.mean",
         "output_tokens": "metrics.output_token_count.successful.mean",
+        "time_per_output_token_ms": "metrics.time_per_output_token_ms.successful.mean",
     }
     stream_paths = {
         "ttft_ms": "metrics.time_to_first_token_ms.successful.mean",
@@ -416,11 +417,21 @@ def qualify_guidellm(args: argparse.Namespace) -> dict[str, Any]:
     for index, benchmark in enumerate(benchmarks):
         require(nested_value(benchmark, "metrics.request_totals.errored") == 0, f"benchmark {index} has protocol errors")
         require(nested_value(benchmark, "metrics.request_totals.incomplete") == 0, f"benchmark {index} has incomplete requests")
-        positive_number(nested_value(benchmark, "metrics.request_totals.successful"), f"benchmark {index} successful requests")
+        successful = positive_number(
+            nested_value(benchmark, "metrics.request_totals.successful"),
+            f"benchmark {index} successful requests",
+        )
+        requires_throughput = requires_throughput or successful > 1
         metrics = {
             name: positive_number(nested_value(benchmark, path), f"benchmark {index} {name}")
             for name, path in positive_paths.items()
         }
+        throughput = nested_value(benchmark, "metrics.output_tokens_per_second.successful.mean")
+        metrics["throughput_tokens_per_second"] = (
+            positive_number(throughput, f"benchmark {index} throughput_tokens_per_second")
+            if successful > 1
+            else nonnegative_number(throughput, f"benchmark {index} throughput_tokens_per_second")
+        )
         metrics.update(
             {
                 name: (
@@ -440,8 +451,10 @@ def qualify_guidellm(args: argparse.Namespace) -> dict[str, Any]:
     csv_labels = (
         ["Time to First Token", "Inter Token Latency", "Output Tokens/Sec"]
         if args.streaming
-        else ["Request Latency", "Time per Output Token", "Token Throughput"]
+        else ["Request Latency", "Time per Output Token", "Successful Output Tokens"]
     )
+    if requires_throughput and not args.streaming:
+        csv_labels.append("Token Throughput")
     for label in csv_labels:
         require(label in csv_text, f"GuideLLM CSV is missing {label}")
     html_text = html_path.read_text(errors="replace").lower()

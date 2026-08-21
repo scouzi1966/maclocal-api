@@ -144,6 +144,12 @@ Pass `--streaming` for streaming runs so qualification requires positive TTFT
 and inter-token latency. Omit it for non-streaming runs, where pinned GuideLLM
 truthfully reports both stream-only measurements as zero.
 
+Pinned GuideLLM can also omit its interval-derived token-throughput sample for
+an exactly one-request synchronous smoke run. Qualification still requires
+positive request latency, prompt/output tokens, and time per output token in
+that case. Multi-request and concurrent runs must report positive aggregate
+token throughput.
+
 Run the direct HTTP, SSE, Prometheus, parity, and concurrency contract against
 the same server:
 
