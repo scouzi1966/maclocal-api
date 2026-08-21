@@ -19,6 +19,8 @@ public enum AFMMLXMediaInputError: Error, Equatable, LocalizedError, Sendable {
     case tooManyMediaItems
     case aggregateMediaTooLarge
     case imagePixelLimitExceeded
+    case videoDimensionLimitExceeded
+    case videoPixelLimitExceeded
     case videoDurationLimitExceeded
     case videoFrameLimitExceeded
     case mediaInspectionFailed
@@ -52,6 +54,10 @@ public enum AFMMLXMediaInputError: Error, Equatable, LocalizedError, Sendable {
             return "request exceeds the aggregate media byte limit"
         case .imagePixelLimitExceeded:
             return "request exceeds the aggregate decoded image pixel limit"
+        case .videoDimensionLimitExceeded:
+            return "request exceeds the maximum decoded video dimension"
+        case .videoPixelLimitExceeded:
+            return "request exceeds the aggregate decoded video pixel limit"
         case .videoDurationLimitExceeded:
             return "request exceeds the aggregate video duration limit"
         case .videoFrameLimitExceeded:
@@ -94,6 +100,8 @@ struct AFMMLXMediaRequestLimits: Sendable {
     let maximumItemBytes: Int
     let maximumAggregateBytes: Int
     let maximumImagePixels: Int64
+    let maximumVideoDimension: Int
+    let maximumVideoDecodedPixels: Int64
     let maximumVideoDuration: Double
     let maximumVideoFrames: Int
 
@@ -102,6 +110,8 @@ struct AFMMLXMediaRequestLimits: Sendable {
         maximumItemBytes: 20 * 1_024 * 1_024,
         maximumAggregateBytes: 40 * 1_024 * 1_024,
         maximumImagePixels: 64 * 1_024 * 1_024,
+        maximumVideoDimension: 8_192,
+        maximumVideoDecodedPixels: 2_500_000_000,
         maximumVideoDuration: 120,
         maximumVideoFrames: 3_600
     )
@@ -109,6 +119,9 @@ struct AFMMLXMediaRequestLimits: Sendable {
 
 struct AFMMLXMediaInspection: Sendable {
     let imagePixels: Int64
+    let videoWidth: Int
+    let videoHeight: Int
+    let videoDecodedPixels: Int64
     let videoDuration: Double
     let videoFrames: Int
 }
@@ -118,11 +131,13 @@ public enum AFMMLXMediaSecurityPolicy {
     public static let maximumMediaItems = 8
     public static let maximumAggregateMediaBytes = 40 * 1_024 * 1_024
     public static let maximumAggregateImagePixels: Int64 = 64 * 1_024 * 1_024
+    public static let maximumVideoDimension = 8_192
+    public static let maximumAggregateVideoDecodedPixels: Int64 = 2_500_000_000
     public static let maximumAggregateVideoDuration: Double = 120
     public static let maximumAggregateVideoFrames = 3_600
     static let maximumRedirects = 3
 
-    typealias HostResolver = @Sendable (String) throws -> [String]
+    typealias HostResolver = @Sendable (String) async throws -> [String]
     typealias RemoteTransport = @Sendable (
         URL,
         String,
@@ -187,13 +202,14 @@ public enum AFMMLXMediaSecurityPolicy {
     static func resolveRequest(
         in messages: [AFMOpenAICompat.Message],
         limits: AFMMLXMediaRequestLimits,
-        resolver: HostResolver,
-        transport: RemoteTransport,
+        resolver: @escaping HostResolver,
+        transport: @escaping RemoteTransport,
         inspector: PayloadInspector
     ) async throws -> AFMMLXResolvedMediaRequest {
         var mediaCount = 0
         var aggregateBytes = 0
         var aggregatePixels: Int64 = 0
+        var aggregateVideoDecodedPixels: Int64 = 0
         var aggregateVideoDuration: Double = 0
         var aggregateVideoFrames = 0
         var mediaKinds: [AFMMLXRequestMediaKind] = []
@@ -256,6 +272,17 @@ public enum AFMMLXMediaSecurityPolicy {
                     throw AFMMLXMediaInputError.imagePixelLimitExceeded
                 }
                 aggregatePixels += inspection.imagePixels
+                guard inspection.videoWidth <= limits.maximumVideoDimension,
+                      inspection.videoHeight <= limits.maximumVideoDimension
+                else {
+                    throw AFMMLXMediaInputError.videoDimensionLimitExceeded
+                }
+                guard inspection.videoDecodedPixels
+                    <= limits.maximumVideoDecodedPixels - aggregateVideoDecodedPixels
+                else {
+                    throw AFMMLXMediaInputError.videoPixelLimitExceeded
+                }
+                aggregateVideoDecodedPixels += inspection.videoDecodedPixels
                 guard inspection.videoDuration
                     <= limits.maximumVideoDuration - aggregateVideoDuration
                 else {
@@ -311,8 +338,8 @@ public enum AFMMLXMediaSecurityPolicy {
     private static func load(
         _ raw: String,
         maximumBytes: Int,
-        resolver: HostResolver,
-        transport: RemoteTransport
+        resolver: @escaping HostResolver,
+        transport: @escaping RemoteTransport
     ) async throws -> AFMMLXMediaPayload {
         if raw.lowercased().hasPrefix("data:") {
             return try decodeDataURL(raw, maximumBytes: maximumBytes)
@@ -402,13 +429,41 @@ public enum AFMMLXMediaSecurityPolicy {
     static func loadRemote(
         _ initialURL: URL,
         maximumBytes: Int = maximumMediaBytes,
+        timeoutNanoseconds: UInt64 = 30_000_000_000,
+        resolver: @escaping HostResolver,
+        transport: @escaping RemoteTransport
+    ) async throws -> AFMMLXMediaPayload {
+        try await withThrowingTaskGroup(of: AFMMLXMediaPayload.self) { group in
+            group.addTask {
+                try await loadRemoteFollowingRedirects(
+                    initialURL,
+                    maximumBytes: maximumBytes,
+                    resolver: resolver,
+                    transport: transport
+                )
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw AFMMLXMediaInputError.downloadFailed
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw AFMMLXMediaInputError.downloadFailed
+            }
+            return result
+        }
+    }
+
+    private static func loadRemoteFollowingRedirects(
+        _ initialURL: URL,
+        maximumBytes: Int,
         resolver: HostResolver,
         transport: RemoteTransport
     ) async throws -> AFMMLXMediaPayload {
         var url = initialURL
         for redirectCount in 0...maximumRedirects {
             try Task.checkCancellation()
-            let addresses = try validatedRemoteAddresses(url, resolver: resolver)
+            let addresses = try await validatedRemoteAddresses(url, resolver: resolver)
             var response: AFMMLXRemoteMediaResponse?
             var lastFailure: Error?
             for address in addresses.prefix(4) {
@@ -434,7 +489,9 @@ public enum AFMMLXMediaSecurityPolicy {
                     throw AFMMLXMediaInputError.redirectNotAllowed
                 }
                 do {
-                    _ = try validatedRemoteAddresses(redirected, resolver: resolver)
+                    _ = try await validatedRemoteAddresses(redirected, resolver: resolver)
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     throw AFMMLXMediaInputError.redirectNotAllowed
                 }
@@ -466,8 +523,8 @@ public enum AFMMLXMediaSecurityPolicy {
     static func validateRemoteURL(
         _ url: URL,
         resolver: HostResolver
-    ) throws {
-        _ = try validatedRemoteAddresses(url, resolver: resolver)
+    ) async throws {
+        _ = try await validatedRemoteAddresses(url, resolver: resolver)
     }
 
     private static func validateRemoteURLShape(_ url: URL) throws {
@@ -490,14 +547,16 @@ public enum AFMMLXMediaSecurityPolicy {
     private static func validatedRemoteAddresses(
         _ url: URL,
         resolver: HostResolver
-    ) throws -> [String] {
+    ) async throws -> [String] {
         try validateRemoteURLShape(url)
         guard let host = url.host?.lowercased() else {
             throw AFMMLXMediaInputError.remoteHostNotAllowed
         }
         let addresses: [String]
         do {
-            addresses = try resolver(host)
+            addresses = try await resolver(host)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw AFMMLXMediaInputError.downloadFailed
         }
@@ -546,7 +605,14 @@ public enum AFMMLXMediaSecurityPolicy {
             .lowercased() ?? ""
     }
 
-    private static func resolveHost(_ host: String) throws -> [String] {
+    private static func resolveHost(_ host: String) async throws -> [String] {
+        let operation = AFMMLXDNSResolutionOperation()
+        return try await operation.run {
+            try blockingResolveHost(host)
+        }
+    }
+
+    private static func blockingResolveHost(_ host: String) throws -> [String] {
         var hints = addrinfo()
         hints.ai_flags = AI_ADDRCONFIG
         hints.ai_family = AF_UNSPEC
@@ -647,6 +713,9 @@ public enum AFMMLXMediaSecurityPolicy {
             }
             return AFMMLXMediaInspection(
                 imagePixels: pixels,
+                videoWidth: 0,
+                videoHeight: 0,
+                videoDecodedPixels: 0,
                 videoDuration: 0,
                 videoFrames: 0
             )
@@ -668,6 +737,25 @@ public enum AFMMLXMediaSecurityPolicy {
                 let tracks = try await asset.loadTracks(withMediaType: .video)
                 guard !tracks.isEmpty else {
                     throw AFMMLXMediaInputError.mediaInspectionFailed
+                }
+                var decodedWidth = 0
+                var decodedHeight = 0
+                for track in tracks {
+                    let naturalSize = try await track.load(.naturalSize)
+                    let transform = try await track.load(.preferredTransform)
+                    let transformed = naturalSize.applying(transform)
+                    let width = Int(ceil(abs(transformed.width)))
+                    let height = Int(ceil(abs(transformed.height)))
+                    guard width > 0, height > 0 else {
+                        throw AFMMLXMediaInputError.mediaInspectionFailed
+                    }
+                    guard width <= limits.maximumVideoDimension,
+                          height <= limits.maximumVideoDimension
+                    else {
+                        throw AFMMLXMediaInputError.videoDimensionLimitExceeded
+                    }
+                    decodedWidth = max(decodedWidth, width)
+                    decodedHeight = max(decodedHeight, height)
                 }
                 var frameCount = 0
                 let reader = try AVAssetReader(asset: asset)
@@ -695,8 +783,27 @@ public enum AFMMLXMediaSecurityPolicy {
                 guard reader.status == .completed else {
                     throw AFMMLXMediaInputError.mediaInspectionFailed
                 }
+                // Qwen VLM samples video at two frames per second. Charge the
+                // decoded-pixel budget for that sampled workload, while the
+                // source-frame limit above still bounds container complexity.
+                let sampledFrameCount = min(
+                    frameCount,
+                    max(1, Int(ceil(duration * 2)))
+                )
+                let (pixelsPerFrame, dimensionOverflow) = Int64(decodedWidth)
+                    .multipliedReportingOverflow(by: Int64(decodedHeight))
+                let (decodedPixels, frameOverflow) = pixelsPerFrame
+                    .multipliedReportingOverflow(by: Int64(sampledFrameCount))
+                guard !dimensionOverflow, !frameOverflow,
+                      decodedPixels <= limits.maximumVideoDecodedPixels
+                else {
+                    throw AFMMLXMediaInputError.videoPixelLimitExceeded
+                }
                 return AFMMLXMediaInspection(
                     imagePixels: 0,
+                    videoWidth: decodedWidth,
+                    videoHeight: decodedHeight,
+                    videoDecodedPixels: decodedPixels,
                     videoDuration: duration,
                     videoFrames: frameCount
                 )
@@ -733,5 +840,45 @@ public enum AFMMLXMediaSecurityPolicy {
             validatedAddress: validatedAddress,
             maximumBytes: maximumBytes
         )
+    }
+}
+
+private final class AFMMLXDNSResolutionOperation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<[String], Error>?
+    private var completed = false
+
+    func run(
+        operation: @escaping @Sendable () throws -> [String]
+    ) async throws -> [String] {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let shouldStart = lock.withLock { () -> Bool in
+                    guard !completed else {
+                        continuation.resume(throwing: CancellationError())
+                        return false
+                    }
+                    self.continuation = continuation
+                    return true
+                }
+                guard shouldStart else { return }
+                DispatchQueue.global(qos: .utility).async { [self] in
+                    finish(Result { try operation() })
+                }
+            }
+        } onCancel: {
+            self.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func finish(_ result: Result<[String], Error>) {
+        let continuation = lock.withLock { () -> CheckedContinuation<[String], Error>? in
+            guard !completed else { return nil }
+            completed = true
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume(with: result)
     }
 }

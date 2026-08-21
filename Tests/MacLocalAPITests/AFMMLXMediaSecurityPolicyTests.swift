@@ -8,19 +8,19 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         ["93.184.216.34"]
     }
 
-    func testRejectsUnsafeAndUnencryptedSchemes() {
+    func testRejectsUnsafeAndUnencryptedSchemes() async {
         for raw in [
             "file:///Users/example/private.png",
             "http://example.com/image.png",
             "ftp://example.com/image.png",
         ] {
-            XCTAssertThrowsError(
-                try AFMMLXMediaSecurityPolicy.validateRemoteURL(
-                    XCTUnwrap(URL(string: raw)),
+            do {
+                try await AFMMLXMediaSecurityPolicy.validateRemoteURL(
+                    URL(string: raw)!,
                     resolver: publicResolver
-                ),
-                raw
-            ) { error in
+                )
+                XCTFail("Expected validation failure for \(raw)")
+            } catch {
                 guard case .unsupportedScheme = error as? AFMMLXMediaInputError else {
                     return XCTFail("unexpected error: \(error)")
                 }
@@ -28,34 +28,16 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         }
     }
 
-    func testRejectsLocalNamesCredentialsAndNonDefaultPorts() throws {
-        XCTAssertThrowsError(
-            try AFMMLXMediaSecurityPolicy.validateRemoteURL(
-                XCTUnwrap(URL(string: "https://localhost/image.png")),
-                resolver: publicResolver
-            )
-        ) { error in
-            XCTAssertEqual(error as? AFMMLXMediaInputError, .remoteHostNotAllowed)
-        }
-        XCTAssertThrowsError(
-            try AFMMLXMediaSecurityPolicy.validateRemoteURL(
-                XCTUnwrap(URL(string: "https://user:pass@example.com/image.png")),
-                resolver: publicResolver
-            )
-        ) { error in
-            XCTAssertEqual(error as? AFMMLXMediaInputError, .remoteHostNotAllowed)
-        }
-        XCTAssertThrowsError(
-            try AFMMLXMediaSecurityPolicy.validateRemoteURL(
-                XCTUnwrap(URL(string: "https://example.com:8443/image.png")),
-                resolver: publicResolver
-            )
-        ) { error in
-            XCTAssertEqual(error as? AFMMLXMediaInputError, .remotePortNotAllowed)
-        }
+    func testRejectsLocalNamesCredentialsAndNonDefaultPorts() async throws {
+        await assertURLValidationError(.remoteHostNotAllowed, "https://localhost/image.png")
+        await assertURLValidationError(
+            .remoteHostNotAllowed,
+            "https://user:pass@example.com/image.png"
+        )
+        await assertURLValidationError(.remotePortNotAllowed, "https://example.com:8443/image.png")
     }
 
-    func testRejectsPrivateReservedAndMixedDNSAnswers() throws {
+    func testRejectsPrivateReservedAndMixedDNSAnswers() async throws {
         let blockedAddresses = [
             "127.0.0.1", "10.0.0.1", "100.64.0.1", "169.254.169.254",
             "172.16.0.1", "192.168.0.1", "198.18.0.1", "::1", "fd00::1",
@@ -63,22 +45,23 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         ]
         let url = try XCTUnwrap(URL(string: "https://example.com/image.png"))
         for address in blockedAddresses {
-            XCTAssertThrowsError(
-                try AFMMLXMediaSecurityPolicy.validateRemoteURL(
+            do {
+                try await AFMMLXMediaSecurityPolicy.validateRemoteURL(
                     url,
                     resolver: { _ in [address] }
-                ),
-                address
-            ) { error in
-                XCTAssertEqual(error as? AFMMLXMediaInputError, .remoteAddressNotAllowed)
+                )
+                XCTFail("Expected private address rejection for \(address)")
+            } catch {
+                XCTAssertEqual(error as? AFMMLXMediaInputError, .remoteAddressNotAllowed, address)
             }
         }
-        XCTAssertThrowsError(
-            try AFMMLXMediaSecurityPolicy.validateRemoteURL(
+        do {
+            try await AFMMLXMediaSecurityPolicy.validateRemoteURL(
                 url,
                 resolver: { _ in ["93.184.216.34", "10.0.0.1"] }
             )
-        ) { error in
+            XCTFail("Expected mixed answer rejection")
+        } catch {
             XCTAssertEqual(error as? AFMMLXMediaInputError, .remoteAddressNotAllowed)
         }
     }
@@ -247,6 +230,57 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         )
     }
 
+    func testDNSResolutionIsBoundedByFetchTimeout() async throws {
+        let url = try XCTUnwrap(URL(string: "https://public.example/image"))
+        let started = expectation(description: "resolver started")
+        let operation = Task {
+            try await AFMMLXMediaSecurityPolicy.loadRemote(
+                url,
+                timeoutNanoseconds: 25_000_000,
+                resolver: { _ in
+                    started.fulfill()
+                    try await Task.sleep(for: .seconds(60))
+                    return ["93.184.216.34"]
+                },
+                transport: { _, _, _ in
+                    XCTFail("Transport must not run while DNS is stalled")
+                    throw AFMMLXMediaInputError.downloadFailed
+                }
+            )
+        }
+        await fulfillment(of: [started], timeout: 1)
+        await assertTaskError(.downloadFailed, task: operation)
+    }
+
+    func testDNSResolutionHonorsTaskCancellation() async throws {
+        let url = try XCTUnwrap(URL(string: "https://public.example/image"))
+        let started = expectation(description: "resolver started")
+        let operation = Task {
+            try await AFMMLXMediaSecurityPolicy.loadRemote(
+                url,
+                resolver: { _ in
+                    started.fulfill()
+                    try await Task.sleep(for: .seconds(60))
+                    return ["93.184.216.34"]
+                },
+                transport: { _, _, _ in
+                    XCTFail("Transport must not run after DNS cancellation")
+                    throw AFMMLXMediaInputError.downloadFailed
+                }
+            )
+        }
+        await fulfillment(of: [started], timeout: 1)
+        operation.cancel()
+        do {
+            _ = try await operation.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testResolvedMIMEKindOverridesURLFilename() async throws {
         let messages = [mediaMessage(["https://public.example/not-a-video.png"])]
         let resolved = try await AFMMLXMediaSecurityPolicy.resolveRequest(
@@ -263,7 +297,14 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
                 )
             },
             inspector: { _, _ in
-                AFMMLXMediaInspection(imagePixels: 0, videoDuration: 1, videoFrames: 1)
+                AFMMLXMediaInspection(
+                    imagePixels: 0,
+                    videoWidth: 1,
+                    videoHeight: 1,
+                    videoDecodedPixels: 1,
+                    videoDuration: 1,
+                    videoFrames: 1
+                )
             }
         )
 
@@ -278,13 +319,13 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         let inspector: AFMMLXMediaSecurityPolicy.PayloadInspector = { payload, _ in
             switch payload.data.first {
             case 2:
-                AFMMLXMediaInspection(imagePixels: 7, videoDuration: 0, videoFrames: 0)
+                AFMMLXMediaInspection(imagePixels: 7, videoWidth: 0, videoHeight: 0, videoDecodedPixels: 0, videoDuration: 0, videoFrames: 0)
             case 3:
-                AFMMLXMediaInspection(imagePixels: 0, videoDuration: 7, videoFrames: 0)
+                AFMMLXMediaInspection(imagePixels: 0, videoWidth: 2, videoHeight: 2, videoDecodedPixels: 7, videoDuration: 7, videoFrames: 0)
             case 4:
-                AFMMLXMediaInspection(imagePixels: 0, videoDuration: 0, videoFrames: 7)
+                AFMMLXMediaInspection(imagePixels: 0, videoWidth: 2, videoHeight: 2, videoDecodedPixels: 7, videoDuration: 0, videoFrames: 7)
             default:
-                AFMMLXMediaInspection(imagePixels: 1, videoDuration: 0, videoFrames: 0)
+                AFMMLXMediaInspection(imagePixels: 1, videoWidth: 0, videoHeight: 0, videoDecodedPixels: 0, videoDuration: 0, videoFrames: 0)
             }
         }
         let transport: AFMMLXMediaSecurityPolicy.RemoteTransport = { url, _, _ in
@@ -337,6 +378,54 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
                 limits: self.testLimits(maximumVideoFrames: 10),
                 transport: transport,
                 inspector: inspector
+            )
+        }
+    }
+
+    func testDecodedVideoDimensionsAndAggregatePixelsAreBounded() async throws {
+        let transport: AFMMLXMediaSecurityPolicy.RemoteTransport = { url, _, _ in
+            AFMMLXRemoteMediaResponse(
+                statusCode: 200,
+                mimeType: "video/mp4",
+                contentLength: 1,
+                data: Data([UInt8(url.lastPathComponent) ?? 1]),
+                redirectLocation: nil
+            )
+        }
+
+        await assertResolvedError(.videoDimensionLimitExceeded) {
+            try await self.resolve(
+                ["1"],
+                limits: self.testLimits(maximumVideoDimension: 32),
+                transport: transport,
+                inspector: { _, _ in
+                    AFMMLXMediaInspection(
+                        imagePixels: 0,
+                        videoWidth: 33,
+                        videoHeight: 16,
+                        videoDecodedPixels: 528,
+                        videoDuration: 1,
+                        videoFrames: 1
+                    )
+                }
+            )
+        }
+
+        await assertResolvedError(.videoPixelLimitExceeded) {
+            try await self.resolve(
+                ["1", "2"],
+                limits: self.testLimits(maximumVideoDecodedPixels: 1_000),
+                transport: transport,
+                inspector: { _, _ in
+                    AFMMLXMediaInspection(
+                        imagePixels: 0,
+                        videoWidth: 20,
+                        videoHeight: 20,
+                        videoDecodedPixels: 600,
+                        videoDuration: 1,
+                        videoFrames: 2
+                    )
+                }
             )
         }
     }
@@ -457,6 +546,8 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         maximumItems: Int = 8,
         maximumAggregateBytes: Int = 64,
         maximumImagePixels: Int64 = 64,
+        maximumVideoDimension: Int = 64,
+        maximumVideoDecodedPixels: Int64 = 64,
         maximumVideoDuration: Double = 64,
         maximumVideoFrames: Int = 64
     ) -> AFMMLXMediaRequestLimits {
@@ -465,6 +556,8 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
             maximumItemBytes: 32,
             maximumAggregateBytes: maximumAggregateBytes,
             maximumImagePixels: maximumImagePixels,
+            maximumVideoDimension: maximumVideoDimension,
+            maximumVideoDecodedPixels: maximumVideoDecodedPixels,
             maximumVideoDuration: maximumVideoDuration,
             maximumVideoFrames: maximumVideoFrames
         )
@@ -476,6 +569,33 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
     ) async {
         do {
             _ = try await operation()
+            XCTFail("Expected \(expected)")
+        } catch {
+            XCTAssertEqual(error as? AFMMLXMediaInputError, expected)
+        }
+    }
+
+    private func assertURLValidationError(
+        _ expected: AFMMLXMediaInputError,
+        _ rawURL: String
+    ) async {
+        do {
+            try await AFMMLXMediaSecurityPolicy.validateRemoteURL(
+                URL(string: rawURL)!,
+                resolver: publicResolver
+            )
+            XCTFail("Expected \(expected)")
+        } catch {
+            XCTAssertEqual(error as? AFMMLXMediaInputError, expected)
+        }
+    }
+
+    private func assertTaskError(
+        _ expected: AFMMLXMediaInputError,
+        task: Task<AFMMLXMediaPayload, Error>
+    ) async {
+        do {
+            _ = try await task.value
             XCTFail("Expected \(expected)")
         } catch {
             XCTAssertEqual(error as? AFMMLXMediaInputError, expected)
