@@ -67,6 +67,9 @@ public struct DFlash2DraftConfiguration: Sendable {
     public let selectorTopK: Int
     public let rmsNormEpsilon: Float
     public let ropeTheta: Float
+    public let maxPositionEmbeddings: Int
+    public let layerTypes: [String]
+    public let slidingWindow: Int?
 
     public static func load(directory: String) throws -> Self {
         let data = try Data(contentsOf: URL(fileURLWithPath: directory + "/config.json"))
@@ -96,9 +99,18 @@ public struct DFlash2DraftConfiguration: Sendable {
         let targetIDs = (dflash["target_layer_ids"] as? [NSNumber])?.map(\.intValue) ?? []
         let groupSize = try integer(dflash, "conv_group_size")
         let kernelSize = try integer(dflash, "conv_kernel_size")
+        let layerTypes = root["layer_types"] as? [String] ?? []
+        let slidingWindow = (root["sliding_window"] as? NSNumber)?.intValue
+        let rope = root["rope_parameters"] as? [String: Any]
+            ?? root["rope_scaling"] as? [String: Any]
+            ?? root
         guard hidden > 0, layers > 0, hidden.isMultiple(of: groupSize), kernelSize == 2,
               targetIDs.count == layers,
-              targetIDs.allSatisfy({ $0 >= 0 && $0 < targetLayers }) else {
+              targetIDs == targetIDs.sorted(), Set(targetIDs).count == targetIDs.count,
+              targetIDs.allSatisfy({ $0 >= 0 && $0 < targetLayers }),
+              layerTypes.count == layers,
+              layerTypes.allSatisfy({ $0 == "sliding_attention" || $0 == "full_attention" }),
+              !layerTypes.contains("sliding_attention") || (slidingWindow ?? 0) > 0 else {
             throw DFlash2Error.invalidConfiguration("invalid hidden, convolution, or target-layer layout")
         }
         return Self(
@@ -118,7 +130,10 @@ public struct DFlash2DraftConfiguration: Sendable {
             selectorRank: try integer(dflash, "selector_rank"),
             selectorTopK: try integer(dflash, "selector_top_k"),
             rmsNormEpsilon: try floating(root, "rms_norm_eps"),
-            ropeTheta: try floating(root, "rope_theta")
+            ropeTheta: try floating(rope, "rope_theta"),
+            maxPositionEmbeddings: try integer(root, "max_position_embeddings"),
+            layerTypes: layerTypes,
+            slidingWindow: slidingWindow
         )
     }
 }
@@ -207,6 +222,7 @@ private final class DFlash2Attention: Module {
     let keyValueHeads: Int
     let headDimension: Int
     let scale: Float
+    let slidingWindow: Int?
     @ModuleInfo(key: "q_proj") var query: Linear
     @ModuleInfo(key: "k_proj") var key: Linear
     @ModuleInfo(key: "v_proj") var value: Linear
@@ -215,11 +231,13 @@ private final class DFlash2Attention: Module {
     @ModuleInfo(key: "k_norm") var keyNorm: RMSNorm
     let rope: RoPE
 
-    init(_ config: DFlash2DraftConfiguration) {
+    init(_ config: DFlash2DraftConfiguration, layerIndex: Int) {
         heads = config.attentionHeads
         keyValueHeads = config.keyValueHeads
         headDimension = config.headDimension
         scale = pow(Float(config.headDimension), -0.5)
+        slidingWindow = config.layerTypes[layerIndex] == "sliding_attention"
+            ? config.slidingWindow : nil
         _query.wrappedValue = Linear(config.hiddenSize, heads * headDimension, bias: false)
         _key.wrappedValue = Linear(config.hiddenSize, keyValueHeads * headDimension, bias: false)
         _value.wrappedValue = Linear(config.hiddenSize, keyValueHeads * headDimension, bias: false)
@@ -232,29 +250,52 @@ private final class DFlash2Attention: Module {
     func callAsFunction(_ hidden: MLXArray, targetContext: MLXArray) -> MLXArray {
         let batch = hidden.dim(0)
         let block = hidden.dim(1)
-        let context = targetContext.dim(1)
+        let fullContext = targetContext.dim(1)
+        let contextStart: Int
+        let visibleContext: MLXArray
+        if let slidingWindow, fullContext > slidingWindow - 1 {
+            contextStart = fullContext - (slidingWindow - 1)
+            visibleContext = targetContext[0..., contextStart..., 0...]
+        } else {
+            contextStart = 0
+            visibleContext = targetContext
+        }
+        let context = visibleContext.dim(1)
         var q = query(hidden).reshaped(batch, block, heads, headDimension)
         q = queryNorm(q).transposed(0, 2, 1, 3)
-        q = rope(q, offset: context)
+        q = rope(q, offset: fullContext)
 
-        var contextK = key(targetContext).reshaped(batch, context, keyValueHeads, headDimension)
+        var contextK = key(visibleContext).reshaped(batch, context, keyValueHeads, headDimension)
         contextK = keyNorm(contextK).transposed(0, 2, 1, 3)
-        contextK = rope(contextK, offset: 0)
-        let contextV = value(targetContext).reshaped(
+        contextK = rope(contextK, offset: contextStart)
+        let contextV = value(visibleContext).reshaped(
             batch, context, keyValueHeads, headDimension).transposed(0, 2, 1, 3)
 
         var blockK = key(hidden).reshaped(batch, block, keyValueHeads, headDimension)
         blockK = keyNorm(blockK).transposed(0, 2, 1, 3)
-        blockK = rope(blockK, offset: context)
+        blockK = rope(blockK, offset: fullContext)
         let blockV = value(hidden).reshaped(
             batch, block, keyValueHeads, headDimension).transposed(0, 2, 1, 3)
 
+        let mask: MLXFast.ScaledDotProductAttentionMaskMode
+        if let slidingWindow {
+            let queryIndices = MLXArray(
+                Int32(fullContext) ..< Int32(fullContext + block))[0..., .newAxis]
+            let keyIndices = MLXArray(
+                Int32(contextStart) ..< Int32(fullContext + block))[.newAxis, 0...]
+            let contextMask = (keyIndices .< Int32(fullContext))
+                .&& ((queryIndices - keyIndices) .< Int32(slidingWindow))
+            let blockMask = keyIndices .>= Int32(fullContext)
+            mask = .array(contextMask .|| blockMask)
+        } else {
+            mask = .none
+        }
         let attended = MLXFast.scaledDotProductAttention(
             queries: q,
             keys: concatenated([contextK, blockK], axis: 2),
             values: concatenated([contextV, blockV], axis: 2),
             scale: scale,
-            mask: .none)
+            mask: mask)
         return output(attended.transposed(0, 2, 1, 3).reshaped(batch, block, -1))
     }
 }
@@ -267,8 +308,8 @@ private final class DFlash2DecoderLayer: Module {
     @ModuleInfo(key: "attention_conv") var attentionConv: DFlash2GroupedDynamicCausalConv
     @ModuleInfo(key: "mlp_conv") var mlpConv: DFlash2GroupedDynamicCausalConv
 
-    init(_ config: DFlash2DraftConfiguration) {
-        _attention.wrappedValue = DFlash2Attention(config)
+    init(_ config: DFlash2DraftConfiguration, layerIndex: Int) {
+        _attention.wrappedValue = DFlash2Attention(config, layerIndex: layerIndex)
         _mlp.wrappedValue = DFlash2MLP(config)
         _inputNorm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
         _postAttentionNorm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
@@ -332,7 +373,9 @@ public final class DFlash2DraftModel: Module {
 
     public init(_ config: DFlash2DraftConfiguration) {
         self.config = config
-        _layers.wrappedValue = (0 ..< config.hiddenLayers).map { _ in DFlash2DecoderLayer(config) }
+        _layers.wrappedValue = (0 ..< config.hiddenLayers).map {
+            DFlash2DecoderLayer(config, layerIndex: $0)
+        }
         _norm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
         _fc.wrappedValue = Linear(
             config.targetLayerIDs.count * config.hiddenSize, config.hiddenSize, bias: false)

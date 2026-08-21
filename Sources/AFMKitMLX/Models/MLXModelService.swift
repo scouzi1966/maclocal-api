@@ -1495,28 +1495,30 @@ public final class MLXModelService: @unchecked Sendable {
                 "speculative_decoding.requirement must be preferred or required")
         }
         if let maxDraftTokens = options?.maxDraftTokens, maxDraftTokens < 1 {
-            let required = dflash2Requirement == .required || requirement == "required"
-            return DFlash2RequestPolicy(
-                permitsRuntime: false,
-                requiresRuntime: required,
-                requestedBlockSize: nil,
-                denialReason: "max_draft_tokens must be at least 1")
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.max_draft_tokens must be at least 1")
         }
 
         let mode = options?.mode?.lowercased()
-        let modePermits = mode == nil || mode == "auto" || mode == "dflash2"
-        let drafterMatches = options?.drafter == nil || options?.drafter == dflash2Drafter
-        let reason: String?
-        if !modePermits {
-            reason = "request selected speculative mode \(mode ?? "off")"
-        } else if !drafterMatches {
-            reason = "per-request drafter does not match the server-loaded drafter"
-        } else {
-            reason = nil
+        guard mode == nil || mode == "auto" || mode == "dflash2"
+                || mode == "off" || mode == "disabled" else {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding.mode must be auto, dflash2, or off")
         }
+        let explicitlyDisabled = mode == "off" || mode == "disabled"
+        if explicitlyDisabled, requirement == "required" {
+            throw MLXServiceError.loadFailed(
+                "speculative_decoding cannot be both off and required")
+        }
+        if let drafter = options?.drafter, drafter != dflash2Drafter {
+            throw MLXServiceError.loadFailed(
+                "per-request DFlash2 drafter switching is not supported; restart with drafter \(drafter)")
+        }
+        let reason = explicitlyDisabled ? "request disabled speculative decoding" : nil
         return DFlash2RequestPolicy(
             permitsRuntime: reason == nil,
-            requiresRuntime: dflash2Requirement == .required || requirement == "required",
+            requiresRuntime: !explicitlyDisabled
+                && (dflash2Requirement == .required || requirement == "required"),
             requestedBlockSize: options?.maxDraftTokens.map { $0 + 1 },
             denialReason: reason)
     }
@@ -1847,6 +1849,7 @@ public final class MLXModelService: @unchecked Sendable {
                         throw MLXServiceError.loadFailed("Target config.json is not an object")
                     }
                     try draftConfig.validateTarget(metadata: targetMetadata)
+                    try draftConfig.validateWeights(in: draftDirectory)
                     let block = try draftConfig.effectiveBlockSize(requested: dflash2BlockSize)
                     let draft = try DFlash2DraftModel.load(directory: draftDirectory.path)
                     let targetCompatible = try await loaded.perform { context in
@@ -2275,6 +2278,24 @@ public final class MLXModelService: @unchecked Sendable {
         // awaited before these fields are read, so access stays single-sequence.
         let scratch = NonStreamingScratch()
         scratch.userInput = userInput
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
+        let dflash2Active = dflash2Policy.permitsRuntime
+            ? DFlash2Runtime.shared.active : nil
+        let dflash2Eligible = dflash2Active != nil
+            && (temperature ?? 0) <= 0.0
+            && (tools?.isEmpty ?? true)
+            && responseFormat == nil
+            && !wantLogprobs
+            && (stop?.isEmpty ?? true)
+        if requestRequiresDFlash2, dflash2Active == nil {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "no compatible runtime is active")")
+        }
+        if requestRequiresDFlash2, !dflash2Eligible {
+            throw MLXServiceError.loadFailed(
+                "DFlash2 is required but this request uses sampling, tools, grammar, logprobs, or stop sequences")
+        }
         // GPU capture/trace/profile: start before inference
         let capturePath = gpuCapturePath
         let capturing = beginGPUCaptureIfNeeded()
@@ -2283,7 +2304,8 @@ public final class MLXModelService: @unchecked Sendable {
         // ---- Embedded DSpARK fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // DeepSeek V4 checkpoints advertise this capability through metadata and carry the
         // drafter weights themselves; no model-id allowlist or separately loaded package.
-        let dsparkEligible = afmDSparkEnabled()
+        let dsparkEligible = dflash2Active == nil
+            && afmDSparkEnabled()
             && (temperature ?? 0) <= 0.0
             && (tools?.isEmpty ?? true)
             && responseFormat == nil
@@ -2324,24 +2346,6 @@ public final class MLXModelService: @unchecked Sendable {
 
 
         // ---- DFlash2 one-pass parallel draft/verify path ----
-        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
-        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
-        let dflash2Active = dflash2Policy.permitsRuntime
-            ? DFlash2Runtime.shared.active : nil
-        let dflash2Eligible = dflash2Active != nil
-            && (temperature ?? 0) <= 0.0
-            && (tools?.isEmpty ?? true)
-            && responseFormat == nil
-            && !wantLogprobs
-            && (stop?.isEmpty ?? true)
-        if requestRequiresDFlash2, dflash2Active == nil {
-            throw MLXServiceError.loadFailed(
-                "DFlash2 is required but unavailable: \(dflash2Policy.denialReason ?? "no compatible runtime is active")")
-        }
-        if requestRequiresDFlash2, dflash2Active != nil, !dflash2Eligible {
-            throw MLXServiceError.loadFailed(
-                "DFlash2 is required but this request uses sampling, tools, grammar, logprobs, or stop sequences")
-        }
         if dflash2Eligible, let installed = dflash2Active {
             if let result = try await container.perform({ context -> (String, Int, Int)? in
                 guard let target = context.model as? any DFlash2Target else { return nil }
@@ -3314,9 +3318,15 @@ public final class MLXModelService: @unchecked Sendable {
             topLogprobsCount: wantLogprobs ? min(max(topLogprobs ?? 0, 0), 20) : 0,
             prefillStepSize: self.prefillStepSize
         )
+        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
+        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
         if let scheduler = self.scheduler {
+            if requestRequiresDFlash2 {
+                throw MLXServiceError.loadFailed(
+                    "DFlash2 is required but concurrent and batch execution use autoregressive decoding")
+            }
             let pipelineStart = debugLogging ? Date() : Date.distantPast
 
             // Use scheduler's tokenizer directly — no container lock needed.
@@ -3437,8 +3447,6 @@ public final class MLXModelService: @unchecked Sendable {
             loadedSupportsDSpark = false
         }
         let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
-        let dflash2Policy = try dflash2RequestPolicy(speculativeDecoding)
-        let requestRequiresDFlash2 = dflash2Policy.requiresRuntime
         let dflash2StreamEligible = specGreedyStream
             && dflash2Policy.permitsRuntime
             && DFlash2Runtime.shared.active != nil
@@ -3479,8 +3487,8 @@ public final class MLXModelService: @unchecked Sendable {
             if let prep {
                 let promptIds = prep.ids
                 let openedThink = prep.openedThink
-                let useDSpark = dsparkStreamEligible
-                let useDFlash2 = !useDSpark && dflash2StreamEligible
+                let useDFlash2 = dflash2StreamEligible
+                let useDSpark = !useDFlash2 && dsparkStreamEligible
                 let useEagle3 = !useDSpark && !useDFlash2 && eagle3StreamEligible
                 let maxTok = effectiveMaxTokens
                 let dbg = debugLogging

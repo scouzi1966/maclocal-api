@@ -143,7 +143,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 parallelToolCalls: request.parallelToolCalls,
                 stop: request.options.stopSequences,
                 responseFormat: request.openAIResponseFormat(),
-                chatTemplateKwargs: request.chatTemplateKwargs()
+                chatTemplateKwargs: request.chatTemplateKwargs(),
+                speculativeDecoding: request.speculativeDecodingOptions()
             )
             let split = Self.splitReasoning(
                 result.content,
@@ -231,6 +232,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         stop: request.options.stopSequences,
                         responseFormat: request.openAIResponseFormat(),
                         chatTemplateKwargs: request.chatTemplateKwargs(),
+                        speculativeDecoding: request.speculativeDecodingOptions(),
                         requestId: nil
                     )
                     var translator = MLXStreamEventTranslator(
@@ -632,6 +634,26 @@ public enum AFMMLXModelDescriptor {
 }
 
 extension AFMRequest {
+    func speculativeDecodingOptions() -> SpeculativeDecodingOptions? {
+        guard case .object(let values)? = metadata["speculativeDecoding"] else {
+            return nil
+        }
+        func string(_ key: String) -> String? {
+            guard case .string(let value)? = values[key] else { return nil }
+            return value
+        }
+        func integer(_ key: String) -> Int? {
+            guard case .integer(let value)? = values[key] else { return nil }
+            return value
+        }
+        return SpeculativeDecodingOptions(
+            mode: string("mode"),
+            requirement: string("requirement"),
+            drafter: string("drafter"),
+            maxDraftTokens: integer("maxDraftTokens")
+        )
+    }
+
     var requiresToolCall: Bool {
         metadata["toolCallingMode"] == .string("required")
     }

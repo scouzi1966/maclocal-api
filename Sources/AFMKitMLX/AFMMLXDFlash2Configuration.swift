@@ -23,6 +23,13 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
     public let convolutionGroupSize: Int
     public let selectorRank: Int
     public let selectorTopK: Int
+    public let maxPositionEmbeddings: Int
+    public let slidingWindow: Int?
+    public let layerTypes: [String]
+    public let ropeTheta: Double
+    public let bosTokenIDs: Set<Int>
+    public let eosTokenIDs: Set<Int>
+    public let padTokenIDs: Set<Int>
 
     public init(metadata: [String: Any]) throws {
         let architectures = metadata["architectures"] as? [String] ?? []
@@ -51,6 +58,18 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         convolutionGroupSize = try Self.positiveInt(dflash, "conv_group_size")
         selectorRank = try Self.positiveInt(dflash, "selector_rank")
         selectorTopK = try Self.positiveInt(dflash, "selector_top_k")
+        maxPositionEmbeddings = try Self.positiveInt(metadata, "max_position_embeddings")
+        slidingWindow = try Self.optionalPositiveInt(metadata, "sliding_window")
+        layerTypes = try Self.stringArray(metadata, "layer_types")
+        let rope = metadata["rope_parameters"] as? [String: Any]
+            ?? metadata["rope_scaling"] as? [String: Any]
+            ?? [:]
+        ropeTheta = try Self.positiveDouble(
+            rope["rope_theta"] == nil ? metadata : rope,
+            "rope_theta")
+        bosTokenIDs = Self.tokenIDs(in: metadata, key: "bos_token_id")
+        eosTokenIDs = Self.tokenIDs(in: metadata, key: "eos_token_id")
+        padTokenIDs = Self.tokenIDs(in: metadata, key: "pad_token_id")
 
         guard convolutionKernelSize == 2 else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
@@ -75,6 +94,18 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "selector_top_k must not exceed vocab_size")
         }
+        guard attentionHeads.isMultiple(of: keyValueHeads) else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "num_attention_heads must be divisible by num_key_value_heads")
+        }
+        guard layerTypes.count == hiddenLayers,
+              layerTypes.allSatisfy({ $0 == "sliding_attention" || $0 == "full_attention" }) else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "layer_types must contain one supported attention type per draft layer")
+        }
+        if layerTypes.contains("sliding_attention"), slidingWindow == nil {
+            throw AFMMLXDFlash2ConfigurationError.missingValue("sliding_window")
+        }
     }
 
     public init(directory: URL) throws {
@@ -91,6 +122,7 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         let targetHidden = try Self.positiveInt(text, "hidden_size")
         let targetLayerCount = try Self.positiveInt(text, "num_hidden_layers")
         let targetVocabulary = try Self.positiveInt(text, "vocab_size")
+        let targetMaxPositions = try Self.positiveInt(text, "max_position_embeddings")
 
         guard targetHidden == hiddenSize else {
             throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
@@ -103,6 +135,38 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         guard targetVocabulary == vocabularySize else {
             throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
                 "vocab_size (targetVocabulary) does not match drafter (vocabularySize)")
+        }
+        guard targetMaxPositions == maxPositionEmbeddings else {
+            throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                "max_position_embeddings \(targetMaxPositions) does not match drafter \(maxPositionEmbeddings)")
+        }
+
+        let targetRope = text["rope_parameters"] as? [String: Any]
+            ?? text["rope_scaling"] as? [String: Any]
+            ?? [:]
+        let targetRopeTheta = try Self.positiveDouble(
+            targetRope["rope_theta"] == nil ? text : targetRope,
+            "rope_theta")
+        guard abs(targetRopeTheta - ropeTheta) <= max(1, ropeTheta) * 1e-9 else {
+            throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                "rope_theta \(targetRopeTheta) does not match drafter \(ropeTheta)")
+        }
+
+        try Self.validateTokenIDs(
+            name: "bos_token_id", draft: bosTokenIDs,
+            target: Self.targetTokenIDs(metadata, key: "bos_token_id"))
+        try Self.validateTokenIDs(
+            name: "eos_token_id", draft: eosTokenIDs,
+            target: Self.targetTokenIDs(metadata, key: "eos_token_id"))
+        try Self.validateTokenIDs(
+            name: "pad_token_id", draft: padTokenIDs,
+            target: Self.targetTokenIDs(metadata, key: "pad_token_id"))
+
+        if let slidingWindow,
+           let targetSlidingWindow = try Self.optionalPositiveInt(text, "sliding_window"),
+           targetSlidingWindow != slidingWindow {
+            throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                "sliding_window \(targetSlidingWindow) does not match drafter \(slidingWindow)")
         }
 
         let modelType = Self.canonical(text["model_type"] as? String)
@@ -125,6 +189,85 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         return min(requested, checkpointBlockSize)
     }
 
+    /// Validate the released DFlash 2 tensor contract from safetensor headers
+    /// before MLX maps or allocates the multi-gigabyte payloads.
+    public func validateWeights(in directory: URL) throws {
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles])
+            .filter { $0.pathExtension == "safetensors" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !files.isEmpty else {
+            throw AFMMLXDFlash2ConfigurationError.missingValue("*.safetensors")
+        }
+
+        var actual: [String: [Int]] = [:]
+        for file in files {
+            for (name, shape) in try Self.safetensorShapes(at: file) {
+                guard actual.updateValue(shape, forKey: name) == nil else {
+                    throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                        "duplicate tensor \(name)")
+                }
+            }
+        }
+
+        let expected = expectedTensorShapes()
+        for (name, shape) in expected {
+            let aliases = name.hasSuffix("_codebook.weight")
+                ? [name, String(name.dropLast(".weight".count))]
+                : [name]
+            guard let key = aliases.first(where: { actual[$0] != nil }),
+                  let found = actual[key] else {
+                throw AFMMLXDFlash2ConfigurationError.missingValue("tensor \(name)")
+            }
+            guard found == shape else {
+                throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                    "tensor \(key) has shape \(found); expected \(shape)")
+            }
+        }
+
+        let normalizedActual = Set(actual.keys.map { key in
+            key.hasSuffix("_codebook") ? key + ".weight" : key
+        })
+        let unexpected = normalizedActual.subtracting(expected.keys).sorted()
+        guard unexpected.isEmpty else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "unexpected tensors: \(unexpected.joined(separator: ", "))")
+        }
+    }
+
+    func expectedTensorShapes() -> [String: [Int]] {
+        var result: [String: [Int]] = [
+            "candidate_selector.hidden_projection.weight": [selectorRank, hiddenSize],
+            "candidate_selector.predecessor_codebook.weight": [vocabularySize, selectorRank],
+            "candidate_selector.successor_codebook.weight": [vocabularySize, selectorRank],
+            "fc.weight": [hiddenSize, hiddenSize * targetLayerIDs.count],
+            "hidden_norm.weight": [hiddenSize],
+            "norm.weight": [hiddenSize],
+        ]
+        let dynamicKernelOutputs = 2 * convolutionKernelSize * (hiddenSize / convolutionGroupSize)
+        for layer in 0 ..< hiddenLayers {
+            let prefix = "layers.\(layer)"
+            result["\(prefix).input_layernorm.weight"] = [hiddenSize]
+            result["\(prefix).post_attention_layernorm.weight"] = [hiddenSize]
+            result["\(prefix).self_attn.q_proj.weight"] = [attentionHeads * headDimension, hiddenSize]
+            result["\(prefix).self_attn.k_proj.weight"] = [keyValueHeads * headDimension, hiddenSize]
+            result["\(prefix).self_attn.v_proj.weight"] = [keyValueHeads * headDimension, hiddenSize]
+            result["\(prefix).self_attn.o_proj.weight"] = [hiddenSize, attentionHeads * headDimension]
+            result["\(prefix).self_attn.q_norm.weight"] = [headDimension]
+            result["\(prefix).self_attn.k_norm.weight"] = [headDimension]
+            result["\(prefix).mlp.gate_proj.weight"] = [intermediateSize, hiddenSize]
+            result["\(prefix).mlp.up_proj.weight"] = [intermediateSize, hiddenSize]
+            result["\(prefix).mlp.down_proj.weight"] = [hiddenSize, intermediateSize]
+            for name in ["attention_conv", "mlp_conv"] {
+                result["\(prefix).\(name).base_kernel"] = [2, convolutionKernelSize, hiddenSize]
+                result["\(prefix).\(name).kernel_projection.weight"] = [dynamicKernelOutputs, hiddenSize]
+            }
+        }
+        return result
+    }
+
     private static func canonical(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
     }
@@ -133,6 +276,23 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         let value = try nonnegativeInt(object, key)
         guard value > 0 else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue("\(key) must be positive")
+        }
+        return value
+    }
+
+    private static func optionalPositiveInt(
+        _ object: [String: Any], _ key: String
+    ) throws -> Int? {
+        guard object[key] != nil, !(object[key] is NSNull) else { return nil }
+        return try positiveInt(object, key)
+    }
+
+    private static func positiveDouble(_ object: [String: Any], _ key: String) throws -> Double {
+        guard let value = (object[key] as? NSNumber)?.doubleValue else {
+            throw AFMMLXDFlash2ConfigurationError.missingValue(key)
+        }
+        guard value > 0, value.isFinite else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue("\(key) must be positive and finite")
         }
         return value
     }
@@ -154,6 +314,74 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         let result = values.compactMap { ($0 as? NSNumber)?.intValue }
         guard result.count == values.count else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue("\(key) must contain integers")
+        }
+        return result
+    }
+
+    private static func stringArray(_ object: [String: Any], _ key: String) throws -> [String] {
+        guard let values = object[key] as? [String] else {
+            throw AFMMLXDFlash2ConfigurationError.missingValue(key)
+        }
+        return values
+    }
+
+    private static func tokenIDs(in object: [String: Any], key: String) -> Set<Int> {
+        if let value = object[key] as? NSNumber { return [value.intValue] }
+        if let values = object[key] as? [NSNumber] { return Set(values.map(\.intValue)) }
+        return []
+    }
+
+    private static func targetTokenIDs(_ metadata: [String: Any], key: String) -> Set<Int> {
+        var result = tokenIDs(in: metadata, key: key)
+        if let text = metadata["text_config"] as? [String: Any] {
+            result.formUnion(tokenIDs(in: text, key: key))
+        }
+        if let generation = metadata["generation_config"] as? [String: Any] {
+            result.formUnion(tokenIDs(in: generation, key: key))
+        }
+        return result
+    }
+
+    private static func validateTokenIDs(
+        name: String, draft: Set<Int>, target: Set<Int>
+    ) throws {
+        guard !draft.isEmpty, !target.isEmpty else { return }
+        guard draft.isSubset(of: target) else {
+            throw AFMMLXDFlash2ConfigurationError.incompatibleTarget(
+                "\(name) \(draft.sorted()) does not match target \(target.sorted())")
+        }
+    }
+
+    private static func safetensorShapes(at url: URL) throws -> [String: [Int]] {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        guard let prefix = try handle.read(upToCount: 8), prefix.count == 8 else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "truncated safetensor header in \(url.lastPathComponent)")
+        }
+        let headerSize = prefix.enumerated().reduce(UInt64(0)) { value, item in
+            value | (UInt64(item.element) << UInt64(item.offset * 8))
+        }
+        guard headerSize > 0, headerSize <= 64 * 1024 * 1024,
+              let header = try handle.read(upToCount: Int(headerSize)),
+              header.count == Int(headerSize),
+              let object = try JSONSerialization.jsonObject(with: header) as? [String: Any] else {
+            throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                "invalid safetensor header in \(url.lastPathComponent)")
+        }
+        var result: [String: [Int]] = [:]
+        for (name, entry) in object where name != "__metadata__" {
+            guard let metadata = entry as? [String: Any],
+                  let rawShape = metadata["shape"] as? [Any] else {
+                throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                    "tensor \(name) has no shape metadata")
+            }
+            let shape = rawShape.compactMap { ($0 as? NSNumber)?.intValue }
+            guard shape.count == rawShape.count, shape.allSatisfy({ $0 >= 0 }) else {
+                throw AFMMLXDFlash2ConfigurationError.invalidValue(
+                    "tensor \(name) has invalid shape metadata")
+            }
+            result[name] = shape
         }
         return result
     }

@@ -42,7 +42,10 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             to request: AFMRequest
         ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
             AsyncThrowingStream { continuation in
-                continuation.finish()
+                Task {
+                    await capture.append(request)
+                    continuation.finish()
+                }
             }
         }
     }
@@ -104,6 +107,69 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         )
     }
 
+    func testSpeculativeControlsReachAFMRequestMetadata() async throws {
+        let capture = RequestCapture()
+        let adapter = makeAdapter(capture: capture, defaults: [:])
+        let speculative = SpeculativeDecodingOptions(
+            mode: "dflash2",
+            requirement: "required",
+            drafter: "incoai/example",
+            maxDraftTokens: 4
+        )
+
+        _ = try await generate(
+            adapter: adapter,
+            kwargs: nil,
+            speculativeDecoding: speculative
+        )
+
+        let request = await capture.request(at: 0)
+        XCTAssertEqual(
+            request.metadata["speculativeDecoding"],
+            .object([
+                "mode": .string("dflash2"),
+                "requirement": .string("required"),
+                "drafter": .string("incoai/example"),
+                "maxDraftTokens": .integer(4),
+            ])
+        )
+    }
+
+    func testStreamingSpeculativeControlsReachAFMRequestMetadata() async throws {
+        let capture = RequestCapture()
+        let adapter = makeAdapter(capture: capture, defaults: [:])
+        let result = try await adapter.generateStreaming(
+            model: "capture",
+            messages: [Message(role: "user", content: "hello")],
+            temperature: nil,
+            maxTokens: 8,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: nil,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            toolChoice: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            speculativeDecoding: SpeculativeDecodingOptions(mode: "off"),
+            preserveStructuralTags: false,
+            requestId: "spec-test"
+        )
+        for try await _ in result.stream {}
+
+        let request = await capture.request(at: 0)
+        XCTAssertEqual(
+            request.metadata["speculativeDecoding"],
+            .object(["mode": .string("off")])
+        )
+    }
+
     private func makeAdapter(
         capture: RequestCapture,
         defaults: [String: AnyCodable]
@@ -117,7 +183,8 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
 
     private func generate(
         adapter: AFMKitMLXChatServingAdapter,
-        kwargs: [String: AnyCodable]?
+        kwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil
     ) async throws -> AFMMLXChatGenerationResult {
         try await adapter.generate(
             model: "capture",
@@ -133,10 +200,12 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
             logprobs: nil,
             topLogprobs: nil,
             tools: nil,
+            toolChoice: nil,
             parallelToolCalls: nil,
             stop: nil,
             responseFormat: nil,
-            chatTemplateKwargs: kwargs
+            chatTemplateKwargs: kwargs,
+            speculativeDecoding: speculativeDecoding
         )
     }
 }

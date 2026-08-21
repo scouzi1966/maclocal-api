@@ -237,6 +237,50 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMMLXChatGenerationResult {
+        try await generate(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: nil
+        )
+    }
+
+    func generate(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -255,7 +299,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
-                chatTemplateKwargs: chatTemplateKwargs
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding
             )
         )
         let response = try await afmModel(for: model).respond(to: request)
@@ -352,6 +397,54 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         preserveStructuralTags: Bool,
         requestId: String?
     ) async throws -> AFMMLXChatStreamingResult {
+        try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: nil,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId
+        )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?
+    ) async throws -> AFMMLXChatStreamingResult {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -370,7 +463,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 parallelToolCalls: parallelToolCalls,
                 stop: stop,
                 responseFormat: responseFormat,
-                chatTemplateKwargs: chatTemplateKwargs
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding
             )
         )
         let modelID = normalizeModel(model)
@@ -526,7 +620,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         parallelToolCalls: Bool?,
         stop: [String]?,
         responseFormat: ResponseFormat?,
-        chatTemplateKwargs: [String: AnyCodable]?
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
     ) -> GenerationConfig {
         var metadata = [String: AFMJSONValue]()
         switch toolChoice {
@@ -545,6 +640,22 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             metadata["chatTemplateKwargs"] = .object(
                 chatTemplateKwargs.mapValues(\.afmJSONValue)
             )
+        }
+        if let speculativeDecoding {
+            var speculative = [String: AFMJSONValue]()
+            if let mode = speculativeDecoding.mode {
+                speculative["mode"] = .string(mode)
+            }
+            if let requirement = speculativeDecoding.requirement {
+                speculative["requirement"] = .string(requirement)
+            }
+            if let drafter = speculativeDecoding.drafter {
+                speculative["drafter"] = .string(drafter)
+            }
+            if let maxDraftTokens = speculativeDecoding.maxDraftTokens {
+                speculative["maxDraftTokens"] = .integer(maxDraftTokens)
+            }
+            metadata["speculativeDecoding"] = .object(speculative)
         }
         return GenerationConfig(
             temperature: temperature,

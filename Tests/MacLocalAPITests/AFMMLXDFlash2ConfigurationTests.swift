@@ -1,4 +1,5 @@
 import XCTest
+import AFMKit
 import AFMKitCore
 import MLX
 import MLXLMCommon
@@ -46,7 +47,10 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             "vocab_size": 32,
             "num_target_layers": 2,
             "rms_norm_eps": 0.000001,
-            "rope_theta": 1_000_000,
+            "max_position_embeddings": 4_096,
+            "layer_types": ["sliding_attention"],
+            "sliding_window": 2_048,
+            "rope_parameters": ["rope_theta": 1_000_000],
             "dflash_config": [
                 "target_layer_ids": [1],
                 "block_size": 4,
@@ -89,20 +93,25 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertFalse(disabled.permitsRuntime)
         XCTAssertFalse(disabled.requiresRuntime)
 
-        let mismatch = try service.dflash2RequestPolicy(
-            SpeculativeDecodingOptions(
-                mode: "dflash2", requirement: "required", drafter: "incoai/other"))
-        XCTAssertFalse(mismatch.permitsRuntime)
-        XCTAssertTrue(mismatch.requiresRuntime)
-        XCTAssertNotNil(mismatch.denialReason)
+        service.dflash2Requirement = .required
+        let explicitlyDisabled = try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "off"))
+        XCTAssertFalse(explicitlyDisabled.permitsRuntime)
+        XCTAssertFalse(explicitlyDisabled.requiresRuntime)
 
-        let invalidCount = try service.dflash2RequestPolicy(
-            SpeculativeDecodingOptions(mode: "dflash2", maxDraftTokens: 0))
-        XCTAssertFalse(invalidCount.permitsRuntime)
-        XCTAssertEqual(invalidCount.denialReason, "max_draft_tokens must be at least 1")
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(
+                mode: "dflash2", requirement: "required", drafter: "incoai/other")))
+
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "dflash2", maxDraftTokens: 0)))
 
         XCTAssertThrowsError(try service.dflash2RequestPolicy(
             SpeculativeDecodingOptions(requirement: "best-effort")))
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "eagle3")))
+        XCTAssertThrowsError(try service.dflash2RequestPolicy(
+            SpeculativeDecodingOptions(mode: "off", requirement: "required")))
     }
 
     func testQwenReleasedContractValidatesByMetadata() throws {
@@ -121,6 +130,9 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 "hidden_size": 5_120,
                 "num_hidden_layers": 64,
                 "vocab_size": 248_320,
+                "max_position_embeddings": 262_144,
+                "eos_token_id": 248_044,
+                "rope_parameters": ["rope_theta": 10_000_000],
             ],
         ])
         XCTAssertEqual(try config.effectiveBlockSize(requested: 5), 5)
@@ -143,6 +155,11 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 "hidden_size": 6_656,
                 "num_hidden_layers": 52,
                 "vocab_size": 202_048,
+                "max_position_embeddings": 131_072,
+                "bos_token_id": 200_000,
+                "eos_token_id": 200_001,
+                "sliding_window": 2_048,
+                "rope_parameters": ["rope_theta": 500_000],
             ],
         ])
     }
@@ -195,8 +212,66 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 "hidden_size": 5_120,
                 "num_hidden_layers": 64,
                 "vocab_size": 202_048,
+                "max_position_embeddings": 262_144,
+                "eos_token_id": 248_044,
+                "rope_parameters": ["rope_theta": 10_000_000],
             ],
         ]))
+    }
+
+    func testRejectsMismatchedTargetContextAndTokenizerContract() throws {
+        let config = try AFMMLXDFlash2Configuration(metadata: draftMetadata(
+            hidden: 5_120,
+            targetLayers: 64,
+            vocabulary: 248_320,
+            block: 8,
+            mask: 248_070,
+            targetLayerIDs: [5, 19, 33, 47, 61]))
+        let target: [String: Any] = [
+            "model_type": "qwen3_5",
+            "text_config": [
+                "model_type": "qwen3_5_text",
+                "hidden_size": 5_120,
+                "num_hidden_layers": 64,
+                "vocab_size": 248_320,
+                "max_position_embeddings": 262_144,
+                "eos_token_id": 7,
+                "rope_parameters": ["rope_theta": 10_000_000],
+            ],
+        ]
+
+        XCTAssertThrowsError(try config.validateTarget(metadata: target)) {
+            XCTAssertTrue($0.localizedDescription.contains("eos_token_id"))
+        }
+    }
+
+    func testSafetensorShapesValidateBeforeWeightLoad() throws {
+        let config = try AFMMLXDFlash2Configuration(metadata: draftMetadata(
+            hidden: 16,
+            targetLayers: 2,
+            vocabulary: 32,
+            block: 4,
+            mask: 31,
+            targetLayerIDs: [1]))
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var shapes = config.expectedTensorShapes()
+        shapes["candidate_selector.predecessor_codebook"] =
+            shapes.removeValue(forKey: "candidate_selector.predecessor_codebook.weight")
+        shapes["candidate_selector.successor_codebook"] =
+            shapes.removeValue(forKey: "candidate_selector.successor_codebook.weight")
+        try writeSafetensorHeader(shapes: shapes, to: directory.appendingPathComponent("model.safetensors"))
+        XCTAssertNoThrow(try config.validateWeights(in: directory))
+
+        shapes["fc.weight"] = [15, 16]
+        try writeSafetensorHeader(shapes: shapes, to: directory.appendingPathComponent("model.safetensors"))
+        XCTAssertThrowsError(try config.validateWeights(in: directory)) {
+            XCTAssertTrue($0.localizedDescription.contains("fc.weight"))
+        }
     }
 
     func testOpenAIRequestDecodesNeutralSpeculativeControls() throws {
@@ -217,6 +292,30 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertEqual(request.speculativeDecoding?.requirement, "required")
         XCTAssertEqual(request.speculativeDecoding?.drafter, "incoai/example")
         XCTAssertEqual(request.speculativeDecoding?.maxDraftTokens, 4)
+    }
+
+    func testAFMRequestDecodesNeutralSpeculativeControls() throws {
+        let request = try AFMRequest(
+            openAIMessages: [Message(role: "user", content: "hello")],
+            generationConfig: GenerationConfig(metadata: [
+                "speculativeDecoding": .object([
+                    "mode": .string("dflash2"),
+                    "requirement": .string("required"),
+                    "drafter": .string("incoai/example"),
+                    "maxDraftTokens": .integer(4),
+                ]),
+            ])
+        )
+
+        XCTAssertEqual(
+            request.speculativeDecodingOptions(),
+            SpeculativeDecodingOptions(
+                mode: "dflash2",
+                requirement: "required",
+                drafter: "incoai/example",
+                maxDraftTokens: 4
+            )
+        )
     }
 
     func testDFlash2FallsBackForStringStopsAndSampling() {
@@ -270,12 +369,21 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
             "is_causal": false,
             "hidden_size": hidden,
             "intermediate_size": hidden * 3,
-            "num_hidden_layers": 5,
+            "num_hidden_layers": targetLayerIDs.count,
             "num_attention_heads": 32,
             "num_key_value_heads": 8,
             "head_dim": 128,
             "vocab_size": vocabulary,
             "num_target_layers": targetLayers,
+            "max_position_embeddings": targetLayers == 52 ? 131_072 : 262_144,
+            "layer_types": Array(repeating: "sliding_attention", count: targetLayerIDs.count),
+            "sliding_window": 2_048,
+            "rope_parameters": [
+                "rope_theta": targetLayers == 52 ? 500_000 : 10_000_000,
+            ],
+            "bos_token_id": targetLayers == 52 ? 200_000 : NSNull(),
+            "eos_token_id": targetLayers == 52 ? 200_001 : 248_044,
+            "pad_token_id": targetLayers == 52 ? 200_018 : 248_044,
             "dflash_config": [
                 "target_layer_ids": targetLayerIDs,
                 "block_size": block,
@@ -286,6 +394,18 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 "selector_top_k": 16,
             ],
         ]
+    }
+
+    private func writeSafetensorHeader(shapes: [String: [Int]], to url: URL) throws {
+        let object = shapes.mapValues { shape -> [String: Any] in
+            ["dtype": "BF16", "shape": shape, "data_offsets": [0, 0]]
+        }
+        var header = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        while !header.count.isMultiple(of: 8) { header.append(0x20) }
+        var size = UInt64(header.count).littleEndian
+        var data = Data(bytes: &size, count: MemoryLayout<UInt64>.size)
+        data.append(header)
+        try data.write(to: url)
     }
 }
 
