@@ -459,7 +459,7 @@ struct MlxCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -553,11 +553,18 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
         do {
             try TUIInvocationPolicy.validate(
                 tui: tui,
                 webUI: webui,
                 singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
                 inputIsTTY: isatty(STDIN_FILENO) != 0,
                 outputIsTTY: isatty(STDOUT_FILENO) != 0
             )
@@ -587,10 +594,23 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             print("Error: --telegram requires server mode and cannot be used with -s or piped single-prompt input")
             throw ExitCode.failure
         }
+
+        let shellCWD = URL(
+            fileURLWithPath: ProcessInfo.processInfo.environment["PWD"]
+                ?? FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
+        let resolvedMediaURLs: [URL]
+        do {
+            resolvedMediaURLs = try TUIMediaAttachmentPolicy.resolveAndValidate(media, cwd: shellCWD)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        let resolvedMedia = resolvedMediaURLs.map(\.path)
 
         emitCompatibilityWarnings()
 
@@ -797,7 +817,7 @@ struct MlxCommand: ParsableCommand {
                 engine: engineConfig,
                 generation: generation,
                 streaming: !noStreaming,
-                initialAttachments: try media.map { try TUIArtifactActions.resolvedURL($0) }
+                initialAttachments: resolvedMediaURLs
             ))
             return
         }
@@ -816,20 +836,6 @@ struct MlxCommand: ParsableCommand {
         let contextWindow = modelStore.descriptor(for: selectedModel).contextWindow
 
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
-
-        // Resolve and validate --media paths early (before model load)
-        var resolvedMedia: [String] = []
-        let shellCWD = ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
-        for path in media {
-            let expanded = NSString(string: path).expandingTildeInPath
-            let absPath = expanded.hasPrefix("/") ? expanded : shellCWD + "/" + expanded
-            let resolved = URL(fileURLWithPath: absPath).standardized.path
-            guard FileManager.default.fileExists(atPath: resolved) else {
-                print("Error: Media file not found: \(path)")
-                throw ExitCode.failure
-            }
-            resolvedMedia.append(resolved)
-        }
 
         // An explicit prompt must win over redirected stdin. Profilers and
         // automation runners commonly attach a pipe that remains open.
@@ -877,7 +883,7 @@ struct MlxCommand: ParsableCommand {
             modelID: selectedModel,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix
         )
 
@@ -1161,7 +1167,7 @@ struct MlxCommand: ParsableCommand {
             modelID: modelID,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix)
 
         let model = AnyAFMModel(AFMDwarfStarModel(
@@ -1998,7 +2004,7 @@ struct RootCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -2042,7 +2048,13 @@ struct RootCommand: ParsableCommand {
             }
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             throw ValidationError("--telegram requires server mode and cannot be used with -s or piped single-prompt input")
         }
 
@@ -2051,6 +2063,7 @@ struct RootCommand: ParsableCommand {
                 tui: tui,
                 webUI: webui,
                 singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
                 inputIsTTY: isatty(STDIN_FILENO) != 0,
                 outputIsTTY: isatty(STDOUT_FILENO) != 0
             )
@@ -2060,9 +2073,6 @@ struct RootCommand: ParsableCommand {
 
         if tui {
             if gateway { throw ValidationError("--tui cannot be combined with --gateway") }
-            if telegramBotToken != nil || telegramAllow != nil {
-                throw ValidationError("--tui cannot be combined with Telegram server options")
-            }
             let responseFormat: ResponseFormat?
             if let guidedJson {
                 responseFormat = ResponseFormat(type: "json_schema", jsonSchema: try parseGuidedJsonSchema(guidedJson))
@@ -2112,7 +2122,7 @@ struct RootCommand: ParsableCommand {
         if gateway { args.append("--gateway") }
         if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
         if let telegramAllow { args += ["--telegram-allow", telegramAllow] }
-        args += ["--telegram-format", telegramFormat.rawValue]
+        if let telegramFormat { args += ["--telegram-format", telegramFormat.rawValue] }
         if let telegramRequirePrefix { args += ["--telegram-require-prefix", telegramRequirePrefix] }
         if let adapter { args += ["--adapter", adapter] }
         if let temperature { args += ["--temperature", "\(temperature)"] }

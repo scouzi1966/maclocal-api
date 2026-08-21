@@ -921,6 +921,24 @@ final class TUIConversationPolicyTests: XCTestCase {
         )
     }
 
+    func testVideoAttachmentRemainsAFileURLMediaPart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let video = root.appendingPathComponent("clip.mp4")
+        try Data("video fixture".utf8).write(to: video)
+
+        let turn = try AFMTerminalChat.makeUserTurn("describe", attachments: [video])
+        guard case .some(.parts(let parts)) = turn.message.content else {
+            return XCTFail("Expected multipart video request")
+        }
+
+        XCTAssertEqual(parts.count, 2)
+        XCTAssertEqual(parts[1].type, "image_url")
+        XCTAssertEqual(parts[1].image_url?.url, video.absoluteString)
+        XCTAssertNil(parts[1].image_url?.detail)
+    }
+
     func testPersistenceFailureNoticeIncludesRecoveryAndManualExportPaths() throws {
         let recoveryURL = URL(fileURLWithPath: "/safe/recovery/session.json")
         let notice = try XCTUnwrap(AFMTerminalChat.persistenceNotice(for: .recovered(
@@ -976,8 +994,58 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
         XCTAssertNoThrow(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: true, outputIsTTY: true))
         XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: true, singlePrompt: false, inputIsTTY: true, outputIsTTY: true))
         XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: true, inputIsTTY: true, outputIsTTY: true))
+        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, telegramOptions: true, inputIsTTY: true, outputIsTTY: true))
         XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: false, outputIsTTY: true))
         XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: true, outputIsTTY: false))
+    }
+
+    func testExplicitDefaultTelegramFormatStillCountsAsATUIConflict() {
+        XCTAssertTrue(TUIInvocationPolicy.hasTelegramOptions(
+            botToken: nil,
+            allowlist: nil,
+            replyFormat: "markdown",
+            requirePrefix: nil
+        ))
+        XCTAssertTrue(TUIInvocationPolicy.hasTelegramOptions(
+            botToken: nil,
+            allowlist: nil,
+            replyFormat: nil,
+            requirePrefix: "/afm"
+        ))
+        XCTAssertFalse(TUIInvocationPolicy.hasTelegramOptions(
+            botToken: nil,
+            allowlist: nil,
+            replyFormat: nil,
+            requirePrefix: nil
+        ))
+    }
+
+    func testMediaValidationAcceptsVideosAndRejectsMissingOrUnsupportedFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let image = root.appendingPathComponent("image.png")
+        let video = root.appendingPathComponent("video.mp4")
+        let unsupported = root.appendingPathComponent("notes.txt")
+        try Data("image".utf8).write(to: image)
+        try Data("video".utf8).write(to: video)
+        try Data("text".utf8).write(to: unsupported)
+
+        let resolved = try TUIMediaAttachmentPolicy.resolveAndValidate(
+            ["image.png", "video.mp4"],
+            cwd: root
+        )
+        XCTAssertEqual(resolved, [image, video])
+        XCTAssertEqual(TUIMediaAttachmentPolicy.kind(for: image), .image)
+        XCTAssertEqual(TUIMediaAttachmentPolicy.kind(for: video), .video)
+        XCTAssertThrowsError(try TUIMediaAttachmentPolicy.resolveAndValidate(
+            ["missing.png"],
+            cwd: root
+        ))
+        XCTAssertThrowsError(try TUIMediaAttachmentPolicy.resolveAndValidate(
+            ["notes.txt"],
+            cwd: root
+        ))
     }
 
     func testTerminalCapabilitiesRequirePTYInputAndOutput() throws {

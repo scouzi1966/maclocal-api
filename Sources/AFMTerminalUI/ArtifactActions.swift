@@ -268,9 +268,19 @@ public enum TUIArtifactActions {
     }
 
     public static func preflightRegularFile(at url: URL, maximumBytes: Int) throws {
+        guard maximumBytes >= 0 else {
+            throw TUIArtifactError.unsafeReadableFile(url.path)
+        }
+        let descriptor = open(
+            url.path,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            throw TUIArtifactError.unsafeReadableFile(url.path)
+        }
+        defer { close(descriptor) }
         var info = stat()
-        guard maximumBytes >= 0,
-              lstat(url.path, &info) == 0,
+        guard fstat(descriptor, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFREG,
               info.st_size >= 0,
               info.st_size <= maximumBytes else {
@@ -306,5 +316,49 @@ public enum TUIArtifactActions {
             data.append(contentsOf: buffer.prefix(count))
         }
         return data
+    }
+}
+
+public enum TUIMediaAttachmentKind: Equatable, Sendable {
+    case image
+    case video
+}
+
+public enum TUIMediaAttachmentPolicy {
+    private static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"
+    ]
+    private static let videoExtensions: Set<String> = [
+        "mp4", "mov", "avi", "mkv", "webm", "m4v"
+    ]
+
+    public static func kind(for url: URL) -> TUIMediaAttachmentKind? {
+        let pathExtension = url.pathExtension.lowercased()
+        if imageExtensions.contains(pathExtension) { return .image }
+        if videoExtensions.contains(pathExtension) { return .video }
+        return nil
+    }
+
+    public static func validate(_ url: URL) throws {
+        guard let kind = kind(for: url) else {
+            throw TUIArtifactError.invalidPath(
+                "Unsupported media type for \(url.path). Use an image or video file."
+            )
+        }
+        try TUIArtifactActions.preflightRegularFile(
+            at: url,
+            maximumBytes: kind == .image ? 20_000_000 : Int.max
+        )
+    }
+
+    public static func resolveAndValidate(
+        _ paths: [String],
+        cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    ) throws -> [URL] {
+        try paths.map { path in
+            let url = try TUIArtifactActions.resolvedURL(path, cwd: cwd)
+            try validate(url)
+            return url
+        }
     }
 }

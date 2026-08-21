@@ -100,14 +100,25 @@ public enum TUIInvocationPolicy {
         tui: Bool,
         webUI: Bool,
         singlePrompt: Bool,
+        telegramOptions: Bool = false,
         inputIsTTY: Bool,
         outputIsTTY: Bool
     ) throws {
         guard tui else { return }
         if webUI { throw TUIInvocationError.conflict("--tui cannot be combined with --webui") }
         if singlePrompt { throw TUIInvocationError.conflict("--tui cannot be combined with --single-prompt") }
+        if telegramOptions { throw TUIInvocationError.conflict("--tui cannot be combined with Telegram server options") }
         if !inputIsTTY { throw TUIInvocationError.conflict("--tui requires interactive terminal input") }
         if !outputIsTTY { throw TUIInvocationError.conflict("--tui requires interactive terminal output") }
+    }
+
+    public static func hasTelegramOptions(
+        botToken: String?,
+        allowlist: String?,
+        replyFormat: String?,
+        requirePrefix: String?
+    ) -> Bool {
+        botToken != nil || allowlist != nil || replyFormat != nil || requirePrefix != nil
     }
 }
 
@@ -381,6 +392,9 @@ public final class AFMTerminalChat: @unchecked Sendable {
     public func run() async throws {
         guard capabilities.isInteractive else {
             throw TUIInvocationError.conflict("--tui requires an interactive terminal")
+        }
+        for attachment in configuration.initialAttachments {
+            try TUIMediaAttachmentPolicy.validate(attachment)
         }
         try terminal.enter()
         terminal.enterAlternateScreen()
@@ -771,16 +785,26 @@ public final class AFMTerminalChat: @unchecked Sendable {
     }
 
     private func makeUserTurn(_ input: String) throws -> TUIUserTurn {
+        try Self.makeUserTurn(input, attachments: attachments)
+    }
+
+    static func makeUserTurn(_ input: String, attachments: [URL]) throws -> TUIUserTurn {
         guard !attachments.isEmpty else {
             return TUIUserTurn(input: input, message: Message(role: "user", content: input))
         }
         var parts = [ContentPart(type: "text", text: input)]
         for url in attachments {
             let ext = url.pathExtension.lowercased()
-            if ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(ext) {
+            if TUIMediaAttachmentPolicy.kind(for: url) == .image {
                 let data = try TUIArtifactActions.readRegularFile(at: url, maximumBytes: 20_000_000)
                 let mime = ext == "jpg" || ext == "jpeg" ? "image/jpeg" : "image/\(ext)"
                 parts.append(ContentPart(type: "image_url", image_url: ImageURL(url: "data:\(mime);base64,\(data.base64EncodedString())", detail: "auto")))
+            } else if TUIMediaAttachmentPolicy.kind(for: url) == .video {
+                try TUIMediaAttachmentPolicy.validate(url)
+                parts.append(ContentPart(
+                    type: "image_url",
+                    image_url: ImageURL(url: url.absoluteString, detail: nil)
+                ))
             } else {
                 let data = try TUIArtifactActions.readRegularFile(at: url, maximumBytes: 2_000_000)
                 guard let text = String(data: data, encoding: .utf8) else {
@@ -813,7 +837,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         /blocks /copy <n>                 list/copy response code blocks
         /save[!] <n> <path>               save block; ! explicitly permits overwrite
         /open <n>                         explicitly preview HTML/JS in the browser
-        /attach <path>                    attach an image or UTF-8 text file
+        /attach <path>                    attach an image, video, or UTF-8 text file
         /images /image <n>                list/display images (inline, or Quick Look fallback)
         /export[!] <path>                 export this transcript as Markdown
         /theme <auto|dark|light|mono>     change terminal rendering
@@ -884,8 +908,11 @@ public final class AFMTerminalChat: @unchecked Sendable {
     private func attach(_ pieces: [String]) throws {
         guard pieces.count >= 2 else { throw TUIArtifactError.invalidPath("usage: /attach <path>") }
         let url = try TUIArtifactActions.resolvedURL(pieces.dropFirst().joined(separator: " "))
-        let isImage = ["png", "jpg", "jpeg", "gif", "webp", "heic"].contains(url.pathExtension.lowercased())
-        try TUIArtifactActions.preflightRegularFile(at: url, maximumBytes: isImage ? 20_000_000 : 2_000_000)
+        if TUIMediaAttachmentPolicy.kind(for: url) != nil {
+            try TUIMediaAttachmentPolicy.validate(url)
+        } else {
+            try TUIArtifactActions.preflightRegularFile(at: url, maximumBytes: 2_000_000)
+        }
         attachments.append(url); terminal.write("Attached \(url.lastPathComponent). It will be sent with the next prompt.\n")
     }
 
