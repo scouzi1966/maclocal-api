@@ -140,7 +140,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 return accumulator.response
             }
             let tools = request.effectiveOpenAITools()
-            let result = try await service.generate(
+            let result = try await service.generateWithTelemetry(
                 model: modelID,
                 messages: try request.openAIMessages(),
                 temperature: request.options.temperature,

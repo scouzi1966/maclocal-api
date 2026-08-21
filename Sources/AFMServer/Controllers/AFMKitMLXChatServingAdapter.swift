@@ -281,6 +281,50 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         chatTemplateKwargs: [String: AnyCodable]?,
         speculativeDecoding: SpeculativeDecodingOptions?
     ) async throws -> AFMMLXChatGenerationResult {
+        let enriched = try await generateWithTelemetry(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding)
+        return enriched.result
+    }
+
+    func generateWithTelemetry(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
         let request = try AFMRequest(
             openAIMessages: messages,
             generationConfig: generationConfig(
@@ -311,7 +355,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         let speculativeTelemetry = metadata[AFMMLXSpeculativeTelemetry.metadataKey]
             .flatMap(AFMMLXSpeculativeTelemetry.init(metadataValue:))
         let responseModelID = metadata.string("modelID") ?? normalizeModel(model)
-        return (
+        return AFMMLXChatGenerationResultWithTelemetry(
             modelID: responseModelID,
             content: rawContent(
                 text: response.text,

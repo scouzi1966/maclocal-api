@@ -263,8 +263,8 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         adapter: AFMKitMLXChatServingAdapter,
         kwargs: [String: AnyCodable]?,
         speculativeDecoding: SpeculativeDecodingOptions? = nil
-    ) async throws -> AFMMLXChatGenerationResult {
-        try await adapter.generate(
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
+        try await adapter.generateWithTelemetry(
             model: "capture",
             messages: [Message(role: "user", content: "hello")],
             temperature: nil,

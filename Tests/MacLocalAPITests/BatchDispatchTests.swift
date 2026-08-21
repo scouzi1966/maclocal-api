@@ -116,7 +116,7 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
     ) async throws -> AFMMLXChatGenerationResult {
         (modelID: model, content: "Hello", promptTokens: 10, completionTokens: 5,
          tokenLogprobs: nil, toolCalls: nil, cachedTokens: 0, promptTime: 0.01,
-         generateTime: 0.02, stoppedBySequence: false, speculativeTelemetry: nil)
+         generateTime: 0.02, stoppedBySequence: false)
     }
 
     func generateStreaming(

@@ -2602,7 +2602,48 @@ public final class MLXModelService: @unchecked Sendable {
         responseFormat: ResponseFormat? = nil,
         chatTemplateKwargs: [String: AnyCodable]? = nil,
         speculativeDecoding: SpeculativeDecodingOptions? = nil
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
+    ) async throws -> AFMMLXChatGenerationResult {
+        try await generateWithTelemetry(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding).result
+    }
+
+    public func generateWithTelemetry(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int? = nil,
+        minP: Double? = nil,
+        presencePenalty: Double? = nil,
+        seed: Int? = nil,
+        logprobs: Bool? = nil,
+        topLogprobs: Int? = nil,
+        tools: [RequestTool]? = nil,
+        parallelToolCalls: Bool? = nil,
+        stop: [String]? = nil,
+        responseFormat: ResponseFormat? = nil,
+        chatTemplateKwargs: [String: AnyCodable]? = nil,
+        speculativeDecoding: SpeculativeDecodingOptions? = nil
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
         let operation = try beginOperation()
         defer { operation.finish() }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
@@ -2756,7 +2797,18 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, result.0, result.1, result.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: result.0,
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
             }
         }
 
@@ -2832,7 +2884,18 @@ public final class MLXModelService: @unchecked Sendable {
                     promptTime: result.3,
                     maxTokens: effectiveMaxTokens)
                 serialRequestRecorded = true
-                return (modelID, result.0, result.1, result.2, nil, nil, 0, result.3, result.4, false, result.5)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: result.0,
+                    promptTokens: result.1,
+                    completionTokens: result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: result.3,
+                    generateTime: result.4,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: result.5)
             }
             if requestRequiresDFlash2 {
                 throw MLXServiceError.loadFailed(
@@ -2873,7 +2936,18 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, mtpResult.0, mtpResult.1, mtpResult.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: mtpResult.0,
+                    promptTokens: mtpResult.1,
+                    completionTokens: mtpResult.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
             }
         }
 
@@ -2917,7 +2991,18 @@ public final class MLXModelService: @unchecked Sendable {
                 serialRequestRecorded = true
                 StatsAggregator.shared.requestSucceeded(reason: "stop")
                 StatsAggregator.shared.requestCompleted()
-                return (modelID, e3Result.0, e3Result.1, e3Result.2, nil, nil, 0, 0, 0, false, dflash2FallbackTelemetry)
+                return AFMMLXChatGenerationResultWithTelemetry(
+                    modelID: modelID,
+                    content: e3Result.0,
+                    promptTokens: e3Result.1,
+                    completionTokens: e3Result.2,
+                    tokenLogprobs: nil,
+                    toolCalls: nil,
+                    cachedTokens: 0,
+                    promptTime: 0,
+                    generateTime: 0,
+                    stoppedBySequence: false,
+                    speculativeTelemetry: dflash2FallbackTelemetry)
             }
         }
 
@@ -3113,7 +3198,18 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence, dflash2FallbackTelemetry)
+            return AFMMLXChatGenerationResultWithTelemetry(
+                modelID: modelID,
+                content: finalContent,
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                tokenLogprobs: nil,
+                toolCalls: responseToolCalls,
+                cachedTokens: 0,
+                promptTime: promptTime,
+                generateTime: generateTime,
+                stoppedBySequence: stoppedBySequence,
+                speculativeTelemetry: dflash2FallbackTelemetry)
         }
 
         let generated: String = try await container.perform { context in
@@ -3658,7 +3754,18 @@ public final class MLXModelService: @unchecked Sendable {
             StatsAggregator.shared.requestCompleted()
             serialRequestRecorded = true
 
-            return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence, dflash2FallbackTelemetry)
+            return AFMMLXChatGenerationResultWithTelemetry(
+                modelID: modelID,
+                content: finalContent,
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                tokenLogprobs: resolvedLogprobs,
+                toolCalls: responseToolCalls,
+                cachedTokens: cachedTokenCount,
+                promptTime: promptTime,
+                generateTime: generateTime,
+                stoppedBySequence: stoppedBySequence,
+                speculativeTelemetry: dflash2FallbackTelemetry)
         }
 
     private func collectStreamingGeneration(
@@ -3680,7 +3787,7 @@ public final class MLXModelService: @unchecked Sendable {
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?,
         speculativeDecoding: SpeculativeDecodingOptions?
-    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
         let result = try await generateStreaming(
             model: model,
             messages: messages,
@@ -3731,7 +3838,7 @@ public final class MLXModelService: @unchecked Sendable {
             speculativeTelemetry = chunk.speculativeTelemetry ?? speculativeTelemetry
         }
 
-        return (
+        return AFMMLXChatGenerationResultWithTelemetry(
             modelID: result.modelID,
             content: content,
             promptTokens: promptTokens,

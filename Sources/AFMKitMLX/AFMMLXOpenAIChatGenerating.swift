@@ -111,6 +111,28 @@ public protocol AFMMLXOpenAIChatGenerating: Sendable {
         speculativeDecoding: SpeculativeDecodingOptions?
     ) async throws -> AFMMLXChatGenerationResult
 
+    func generateWithTelemetry(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry
+
     func generateStreaming(
         model: String,
         messages: [Message],
@@ -171,6 +193,49 @@ public extension AFMMLXOpenAIChatServing {
 }
 
 public extension AFMMLXOpenAIChatGenerating {
+    func generateWithTelemetry(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
+        AFMMLXChatGenerationResultWithTelemetry(result: try await generate(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding))
+    }
+
     func generate(
         model: String,
         messages: [Message],
@@ -376,6 +441,48 @@ public extension AFMMLXOpenAIChatGenerating {
 }
 
 extension MLXModelService {
+    public func generateWithTelemetry(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> AFMMLXChatGenerationResultWithTelemetry {
+        try await generateWithTelemetry(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding)
+    }
+
     public func generate(
         model: String,
         messages: [Message],

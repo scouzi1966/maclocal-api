@@ -241,7 +241,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 print("[\(Self.timestamp())] [HTTPPipeline] req=\(reqId) json_parse=\(String(format: "%.1f", jsonMs))ms slot_wait=\(String(format: "%.1f", slotMs))ms total=\(String(format: "%.1f", totalMs))ms")
             }
 
-            let result: AFMMLXChatGenerationResult
+            let result: AFMMLXChatGenerationResultWithTelemetry
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
                 let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
@@ -355,7 +355,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                 // Tool-call argument coercion is handled in convertToolCall (pre-serialization)
                 // and in the streaming vendor path. No additional pass needed here.
-                result = (
+                result = AFMMLXChatGenerationResultWithTelemetry(
                     modelID: streamResult.modelID,
                     content: fullText,
                     promptTokens: promptTokens,
@@ -369,8 +369,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     speculativeTelemetry: speculativeTelemetry
                 )
             } else {
-                // Serial mode: use existing generate() path
-                result = try await service.generate(
+                // Serial mode: retain speculative telemetry for response headers.
+                result = try await service.generateWithTelemetry(
                     model: modelID,
                     messages: chatRequest.messages,
                     temperature: effectiveTemp,

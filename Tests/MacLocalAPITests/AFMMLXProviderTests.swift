@@ -370,7 +370,7 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertEqual(arguments["days"] as? Int, 5)
     }
 
-    func testAFMKitOwnsChatGenerationResultShape() {
+    func testLegacyChatGenerationResultConstructionAndDestructuringRemainCompatible() {
         let result: AFMMLXChatGenerationResult = (
             modelID: "test/model",
             content: "ok",
@@ -381,12 +381,61 @@ final class AFMMLXProviderTests: XCTestCase {
             cachedTokens: 0,
             promptTime: 0,
             generateTime: 0,
-            stoppedBySequence: false,
-            speculativeTelemetry: nil
+            stoppedBySequence: false
+        )
+        let (
+            modelID,
+            content,
+            promptTokens,
+            completionTokens,
+            tokenLogprobs,
+            toolCalls,
+            cachedTokens,
+            promptTime,
+            generateTime,
+            stoppedBySequence
+        ) = result
+
+        XCTAssertEqual(modelID, "test/model")
+        XCTAssertEqual(content, "ok")
+        XCTAssertEqual(promptTokens, 1)
+        XCTAssertEqual(completionTokens, 1)
+        XCTAssertNil(tokenLogprobs)
+        XCTAssertNil(toolCalls)
+        XCTAssertEqual(cachedTokens, 0)
+        XCTAssertEqual(promptTime, 0)
+        XCTAssertEqual(generateTime, 0)
+        XCTAssertFalse(stoppedBySequence)
+    }
+
+    func testLegacyChatGeneratorConformanceUsesDefaultTelemetryAPI() async throws {
+        let generator = LegacyChatGenerator()
+        requireOpenAIChatGenerationContract(generator)
+
+        let result = try await generator.generateWithTelemetry(
+            model: "test/model",
+            messages: [],
+            temperature: nil,
+            maxTokens: nil,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: nil,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            toolChoice: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            speculativeDecoding: nil
         )
 
         XCTAssertEqual(result.modelID, "test/model")
-        XCTAssertEqual(result.content, "ok")
+        XCTAssertNil(result.speculativeTelemetry)
     }
 
     func testDescriptorInfersCapabilitiesFromModelAssets() throws {
@@ -756,5 +805,75 @@ final class AFMMLXProviderTests: XCTestCase {
 
     private func writeJSON(_ value: [String: Any], to url: URL) throws {
         try JSONSerialization.data(withJSONObject: value).write(to: url)
+    }
+}
+
+private struct LegacyChatGenerator: AFMMLXOpenAIChatGenerating {
+    func generate(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?
+    ) async throws -> AFMMLXChatGenerationResult {
+        (
+            modelID: model,
+            content: "legacy",
+            promptTokens: 1,
+            completionTokens: 1,
+            tokenLogprobs: nil,
+            toolCalls: nil,
+            cachedTokens: 0,
+            promptTime: 0,
+            generateTime: 0,
+            stoppedBySequence: false
+        )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        preserveStructuralTags: Bool,
+        requestId: String?
+    ) async throws -> AFMMLXChatStreamingResult {
+        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+            continuation.finish()
+        }
+        return (
+            modelID: model,
+            stream: stream,
+            promptTokens: 0,
+            toolCallStartTag: nil,
+            toolCallEndTag: nil,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
     }
 }
