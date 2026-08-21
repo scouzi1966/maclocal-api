@@ -54,7 +54,18 @@ struct CompletionsController: RouteCollection {
                 request: req,
                 status: .badRequest,
                 message: "prompt arrays are not supported; prompt must be one string",
-                code: "unsupported_prompt_array"
+                code: "unsupported_prompt_array",
+                param: "prompt"
+            )
+        }
+        if let requestedModel = request.model, requestedModel != modelID {
+            telemetry.recordRejection(.validation)
+            return try errorResponse(
+                request: req,
+                status: .notFound,
+                message: "The model `\(requestedModel)` does not exist on this server",
+                code: "model_not_found",
+                param: "model"
             )
         }
         guard request.maxTokens.map({ $0 >= 0 }) ?? true else {
@@ -63,7 +74,18 @@ struct CompletionsController: RouteCollection {
                 request: req,
                 status: .badRequest,
                 message: "max_tokens must be greater than or equal to zero",
-                code: "invalid_request_error"
+                code: "invalid_request_error",
+                param: "max_tokens"
+            )
+        }
+        guard !(request.stop?.sequences.contains("") ?? false) else {
+            telemetry.recordRejection(.validation)
+            return try errorResponse(
+                request: req,
+                status: .badRequest,
+                message: "stop sequences must not be empty",
+                code: "invalid_request_error",
+                param: "stop"
             )
         }
         guard (request.n ?? 1) == 1, (request.bestOf ?? 1) == 1 else {
@@ -72,7 +94,28 @@ struct CompletionsController: RouteCollection {
                 request: req,
                 status: .badRequest,
                 message: "AFM raw completions currently support only n=1 and best_of=1",
-                code: "unsupported_completion_multiplicity"
+                code: "unsupported_completion_multiplicity",
+                param: request.n.map({ $0 != 1 }) == true ? "n" : "best_of"
+            )
+        }
+        guard request.echo != true else {
+            telemetry.recordRejection(.validation)
+            return try errorResponse(
+                request: req,
+                status: .badRequest,
+                message: "echo=true is not supported for raw completions",
+                code: "unsupported_parameter",
+                param: "echo"
+            )
+        }
+        guard request.logprobs == nil else {
+            telemetry.recordRejection(.validation)
+            return try errorResponse(
+                request: req,
+                status: .badRequest,
+                message: "logprobs is not supported for raw completions",
+                code: "unsupported_parameter",
+                param: "logprobs"
             )
         }
 
@@ -109,6 +152,7 @@ struct CompletionsController: RouteCollection {
         var text = ""
         var terminal: AFMRawTextGenerationResult?
         for await event in events {
+            if terminal != nil { break }
             switch event {
             case .textDelta(let delta, _, _):
                 text += delta
@@ -170,6 +214,7 @@ struct CompletionsController: RouteCollection {
             defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
             var terminalSeen = false
+            var writeFailed = false
 
             for await event in events {
                 if terminalSeen { continue }
@@ -181,7 +226,11 @@ struct CompletionsController: RouteCollection {
                         model: modelID,
                         choices: [CompletionChoice(text: text)]
                     )
-                    try? await writeEvent(chunk, encoder: encoder, to: writer)
+                    do {
+                        try await writeEvent(chunk, encoder: encoder, to: writer)
+                    } catch {
+                        writeFailed = true
+                    }
                 case .completed(let result):
                     terminalSeen = true
                     let finish = CompletionResponse(
@@ -193,8 +242,12 @@ struct CompletionsController: RouteCollection {
                             finishReason: wireFinishReason(result.finishReason)
                         )]
                     )
-                    try? await writeEvent(finish, encoder: encoder, to: writer)
-                    if includeUsage {
+                    do {
+                        try await writeEvent(finish, encoder: encoder, to: writer)
+                    } catch {
+                        writeFailed = true
+                    }
+                    if includeUsage && !writeFailed {
                         let usageChunk = CompletionResponse(
                             id: id,
                             created: created,
@@ -202,9 +255,19 @@ struct CompletionsController: RouteCollection {
                             choices: [],
                             usage: usage(result)
                         )
-                        try? await writeEvent(usageChunk, encoder: encoder, to: writer)
+                        do {
+                            try await writeEvent(usageChunk, encoder: encoder, to: writer)
+                        } catch {
+                            writeFailed = true
+                        }
                     }
-                    try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                    if !writeFailed {
+                        do {
+                            try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                        } catch {
+                            writeFailed = true
+                        }
+                    }
                 case .failed(let reason, let message):
                     terminalSeen = true
                     let error = OpenAIError(
@@ -213,8 +276,22 @@ struct CompletionsController: RouteCollection {
                         code: reason.rawValue,
                         requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
                     )
-                    try? await writeEvent(error, encoder: encoder, to: writer)
+                    do {
+                        try await writeEvent(error, encoder: encoder, to: writer)
+                    } catch {
+                        writeFailed = true
+                    }
                 }
+                if writeFailed { break }
+            }
+            if !terminalSeen && !writeFailed {
+                let error = OpenAIError(
+                    message: "Raw completion provider ended without a terminal event",
+                    type: "server_error",
+                    code: "missing_terminal_event",
+                    requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
+                )
+                try? await writeEvent(error, encoder: encoder, to: writer)
             }
             try? await writer.write(.end)
         })
@@ -226,7 +303,8 @@ struct CompletionsController: RouteCollection {
         status: HTTPResponseStatus,
         message: String,
         type: String = "invalid_request_error",
-        code: String
+        code: String,
+        param: String? = nil
     ) throws -> Response {
         let response = Response(status: status)
         response.headers.add(name: .contentType, value: "application/json")
@@ -235,6 +313,7 @@ struct CompletionsController: RouteCollection {
             message: message,
             type: type,
             code: code,
+            param: param,
             requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
         ))
         return response

@@ -117,7 +117,8 @@ struct OpenAPIController: RouteCollection {
               "stream_options": {
                 "type": "object",
                 "properties": {
-                  "include_usage": { "type": "boolean", "description": "When false, the final SSE chunk does not carry a usage block. Default true." }
+                  "include_usage": { "type": "boolean", "description": "When false, the final SSE chunk does not carry a usage block. Default true." },
+                  "continuous_usage_stats": { "type": "boolean", "description": "Accepted for GuideLLM compatibility; AFM emits only one final exact usage event." }
                 }
               },
               "tools": { "type": "array", "items": { "$ref": "#/components/schemas/Tool" } },
@@ -180,6 +181,42 @@ struct OpenAPIController: RouteCollection {
               "usage": { "type": "object" }
             }
           },
+          "CompletionRequest": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+              "model": { "type": "string" },
+              "prompt": { "type": "string", "description": "One raw prompt. Arrays are rejected." },
+              "max_tokens": { "type": "integer", "minimum": 0 },
+              "temperature": { "type": "number" },
+              "top_p": { "type": "number" },
+              "top_k": { "type": "integer" },
+              "min_p": { "type": "number" },
+              "repetition_penalty": { "type": "number" },
+              "presence_penalty": { "type": "number" },
+              "seed": { "type": "integer" },
+              "stop": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+              "stream": { "type": "boolean" },
+              "ignore_eos": { "type": "boolean", "description": "Suppress model EOS until an explicit stop, context bound, maximum-token bound, cancellation, or failure." },
+              "stream_options": {
+                "type": "object",
+                "properties": {
+                  "include_usage": { "type": "boolean" },
+                  "continuous_usage_stats": { "type": "boolean", "description": "Accepted; only one final exact usage event is emitted." }
+                }
+              }
+            }
+          },
+          "CompletionResponse": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "object": { "type": "string", "const": "text_completion" },
+              "model": { "type": "string" },
+              "choices": { "type": "array" },
+              "usage": { "type": "object" }
+            }
+          },
           "OpenAIError": {
             "type": "object",
             "properties": {
@@ -189,6 +226,7 @@ struct OpenAPIController: RouteCollection {
                   "message": { "type": "string" },
                   "type": { "type": "string" },
                   "code": { "type": "string", "nullable": true },
+                  "param": { "type": "string", "nullable": true },
                   "request_id": { "type": "string", "nullable": true }
                 }
               }
@@ -232,6 +270,29 @@ struct OpenAPIController: RouteCollection {
         }
       },
       "paths": {
+        "/v1/completions": {
+          "post": {
+            "tags": ["chat"],
+            "summary": "Create a raw-prompt legacy completion",
+            "parameters": [{ "$ref": "#/components/parameters/RequestIdHeader" }],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": { "schema": { "$ref": "#/components/schemas/CompletionRequest" } }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Legacy completion (or SSE stream when `stream:true`).",
+                "content": {
+                  "application/json": { "schema": { "$ref": "#/components/schemas/CompletionResponse" } },
+                  "text/event-stream": { "schema": { "type": "string" } }
+                }
+              },
+              "400": { "description": "Invalid or unsupported request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
         "/v1/chat/completions": {
           "post": {
             "tags": ["chat"],

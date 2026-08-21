@@ -4,6 +4,67 @@ import CDwarfStar
 @testable import AFMKitDwarfStar
 
 final class AFMDwarfStarProviderTests: XCTestCase {
+    func testModelErasureRetainsRawCompletionCapability() {
+        let model = AFMDwarfStarModel(modelID: "raw", modelPath: "/missing/model.gguf")
+        XCTAssertNotNil(AnyAFMModel(model).rawTextGenerator)
+    }
+
+    func testIgnoreEOSSuppressesOnlyTheEOSTerminalCandidate() {
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: false
+        ))
+        XCTAssertFalse(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: true,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldStop(
+            isEndOfSequence: false,
+            isRuntimeStop: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertFalse(AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: true,
+            ignoreEndOfSequence: true
+        ))
+        XCTAssertTrue(AFMDwarfStarStoppingPolicy.shouldExposeToken(
+            isEndOfSequence: false,
+            ignoreEndOfSequence: true
+        ))
+    }
+
+    func testRawStopPolicyWithholdsStopAcrossTokenPieces() {
+        var buffer = ""
+        let first = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "answer EN",
+            stopSequences: ["END"]
+        )
+        XCTAssertEqual(first, .init(visibleText: "answer ", stopped: false))
+        XCTAssertEqual(buffer, "EN")
+
+        let second = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "D trailing text",
+            stopSequences: ["END"]
+        )
+        XCTAssertEqual(second, .init(visibleText: "", stopped: true))
+        XCTAssertEqual(buffer, "")
+    }
+
+    func testRawStopPolicyDrainsAnIncompletePrefixAtLengthBoundary() {
+        var buffer = ""
+        let result = AFMDwarfStarRawStopPolicy.consume(
+            buffer: &buffer,
+            piece: "value ST",
+            stopSequences: ["STOP"]
+        )
+        XCTAssertEqual(result, .init(visibleText: "value ", stopped: false))
+        XCTAssertEqual(AFMDwarfStarRawStopPolicy.drain(buffer: &buffer), "ST")
+        XCTAssertEqual(buffer, "")
+    }
     func testProviderContractDescribesInProcessDeviceRuntime() {
         let descriptor = AFMDwarfStarProviderFactory().descriptor
 

@@ -101,6 +101,10 @@ public struct StreamChunk: Sendable {
     }
 }
 
+enum AFMMLXPromptContext {
+    @TaskLocal static var rawPrompt: String?
+}
+
 public enum MLXLoadStage: String {
     case checkingCache = "checking cache"
     case downloading = "downloading"
@@ -3158,7 +3162,8 @@ public final class MLXModelService: @unchecked Sendable {
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
 
-        let promptText = buildPrompt(from: messages)
+        let rawPrompt = AFMMLXPromptContext.rawPrompt
+        let promptText = rawPrompt ?? buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
         // -VV: Log tool schemas as sent to model's Jinja template
         if trace, let toolSpecs {
@@ -3170,13 +3175,19 @@ public final class MLXModelService: @unchecked Sendable {
             }
             fflush(stdout)
         }
-        let (userInput, mediaTempFiles) = try buildUserInput(
-            from: messages,
-            tools: toolSpecs,
-            responseFormat: responseFormat,
-            chatTemplateKwargs: chatTemplateKwargs,
-            includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
-        )
+        let (userInput, mediaTempFiles): (UserInput, [URL])
+        if let rawPrompt {
+            userInput = UserInput(prompt: rawPrompt)
+            mediaTempFiles = []
+        } else {
+            (userInput, mediaTempFiles) = try buildUserInput(
+                from: messages,
+                tools: toolSpecs,
+                responseFormat: responseFormat,
+                chatTemplateKwargs: chatTemplateKwargs,
+                includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
+            )
+        }
         var streamOwnsTempFiles = false
         defer {
             if !streamOwnsTempFiles {

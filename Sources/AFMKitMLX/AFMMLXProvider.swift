@@ -76,7 +76,12 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
     }
 }
 
-public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable {
+public final class AFMMLXModel:
+    AFMModel,
+    AFMTextTokenizing,
+    AFMRawTextGenerating,
+    @unchecked Sendable
+{
     public let descriptor: AFMModelDescriptor
 
     private let runtime: AFMMLXRuntime
@@ -345,6 +350,89 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func rawTextGenerationEvents(
+        for request: AFMRawTextGenerationRequest
+    ) -> AsyncStream<AFMRawTextGenerationEvent> {
+        AsyncStream { continuation in
+            let task = Task {
+                do {
+                    _ = try await load(progress: nil)
+                    let result = try await AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                        request.ignoreEndOfSequence
+                    ) {
+                        try await AFMMLXPromptContext.$rawPrompt.withValue(request.prompt) {
+                            try await service.generateStreaming(
+                                model: modelID,
+                                messages: [],
+                                temperature: request.temperature,
+                                maxTokens: request.maximumOutputTokens,
+                                topP: request.topP,
+                                repetitionPenalty: request.repetitionPenalty,
+                                topK: request.topK,
+                                minP: request.minP,
+                                presencePenalty: request.presencePenalty,
+                                seed: request.seed,
+                                stop: request.stopSequences,
+                                preserveStructuralTags: true
+                            )
+                        }
+                    }
+
+                    var promptTokens: Int?
+                    var completionTokens: Int?
+                    var stoppedBySequence = false
+                    for try await chunk in result.stream {
+                        try Task.checkCancellation()
+                        if !chunk.text.isEmpty {
+                            continuation.yield(.textDelta(
+                                text: chunk.text,
+                                tokenID: nil,
+                                timestamp: Date().timeIntervalSince1970
+                            ))
+                        }
+                        promptTokens = chunk.promptTokens ?? promptTokens
+                        completionTokens = chunk.completionTokens ?? completionTokens
+                        stoppedBySequence = chunk.stoppedBySequence ?? stoppedBySequence
+                    }
+
+                    guard let promptTokens, let completionTokens else {
+                        continuation.yield(.failed(
+                            reason: .internal,
+                            message: "MLX raw generation ended without exact usage"
+                        ))
+                        continuation.finish()
+                        return
+                    }
+                    let reachedLimit = request.maximumOutputTokens.map {
+                        completionTokens >= max(0, $0)
+                    } ?? false
+                    let finishReason: AFMInferenceFinishReason =
+                        reachedLimit && !stoppedBySequence ? .length : .stop
+                    continuation.yield(.completed(AFMRawTextGenerationResult(
+                        finishReason: finishReason,
+                        promptTokens: promptTokens,
+                        completionTokens: completionTokens,
+                        totalTokens: promptTokens + completionTokens
+                    )))
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.yield(.failed(
+                        reason: .cancelled,
+                        message: "MLX raw generation was cancelled"
+                    ))
+                    continuation.finish()
+                } catch {
+                    continuation.yield(.failed(
+                        reason: .inference,
+                        message: error.localizedDescription
+                    ))
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

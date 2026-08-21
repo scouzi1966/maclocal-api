@@ -205,6 +205,7 @@ public class Server: @unchecked Sendable {
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
     private let telemetry: AFMServerTelemetryAdapter
+    private let modelCreatedEpoch: Int
     private var telegramBridge: TelegramBridge?
 
     private static let audioAvailable: Bool = {
@@ -246,6 +247,7 @@ public class Server: @unchecked Sendable {
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
+        self.modelCreatedEpoch = Int(Date().timeIntervalSince1970)
         self.telemetry = telemetry ?? AFMServerTelemetryAdapter(
             collector: InferenceTelemetryCollector()
         )
@@ -315,6 +317,17 @@ public class Server: @unchecked Sendable {
         } else {
             mlxChatService = mlxServiceAdapter
         }
+        let rawTextGenerator: AnyAFMRawTextGenerator?
+        if let retained = afmModel?.rawTextGenerator {
+            rawTextGenerator = retained
+        } else if let mlxModelService, let mlxModelID {
+            rawTextGenerator = AnyAFMRawTextGenerator(AFMMLXModel(
+                modelID: AFMModelID(rawValue: mlxModelID),
+                attachedService: mlxModelService
+            ))
+        } else {
+            rawTextGenerator = nil
+        }
 
         app.get("health") { req async -> HealthResponse in
             return HealthResponse(
@@ -328,7 +341,9 @@ public class Server: @unchecked Sendable {
             // Apple NL embedding models are served on the unified endpoint (lazily
             // loaded on first /v1/embeddings). Advertise them so clients discover
             // embedding capability on the main server, not just on `afm embed`. (#132/#133)
-            let embeddingCatalog = EmbeddingModelRegistry().shippedModels()
+            let embeddingCatalog = EmbeddingModelRegistry().shippedModels().sorted {
+                $0.id < $1.id
+            }
             let embeddingModelInfos = embeddingCatalog.map { m in
                 ModelInfo(id: m.id, object: "model", created: m.createdEpoch, owned_by: "apple", loaded: false)
             }
@@ -343,7 +358,7 @@ public class Server: @unchecked Sendable {
                         ModelInfo(
                             id: mlxModelID,
                             object: "model",
-                            created: Int(Date().timeIntervalSince1970),
+                            created: self.modelCreatedEpoch,
                             owned_by: "mlx",
                             loaded: true,
                             max_context_length: self.contextWindow
@@ -363,7 +378,7 @@ public class Server: @unchecked Sendable {
                 ModelInfo(
                     id: "foundation",
                     object: "model",
-                    created: Int(Date().timeIntervalSince1970),
+                    created: self.modelCreatedEpoch,
                     owned_by: "apple",
                     loaded: true
                 )
@@ -375,7 +390,9 @@ public class Server: @unchecked Sendable {
             if let discovery = req.application.backendDiscovery {
                 // Rescan backends if stale so new models/backends appear quickly
                 await discovery.refreshIfStale()
-                let discovered = await discovery.allDiscoveredModels()
+                let discovered = await discovery.allDiscoveredModels().sorted {
+                    $0.id < $1.id
+                }
                 for dm in discovered {
                     models.append(ModelInfo(
                         id: dm.id,
@@ -396,7 +413,15 @@ public class Server: @unchecked Sendable {
 
             models += embeddingModelInfos
             details += embeddingDetails
-            return ModelsResponse(object: "list", data: models, models: details)
+            let loaded = models.removeFirst()
+            let loadedDetails = details.removeFirst()
+            models.sort { $0.id < $1.id }
+            details.sort { $0.model < $1.model }
+            return ModelsResponse(
+                object: "list",
+                data: [loaded] + models,
+                models: [loadedDetails] + details
+            )
         }
 
         // Stub /models/load and /models/unload for router mode compatibility
@@ -479,6 +504,13 @@ public class Server: @unchecked Sendable {
                 telemetry: telemetry
             )
             try app.register(collection: mlxController)
+            if let rawTextGenerator {
+                try app.register(collection: CompletionsController(
+                    modelID: mlxModelID,
+                    generator: rawTextGenerator,
+                    telemetry: telemetry
+                ))
+            }
 
             if mlxModelService != nil {
                 // Batch endpoints remain MLX-specific. Fixed-schedule providers

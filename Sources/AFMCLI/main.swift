@@ -1100,7 +1100,8 @@ struct MlxCommand: ParsableCommand {
             dsparkConfidenceThreshold: dsparkConfidenceThreshold,
             dsparkStrict: dsparkStrict,
             enablePrefixCaching: enablePrefixCaching,
-            maxConcurrent: residentSessions))
+            maxConcurrent: residentSessions,
+            telemetryObserver: telemetryCollector))
         let defaultChatTemplateKwargs = chatTemplateKwargs.isEmpty
             ? nil
             : chatTemplateKwargs.mapValues { AnyCodable($0) }

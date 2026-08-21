@@ -605,23 +605,43 @@ public struct OpenAIError: Error, Codable, Sendable {
         public let message: String
         public let type: String
         public let code: String?
+        public let param: String?
         /// Correlates with the `X-Request-ID`/`OpenAI-Request-ID` response header. (T1.1)
         public let requestId: String?
 
         public enum CodingKeys: String, CodingKey {
-            case message, type, code
+            case message, type, code, param
             case requestId = "request_id"
         }
-        public init(message: String, type: String, code: String?, requestId: String?) {
+        public init(
+            message: String,
+            type: String,
+            code: String?,
+            param: String? = nil,
+            requestId: String?
+        ) {
             self.message = message
             self.type = type
             self.code = code
+            self.param = param
             self.requestId = requestId
         }
     }
 
-    public init(message: String, type: String = "invalid_request_error", code: String? = nil, requestId: String? = nil) {
-        self.error = ErrorDetail(message: message, type: type, code: code, requestId: requestId)
+    public init(
+        message: String,
+        type: String = "invalid_request_error",
+        code: String? = nil,
+        param: String? = nil,
+        requestId: String? = nil
+    ) {
+        self.error = ErrorDetail(
+            message: message,
+            type: type,
+            code: code,
+            param: param,
+            requestId: requestId
+        )
     }
 }
 
