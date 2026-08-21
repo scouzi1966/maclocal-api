@@ -185,7 +185,21 @@ private actor AFMWebRuntimeManager {
     private var logPath: String?
     private var command: [String] = []
 
-    func launch(executable: URL, arguments: [String], port: Int, backend: String, model: String?) throws -> AFMWebLaunchSnapshot {
+    func launch(
+        executable: URL,
+        request: AFMWebLaunchRequest,
+        startingAt startPort: Int
+    ) throws -> AFMWebLaunchSnapshot {
+        // Select the port inside the actor. Concurrent start requests must not
+        // both observe the same free port before either child is running.
+        guard let port = Server.availableWebRuntimePort(startingAt: startPort) else {
+            throw Abort(.serviceUnavailable, reason: "No local runtime port is available")
+        }
+        let arguments = try Server.webLaunchArguments(for: request, port: port)
+        let displayCommand = Server.redactedWebLaunchCommand(
+            executable: executable,
+            arguments: arguments)
+
         if let process, process.isRunning {
             process.terminate()
         }
@@ -209,17 +223,26 @@ private actor AFMWebRuntimeManager {
         var environment = ProcessInfo.processInfo.environment
         environment["AFM_WEBUI_MANAGED_CHILD"] = "1"
         child.environment = environment
+        // A WebUI-managed runtime is always a server. Detach it from the
+        // manager's stdin so a piped or non-interactive parent cannot make the
+        // MLX command block while probing stdin for single-prompt mode.
+        child.standardInput = FileHandle.nullDevice
         child.standardOutput = handle
         child.standardError = handle
-        try child.run()
+        do {
+            try child.run()
+        } catch {
+            try? handle.close()
+            throw error
+        }
 
         self.process = child
         self.logHandle = handle
         self.port = port
-        self.backend = backend
-        self.model = model
+        self.backend = request.backend.lowercased()
+        self.model = request.model
         self.logPath = logURL.path
-        self.command = [executable.path] + arguments
+        self.command = displayCommand
         return snapshot()
     }
 
@@ -229,7 +252,8 @@ private actor AFMWebRuntimeManager {
     }
 
     func snapshot() -> AFMWebLaunchSnapshot {
-        AFMWebLaunchSnapshot(
+        closeLogIfExited()
+        return AFMWebLaunchSnapshot(
             running: process?.isRunning ?? false,
             pid: process?.processIdentifier,
             port: port,
@@ -241,12 +265,19 @@ private actor AFMWebRuntimeManager {
     }
 
     func logTail(maxBytes: Int = 24_000) -> String {
+        closeLogIfExited()
         guard let logPath, let handle = FileHandle(forReadingAtPath: logPath) else { return "" }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
         try? handle.seek(toOffset: start)
         return String(data: (try? handle.readToEnd()) ?? Data(), encoding: .utf8) ?? ""
+    }
+
+    private func closeLogIfExited() {
+        guard let process, !process.isRunning, let logHandle else { return }
+        try? logHandle.close()
+        self.logHandle = nil
     }
 }
 
@@ -393,9 +424,9 @@ public class Server: @unchecked Sendable {
         "--instructions", "--temperature", "--top-p", "--top-k", "--min-p",
         "--presence-penalty", "--repetition-penalty", "--max-tokens", "--seed",
         "--max-logprobs", "--kv-cache-size", "--kv-bits", "--prefill-step-size",
-        "--mlx-runtime", "--prewarm", "--stop", "--guided-json", "--tool-call-parser",
+        "--mlx-runtime", "--gguf-file", "--prewarm", "--stop", "--guided-json", "--tool-call-parser",
         "--kv-eviction", "--default-chat-template-kwargs", "--reasoning-effort",
-        "--concurrent", "--mtp-depth", "--dspark-support", "--dspark-draft-tokens",
+        "--concurrent", "--mtp-depth", "--mtp-model", "--dspark-support", "--dspark-draft-tokens",
         "--dspark-confidence", "--eagle3", "--cache-profile-path", "--gpu-capture",
         "--gpu-trace", "--chat-template", "--dtype", "--telegram-bot-token", "--telegram-allow", "--telegram-format",
         "--telegram-require-prefix"
@@ -407,7 +438,56 @@ public class Server: @unchecked Sendable {
         "--gpu-profile-bw"
     ]
 
-    private static func webLaunchArguments(for request: AFMWebLaunchRequest, port: Int) throws -> [String] {
+    private static let webLaunchSecretOptions: Set<String> = ["--telegram-bot-token"]
+
+    static func isLoopbackWebAddress(_ address: String?) -> Bool {
+        guard let address else { return false }
+        return address == "127.0.0.1"
+            || address == "::1"
+            || address.lowercased() == "localhost"
+            || address.lowercased().hasPrefix("::ffff:127.")
+    }
+
+    static func isTrustedWebOrigin(_ origin: String?) -> Bool {
+        guard let origin else { return true } // Non-browser/local API clients.
+        guard origin != "null", let url = URL(string: origin),
+              url.scheme == "http" || url.scheme == "https" else {
+            return false
+        }
+        return isLoopbackWebAddress(url.host)
+    }
+
+    static func isTrustedWebHost(_ host: String?) -> Bool {
+        guard let host, let url = URL(string: "http://\(host)") else { return false }
+        return isLoopbackWebAddress(url.host)
+    }
+
+    private func requireLocalWebControl(_ request: Request) throws {
+        guard webuiEnabled else { throw Abort(.notFound) }
+        guard Self.isLoopbackWebAddress(request.remoteAddress?.ipAddress),
+              Self.isTrustedWebHost(request.headers.first(name: .host)),
+              Self.isTrustedWebOrigin(request.headers.first(name: .origin)) else {
+            throw Abort(.forbidden, reason: "AFM WebUI runtime controls are available only from this Mac")
+        }
+    }
+
+    static func redactedWebLaunchCommand(executable: URL, arguments: [String]) -> [String] {
+        var result = [executable.path]
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            result.append(argument)
+            if webLaunchSecretOptions.contains(argument), index + 1 < arguments.count {
+                result.append("<redacted>")
+                index += 2
+            } else {
+                index += 1
+            }
+        }
+        return result
+    }
+
+    static func webLaunchArguments(for request: AFMWebLaunchRequest, port: Int) throws -> [String] {
         let backend = request.backend.lowercased()
         guard backend == "foundation" || backend == "mlx" else {
             throw Abort(.badRequest, reason: "backend must be 'foundation' or 'mlx'")
@@ -453,8 +533,11 @@ public class Server: @unchecked Sendable {
         return arguments
     }
 
-    private static func availableWebRuntimePort(startingAt start: Int) -> Int? {
-        for candidate in max(1024, start)...min(65_535, max(1024, start) + 100) {
+    static func availableWebRuntimePort(startingAt start: Int) -> Int? {
+        let lowerBound = max(1024, start)
+        guard lowerBound <= 65_535 else { return nil }
+        let upperBound = min(65_535, lowerBound + 100)
+        for candidate in lowerBound...upperBound {
             let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
             guard descriptor >= 0 else { continue }
             defer { Darwin.close(descriptor) }
@@ -530,6 +613,7 @@ public class Server: @unchecked Sendable {
         // Keep machine-specific paths out of the static web asset and resolve
         // them in the process that actually owns the model/runtime state.
         app.get("afm", "runtime") { req -> Response in
+            try self.requireLocalWebControl(req)
             let environment = ProcessInfo.processInfo.environment
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             let modelCache: String
@@ -559,11 +643,22 @@ public class Server: @unchecked Sendable {
         }
 
         app.get("afm", "launcher", "profile") { req -> Response in
+            try self.requireLocalWebControl(req)
             let response = Response(status: .ok)
             response.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
             response.headers.add(name: .cacheControl, value: "no-store")
-            if let data = try? Data(contentsOf: Self.webLaunchProfileURL) {
-                response.body = .init(data: data)
+            if let data = try? Data(contentsOf: Self.webLaunchProfileURL),
+               let profile = try? JSONDecoder().decode(AFMWebLaunchRequest.self, from: data),
+               let safeData = try? JSONEncoder().encode(profile.persistableProfile()) {
+                // Sanitize legacy profiles written by earlier prototypes that
+                // persisted the Telegram token, then never return it to JS.
+                if profile.values?["--telegram-bot-token"] != nil || profile.dryRun != false {
+                    try? safeData.write(to: Self.webLaunchProfileURL, options: .atomic)
+                    try? FileManager.default.setAttributes(
+                        [.posixPermissions: 0o600],
+                        ofItemAtPath: Self.webLaunchProfileURL.path)
+                }
+                response.body = .init(data: safeData)
             } else {
                 response.body = .init(string: "{}")
             }
@@ -571,26 +666,34 @@ public class Server: @unchecked Sendable {
         }
 
         app.on(.POST, "afm", "launcher", "start", body: .collect(maxSize: "128kb")) { req async throws -> Response in
+            try self.requireLocalWebControl(req)
             let launch = try req.content.decode(AFMWebLaunchRequest.self)
-            guard let launchPort = Self.availableWebRuntimePort(startingAt: self.port + 1) else {
-                throw Abort(.serviceUnavailable, reason: "No local runtime port is available")
-            }
-            let arguments = try Self.webLaunchArguments(for: launch, port: launchPort)
             let executable = Self.currentExecutableURL()
-            let command = [executable.path] + arguments
+            let launchPort: Int
+            let command: [String]
 
-            if launch.dryRun != true {
+            if launch.dryRun == true {
+                guard let previewPort = Self.availableWebRuntimePort(startingAt: self.port + 1) else {
+                    throw Abort(.serviceUnavailable, reason: "No local runtime port is available")
+                }
+                let arguments = try Self.webLaunchArguments(for: launch, port: previewPort)
+                launchPort = previewPort
+                command = Self.redactedWebLaunchCommand(executable: executable, arguments: arguments)
+            } else {
+                let snapshot = try await self.webRuntimeManager.launch(
+                    executable: executable,
+                    request: launch,
+                    startingAt: self.port + 1
+                )
+                guard let selectedPort = snapshot.port else {
+                    throw Abort(.internalServerError, reason: "Managed runtime did not select a port")
+                }
+                launchPort = selectedPort
+                command = snapshot.command
                 let profileURL = Self.webLaunchProfileURL
                 try FileManager.default.createDirectory(at: profileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONEncoder().encode(launch.withoutDryRun()).write(to: profileURL, options: .atomic)
+                try JSONEncoder().encode(launch.persistableProfile()).write(to: profileURL, options: .atomic)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: profileURL.path)
-                _ = try await self.webRuntimeManager.launch(
-                    executable: executable,
-                    arguments: arguments,
-                    port: launchPort,
-                    backend: launch.backend.lowercased(),
-                    model: launch.model
-                )
             }
             return try Self.jsonResponse([
                 "accepted": true,
@@ -604,6 +707,7 @@ public class Server: @unchecked Sendable {
         }
 
         app.get("afm", "launcher", "status") { req async throws -> Response in
+            try self.requireLocalWebControl(req)
             let snapshot = await self.webRuntimeManager.snapshot()
             var healthy = false
             if snapshot.running, let port = snapshot.port,
@@ -629,10 +733,12 @@ public class Server: @unchecked Sendable {
         }
 
         app.get("afm", "launcher", "log") { req async throws -> Response in
-            try Self.jsonResponse(["log": await self.webRuntimeManager.logTail()])
+            try self.requireLocalWebControl(req)
+            return try Self.jsonResponse(["log": await self.webRuntimeManager.logTail()])
         }
 
         app.on(.POST, "afm", "launcher", "stop") { req async throws -> Response in
+            try self.requireLocalWebControl(req)
             let snapshot = await self.webRuntimeManager.stop()
             return try Self.jsonResponse(["stopped": true, "pid": (snapshot.pid as Any?) ?? NSNull()])
         }
@@ -1664,6 +1770,7 @@ public class Server: @unchecked Sendable {
         ]},
         {name:'MLX runtime + cache',fields:[
           {key:'--mlx-runtime',label:'Runtime',type:'select',backends:'mlx',choices:['','auto','mlx','dwarfstar']},
+          {key:'--gguf-file',label:'Exact repository GGUF',type:'text',backends:'mlx',wide:true},
           {key:'--kv-bits',label:'KV bits',type:'select',backends:'mlx',choices:['','4','8']},
           {key:'--kv-cache-size',label:'KV cache size',type:'number',backends:'mlx'},
           {key:'--kv-eviction',label:'KV eviction',type:'select',backends:'mlx',choices:['','none','streaming']},
@@ -1687,6 +1794,7 @@ public class Server: @unchecked Sendable {
         {name:'Speculative decoding',fields:[
           {key:'--mtp',label:'Enable MTP',type:'flag',backends:'mlx'},
           {key:'--mtp-depth',label:'MTP depth',type:'number',backends:'mlx'},
+          {key:'--mtp-model',label:'MTP model override',type:'text',backends:'mlx',wide:true},
           {key:'--dspark-support',label:'DSpark support GGUF',type:'text',backends:'mlx',wide:true},
           {key:'--dspark-draft-tokens',label:'DSpark draft tokens',type:'number',backends:'mlx'},
           {key:'--dspark-confidence',label:'DSpark confidence',type:'number',backends:'mlx'},
@@ -2330,7 +2438,11 @@ public class Server: @unchecked Sendable {
           return rec && rec.samples[0] ? rec.samples[0].labels.model_name : '—';
         }
 
-        document.getElementById('afm-dash-model').innerHTML = '<b>'+modelName()+'</b>';
+        var modelHost = document.getElementById('afm-dash-model');
+        modelHost.textContent = '';
+        var modelStrong = document.createElement('b');
+        modelStrong.textContent = modelName();
+        modelHost.appendChild(modelStrong);
 
         var runningRaw = single('afm:num_requests_running') || 0;
         var waiting = single('afm:num_requests_waiting') || 0;
@@ -3004,15 +3116,23 @@ public struct HealthResponse: Content {
     }
 }
 
-private struct AFMWebLaunchRequest: Content {
+struct AFMWebLaunchRequest: Content, Sendable {
     let backend: String
     let model: String?
     let values: [String: String]?
     let flags: [String]?
     let dryRun: Bool?
 
-    func withoutDryRun() -> AFMWebLaunchRequest {
-        AFMWebLaunchRequest(backend: backend, model: model, values: values, flags: flags, dryRun: false)
+    func persistableProfile() -> AFMWebLaunchRequest {
+        var persistedValues = values ?? [:]
+        persistedValues.removeValue(forKey: "--telegram-bot-token")
+        return AFMWebLaunchRequest(
+            backend: backend,
+            model: model,
+            values: persistedValues,
+            flags: flags,
+            dryRun: false
+        )
     }
 }
 
