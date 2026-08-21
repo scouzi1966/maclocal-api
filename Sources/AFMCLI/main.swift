@@ -1,6 +1,7 @@
 import AFMKit
 import AFMKitDwarfStar
 import AFMServer
+import AFMTerminalUI
 import ArgumentParser
 import Foundation
 import Darwin
@@ -16,6 +17,22 @@ extension TelegramReplyFormat: ExpressibleByArgument {}
 // single-threaded with respect to the run loop, so the unsafety is contained.
 nonisolated(unsafe) private var globalServer: Server?
 nonisolated(unsafe) private var shouldKeepRunning = true
+
+private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws {
+    let group = DispatchGroup()
+    let errorBox = SendableBox<Error?>(nil)
+    group.enter()
+    Task.detached {
+        do {
+            try await AFMTerminalChat(configuration: configuration).run()
+        } catch {
+            errorBox.value = error
+        }
+        group.leave()
+    }
+    group.wait()
+    if let error = errorBox.value { throw error }
+}
 
 // Signal handler function
 func handleShutdown(_ signal: Int32) {
@@ -209,6 +226,7 @@ struct MlxCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -379,6 +397,9 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
     @Flag(name: [.customShort("g"), .long], help: "Gateway mode is not supported in afm mlx")
     var gateway: Bool = false
 
@@ -532,6 +553,20 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                pipedInput: isatty(STDIN_FILENO) == 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        if tui && (raw || json || openclawConfig) {
+            throw ValidationError("--tui cannot be combined with --raw, --json, or --openclaw-config")
+        }
+
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
         if let capturePath = gpuCapture {
             setenv("MTL_CAPTURE_ENABLED", "1", 1)
@@ -658,6 +693,9 @@ struct MlxCommand: ParsableCommand {
             throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
         }
         if runtimeBackend == .dwarfstar {
+            if tui {
+                throw ValidationError("--tui currently supports MLX directory checkpoints; DwarfStar GGUF terminal chat is not yet available")
+            }
             try runDwarfStar(
                 checkpointPath: localModelPath(resolvedModel),
                 modelStore: modelStore,
@@ -702,6 +740,64 @@ struct MlxCommand: ParsableCommand {
         let selectedModel = runtime.modelID
         let service = runtime.service
         service.kernelEngine = kernelEngine
+
+        if tui {
+            var metadata: [String: AFMJSONValue] = [:]
+            if !parsedKwargs.isEmpty {
+                metadata["chatTemplateKwargs"] = .object(
+                    try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+                )
+            }
+            let engineConfig = EngineConfig(
+                instructions: instructions,
+                kvBits: kvBits,
+                enablePrefixCaching: enablePrefixCaching,
+                mlxKernels: kernelEngine.rawValue,
+                mtpEnabled: mtp,
+                mtpDepth: mtpDepth,
+                mtpModelID: mtpModel,
+                eagle3DrafterPath: eagle3,
+                enableGrammarConstraints: enableGrammarConstraints,
+                toolCallParser: toolCallParser,
+                maxConcurrent: concurrent ?? 0,
+                prefillStepSize: prefillStepSize,
+                kvEvictionPolicy: kvEviction ?? "none",
+                fixToolArguments: fixToolArgs,
+                forceVLM: vlm || !media.isEmpty,
+                cacheProfilePath: cacheProfilePath,
+                trace: vv,
+                gpuCapturePath: gpuCapture,
+                gpuTraceDuration: gpuTrace,
+                gpuProfile: gpuProfile || gpuProfileBw,
+                gpuProfileBandwidth: gpuProfileBw
+            )
+            let generation = GenerationConfig(
+                temperature: temperature,
+                maxTokens: maxTokens,
+                topP: topP,
+                topK: topK,
+                minP: minP,
+                repetitionPenalty: repetitionPenalty,
+                presencePenalty: presencePenalty,
+                seed: seed,
+                topLogprobs: maxLogprobs,
+                stop: stop?.split(separator: ",").map(String.init),
+                tools: try Self.parseToolsJSON(toolsJson),
+                responseFormat: defaultGuidedJsonSchema,
+                metadata: metadata
+            )
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .mlx(modelID: selectedModel),
+                backendName: "MLX",
+                modelName: selectedModel,
+                engine: engineConfig,
+                generation: generation,
+                streaming: !noStreaming,
+                initialAttachments: try media.map { try TUIArtifactActions.resolvedURL($0) }
+            ))
+            return
+        }
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -1703,6 +1799,7 @@ struct MacLocalAPI: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -1888,6 +1985,9 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -1941,6 +2041,48 @@ struct RootCommand: ParsableCommand {
 
         if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             throw ValidationError("--telegram requires server mode and cannot be used with -s or piped single-prompt input")
+        }
+
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                pipedInput: isatty(STDIN_FILENO) == 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+
+        if tui {
+            if gateway { throw ValidationError("--tui cannot be combined with --gateway") }
+            if telegramBotToken != nil || telegramAllow != nil {
+                throw ValidationError("--tui cannot be combined with Telegram server options")
+            }
+            let responseFormat: ResponseFormat?
+            if let guidedJson {
+                responseFormat = ResponseFormat(type: "json_schema", jsonSchema: try parseGuidedJsonSchema(guidedJson))
+            } else {
+                responseFormat = nil
+            }
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .foundationModels,
+                backendName: "Foundation Models",
+                modelName: "apple-foundation-model",
+                engine: EngineConfig(
+                    instructions: instructions,
+                    adapter: adapter,
+                    permissiveGuardrails: permissiveGuardrails,
+                    foundationRandomness: randomness
+                ),
+                generation: GenerationConfig(
+                    temperature: temperature,
+                    stop: stop?.split(separator: ",").map(String.init),
+                    responseFormat: responseFormat
+                ),
+                streaming: !noStreaming
+            ))
+            return
         }
 
         // Handle single-prompt mode for backward compatibility

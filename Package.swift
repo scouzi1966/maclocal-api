@@ -63,6 +63,11 @@ let package = Package(
             name: "AFMServer",
             targets: ["AFMServer"]
         ),
+        // Native terminal chat UI used by both Foundation and MLX modes.
+        .library(
+            name: "AFMTerminalUI",
+            targets: ["AFMTerminalUI"]
+        ),
         // The `afm` CLI executable (thin wrapper over AFMKit + AFMServer).
         .executable(
             name: "afm",
@@ -266,6 +271,13 @@ let package = Package(
                 .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
             ]
         ),
+        .target(
+            name: "AFMTerminalUI",
+            dependencies: [
+                "AFMKit",
+                "AFMOpenAICompat"
+            ]
+        ),
         // Thin CLI executable over AFMKit + AFMServer.
         .executableTarget(
             name: "AFMCLI",
@@ -273,6 +285,7 @@ let package = Package(
                 "AFMKit",
                 "AFMKitDwarfStar",
                 "AFMKitMLX",
+                "AFMTerminalUI",
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -322,6 +335,7 @@ let package = Package(
                 "AFMKitFoundationModels27DwarfStar",
                 "AFMKitServices",
                 "AFMServer",
+                "AFMTerminalUI",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "VaporTesting", package: "vapor"),

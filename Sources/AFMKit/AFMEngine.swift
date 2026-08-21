@@ -24,6 +24,7 @@ public struct EngineConfig: Sendable {
     public var instructions: String
     public var adapter: String?
     public var permissiveGuardrails: Bool
+    public var foundationRandomness: String?
     // MLX runtime knobs (ignored by the Foundation Models backend)
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
@@ -50,6 +51,7 @@ public struct EngineConfig: Sendable {
         instructions: String = "You are a helpful assistant",
         adapter: String? = nil,
         permissiveGuardrails: Bool = false,
+        foundationRandomness: String? = nil,
         kvBits: Int? = nil,
         enablePrefixCaching: Bool = false,
         mlxKernels: String = "native",
@@ -74,6 +76,7 @@ public struct EngineConfig: Sendable {
         self.instructions = instructions
         self.adapter = adapter
         self.permissiveGuardrails = permissiveGuardrails
+        self.foundationRandomness = foundationRandomness
         self.kvBits = kvBits
         self.enablePrefixCaching = enablePrefixCaching
         self.mlxKernels = mlxKernels
@@ -371,8 +374,11 @@ public actor AFMEngine {
                         }
                         continuation.finish()
                     case .foundationModels:
-                        let text = try await foundationGenerate(messages: messages, config: config)
-                        continuation.yield(.text(text, tokenCount: 0))
+                        let stream = try await foundationStream(messages: messages, config: config)
+                        for try await text in stream {
+                            try Task.checkCancellation()
+                            continuation.yield(.text(text, tokenCount: 0))
+                        }
                         continuation.yield(.completed(.stop))
                         continuation.finish()
                     }
@@ -496,10 +502,56 @@ public actor AFMEngine {
             guard let svc = foundationService as? FoundationModelService else {
                 throw AFMEngineError.foundationModelsUnavailable
             }
+            if config.responseFormat?.type == "json_schema",
+               let schema = config.responseFormat?.jsonSchema {
+                return try await svc.generateGuidedResponse(
+                    for: messages,
+                    jsonSchema: schema,
+                    temperature: config.temperature,
+                    randomness: engineConfig.foundationRandomness,
+                    maxTokens: config.maxTokens,
+                    stop: config.stop
+                )
+            }
             return try await svc.generateResponse(
                 for: messages,
                 temperature: config.temperature,
-                randomness: nil,
+                randomness: engineConfig.foundationRandomness,
+                maxTokens: config.maxTokens,
+                stop: config.stop
+            )
+        }
+        throw AFMEngineError.foundationModelsUnavailable
+    }
+
+    private func foundationStream(
+        messages: [Message],
+        config: GenerationConfig
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        try await ensureFoundation()
+        if #available(macOS 26.0, *) {
+            guard let svc = foundationService as? FoundationModelService else {
+                throw AFMEngineError.foundationModelsUnavailable
+            }
+            if config.responseFormat?.type == "json_schema",
+               let schema = config.responseFormat?.jsonSchema {
+                let text = try await svc.generateGuidedResponse(
+                    for: messages,
+                    jsonSchema: schema,
+                    temperature: config.temperature,
+                    randomness: engineConfig.foundationRandomness,
+                    maxTokens: config.maxTokens,
+                    stop: config.stop
+                )
+                return AsyncThrowingStream { continuation in
+                    continuation.yield(text)
+                    continuation.finish()
+                }
+            }
+            return svc.generateNativeStreamingResponse(
+                for: messages,
+                temperature: config.temperature,
+                randomness: engineConfig.foundationRandomness,
                 maxTokens: config.maxTokens,
                 stop: config.stop
             )

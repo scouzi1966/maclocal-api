@@ -93,6 +93,28 @@ Or use Apple’s on-device model:
 afm -w
 ```
 
+### Native terminal chat
+
+Use `--tui` when you want a private, full-screen chat without running an HTTP server:
+
+```bash
+# Apple Foundation Models
+afm --tui
+
+# Any supported MLX model (all normal sampling/runtime flags still apply)
+afm mlx -m Qwen3-0.6B-4bit --tui
+```
+
+The terminal UI streams responses, separates optional reasoning, renders Markdown,
+syntax-highlighted code, unified diffs, and readable LaTeX fallbacks, and reports token
+and throughput statistics. It supports multiline editing, prompt history, cancellation,
+persisted/searchable sessions under `~/.afm/sessions`, transcript export, attachments,
+themes, and safe actions for response artifacts. Use `/help` for the command palette.
+
+Code is never executed automatically. `/save` refuses overwrites unless `/save!` is used,
+and only an explicit `/open` previews HTML or JavaScript in the browser. iTerm2 and Kitty
+can display local images inline; Terminal.app uses an explicit `/image` Quick Look fallback.
+
 ## Choose your runtime
 
 | Runtime | Best for | Start it |

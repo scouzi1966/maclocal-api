@@ -366,7 +366,7 @@ public class FoundationModelService: @unchecked Sendable {
         stop: [String]? = nil
     ) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
                 guard let session = self.session else {
                     continuation.finish(throwing: FoundationModelError.sessionCreationFailed)
@@ -383,6 +383,7 @@ public class FoundationModelService: @unchecked Sendable {
                     var previousContent = ""
                     var stopped = false
                     for try await partialResponse in stream {
+                        try Task.checkCancellation()
                         if stopped { break }
                         let full = partialResponse.content
                         if full.count > previousContent.count {
@@ -423,6 +424,7 @@ public class FoundationModelService: @unchecked Sendable {
                 continuation.finish(throwing: FoundationModelError.notAvailable)
                 #endif
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
     
