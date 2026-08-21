@@ -1,7 +1,0 @@
-format:
-  line_width: 100
-  tab_size: 2
-  dangle_parens: true
-  command_case: lower
-  keyword_case: upper
-  autosort: true

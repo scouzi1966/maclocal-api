@@ -6,7 +6,7 @@ maclocal-api consumes this immutable checkpoint:
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    revision: "dfeab23e95ea1979432958e3f9b002beb5685191"
+    revision: "b6f2b830782491a6a680724db3c6da4a31c13aaa"
 )
 ```
 
@@ -16,23 +16,29 @@ a branch requirement for release builds.
 
 ## Production Blocker
 
-This transition is not publicly source-buildable while
-`scouzi1966/AFMKit` is private. This PR must not be production-merged or used to
-publish release artifacts until one of these policy conditions is met:
+This transition is not a versioned SwiftPM release while AFMKit is pinned by
+revision. Anonymous access to that commit would make it fetchable, but would
+not turn the dependency into an immutable public package version. This PR must
+not be used to publish release artifacts until one of these policy conditions
+is met:
 
-1. AFMKit is public at the pinned immutable revision or an exact release tag.
-2. An approved public immutable package or artifact replaces the private URL.
+1. AFMKit is published publicly and maclocal-api requires its exact semantic version.
+2. maclocal-api's source-package release surface is explicitly removed from the release policy and artifacts.
 
-Private CI access is a development transition mechanism, not evidence of public
-readiness. As observed on 2026-08-20, GitHub Actions are also disabled for the
-maclocal-api repository. The workflow definitions are complete, but hosted
-enforcement requires a repository administrator to re-enable Actions.
+The current policy chooses the first option and fails closed. Private CI access
+and an anonymously fetchable revision are development mechanisms, not evidence
+of versioned SwiftPM readiness. As observed on 2026-08-20, GitHub Actions are
+also disabled for the maclocal-api repository. The workflow definitions are
+complete, but hosted enforcement requires a repository administrator to
+re-enable Actions.
 
 Every tag, nightly, and manual publishing entry point runs
 `Scripts/check-public-release-eligibility.sh` before building or uploading. The
-gate removes ambient credentials and proves that the exact AFMKit revision in
-the tracked lock can be fetched anonymously. Authentication can therefore keep
-development CI working, but it cannot make a private dependency publishable.
+gate first requires an exact semantic-version manifest and matching resolved
+version, then removes ambient credentials and proves that the locked revision
+can be fetched anonymously. Authentication can keep development CI working,
+but neither authentication nor a public bare revision makes this source-package
+surface publishable.
 
 ## Authenticated Resolution
 
@@ -61,15 +67,16 @@ The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
 | Dependency | Requirement | Purpose |
 | --- | --- | --- |
-| `AFMKit` | revision `dfeab23e...` | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
+| `AFMKit` | revision `b6f2b830...` (publication-blocking checkpoint) | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
 | `mlx-swift-afm` | exact `0.31.6-afm.1` | AFM-compatible MLX Swift/C++/Metal runtime |
 | `mlx-swift-lm` | exact `0.31.6-afm.3` | AFM model architectures and generation behavior |
 
 The tracked root `Package.resolved` is the release lock for all 40 direct and
 transitive SwiftPM dependencies, not only AFMKit and MLX. The boundary gate
 requires a full 40-character revision for every pin, rejects branch state and
-local release dependencies, validates direct manifest requirements, and checks
-pinned vendor gitlinks. Release resolution uses
+local release dependencies, validates direct manifest requirements, verifies
+the clean AFMKit checkout against its lock and origin, and checks the remaining
+consumer-owned vendor gitlinks. Release resolution uses
 `swift package --force-resolved-versions resolve` and fails if the lock is stale.
 
 AFMKit owns `Sources/AFMKitMLX/Resources/default.metallib` and DwarfStar's Metal
@@ -101,10 +108,11 @@ Scripts/swiftpm-reliable.sh build -c release --product afm
 Scripts/validate-release.sh
 ```
 
-The boundary check rejects restored shadow targets, mutable dependency drift,
-normal Make targets that invoke the legacy patch stack, server access to known
-provider implementation types, and stale maclocal-api-owned resource names in
-release packaging.
+The boundary check rejects restored shadow targets, provider-owned C/C++ roots
+or gitlinks, provider-internal consumer tests and API baselines, mutable
+dependency drift, normal Make targets that invoke the legacy patch stack,
+server access to known provider implementation types, and stale
+maclocal-api-owned resource names in release packaging.
 
 The package deployment target and release artifact compatibility floor are
 macOS 26. Xcode 27 is required to compile the current Apple provider adapters;

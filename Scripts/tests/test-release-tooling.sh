@@ -45,30 +45,52 @@ if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   probe_public_afmkit_source() {
-    [[ -z "${AFMKIT_READ_TOKEN:-}" ]] || return 9
-    return 1
+    return 0
   }
   check_public_release_eligibility
 ) >"$public_gate_log" 2>&1; then
-  fail "production public-release gate accepted a private dependency"
+  fail "production public-release gate accepted a revision-pinned dependency"
 fi
 grep -Fq 'Production publishing is blocked' "$public_gate_log" || \
   fail "public-release failure is not actionable"
-grep -Fq 'cannot satisfy the public distribution requirement' "$public_gate_log" || \
-  fail "public-release failure does not distinguish development authentication"
+grep -Fq 'source-package surface' "$public_gate_log" || \
+  fail "public-release failure does not explain the exposed package surface"
+grep -Fq 'exact public semantic version' "$public_gate_log" || \
+  fail "public-release failure does not require a versioned AFMKit contract"
 if grep -Fq 'public-gate-secret' "$public_gate_log"; then
   fail "public-release gate leaked a development token"
 fi
 
+private_gate_log="$WORK_ROOT/private-version-error.log"
+if (
+  export AFMKIT_READ_TOKEN="public-gate-secret"
+  source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
+  read_afmkit_release_source() {
+    echo "https://github.com/scouzi1966/AFMKit.git 1111111111111111111111111111111111111111 exact 1.2.3 1.2.3"
+  }
+  probe_public_afmkit_source() {
+    [[ -z "${AFMKIT_READ_TOKEN:-}" ]] || return 9
+    return 1
+  }
+  check_public_release_eligibility
+) >"$private_gate_log" 2>&1; then
+  fail "production public-release gate accepted a private exact dependency"
+fi
+grep -Fq 'cannot satisfy the public distribution requirement' "$private_gate_log" || \
+  fail "public-release failure does not distinguish development authentication"
+
 if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
+  read_afmkit_release_source() {
+    echo "https://github.com/scouzi1966/AFMKit.git 1111111111111111111111111111111111111111 exact 1.2.3 1.2.3"
+  }
   probe_public_afmkit_source() {
     [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
   }
   check_public_release_eligibility
 ) >"$WORK_ROOT/public-release-success.log" 2>&1; then
-  fail "production public-release gate rejected an anonymous immutable source"
+  fail "production public-release gate rejected an anonymous exact dependency"
 fi
 
 prefix="$WORK_ROOT/custom-prefix"

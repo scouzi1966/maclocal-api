@@ -203,11 +203,15 @@ struct MLXChatCompletionsController: RouteCollection {
                 return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
             }
 
-            // In concurrent mode, non-streaming requests currently bypass the
-            // BatchScheduler decode loop, so the controller must release the
-            // reservation itself. Streaming requests are released by the
-            // scheduler when the stream finishes.
-            defer { service.releaseSlot() }
+            // The controller owns the reservation until generation either uses
+            // the serial path or successfully returns a stream. A returned
+            // stream releases its transferred reservation on termination.
+            var reservationTransferredToStream = false
+            defer {
+                if !reservationTransferredToStream {
+                    service.releaseSlot()
+                }
+            }
 
             // AFM Profile: start GPU monitoring if client requests it
             let profileHeader = req.headers.first(name: "X-AFM-Profile")?.lowercased()
@@ -265,6 +269,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: reqId
                 )
+                reservationTransferredToStream = true
 
                 // Collect stream into complete response
                 var fullText = ""
@@ -512,6 +517,12 @@ struct MLXChatCompletionsController: RouteCollection {
             // its `onTermination` fires `task.cancel()` on the underlying model
             // generator (BatchScheduler / MLX serial path), stopping GPU work.
             let bodyTask = Task<Void, Never> {
+            var reservationTransferredToStream = false
+            defer {
+                if !reservationTransferredToStream {
+                    self.service.releaseSlot()
+                }
+            }
             // PR #122: Streaming routes account for their own
             // afm:num_active_connections — ActiveConnectionsMiddleware filters
             // them because its defer fires when the controller returns, not
@@ -573,6 +584,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     preserveStructuralTags: !extractThinking,
                     requestId: streamReqId
                 )
+                reservationTransferredToStream = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,

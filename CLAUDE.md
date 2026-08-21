@@ -25,8 +25,7 @@ Sources/
 └── AFMKitFoundationModels27/ # facade over AFMKit macOS 27 products
 vendor/
 ├── mlx-swift-lm/             # legacy maintenance checkout; not a normal build input
-├── llama.cpp/                # WebUI source
-└── ds4/                      # canonical checkout used for pin verification
+└── llama.cpp/                # WebUI source
 Scripts/
 ├── patches/                  # legacy compatibility-package maintenance sources
 ├── check-afmkit-consumer-boundary.sh
@@ -48,12 +47,11 @@ Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
 
 ### DwarfStar dependency boundary
 
-`vendor/ds4` is pinned directly to canonical `https://github.com/antirez/ds4.git`.
-Do not point the submodule at an AFM fork, patch its loader, sampler, cache, or
-Metal kernels, or require a DS4 pull request for AFM integration. Keep interface
-adaptations in AFMKit's `Sources/CDwarfStar` and `Sources/AFMKitDwarfStar`
-using the public upstream C API. `Scripts/swiftpm-reliable.sh` fingerprints the
-pinned submodule revision to prevent Xcode's native driver from reusing stale C objects.
+AFMKit owns the canonical DwarfStar and xgrammar dependencies, their C/C++
+bridges, and provider regressions. maclocal-api consumes those products only
+through its resolved AFMKit dependency. `Scripts/swiftpm-reliable.sh` validates
+and fingerprints that checkout so Xcode cannot reuse products compiled from a
+different provider revision.
 
 ### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
 

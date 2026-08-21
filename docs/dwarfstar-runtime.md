@@ -1,12 +1,9 @@
 # DwarfStar Runtime
 
-AFM consumes [DwarfStar](https://github.com/antirez/ds4) as an unchanged Git
-submodule. AFM does not patch DwarfStar's model loader, sampler, cache, or Metal
-kernels. The `CDwarfStar` target is an AFM-owned interface adapter around
-DwarfStar's public C API. Interface-level compatibility code is permitted in
-AFM-owned targets; no such code is copied into or applied over `vendor/ds4`.
-Supported build scripts fail when that submodule has tracked, staged, or
-untracked changes.
+AFMKit consumes [DwarfStar](https://github.com/antirez/ds4) as an unchanged Git
+submodule and owns the `CDwarfStar` interface adapter around its public C API.
+maclocal-api contains no DwarfStar source, bridge, or gitlink; it consumes the
+public `AFMKitDwarfStar` product at the revision locked in `Package.resolved`.
 
 ## Model Selection
 

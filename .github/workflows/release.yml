@@ -67,7 +67,7 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
-          echo "DwarfStar: $(git -C vendor/ds4 rev-parse HEAD)"
+          echo "AFMKit: $(python3 -c 'import json,sys; print(next(p for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "afmkit")["state"]["revision"])' Package.resolved)"
         } > release-package/BUILD-ENVIRONMENT.txt
         
         # Create install guide

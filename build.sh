@@ -230,19 +230,6 @@ else
   log_warn "Skipping submodule initialization"
 fi
 
-if [ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]; then
-  log_error "vendor/ds4 is not clean; DwarfStar must remain an unchanged upstream dependency"
-  exit 1
-fi
-
-EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
-ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
-if [ -z "$EXPECTED_DS4_REVISION" ] || [ "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]; then
-  log_error "vendor/ds4 revision mismatch (expected ${EXPECTED_DS4_REVISION:-missing}, actual $ACTUAL_DS4_REVISION)"
-  log_error "Run: git submodule update --init vendor/ds4"
-  exit 1
-fi
-
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
@@ -259,7 +246,6 @@ if $DO_PATCHES; then
   fi
   "$SCRIPTS_DIR/apply-mlx-patches.sh"
   "$SCRIPTS_DIR/apply-mlx-patches.sh" --check
-  "$SCRIPTS_DIR/patches/apply-xgrammar-patches.sh"
 else
   log_warn "Skipping vendored dependency patch application"
 fi

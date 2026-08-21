@@ -38,7 +38,7 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WO
     // revision with an exact AFMKit version after its first release tag.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        revision: "dfeab23e95ea1979432958e3f9b002beb5685191"
+        revision: "b6f2b830782491a6a680724db3c6da4a31c13aaa"
     )
 }
 
@@ -221,10 +221,6 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
-                .product(name: "AFMKitCore", package: "AFMKit"),
-                .product(name: "AFMOpenAICompat", package: "AFMKit"),
-                .product(name: "AFMKitDwarfStar", package: "AFMKit"),
-                .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitFoundationModels27DwarfStar",
@@ -232,28 +228,12 @@ let package = Package(
                 "AFMServer",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
-                .product(name: "VaporTesting", package: "vapor"),
-                // MTP P0 validation needs the patched Qwen3.6 VLM model (Qwen3_5MTPHead).
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
-                .product(name: "MLXLLM", package: "mlx-swift-lm")
+                .product(name: "VaporTesting", package: "vapor")
             ],
             swiftSettings: [
                 // Xcode 27 Beta 3 reports a false circular reference while
                 // optimizing the combined release test module. Product targets
                 // remain fully optimized.
-                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-Onone"], .when(configuration: .release))
-            ]
-        ),
-        .testTarget(
-            name: "AFMKitDwarfStarTests",
-            dependencies: [
-                .product(name: "AFMKitCore", package: "AFMKit"),
-                .product(name: "AFMKitDwarfStar", package: "AFMKit"),
-            ],
-            swiftSettings: [
-                // Match the Xcode 27 Beta 3 workaround used by the main test target.
                 .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
                 .unsafeFlags(["-Onone"], .when(configuration: .release))
             ]

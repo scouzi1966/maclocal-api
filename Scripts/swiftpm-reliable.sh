@@ -209,21 +209,57 @@ run_native() {
 
 cd "$ROOT_DIR"
 
-# DwarfStar is a vanilla dependency. AFM integration belongs in CDwarfStar and
-# AFMKitDwarfStar; fail instead of compiling locally modified engine sources.
-if [[ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]]; then
-    echo "[swiftpm-reliable] vendor/ds4 is not a clean upstream checkout." >&2
-    echo "[swiftpm-reliable] Keep DwarfStar vanilla and move interface work into AFM-owned adapters." >&2
-    exit 1
-fi
+read -r EXPECTED_AFMKIT_REVISION LOCKED_AFMKIT_LOCATION < <(
+    python3 - "$ROOT_DIR/Package.resolved" <<'PY'
+import json
+import sys
 
-EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
-ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
-if [[ -z "$EXPECTED_DS4_REVISION" || "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]]; then
-    echo "[swiftpm-reliable] vendor/ds4 revision does not match the repository gitlink." >&2
-    echo "[swiftpm-reliable] expected=${EXPECTED_DS4_REVISION:-missing} actual=$ACTUAL_DS4_REVISION" >&2
-    echo "[swiftpm-reliable] Run: git submodule update --init vendor/ds4" >&2
-    exit 1
+lock = json.load(open(sys.argv[1]))
+pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
+print(pin["state"]["revision"], pin["location"])
+PY
+)
+
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    AFMKIT_SOURCE_ROOT="$(cd "$MACLOCAL_AFMKIT_PATH" && pwd)"
+    AFMKIT_SOURCE_ID="local:$AFMKIT_SOURCE_ROOT"
+else
+    AFMKIT_SOURCE_ROOT="$ROOT_DIR/.build/checkouts/AFMKit"
+    [[ -f "$AFMKIT_SOURCE_ROOT/Package.swift" ]] || {
+        echo "[swiftpm-reliable] Resolved AFMKit checkout is missing: $AFMKIT_SOURCE_ROOT" >&2
+        exit 1
+    }
+
+    ACTUAL_AFMKIT_REVISION="$(git -C "$AFMKIT_SOURCE_ROOT" rev-parse HEAD)"
+    if [[ "$ACTUAL_AFMKIT_REVISION" != "$EXPECTED_AFMKIT_REVISION" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout does not match Package.resolved." >&2
+        echo "[swiftpm-reliable] expected=$EXPECTED_AFMKIT_REVISION actual=$ACTUAL_AFMKIT_REVISION" >&2
+        exit 1
+    fi
+    if [[ -n "$(git -C "$AFMKIT_SOURCE_ROOT" status --porcelain --untracked-files=all)" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout is locally modified." >&2
+        echo "[swiftpm-reliable] Refusing to compile a dependency that differs from its immutable lock." >&2
+        exit 1
+    fi
+
+    AFMKIT_REPOSITORY="$(git -C "$AFMKIT_SOURCE_ROOT" remote get-url origin)"
+    ACTUAL_AFMKIT_LOCATION="$AFMKIT_REPOSITORY"
+    if [[ -d "$AFMKIT_REPOSITORY" ]]; then
+        ACTUAL_AFMKIT_LOCATION="$(git -C "$AFMKIT_REPOSITORY" remote get-url origin)"
+    fi
+    normalize_git_location() {
+        local location="$1"
+        location="${location#git@github.com:}"
+        location="${location#https://github.com/}"
+        location="${location%.git}"
+        printf '%s\n' "$location"
+    }
+    if [[ "$(normalize_git_location "$ACTUAL_AFMKIT_LOCATION")" != "$(normalize_git_location "$LOCKED_AFMKIT_LOCATION")" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout came from an unexpected repository." >&2
+        echo "[swiftpm-reliable] expected=$LOCKED_AFMKIT_LOCATION actual=$ACTUAL_AFMKIT_LOCATION" >&2
+        exit 1
+    fi
+    AFMKIT_SOURCE_ID="revision:$ACTUAL_AFMKIT_REVISION"
 fi
 
 run_required_patch_step() {
@@ -261,21 +297,37 @@ if [[ "$USE_LOCAL_MLX_PATCH_STACK" == "1" ]]; then
         "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
 fi
 
-# Xcode 27's native driver can also miss changes in the C sources included by
-# CDwarfStar. The dependency is consumed unchanged, so its pinned revision is
-# the complete native-source identity.
-DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
-DS4_SOURCE_FINGERPRINT="$({
-    printf '%s\n' "$ACTUAL_DS4_REVISION"
-} | shasum -a 256 | awk '{print $1}')"
-PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
-if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then
-    echo "[swiftpm-reliable] DwarfStar source changed; invalidating stale native-driver products." >&2
+# Xcode 27's native driver can miss dependency source changes. Normal builds
+# fingerprint the validated immutable AFMKit revision. Explicit local AFMKit
+# development also fingerprints provider source contents and native bridges.
+AFMKIT_SOURCE_STAMP="$STATE_DIR/afmkit-source.sha256"
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    AFMKIT_SOURCE_FINGERPRINT="$({
+        printf '%s\n' "$AFMKIT_SOURCE_ID"
+        {
+            printf '%s\0' "$AFMKIT_SOURCE_ROOT/Package.swift"
+            find "$AFMKIT_SOURCE_ROOT/Sources" -type f -print0
+            if [[ -d "$AFMKIT_SOURCE_ROOT/vendor/ds4" ]]; then
+                find "$AFMKIT_SOURCE_ROOT/vendor/ds4" -type f -print0
+            fi
+        } | sort -z | xargs -0 shasum -a 256
+    } | shasum -a 256 | awk '{print $1}')"
+else
+    AFMKIT_SOURCE_FINGERPRINT="$(printf '%s\n' "$AFMKIT_SOURCE_ID" | shasum -a 256 | awk '{print $1}')"
+fi
+PREVIOUS_AFMKIT_SOURCE_FINGERPRINT="$(cat "$AFMKIT_SOURCE_STAMP" 2>/dev/null || true)"
+if [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
+    echo "[swiftpm-reliable] AFMKit source changed; invalidating stale compiled products." >&2
+    AFMKIT_SCRATCH_PATH="$(test_scratch_path "$@")"
+    if [[ "$AFMKIT_SCRATCH_PATH" != /* ]]; then
+        AFMKIT_SCRATCH_PATH="$ROOT_DIR/$AFMKIT_SCRATCH_PATH"
+    fi
     rm -rf \
-        "$ROOT_DIR/.build/arm64-apple-macosx" \
-        "$ROOT_DIR/.build/debug" \
-        "$ROOT_DIR/.build/release"
-    printf '%s\n' "$DS4_SOURCE_FINGERPRINT" > "$DS4_SOURCE_STAMP"
+        "$AFMKIT_SCRATCH_PATH/out" \
+        "$AFMKIT_SCRATCH_PATH/arm64-apple-macosx" \
+        "$AFMKIT_SCRATCH_PATH/debug" \
+        "$AFMKIT_SCRATCH_PATH/release"
+    printf '%s\n' "$AFMKIT_SOURCE_FINGERPRINT" > "$AFMKIT_SOURCE_STAMP"
 fi
 
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the

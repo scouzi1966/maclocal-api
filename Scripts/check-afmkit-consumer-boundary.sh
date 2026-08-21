@@ -14,6 +14,18 @@ for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat; do
     fail "consumer shadow target still exists: Sources/$shadow_target"
 done
 
+for provider_owned_path in \
+  Sources/CDwarfStar \
+  Sources/CXGrammar \
+  vendor/ds4 \
+  vendor/xgrammar \
+  Tests/AFMKitDwarfStarTests \
+  Scripts/check-afmkit-core-api.sh \
+  docs/api-baselines; do
+  [[ ! -e "$provider_owned_path" ]] || \
+    fail "AFMKit-owned provider surface remains in the consumer: $provider_owned_path"
+done
+
 facade_files=(Sources/AFMKitFoundationModels/*.swift)
 [[ ${#facade_files[@]} -eq 1 && -f "${facade_files[0]}" ]] || \
   fail "AFMKitFoundationModels must contain only its compatibility facade"
@@ -113,6 +125,43 @@ afmkit = pins_by_identity["afmkit"]
 if afmkit["location"] != "https://github.com/scouzi1966/AFMKit.git":
     fail("AFMKit release lock points at an unexpected source")
 
+checkout = Path(".build/checkouts/AFMKit")
+if checkout.is_dir():
+    expected_revision = afmkit["state"]["revision"]
+    actual_revision = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if actual_revision != expected_revision:
+        fail(
+            "resolved AFMKit checkout differs from Package.resolved: "
+            f"expected {expected_revision}, got {actual_revision}"
+        )
+    dirty = subprocess.check_output(
+        ["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"],
+        text=True,
+    ).strip()
+    if dirty:
+        fail("resolved AFMKit checkout contains local modifications")
+
+    repository = subprocess.check_output(
+        ["git", "-C", str(checkout), "remote", "get-url", "origin"], text=True
+    ).strip()
+    repository_path = Path(repository)
+    actual_location = repository
+    if repository_path.is_dir():
+        actual_location = subprocess.check_output(
+            ["git", "-C", str(repository_path), "remote", "get-url", "origin"],
+            text=True,
+        ).strip()
+
+    def normalized_location(location: str) -> str:
+        location = re.sub(r"^git@github\.com:", "", location)
+        location = re.sub(r"^https://github\.com/", "", location)
+        return re.sub(r"\.git$", "", location)
+
+    if normalized_location(actual_location) != normalized_location(afmkit["location"]):
+        fail(f"resolved AFMKit checkout came from unexpected source {actual_location}")
+
 gitlinks = subprocess.check_output(
     ["git", "ls-files", "-s", "vendor"], text=True
 ).splitlines()
@@ -123,6 +172,9 @@ for line in gitlinks:
         if not re.fullmatch(r"[0-9a-f]{40}", fields[1]):
             fail(f"invalid submodule revision in release graph: {line}")
         gitlinks_by_path[fields[3]] = fields[1]
+for forbidden_gitlink in ("vendor/ds4", "vendor/xgrammar"):
+    if forbidden_gitlink in gitlinks_by_path:
+        fail(f"provider dependency is still consumer-owned: {forbidden_gitlink}")
 declared_paths = subprocess.check_output(
     ["git", "config", "-f", ".gitmodules", "--get-regexp", "path"], text=True
 ).splitlines()
@@ -131,6 +183,12 @@ for line in declared_paths:
     if path not in gitlinks_by_path:
         fail(f"declared submodule is not pinned by a gitlink: {path}")
 PY
+
+if grep -ERn \
+  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple)' \
+  Tests --include='*.swift' >/dev/null; then
+  fail "consumer tests reach into AFMKit provider internals"
+fi
 
 if grep -Fq 'environment["MACLOCAL_AFMKIT_PATH"]' Package.swift; then
   fail "MACLOCAL_AFMKIT_PATH must not alter the tracked release manifest"
@@ -238,7 +296,11 @@ owned_types = {
 declaration = re.compile(
     r"\b(?:class|struct|enum|protocol|actor)\s+(" + "|".join(owned_types) + r")\b"
 )
-local_files = list(Path("Sources").rglob("*.swift"))
+source_suffixes = {".swift", ".c", ".cc", ".cpp", ".h", ".m", ".mm"}
+local_files = [
+    path for path in Path("Sources").rglob("*")
+    if path.is_file() and path.suffix in source_suffixes
+]
 for path in local_files:
     if declaration.search(path.read_text(errors="ignore")):
         raise SystemExit(
@@ -252,11 +314,16 @@ if checkout.is_dir():
         checkout / "AFMOpenAICompat",
         checkout / "AFMKitMLX",
         checkout / "AFMKitDwarfStar",
+        checkout / "CDwarfStar",
+        checkout / "CXGrammar",
     ]
     provider_sources = []
     for root in provider_roots:
         if root.is_dir():
-            provider_sources.extend(root.rglob("*.swift"))
+            provider_sources.extend(
+                path for path in root.rglob("*")
+                if path.is_file() and path.suffix in source_suffixes
+            )
     remote_bodies = [
         (path, normalized(path.read_text(errors="ignore")))
         for path in provider_sources

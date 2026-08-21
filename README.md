@@ -260,13 +260,13 @@ This maclocal-api consumer package separately defines its application adapters:
 - `AFMServer` — Vapor HTTP layer
 - `afm` — CLI executable
 
-AFMKit is a private dependency while its API is under development. A source or
-downstream SwiftPM build therefore requires authenticated read access to
-`scouzi1966/AFMKit`; an unauthenticated public clone cannot currently resolve
-this package graph. See [AFMKit URL consumption](docs/afmkit-url-consumption.md)
-for the immutable revision and CI authentication contract. Do not publish or
-production-merge this dependency graph until AFMKit is public or an approved
-public immutable artifact replaces it.
+AFMKit is revision-pinned while its API is under development. That checkpoint
+is valid for authenticated development, but it is not a versioned SwiftPM
+publication contract even if the revision is anonymously fetchable. See
+[AFMKit URL consumption](docs/afmkit-url-consumption.md) for the dependency and
+publication policy. Release workflows fail closed until AFMKit is required by
+an exact public semantic version, or the source-package release surface is
+explicitly excluded.
 
 Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the
 [independent AFMKitCore consumer](Examples/AFMKitCoreOnlyConsumer/).

@@ -6,7 +6,6 @@ import Foundation
 import Testing
 
 @testable import AFMKit
-@testable import AFMKitMLX
 @testable import AFMServer
 
 // MARK: - Fake Service for Batch Tests
@@ -1412,11 +1411,8 @@ final class BatchCompletionsControllerTests: XCTestCase {
     }
 }
 
-// NOTE: BatchScheduler extension tests (tryReserveMultiple, releaseMultipleReservations,
-// activeSlotCount) require model+tokenizer to instantiate. Those methods are exercised
-// through the existing ConcurrentBatchTests which test the scheduler with a real model,
-// and indirectly through the BatchAPIController and BatchCompletionsController integration
-// tests above which verify slot reservation/release via the FakeBatchService mock.
+// Provider scheduler behavior is covered in AFMKit. These tests retain the HTTP
+// reservation/release contract through the server-owned fake service.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MARK: - JSONL Parsing Edge Cases (Swift Testing)
@@ -1620,30 +1616,21 @@ struct StreamCollectorTests {
                 arguments: #"{"location":"Berlin"}"#
             )
         )
-        let chunks: [AFMServerStreamChunk] = BatchScheduler.streamChunksToEmit(from: [
-            .delta(StreamDeltaToolCall(
-                index: 0,
-                id: "call_weather",
-                type: "function",
-                function: StreamDeltaFunction(
-                    name: "get_weather",
-                    arguments: #"{"location":"Berlin"}"#
-                )
-            )),
-            .replaceCollected(index: 0, toolCall: completed),
-        ]).map { chunk in
+        let chunks = [
             AFMServerStreamChunk(
-                text: chunk.text,
-                toolCalls: chunk.toolCalls,
-                toolCallDeltas: chunk.toolCallDeltas,
-                promptTokens: chunk.promptTokens,
-                completionTokens: chunk.completionTokens,
-                cachedTokens: chunk.cachedTokens,
-                promptTime: chunk.promptTime,
-                generateTime: chunk.generateTime,
-                stoppedBySequence: chunk.stoppedBySequence
-            )
-        }
+                text: "",
+                toolCallDeltas: [StreamDeltaToolCall(
+                    index: 0,
+                    id: "call_weather",
+                    type: "function",
+                    function: StreamDeltaFunction(
+                        name: "get_weather",
+                        arguments: #"{"location":"Berlin"}"#
+                    )
+                )]
+            ),
+            AFMServerStreamChunk(text: "", toolCalls: [completed]),
+        ]
         let result = Self.makeStreamingResult(chunks: chunks)
 
         let collected = try await StreamCollector.collect(

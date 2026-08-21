@@ -4,13 +4,47 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 read_afmkit_release_source() {
-  python3 - "$ROOT_DIR/Package.resolved" <<'PY'
+  python3 - "$ROOT_DIR" <<'PY'
 import json
+import os
+import subprocess
 import sys
 
-lock = json.load(open(sys.argv[1]))
+root = sys.argv[1]
+lock = json.load(open(os.path.join(root, "Package.resolved")))
 pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
-print(pin["location"], pin["state"]["revision"])
+
+environment = os.environ.copy()
+for name in (
+    "MACLOCAL_AFMKIT_PATH",
+    "MACLOCAL_AFMKIT_WORKSPACE_PATH",
+    "MACLOCAL_MLX_SWIFT_LM_PATH",
+    "AFMKIT_MLX_SWIFT_PATH",
+    "AFMKIT_MLX_SWIFT_LM_PATH",
+):
+    environment.pop(name, None)
+package = json.loads(
+    subprocess.check_output(
+        ["swift", "package", "dump-package"], cwd=root, env=environment
+    )
+)
+dependency = next(
+    dependency["sourceControl"][0]
+    for dependency in package["dependencies"]
+    if dependency.get("sourceControl", [{}])[0].get("identity") == "afmkit"
+)
+requirement = dependency["requirement"]
+if len(requirement) != 1:
+    raise SystemExit("AFMKit manifest requirement is ambiguous")
+requirement_kind, values = next(iter(requirement.items()))
+requirement_value = values[0]
+print(
+    pin["location"],
+    pin["state"]["revision"],
+    requirement_kind,
+    requirement_value,
+    pin["state"].get("version", "-"),
+)
 PY
 }
 
@@ -47,11 +81,28 @@ probe_without_credentials() (
 )
 
 check_public_release_eligibility() {
-  local url revision
-  read -r url revision < <(read_afmkit_release_source)
+  local url revision requirement_kind requirement_value resolved_version
+  read -r url revision requirement_kind requirement_value resolved_version \
+    < <(read_afmkit_release_source)
 
   if [[ ! "$url" =~ ^https:// ]]; then
     echo "[release-public] AFMKit release source must be a public HTTPS package URL: $url" >&2
+    return 1
+  fi
+
+  if [[ "$requirement_kind" != "exact" ]] || \
+     [[ ! "$requirement_value" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || \
+     [[ "$resolved_version" != "$requirement_value" ]]; then
+    cat >&2 <<EOF
+[release-public] Production publishing is blocked: maclocal-api exposes a SwiftPM
+[release-public] source-package surface while AFMKit uses the ${requirement_kind}
+[release-public] requirement ${requirement_value}. Anonymous access to revision
+[release-public] ${revision} is not a versioned package release contract.
+[release-public] Replace the dependency with an exact public semantic version and
+[release-public] commit a matching Package.resolved version/revision before publishing.
+[release-public] Until then, no release workflow may claim SwiftPM publishability;
+[release-public] packaged binaries do not remove the repository's source-package surface.
+EOF
     return 1
   fi
 
@@ -61,13 +112,13 @@ check_public_release_eligibility() {
 [release-public] fetchable at the locked revision ${revision} from ${url}.
 [release-public] An AFMKIT_READ_TOKEN may authenticate development builds, but it
 [release-public] cannot satisfy the public distribution requirement.
-[release-public] Make this exact package revision public, or replace Package.swift
-[release-public] and Package.resolved with an approved public immutable package/artifact.
+[release-public] Publish AFMKit ${requirement_value} publicly at the locked revision,
+[release-public] or exclude maclocal-api's source-package surface from the release policy.
 EOF
     return 1
   fi
 
-  echo "[release-public] AFMKit ${revision:0:12} is anonymously fetchable from $url."
+  echo "[release-public] AFMKit ${requirement_value} (${revision:0:12}) is an exact, anonymously fetchable package."
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

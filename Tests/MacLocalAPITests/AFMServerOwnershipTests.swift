@@ -1,6 +1,7 @@
-@testable import AFMKitMLX
 @testable import AFMServer
 import AFMKit
+import Vapor
+import XCTVapor
 import os
 import XCTest
 
@@ -43,27 +44,6 @@ final class AFMServerOwnershipTests: XCTestCase {
         XCTAssertTrue(lines.contains {
             $0.hasPrefix("afm:active_connections_peak{") && $0.hasSuffix("} 2")
         })
-    }
-
-    func testConcreteMLXAdapterPreservesProviderServingConfiguration() {
-        let service = MLXModelService(resolver: MLXCacheResolver())
-        service.maxConcurrent = 8
-        service.toolCallParser = "afm_adaptive_xml"
-        service.enableGrammarConstraints = true
-        service.fixToolArgs = true
-        let model = AFMMLXModel(
-            modelID: "test/concrete-adapter",
-            attachedService: service
-        )
-
-        let adapter = AFMKitMLXChatServingAdapter(model: model)
-
-        XCTAssertEqual(adapter.maxConcurrent, 8)
-        XCTAssertEqual(adapter.servingConfiguration.toolCallParser, "afm_adaptive_xml")
-        XCTAssertTrue(adapter.servingConfiguration.grammarConstraintsEnabled)
-        XCTAssertTrue(adapter.servingConfiguration.fixToolArguments)
-        XCTAssertTrue(adapter.tryReserveSlot())
-        adapter.releaseSlot()
     }
 
     func testGenericAdapterEnforcesConfiguredAdmissionLimitConcurrently() {
@@ -139,6 +119,43 @@ final class AFMServerOwnershipTests: XCTestCase {
         adapter.releaseSlot()
     }
 
+    func testNonStreamingControllerDoesNotReleaseQueuedThirdRequestReservation() async throws {
+        let state = ControlledGenericAdmissionState()
+        let adapter = makeGenericAdapter(maxConcurrent: 2, state: state)
+        let app = try await Application.make(.testing)
+        try MLXChatCompletionsController(
+            modelID: "test/generic-admission",
+            service: adapter,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+        let testable = try app.testable()
+        let sender = ConcurrentRequestSender(tester: testable)
+
+        let first = Task { try await sender.send("first") }
+        let second = Task { try await sender.send("second") }
+        await state.waitUntilStarted(count: 2)
+
+        let third = Task { try await sender.send("third") }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let startedWhileFull = await state.startedCount()
+        XCTAssertEqual(startedWhileFull, 2, "third request bypassed admission queue")
+
+        await state.release("first")
+        await state.waitUntilStarted(count: 3)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(
+            adapter.tryReserveSlot(),
+            "first request cleanup consumed the queued third request's reservation"
+        )
+
+        await state.releaseAll()
+        try await first.value
+        try await second.value
+        try await third.value
+        try await app.asyncShutdown()
+    }
+
     private func genericStream(
         adapter: AFMKitMLXChatServingAdapter,
         messages: [Message]
@@ -166,19 +183,44 @@ final class AFMServerOwnershipTests: XCTestCase {
         )
     }
 
-    private func makeGenericAdapter(maxConcurrent: Int) -> AFMKitMLXChatServingAdapter {
-        let model = GenericAdmissionTestModel(maxConcurrent: maxConcurrent)
+    private func makeGenericAdapter(
+        maxConcurrent: Int,
+        state: ControlledGenericAdmissionState? = nil
+    ) -> AFMKitMLXChatServingAdapter {
+        let model = GenericAdmissionTestModel(maxConcurrent: maxConcurrent, state: state)
         return AFMKitMLXChatServingAdapter(
             model: AnyAFMModel(model),
             modelID: model.descriptor.modelID.rawValue
         )
     }
+
+}
+
+private struct ConcurrentRequestSender: Sendable {
+    let tester: any XCTApplicationTester
+
+    func send(_ prompt: String) async throws {
+        let body = ByteBuffer(string: """
+        {"model":"test/generic-admission","stream":false,"messages":[{"role":"user","content":"\(prompt)"}]}
+        """)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        try await tester.test(
+            .POST,
+            "/v1/chat/completions",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, HTTPStatus.ok)
+        }
+    }
 }
 
 private struct GenericAdmissionTestModel: AFMModel {
     let descriptor: AFMModelDescriptor
+    let state: ControlledGenericAdmissionState?
 
-    init(maxConcurrent: Int) {
+    init(maxConcurrent: Int, state: ControlledGenericAdmissionState? = nil) {
         descriptor = AFMModelDescriptor(
             providerID: "test",
             modelID: "test/generic-admission",
@@ -186,6 +228,7 @@ private struct GenericAdmissionTestModel: AFMModel {
             capabilities: [.text, .streaming],
             metadata: ["maxConcurrent": .integer(maxConcurrent)]
         )
+        self.state = state
     }
 
     func availability() async -> AFMModelAvailability { .available }
@@ -202,9 +245,56 @@ private struct GenericAdmissionTestModel: AFMModel {
         to request: AFMRequest
     ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(.responseText(action: .append, text: "ok", tokenCount: 1))
-            continuation.yield(.completed(.stop))
-            continuation.finish()
+            let task = Task {
+                if let state {
+                    let prompt = request.messages
+                        .flatMap(\.content)
+                        .compactMap { content -> String? in
+                            guard case .text(let text) = content else { return nil }
+                            return text
+                        }
+                        .joined()
+                    await state.start(prompt)
+                    await state.waitUntilReleased(prompt)
+                }
+                continuation.yield(.responseText(action: .append, text: "ok", tokenCount: 1))
+                continuation.yield(.completed(.stop))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private actor ControlledGenericAdmissionState {
+    private var started = Set<String>()
+    private var released = Set<String>()
+
+    func start(_ prompt: String) {
+        started.insert(prompt)
+    }
+
+    func release(_ prompt: String) {
+        released.insert(prompt)
+    }
+
+    func releaseAll() {
+        released.formUnion(started)
+    }
+
+    func startedCount() -> Int {
+        started.count
+    }
+
+    func waitUntilStarted(count: Int) async {
+        while started.count < count {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+
+    func waitUntilReleased(_ prompt: String) async {
+        while !released.contains(prompt), !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
     }
 }

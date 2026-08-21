@@ -11,14 +11,13 @@ Until AFMKit publishes its first tag, use the immutable checkpoint:
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    revision: "dfeab23e95ea1979432958e3f9b002beb5685191"
+    revision: "b6f2b830782491a6a680724db3c6da4a31c13aaa"
 )
 ```
 
-AFMKit is private during this checkpoint. Vesta source builds require an
-authenticated GitHub identity with read access; this is not a public downstream
-installation path. Do not production-merge the private URL in either consumer
-until AFMKit is public or an approved public immutable artifact replaces it.
+This revision is a development checkpoint, not a versioned public installation
+contract. Production consumers must switch to an exact public AFMKit semantic
+version and commit the matching resolved version/revision before publication.
 
 Select only the products the app target needs:
 
