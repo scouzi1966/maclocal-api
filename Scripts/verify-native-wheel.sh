@@ -9,6 +9,8 @@ fi
 WHEEL="$1"
 PACKAGE_ROOT="$2"
 EXPECTED_TAG="py3-none-macosx_26_0_arm64"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERIFY_ROOT="${AFM_WHEEL_VERIFY_ROOT:-$SCRIPT_DIR/../.build/native-wheel-verify}"
 
 if [[ ! -f "$WHEEL" ]]; then
   echo "[wheel] missing wheel: $WHEEL" >&2
@@ -48,4 +50,19 @@ for required in \
   }
 done
 
-echo "[wheel] verified native AFM payload: $WHEEL"
+mkdir -p "$VERIFY_ROOT"
+VERIFY_DIR="$(mktemp -d "$VERIFY_ROOT/run.XXXXXX")"
+cleanup() {
+  rm -rf "$VERIFY_DIR"
+}
+trap cleanup EXIT
+
+unzip -q "$WHEEL" "$PACKAGE_ROOT/bin/*" -d "$VERIFY_DIR"
+EXTRACTED_BIN="$VERIFY_DIR/$PACKAGE_ROOT/bin/afm"
+EXTRACTED_METALLIB="$VERIFY_DIR/$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib"
+chmod +x "$EXTRACTED_BIN"
+
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$EXTRACTED_BIN" "$EXTRACTED_METALLIB"
+"$EXTRACTED_BIN" --version >/dev/null
+
+echo "[wheel] verified native AFM payload and executable: $WHEEL"

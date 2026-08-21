@@ -19,11 +19,14 @@ mkdir -p "$BACKUP_DIR"
 cp macafm_next/__init__.py "$BACKUP_DIR/__init__.py"
 cp pyproject-next.toml "$BACKUP_DIR/pyproject-next.toml"
 cp pyproject.toml "$BACKUP_DIR/pyproject.toml"
+cp -R macafm_next.egg-info "$BACKUP_DIR/macafm_next.egg-info"
 
 cleanup() {
     cp "$BACKUP_DIR/__init__.py" macafm_next/__init__.py
     cp "$BACKUP_DIR/pyproject-next.toml" pyproject-next.toml
     cp "$BACKUP_DIR/pyproject.toml" pyproject.toml
+    rm -rf macafm_next.egg-info
+    cp -R "$BACKUP_DIR/macafm_next.egg-info" macafm_next.egg-info
     rm -rf macafm_next/bin macafm_next/share "$BACKUP_DIR"
 }
 trap cleanup EXIT

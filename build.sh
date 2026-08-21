@@ -474,14 +474,31 @@ if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
   WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
 
-  SUDO=""
-  if [ ! -w "$INSTALL_PREFIX" ] || [ ! -w "$INSTALL_PREFIX/bin" ]; then
-    SUDO="sudo"
+  INSTALL_PERMISSION_PROBE="$INSTALL_PREFIX/bin"
+  while [ ! -e "$INSTALL_PERMISSION_PROBE" ]; do
+    PARENT_DIR="$(dirname "$INSTALL_PERMISSION_PROBE")"
+    if [ "$PARENT_DIR" = "$INSTALL_PERMISSION_PROBE" ]; then
+      break
+    fi
+    INSTALL_PERMISSION_PROBE="$PARENT_DIR"
+  done
+
+  USE_SUDO=false
+  if [ ! -w "$INSTALL_PERMISSION_PROBE" ]; then
+    USE_SUDO=true
     log_warn "$INSTALL_PREFIX is not writable — using sudo (you may be prompted for your password)"
   fi
 
-  $SUDO install -d "$INSTALL_PREFIX/bin" "$INSTALL_PREFIX/libexec/afm" "$INSTALL_PREFIX/share/afm/webui"
-  $SUDO install -m 755 "$FINAL_BIN" "$INSTALL_PREFIX/bin/afm"
+  run_install_command() {
+    if $USE_SUDO; then
+      sudo "$@"
+    else
+      "$@"
+    fi
+  }
+
+  run_install_command install -d "$INSTALL_PREFIX/bin" "$INSTALL_PREFIX/libexec/afm" "$INSTALL_PREFIX/share/afm/webui"
+  run_install_command install -m 755 "$FINAL_BIN" "$INSTALL_PREFIX/bin/afm"
 
   # Provider resources must remain beside the relocated executable. Keep both
   # immutable SwiftPM bundles in libexec and expose sibling symlinks, matching
@@ -492,14 +509,14 @@ if $DO_INSTALL; then
       log_error "Required AFMKit provider bundle missing: $BUNDLE_SRC"
       exit 1
     fi
-    $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
-    $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
-    $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME" \
+    run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
+    run_install_command cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
+    run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME" \
       "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
   done
 
   if [ -f "$WEBUI_SRC" ]; then
-    $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"
+    run_install_command install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"
   fi
 
   log_info "Installed: $INSTALL_PREFIX/bin/afm"
