@@ -360,7 +360,9 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
                 generatedTokens: generationTokens,
                 maximumOutputTokens: nil,
                 samplingN: samplingN,
-                samplingBestOf: samplingBestOf
+                samplingBestOf: samplingBestOf,
+                includeZeroGeneratedTokenHistograms: false,
+                includeSingleTokenZeroTimePerOutputToken: false
             )
         }
     }
@@ -413,7 +415,9 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         generatedTokens: Int,
         maximumOutputTokens: Int?,
         samplingN: Int,
-        samplingBestOf: Int
+        samplingBestOf: Int,
+        includeZeroGeneratedTokenHistograms: Bool,
+        includeSingleTokenZeroTimePerOutputToken: Bool
     ) {
         let endToEnd = max(0, completedAt - acceptedAt)
         let queue = startedAt.map { max(0, $0 - acceptedAt) } ?? 0
@@ -430,7 +434,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             state.decodeLatency.observe(decode)
             if generatedTokens > 1 {
                 state.timePerOutputToken.observe(decode / Double(generatedTokens - 1))
-            } else if generatedTokens == 1 {
+            } else if generatedTokens == 1 && includeSingleTokenZeroTimePerOutputToken {
                 state.timePerOutputToken.observe(0)
             }
         }
@@ -439,8 +443,8 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         if computedPromptTokens > 0 {
             state.computedPromptTokens.observe(Double(computedPromptTokens))
         }
-        if generatedTokens >= 0 { state.generatedTokens.observe(Double(generatedTokens)) }
-        if generatedTokens >= 0 {
+        if generatedTokens > 0 || (generatedTokens == 0 && includeZeroGeneratedTokenHistograms) {
+            state.generatedTokens.observe(Double(generatedTokens))
             state.maximumGeneratedTokens.observe(Double(generatedTokens))
         }
         if let maximumOutputTokens, maximumOutputTokens >= 0 {
@@ -634,7 +638,9 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
                 generatedTokens: observation.generatedTokens,
                 maximumOutputTokens: observation.maximumOutputTokens,
                 samplingN: observation.samplingN,
-                samplingBestOf: observation.samplingBestOf
+                samplingBestOf: observation.samplingBestOf,
+                includeZeroGeneratedTokenHistograms: true,
+                includeSingleTokenZeroTimePerOutputToken: true
             )
             return true
         }

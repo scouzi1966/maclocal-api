@@ -120,10 +120,12 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
             )
         ))
 
-        let histogram = collector.metricsSnapshot().maximumOutputTokens
-        XCTAssertEqual(histogram.count, 1)
-        XCTAssertEqual(histogram.sum, 0)
-        XCTAssertEqual(histogram.bucketCounts.first, 1)
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.maximumOutputTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumOutputTokens.sum, 0)
+        XCTAssertEqual(snapshot.generatedTokens.count, 2)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 2)
+        XCTAssertEqual(snapshot.maximumOutputTokens.bucketCounts.first, 1)
     }
 
     func testProviderEpochTimestampsCannotPinBoundedRollingGauges() {

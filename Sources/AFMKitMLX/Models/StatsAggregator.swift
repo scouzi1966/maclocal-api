@@ -63,13 +63,23 @@ public final class StatsAggregator: @unchecked Sendable {
 
     public struct Histogram: Sendable {
         public let buckets: [Double]
+        /// Backward-compatible cumulative lower bounds. Use `exactBucketCounts`
+        /// when consuming a histogram rebucketed from a different layout.
         public var bucketCounts: [UInt64]
+        public var bucketCountRanges: [ClosedRange<UInt64>]
         public var sum: Double
         public var count: UInt64
+
+        public var exactBucketCounts: [UInt64?] {
+            bucketCountRanges.map { range in
+                range.lowerBound == range.upperBound ? range.lowerBound : nil
+            }
+        }
 
         public init(buckets: [Double]) {
             self.buckets = buckets
             self.bucketCounts = Array(repeating: 0, count: buckets.count + 1)
+            self.bucketCountRanges = Array(repeating: 0...0, count: buckets.count + 1)
             self.sum = 0
             self.count = 0
         }
@@ -82,32 +92,47 @@ public final class StatsAggregator: @unchecked Sendable {
                 bucketCounts[index] &+= 1
             }
             bucketCounts[buckets.count] &+= 1
+            bucketCountRanges = bucketCounts.map { $0...$0 }
         }
 
         init(_ snapshot: AFMHistogramSnapshot) {
             buckets = snapshot.buckets
             bucketCounts = snapshot.bucketCounts
+            bucketCountRanges = snapshot.bucketCounts.map { $0...$0 }
             sum = snapshot.sum
             count = snapshot.count
         }
 
         init(_ snapshot: AFMHistogramSnapshot, rebucketedTo compatibleBuckets: [Double]) {
             buckets = compatibleBuckets
-            bucketCounts = compatibleBuckets.map { boundary in
+            bucketCountRanges = compatibleBuckets.map { boundary in
                 if let exactIndex = snapshot.buckets.firstIndex(of: boundary),
                    exactIndex < snapshot.bucketCounts.count {
-                    return snapshot.bucketCounts[exactIndex]
+                    let exact = snapshot.bucketCounts[exactIndex]
+                    return exact...exact
                 }
-                if let lastBoundary = snapshot.buckets.last, boundary > lastBoundary {
-                    return snapshot.count
+
+                let lowerCount: UInt64
+                if let lowerIndex = snapshot.buckets.lastIndex(where: { $0 < boundary }),
+                   lowerIndex < snapshot.bucketCounts.count {
+                    lowerCount = snapshot.bucketCounts[lowerIndex]
+                } else {
+                    lowerCount = 0
                 }
-                guard let lowerIndex = snapshot.buckets.lastIndex(where: { $0 < boundary }),
-                      lowerIndex < snapshot.bucketCounts.count else {
-                    return 0
+
+                let upperCount: UInt64
+                if let upperIndex = snapshot.buckets.firstIndex(where: { $0 > boundary }),
+                   upperIndex < snapshot.bucketCounts.count {
+                    upperCount = snapshot.bucketCounts[upperIndex]
+                } else {
+                    upperCount = snapshot.count
                 }
-                return snapshot.bucketCounts[lowerIndex]
+
+                guard lowerCount <= upperCount else { return 0...snapshot.count }
+                return lowerCount...upperCount
             }
-            bucketCounts.append(snapshot.count)
+            bucketCountRanges.append(snapshot.count...snapshot.count)
+            bucketCounts = bucketCountRanges.map(\.lowerBound)
             sum = snapshot.sum
             count = snapshot.count
         }

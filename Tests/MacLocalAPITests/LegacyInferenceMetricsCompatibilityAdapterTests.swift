@@ -118,4 +118,43 @@ final class LegacyInferenceMetricsCompatibilityAdapterTests: XCTestCase {
         XCTAssertEqual(snapshot.computedPromptTokens.count, 0)
         XCTAssertEqual(snapshot.generatedTokens.count, 0)
     }
+
+    func testLegacyRequestsSkipZeroTokenHistogramsAndSingleTokenZeroTPOT() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let adapter = LegacyInferenceMetricsCompatibilityAdapter(collector: collector)
+
+        adapter.observeRequest(
+            queuedAt: 1,
+            startedAt: 2,
+            firstTokenAt: nil,
+            completedAt: 3,
+            promptTokens: 1,
+            generationTokens: 0,
+            samplingN: 1,
+            samplingBestOf: 1
+        )
+
+        var snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.generatedTokens.count, 0)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 0)
+        XCTAssertEqual(snapshot.timePerOutputToken.count, 0)
+
+        adapter.observeRequest(
+            queuedAt: 4,
+            startedAt: 5,
+            firstTokenAt: 6,
+            completedAt: 7,
+            promptTokens: 1,
+            generationTokens: 1,
+            samplingN: 1,
+            samplingBestOf: 1
+        )
+
+        snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.generatedTokens.count, 1)
+        XCTAssertEqual(snapshot.generatedTokens.sum, 1)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.count, 1)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.sum, 1)
+        XCTAssertEqual(snapshot.timePerOutputToken.count, 0)
+    }
 }

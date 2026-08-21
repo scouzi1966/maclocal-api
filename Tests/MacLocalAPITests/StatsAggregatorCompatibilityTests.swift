@@ -1,4 +1,5 @@
 import XCTest
+import AFMKitCore
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -227,8 +228,34 @@ final class StatsAggregatorCompatibilityTests: XCTestCase {
             snapshot.generationTokens,
             hasBuckets: StatsAggregator.Buckets.tokenCount
         )
-        XCTAssertEqual(snapshot.promptTokens.bucketCounts[fiveThousandIndex], 1)
-        XCTAssertEqual(snapshot.generationTokens.bucketCounts[fiveThousandIndex], 1)
+        XCTAssertEqual(snapshot.promptTokens.bucketCounts[fiveThousandIndex], 0)
+        XCTAssertEqual(snapshot.generationTokens.bucketCounts[fiveThousandIndex], 0)
+        XCTAssertEqual(snapshot.promptTokens.bucketCountRanges[fiveThousandIndex], 0...1)
+        XCTAssertEqual(snapshot.generationTokens.bucketCountRanges[fiveThousandIndex], 0...1)
+        XCTAssertNil(snapshot.promptTokens.exactBucketCounts[fiveThousandIndex])
+        XCTAssertNil(snapshot.generationTokens.exactBucketCounts[fiveThousandIndex])
+    }
+
+    func testCompatibilityRebucketingExposesOnlyProvableFiniteCounts() {
+        let source = AFMHistogramSnapshot(
+            buckets: [10],
+            bucketCounts: [1, 2],
+            sum: 25,
+            count: 2
+        )
+
+        let histogram = StatsAggregator.Histogram(
+            source,
+            rebucketedTo: [5, 10, 20]
+        )
+
+        XCTAssertEqual(histogram.buckets, [5, 10, 20])
+        XCTAssertEqual(histogram.bucketCounts, [0, 1, 1, 2])
+        XCTAssertEqual(histogram.bucketCountRanges, [0...1, 1...1, 1...2, 2...2])
+        XCTAssertNil(histogram.exactBucketCounts[0])
+        XCTAssertEqual(histogram.exactBucketCounts[1], 1)
+        XCTAssertNil(histogram.exactBucketCounts[2])
+        XCTAssertEqual(histogram.exactBucketCounts[3], 2)
     }
 
     private func assertHistogram(
@@ -240,6 +267,12 @@ final class StatsAggregatorCompatibilityTests: XCTestCase {
         XCTAssertEqual(histogram.buckets, buckets, file: file, line: line)
         XCTAssertEqual(
             histogram.bucketCounts.count,
+            buckets.count + 1,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            histogram.bucketCountRanges.count,
             buckets.count + 1,
             file: file,
             line: line
