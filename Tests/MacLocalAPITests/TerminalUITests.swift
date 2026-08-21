@@ -9,6 +9,88 @@ import FoundationModels
 @testable import AFMTerminalUI
 
 final class TerminalMarkdownRendererTests: XCTestCase {
+    func testEveryPromisedTreeSitterGrammarIsCompiledAndABICompatible() {
+        XCTAssertEqual(TreeSitterSyntaxHighlighter.validateCompiledGrammars(), [])
+        XCTAssertEqual(TreeSitterSyntaxHighlighter.supportedLanguages.count, 23)
+    }
+
+    func testTreeSitterAliasesResolveWithoutRuntimeDiscovery() {
+        let aliases: [String: String] = [
+            "sh": "bash", "zsh": "bash", "c++": "cpp", "c#": "csharp",
+            "patch": "diff", "golang": "go", "xml": "html", "jsx": "javascript",
+            "kt": "kotlin", "md": "markdown", "py": "python", "rb": "ruby",
+            "postgresql": "sql", "ts": "typescript", "yml": "yaml"
+        ]
+        for (alias, canonical) in aliases {
+            XCTAssertEqual(TreeSitterSyntaxHighlighter.canonicalLanguage(alias), canonical)
+        }
+        XCTAssertNil(TreeSitterSyntaxHighlighter.canonicalLanguage("made-up-language"))
+    }
+
+    func testTreeSitterHighlightsMajorPopularFormats() {
+        let fixtures: [(String, String)] = [
+            ("bash", "if true; then echo \"ok\"; fi # note"),
+            ("c", "const char *message = \"ok\"; // note"),
+            ("cpp", "class User { public: int id = 42; };"),
+            ("csharp", "public sealed class User { string Name = \"Ada\"; }"),
+            ("css", ".app { color: #fff; margin: 12px; }"),
+            ("diff", "@@ -1 +1 @@\n-old\n+new"),
+            ("go", "package main\nfunc main() { println(\"ok\") }"),
+            ("html", "<main class=\"app\">Hello</main>"),
+            ("java", "public final class User { int id = 42; }"),
+            ("javascript", "const greet = (name) => `Hello ${name}`;"),
+            ("json", "{\"name\": \"Ada\", \"count\": 42, \"ok\": true}"),
+            ("kotlin", "data class User(val id: Int)\nfun main() = User(42)"),
+            ("markdown", "# Heading\n**bold** and `code`"),
+            ("php", "<?php function greet($name) { return \"Hello $name\"; }"),
+            ("python", "def greet(name):\n    return f\"Hello {name}\""),
+            ("ruby", "class User\n  def name = \"Ada\"\nend"),
+            ("rust", "pub struct User { id: usize }\nfn main() { let n = 42; }"),
+            ("sql", "SELECT id FROM users WHERE id = 42; -- note"),
+            ("swift", "public struct User { let id: Int = 42 }"),
+            ("toml", "name = \"afm\"\nenabled = true"),
+            ("tsx", "const App = () => <main>Hello</main>;"),
+            ("typescript", "interface User { id: number }\nconst id = 42;"),
+            ("yaml", "name: afm\nenabled: true\ncount: 42")
+        ]
+
+        for (language, source) in fixtures {
+            let tokens = TreeSitterSyntaxHighlighter.tokens(in: source, language: language)
+            XCTAssertNotNil(tokens, "Missing compiled parser for \(language)")
+            XCTAssertFalse(tokens?.isEmpty ?? true, "No semantic tokens for \(language)")
+
+            let rendered = TerminalMarkdownRenderer(color: true, theme: .dark)
+                .render("```\(language)\n\(source)\n```").text
+            XCTAssertTrue(rendered.contains("\u{001B}["), "No ANSI output for \(language)")
+            XCTAssertEqual(
+                TerminalMarkdownRenderer(color: false).render("```\(language)\n\(source)\n```").codeBlocks.first?.content,
+                source
+            )
+        }
+    }
+
+    func testTreeSitterHandlesMultilineSyntaxMalformedCodeAndUnicodeRanges() throws {
+        let python = "value = \"\"\"line one\nline two 🧪\"\"\"\nif value:\n    print(value"
+        let tokens = try XCTUnwrap(TreeSitterSyntaxHighlighter.tokens(in: python, language: "python"))
+        XCTAssertTrue(tokens.contains { $0.kind == .string && $0.range.length > "line one".utf16.count })
+        let sourceLength = (python as NSString).length
+        XCTAssertTrue(tokens.allSatisfy { NSMaxRange($0.range) <= sourceLength })
+
+        let c = "/* first\nsecond */\nint main( { return 42; }"
+        XCTAssertTrue(
+            TreeSitterSyntaxHighlighter.tokens(in: c, language: "c")?.contains { $0.kind == .comment } == true
+        )
+    }
+
+    func testUnknownFenceUsesFallbackAndOversizedKnownFenceFailsClosed() {
+        XCTAssertNil(TreeSitterSyntaxHighlighter.tokens(in: "let x = 1", language: "unknownlang"))
+        let oversized = String(repeating: "a", count: TreeSitterSyntaxHighlighter.maximumSourceBytes + 1)
+        XCTAssertNil(TreeSitterSyntaxHighlighter.tokens(in: oversized, language: "swift"))
+
+        let rendered = TerminalMarkdownRenderer(color: true).render("```unknownlang\nconst value = 42\n```").text
+        XCTAssertTrue(rendered.contains("\u{001B}[95mconst\u{001B}[0m"))
+    }
+
     func testParsesCodeDiffLatexAndLocalImagesWithoutColor() {
         let source = #"""
         # Result
@@ -197,7 +279,7 @@ final class TerminalMarkdownRendererTests: XCTestCase {
 
         XCTAssertNotEqual(dark, light)
         XCTAssertTrue(dark.contains("\u{001B}[95mlet"))
-        XCTAssertTrue(dark.contains("\u{001B}[94mWidget"))
+        XCTAssertTrue(dark.contains("\u{001B}[96mWidget"))
         XCTAssertTrue(dark.contains("\u{001B}[92m\"AFM\""))
         XCTAssertTrue(dark.contains("\u{001B}[91m42"))
         XCTAssertTrue(dark.contains("\u{001B}[2;37m// comment"))

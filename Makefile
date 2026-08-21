@@ -28,6 +28,7 @@ build: $(PATCH_STAMP)
 		-Xswiftc -disable-upcoming-feature \
 		-Xswiftc MemberImportVisibility
 	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		Scripts/check-tree-sitter-highlighting.sh "$$AFM_BIN"; \
 		strip "$$AFM_BIN"; \
 		echo "✅ Build complete: $$AFM_BIN"; \
 		echo "📊 Size: $$(ls -lh "$$AFM_BIN" | awk '{print $$5}')"
@@ -109,6 +110,7 @@ test: build
 debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
 	@Scripts/swiftpm-reliable.sh build
+	@Scripts/check-tree-sitter-highlighting.sh "$$(Scripts/find-afm-binary.sh debug)"
 	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
 
 # Run the server (development)

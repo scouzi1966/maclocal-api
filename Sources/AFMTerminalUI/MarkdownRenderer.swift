@@ -428,17 +428,79 @@ public struct TerminalMarkdownRenderer: Sendable {
 
         private func renderPanel(_ content: String, label: String) -> String {
             let sourceLines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            let highlightedLines = syntaxHighlightedLines(content, language: label) ??
+                sourceLines.map { highlightFallback($0, language: label) }
             let digits = max(1, String(sourceLines.count).count)
             let header = owner.style("┌─", owner.palette.secondary) + owner.style(" \(label) ", owner.palette.accent)
             let lines = sourceLines.enumerated().map { index, line in
                 let number = String(format: "%\(digits)d", index + 1)
-                return owner.style("│ \(number) │", owner.palette.secondary) + " " + highlight(line, language: label)
+                return owner.style("│ \(number) │", owner.palette.secondary) + " " + highlightedLines[index]
             }
             let footer = owner.style("└" + String(repeating: "─", count: min(max(8, label.count + 4), width - 1)), owner.palette.secondary)
             return ([header] + lines + [footer]).joined(separator: "\n")
         }
 
-        private func highlight(_ line: String, language: String) -> String {
+        private func syntaxHighlightedLines(_ content: String, language: String) -> [String]? {
+            guard owner.ansi,
+                  let tokens = TreeSitterSyntaxHighlighter.tokens(in: content, language: language) else {
+                return nil
+            }
+            let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            var location = 0
+            return lines.map { line in
+                let lineLength = (line as NSString).length
+                let lineRange = NSRange(location: location, length: lineLength)
+                let relevant = tokens.compactMap { token -> TUISyntaxToken? in
+                    let intersection = NSIntersectionRange(token.range, lineRange)
+                    guard intersection.length > 0 else { return nil }
+                    return TUISyntaxToken(
+                        range: NSRange(location: intersection.location - location, length: intersection.length),
+                        kind: token.kind
+                    )
+                }.sorted { $0.range.location < $1.range.location }
+                let lineNSString = line as NSString
+                var output = ""
+                var cursor = 0
+                for token in relevant where token.range.location >= cursor {
+                    if token.range.location > cursor {
+                        output += lineNSString.substring(with: NSRange(
+                            location: cursor,
+                            length: token.range.location - cursor
+                        ))
+                    }
+                    output += syntaxStyle(
+                        lineNSString.substring(with: token.range),
+                        kind: token.kind
+                    )
+                    cursor = NSMaxRange(token.range)
+                }
+                if cursor < lineLength {
+                    output += lineNSString.substring(from: cursor)
+                }
+                location += lineLength + 1
+                return output
+            }
+        }
+
+        private func syntaxStyle(_ value: String, kind: TUISyntaxKind) -> String {
+            switch kind {
+            case .comment: owner.style(value, owner.palette.comment)
+            case .string: owner.style(value, owner.palette.string)
+            case .number: owner.style(value, owner.palette.number)
+            case .keyword: owner.style(value, owner.palette.keyword)
+            case .type: owner.style(value, owner.palette.type)
+            case .function: owner.style(value, owner.palette.accent)
+            case .attribute: owner.style(value, owner.palette.code)
+            case .operator: owner.style(value, owner.palette.accent)
+            case .addition: owner.style(value, owner.palette.string)
+            case .deletion: owner.style(value, owner.palette.number)
+            case .metadata: owner.style(value, owner.palette.accent)
+            }
+        }
+
+        /// Unknown fence labels retain a safe lightweight lexer rather than losing
+        /// all readability. Registered languages never use this path in normal builds.
+        private func highlightFallback(_ line: String, language: String) -> String {
             guard owner.ansi else { return line }
             let language = language.lowercased()
             if ["diff", "patch"].contains(language) {

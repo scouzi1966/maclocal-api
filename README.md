@@ -108,7 +108,8 @@ afm mlx -m Qwen3-0.6B-4bit --tui
 The terminal UI streams responses, separates optional reasoning, and renders both answers
 and visible reasoning through a native CommonMark/GFM renderer. Headings, nested/task lists,
 quotes, tables, links, inline formatting, fenced code, and raw HTML are presented as inert
-terminal output. Code has language-aware token highlighting and line numbers; unified diffs
+terminal output. Code uses source-compiled Tree-sitter grammars for semantic highlighting
+and line numbers ([details](docs/tui-syntax-highlighting.md)); unified diffs
 have distinct file, hunk, addition, and deletion styling. Inline and display LaTeX are rendered
 as readable Unicode math, including fractions, roots, super/subscripts, operators, Greek
 symbols, matrices, and cases. The UI also reports token and throughput statistics.

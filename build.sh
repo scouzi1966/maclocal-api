@@ -406,6 +406,8 @@ if ! FINAL_BIN="$($SCRIPTS_DIR/find-afm-binary.sh "$BUILD_CONFIG")"; then
   exit 1
 fi
 
+"$SCRIPTS_DIR/check-tree-sitter-highlighting.sh" "$FINAL_BIN"
+
 if [ "$BUILD_CONFIG" = "release" ]; then
   strip "$FINAL_BIN"
   log_info "Stripped debug symbols"
