@@ -142,6 +142,18 @@ def streaming_completion(base_url: str, path: str, payload: dict[str, Any]) -> d
     return {"finish_reason": finish_reasons[0], "usage": usage, "text": text, "events": len(events)}
 
 
+def deterministic_stop_sequence(text: str) -> str:
+    require(len(text) >= 2, "raw stop probe produced too little text")
+    preferred_start = max(1, len(text) // 3)
+    starts = list(range(preferred_start, len(text))) + list(range(1, preferred_start))
+    for start in starts:
+        for length in range(min(8, len(text) - start), 0, -1):
+            candidate = text[start : start + length]
+            if text.find(candidate) == start:
+                return candidate
+    raise QualificationError("raw stop probe has no unique interior stop sequence")
+
+
 def parse_metrics(text: str) -> tuple[dict[str, list[tuple[dict[str, str], float]]], dict[str, str]]:
     try:
         from prometheus_client.parser import text_string_to_metric_families
@@ -281,24 +293,24 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
 
     before, before_parity, promtool = fetch_metrics(base_url, artifact_dir / "metrics-before.prom", args.promtool)
 
-    nonstream = json_request(
-        base_url,
-        "POST",
-        "/v1/completions",
-        {"model": model, "prompt": "Reply with one short word.", "max_tokens": 4, "temperature": 0},
-    )
+    nonstream_request = {
+        "model": model,
+        "prompt": "Reply with one short word.",
+        "max_tokens": 32,
+        "temperature": 0,
+        "seed": 192,
+        "ignore_eos": True,
+    }
+    nonstream = json_request(base_url, "POST", "/v1/completions", nonstream_request)
     usage = nonstream.get("usage", {})
     require(usage.get("prompt_tokens", 0) > 0 and usage.get("completion_tokens", 0) > 0, "non-stream completion lacks exact usage")
     require(usage.get("total_tokens") == usage.get("prompt_tokens") + usage.get("completion_tokens"), "non-stream completion usage is not exact")
     require(nonstream.get("choices", [{}])[0].get("finish_reason") in {"stop", "length"}, "invalid non-stream finish reason")
 
-    stop_sequences = list("aeiouAEIOU")
+    probe_text = str(nonstream.get("choices", [{}])[0].get("text", ""))
+    stop_sequences = [deterministic_stop_sequence(probe_text)]
     stop_request = {
-        "model": model,
-        "prompt": "Write one short lowercase English sentence.",
-        "max_tokens": 32,
-        "temperature": 0,
-        "ignore_eos": True,
+        **nonstream_request,
         "stop": stop_sequences,
     }
     stopped_nonstream = json_request(base_url, "POST", "/v1/completions", stop_request)
@@ -435,7 +447,11 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
         },
         "raw_stream": {k: v for k, v in raw_stream.items() if k != "text"},
         "chat_stream": {k: v for k, v in chat_stream.items() if k != "text"},
-        "stopped_nonstream": {"finish_reason": stopped_choice.get("finish_reason"), "usage": stopped_usage},
+        "stopped_nonstream": {
+            "finish_reason": stopped_choice.get("finish_reason"),
+            "stop_sequence": stop_sequences[0],
+            "usage": stopped_usage,
+        },
         "stopped_stream": {k: v for k, v in stopped_stream.items() if k != "text"},
         "concurrent_requests": len(concurrent_results),
         "saturation_gauges": {

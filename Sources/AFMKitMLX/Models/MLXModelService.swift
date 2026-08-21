@@ -3300,6 +3300,7 @@ public final class MLXModelService: @unchecked Sendable {
             // leading chunk so the controller's reasoning extractor latches
             // on. Mirrors the serial-streaming path at line ~2061. (#99)
             let templateOpenedThink: Bool = {
+                guard rawPrompt == nil else { return false }
                 guard let thinkStart = self.thinkStartTag else { return false }
                 let tokens = input.text.tokens
                 let ndim = tokens.ndim
@@ -3328,8 +3329,8 @@ public final class MLXModelService: @unchecked Sendable {
                     )
                 },
                 stopSequences: (stop ?? []) + self.implicitStopSequences,
-                thinkStartTag: self.thinkStartTag,
-                thinkEndTag: self.thinkEndTag,
+                thinkStartTag: rawPrompt == nil ? self.thinkStartTag : nil,
+                thinkEndTag: rawPrompt == nil ? self.thinkEndTag : nil,
                 requestId: reqId
             )
             let effectiveStream: AsyncThrowingStream<StreamChunk, Error>
@@ -3582,7 +3583,8 @@ public final class MLXModelService: @unchecked Sendable {
 
                         // If the chat template appended a think tag, inject it
                         // into the stream so the reasoning extractor can detect it.
-                        let thinkStart = self.thinkStartTag
+                        let thinkStart = rawPrompt == nil ? self.thinkStartTag : nil
+                        let thinkEnd = rawPrompt == nil ? self.thinkEndTag : nil
                         var templateInjectedThink = false
                         let tokens = input.text.tokens
                         let ndim = tokens.ndim
@@ -3595,7 +3597,7 @@ public final class MLXModelService: @unchecked Sendable {
                             if Self.promptSuffixOpensThink(
                                 decoded,
                                 startTag: thinkStart,
-                                endTag: self.thinkEndTag
+                                endTag: thinkEnd
                             ) {
                                 continuation.yield(StreamChunk(text: thinkStart))
                                 templateInjectedThink = true
@@ -3813,7 +3815,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     // Track think boundaries for stop sequence scoping
                                     let wasInsideThink = insideThink
                                     if let ts = thinkStart, text.contains(ts) { insideThink = true }
-                                    if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
+                                    if let te = thinkEnd, text.contains(te) { insideThink = false }
 
                                     if !activeStops.isEmpty && !insideThink {
                                         let stopScopedText: String
@@ -3821,7 +3823,7 @@ public final class MLXModelService: @unchecked Sendable {
                                         // end tag through (the controller needs the end tag to close the
                                         // think block — swallowing it left the stream inside reasoning
                                         // forever, #148); only the visible text after it is stop-scoped.
-                                        if wasInsideThink, let te = self.thinkEndTag, let thinkEndRange = text.range(of: te) {
+                                        if wasInsideThink, let te = thinkEnd, let thinkEndRange = text.range(of: te) {
                                             let throughEnd = String(text[..<thinkEndRange.upperBound])
                                             continuation.yield(StreamChunk(text: throughEnd, logprobs: resolved))
                                             resolved = nil

@@ -132,4 +132,13 @@ final class RawTextGenerationContractTests: XCTestCase {
         XCTAssertFalse(buffer.stopped)
         XCTAssertEqual(visible, "answer ST")
     }
+
+    func testSerialRawStopBufferTreatsLiteralThinkTagsAsOutput() {
+        var buffer = MLXSerialStopSequenceBuffer(stopSequences: ["one short"])
+        let visible = buffer.append("<think>reply with one short word")
+
+        XCTAssertTrue(buffer.stopped)
+        XCTAssertEqual(visible, "<think>reply with ")
+        XCTAssertEqual(buffer.finish(), "")
+    }
 }

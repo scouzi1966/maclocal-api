@@ -563,4 +563,26 @@ struct ConcurrentBatchTests {
         #expect(result.chunks[0].text == "<think>plan\n\nUser:")
         #expect(insideThink == true)
     }
+
+    @Test("BatchScheduler raw stop helper treats literal think tags as output")
+    func rawStopHelperStopsInsideLiteralThinkTags() {
+        var stopBuffer = ""
+        var insideThink = false
+
+        let result = BatchScheduler.stopChunksToEmit(
+            from: "<think>reply with one short word",
+            stopBuffer: &stopBuffer,
+            activeStops: ["one short"],
+            maxStopLength: "one short".count,
+            insideThink: &insideThink,
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+
+        #expect(result.stopped)
+        #expect(result.chunks.count == 1)
+        #expect(result.chunks[0].text == "<think>reply with ")
+        #expect(result.chunks[0].stoppedBySequence == true)
+        #expect(insideThink == false)
+    }
 }
