@@ -12,6 +12,7 @@ let package = Package(
             name: "Issue192TelemetryClientTests",
             dependencies: [
                 .product(name: "AFMKitCore", package: "MacLocalAPI"),
+                .product(name: "AFMKitMLX", package: "MacLocalAPI"),
                 .product(name: "AFMOpenAICompat", package: "MacLocalAPI"),
                 .product(name: "AFMKitServices", package: "MacLocalAPI"),
             ]

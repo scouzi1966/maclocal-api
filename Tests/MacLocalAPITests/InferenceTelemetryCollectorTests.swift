@@ -69,6 +69,72 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
         XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "error" }?.count, 0)
     }
 
+    func testOneTokenRequestRecordsVLLMCompatibleZeroTPOT() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let token = collector.requestAccepted(at: 10)
+        collector.requestStarted(token, at: 11)
+        collector.outputToken(token, at: 12)
+        XCTAssertTrue(collector.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .stop,
+                completedAt: 13,
+                fullPromptTokens: 2,
+                computedPromptTokens: 2,
+                generatedTokens: 1
+            )
+        ))
+
+        let tpot = collector.metricsSnapshot().timePerOutputToken
+        XCTAssertEqual(tpot.count, 1)
+        XCTAssertEqual(tpot.sum, 0)
+        XCTAssertEqual(tpot.bucketCounts.first, 1)
+    }
+
+    func testProviderEpochTimestampsCannotPinBoundedRollingGauges() {
+        let clock = Clock(100)
+        let collector = InferenceTelemetryCollector(
+            now: { clock.read() },
+            wallTime: { 1_000 }
+        )
+        let providerEpoch = 1_800_000_000.0
+        let token = collector.requestAccepted(at: providerEpoch)
+        collector.requestStarted(token, at: providerEpoch + 0.1)
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 4,
+            computedPromptTokens: 4,
+            at: providerEpoch + 0.2
+        )
+        for index in 0..<20_000 {
+            collector.outputToken(token, at: providerEpoch + 0.3 + Double(index) / 1_000)
+        }
+        XCTAssertTrue(collector.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .length,
+                completedAt: providerEpoch + 21,
+                fullPromptTokens: 4,
+                computedPromptTokens: 4,
+                generatedTokens: 20_000
+            )
+        ))
+        XCTAssertGreaterThan(doubleGauge("generation_throughput", in: collector.metricsSnapshot()), 0)
+
+        clock.set(110.1)
+        let decayed = collector.metricsSnapshot()
+        XCTAssertEqual(doubleGauge("computed_prompt_throughput", in: decayed), 0)
+        XCTAssertEqual(doubleGauge("generation_throughput", in: decayed), 0)
+        XCTAssertEqual(doubleGauge("request_throughput", in: decayed), 0)
+    }
+
+    private func doubleGauge(
+        _ name: String,
+        in snapshot: AFMInferenceMetricsSnapshot
+    ) -> Double {
+        snapshot.supplementalDoubleGauges.first { $0.name == name }?.value ?? -1
+    }
+
     func testTokenCountersAdvanceDuringRequestAndTerminalDoesNotDoubleCount() {
         let collector = InferenceTelemetryCollector(now: { 110 }, wallTime: { 1_000 })
         let token = collector.requestAccepted(at: 100)

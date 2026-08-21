@@ -1,4 +1,5 @@
 import AFMKitCore
+import AFMKitMLX
 import AFMOpenAICompat
 import AFMKitServices
 import XCTest
@@ -55,5 +56,31 @@ final class TelemetryClientTests: XCTestCase {
         XCTAssertEqual(request.streamOptions?.includeUsage, true)
         XCTAssertEqual(request.streamOptions?.continuousUsageStats, true)
         XCTAssertEqual(request.includeStreamingUsage, true)
+    }
+
+    func testDeprecatedStatsAggregatorRemainsBehavioralWithoutAFMKitComposition() {
+        let stats = StatsAggregator.shared
+        stats.reset()
+        stats.setModel("external-client", maxConcurrent: 2)
+        stats.addGenTokens(3)
+        stats.addPromptTokens(5)
+        stats.requestStarted()
+        stats.requestCompleted()
+        stats.requestSucceeded(reason: "stop")
+        stats.observeGenerationTokens(3)
+
+        var histogram = StatsAggregator.Histogram(buckets: [1, 2])
+        histogram.observe(1.5)
+        XCTAssertEqual(histogram.count, 1)
+        let snapshot = stats.snapshot()
+        XCTAssertEqual(snapshot.modelName, "external-client")
+        XCTAssertEqual(snapshot.maxConcurrent, 2)
+        XCTAssertEqual(snapshot.genTokensTotal, 3)
+        XCTAssertEqual(snapshot.promptTokensTotal, 5)
+        XCTAssertEqual(snapshot.requestSuccessByReason["stop"], 1)
+        XCTAssertEqual(snapshot.generationTokens.count, 1)
+
+        stats.reset()
+        XCTAssertEqual(stats.snapshot().genTokensTotal, 0)
     }
 }

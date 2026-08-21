@@ -161,11 +161,16 @@ public final class StatsAggregator: @unchecked Sendable {
         var used = false
     }
 
-    private let binding = OSAllocatedUnfairLock<Binding>(
-        initialState: Binding(target: NoopStatsAggregatorCompatibilityTarget())
-    )
+    private let binding: OSAllocatedUnfairLock<Binding>
 
-    private init() {}
+    init(
+        compatibilityTarget: any StatsAggregatorCompatibilityTarget =
+            DefaultStatsAggregatorCompatibilityTarget()
+    ) {
+        binding = OSAllocatedUnfairLock(
+            initialState: Binding(target: compatibilityTarget)
+        )
+    }
 
     /// Installs the Services-backed target used by this compatibility facade.
     /// Reinstalling the same object is harmless. A different target cannot replace
@@ -174,7 +179,14 @@ public final class StatsAggregator: @unchecked Sendable {
     public static func installCompatibilityTarget(
         _ target: any StatsAggregatorCompatibilityTarget
     ) -> Bool {
-        shared.binding.withLock { binding in
+        shared.installCompatibilityTarget(target)
+    }
+
+    @discardableResult
+    func installCompatibilityTarget(
+        _ target: any StatsAggregatorCompatibilityTarget
+    ) -> Bool {
+        binding.withLock { binding in
             let identity = ObjectIdentifier(target)
             if binding.identity == identity { return true }
             guard !binding.used else { return false }
@@ -184,9 +196,11 @@ public final class StatsAggregator: @unchecked Sendable {
         }
     }
 
-    private func target() -> any StatsAggregatorCompatibilityTarget {
+    private func target(markUsed: Bool = true) -> any StatsAggregatorCompatibilityTarget {
         binding.withLock { binding in
-            binding.used = true
+            if markUsed || binding.identity != nil {
+                binding.used = true
+            }
             return binding.target
         }
     }
@@ -212,7 +226,11 @@ public final class StatsAggregator: @unchecked Sendable {
 
     public func connectionStarted() { target().connectionStarted() }
     public func connectionEnded() { target().connectionEnded() }
-    public func reset() { target().reset() }
+    public func reset() {
+        // Resetting an untouched fallback leaves no state to migrate, so it must
+        // not prevent the composition root from installing its shared collector.
+        target(markUsed: false).reset()
+    }
 
     public func addGenTokens(_ n: Int = 1) { target().addGenTokens(n) }
     public func addPromptTokens(_ n: Int) { target().addPromptTokens(n) }
@@ -282,62 +300,6 @@ public final class StatsAggregator: @unchecked Sendable {
             generationTokens: Histogram(snapshot.generatedTokens),
             paramsN: Histogram(snapshot.samplingN),
             paramsBestOf: Histogram(snapshot.samplingBestOf)
-        )
-    }
-}
-
-private final class NoopStatsAggregatorCompatibilityTarget:
-    StatsAggregatorCompatibilityTarget,
-    @unchecked Sendable
-{
-    private let start = Date().timeIntervalSince1970
-
-    func setModel(_ name: String, maxConcurrent: Int) {}
-    func registerGaugeReaders(
-        running: @escaping StatsAggregator.GaugeReader,
-        waiting: @escaping StatsAggregator.GaugeReader
-    ) {}
-    func registerGpuCacheUsageReader(_ reader: @escaping StatsAggregator.FractionReader) {}
-    func registerRadixCacheFillReader(_ reader: @escaping StatsAggregator.FractionReader) {}
-    func connectionStarted() {}
-    func connectionEnded() {}
-    func reset() {}
-    func addGenTokens(_ count: Int) {}
-    func addPromptTokens(_ count: Int) {}
-    func requestStarted() {}
-    func requestCompleted() {}
-    func cacheHit() {}
-    func cacheMiss() {}
-    func requestSucceeded(reason: String) {}
-    func observeRequest(_ observation: StatsAggregator.RequestObservation) {}
-    func observeE2eLatency(_ seconds: Double) {}
-    func observeTimeToFirstToken(_ seconds: Double) {}
-    func observeTimePerOutputToken(_ seconds: Double) {}
-    func observePromptTokens(_ count: Int) {}
-    func observeGenerationTokens(_ count: Int) {}
-
-    func metricsSnapshot() -> AFMInferenceMetricsSnapshot {
-        let requestLatency = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.requestLatency)
-        let ttft = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.timeToFirstToken)
-        let tpot = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.timePerOutputToken)
-        let tokens = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.tokenCount)
-        let sampling = AFMHistogramSnapshot(buckets: StatsAggregator.Buckets.samplingParam)
-        return AFMInferenceMetricsSnapshot(
-            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000),
-            processStartEpochSeconds: start,
-            endToEndLatency: requestLatency,
-            queueLatency: requestLatency,
-            inferenceLatency: requestLatency,
-            prefillLatency: requestLatency,
-            decodeLatency: requestLatency,
-            timeToFirstToken: ttft,
-            timePerOutputToken: tpot,
-            interTokenLatency: tpot,
-            fullPromptTokens: tokens,
-            computedPromptTokens: tokens,
-            generatedTokens: tokens,
-            samplingN: sampling,
-            samplingBestOf: sampling
         )
     }
 }

@@ -292,6 +292,28 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
     require(usage.get("total_tokens") == usage.get("prompt_tokens") + usage.get("completion_tokens"), "non-stream completion usage is not exact")
     require(nonstream.get("choices", [{}])[0].get("finish_reason") in {"stop", "length"}, "invalid non-stream finish reason")
 
+    stop_sequences = list("aeiouAEIOU")
+    stop_request = {
+        "model": model,
+        "prompt": "Write one short lowercase English sentence.",
+        "max_tokens": 32,
+        "temperature": 0,
+        "ignore_eos": True,
+        "stop": stop_sequences,
+    }
+    stopped_nonstream = json_request(base_url, "POST", "/v1/completions", stop_request)
+    stopped_choice = stopped_nonstream.get("choices", [{}])[0]
+    stopped_usage = stopped_nonstream.get("usage", {})
+    stopped_text = str(stopped_choice.get("text", ""))
+    require(stopped_choice.get("finish_reason") == "stop", "non-stream stop request did not report stop")
+    require(not any(stop in stopped_text for stop in stop_sequences), "non-stream response leaked a stop string")
+    require(stopped_usage.get("completion_tokens", 0) > 0, "non-stream stop request lacks exact completion usage")
+    require(
+        stopped_usage.get("total_tokens")
+        == stopped_usage.get("prompt_tokens", 0) + stopped_usage.get("completion_tokens", 0),
+        "non-stream stop request usage is not exact",
+    )
+
     common_stream = {
         "model": model,
         "max_tokens": 8,
@@ -311,6 +333,21 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
     require(raw_stream["finish_reason"] == "length", "raw ignore_eos did not stop at max_tokens")
     require(chat_stream["finish_reason"] == "length", "chat ignore_eos did not stop at max_tokens")
 
+    stopped_stream = streaming_completion(
+        base_url,
+        "/v1/completions",
+        {
+            **stop_request,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        },
+    )
+    require(stopped_stream["finish_reason"] == "stop", "streaming stop request did not report stop")
+    require(
+        not any(stop in stopped_stream["text"] for stop in stop_sequences),
+        "streaming response leaked a stop string",
+    )
+
     bad = json_request(
         base_url,
         "POST",
@@ -323,18 +360,51 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
 
     concurrency = max(2, args.concurrency)
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = [
-            pool.submit(
-                streaming_completion,
-                base_url,
-                "/v1/completions",
-                {**common_stream, "prompt": f"Emit a short numbered item {index}."},
+        futures = []
+        for index in range(concurrency):
+            path = "/v1/completions" if index % 2 == 0 else "/v1/chat/completions"
+            prompt: dict[str, Any]
+            if path == "/v1/completions":
+                prompt = {"prompt": f"Emit numbered words for item {index}."}
+            else:
+                prompt = {"messages": [{"role": "user", "content": f"Emit numbered words for item {index}."}]}
+            futures.append(
+                pool.submit(
+                    streaming_completion,
+                    base_url,
+                    path,
+                    {**common_stream, **prompt, "max_tokens": args.saturation_tokens},
+                )
             )
-            for index in range(concurrency)
-        ]
+
+        max_running = 0.0
+        max_waiting = 0.0
+        while not all(future.done() for future in futures):
+            status, _headers, metrics_data = request(base_url, "GET", "/metrics", timeout=10)
+            require(status == 200, f"GET /metrics during saturation returned {status}")
+            live_samples, _types = parse_metrics(metrics_data.decode("utf-8", errors="replace"))
+            max_running = max(max_running, metric_value(live_samples, "vllm:num_requests_running"))
+            max_waiting = max(max_waiting, metric_value(live_samples, "vllm:num_requests_waiting"))
+            time.sleep(0.02)
         concurrent_results = [future.result() for future in futures]
 
-    required_success_delta = concurrency + 3
+    require(max_running > 0, "saturation run never exposed a running request gauge")
+    if args.require_waiting:
+        require(max_waiting > 0, "saturation run never exposed a waiting request gauge")
+
+    gauge_deadline = time.monotonic() + 2
+    while True:
+        status, _headers, metrics_data = request(base_url, "GET", "/metrics", timeout=10)
+        require(status == 200, f"GET /metrics after saturation returned {status}")
+        idle_samples, _types = parse_metrics(metrics_data.decode("utf-8", errors="replace"))
+        final_running = metric_value(idle_samples, "vllm:num_requests_running")
+        final_waiting = metric_value(idle_samples, "vllm:num_requests_waiting")
+        if (final_running == 0 and final_waiting == 0) or time.monotonic() >= gauge_deadline:
+            break
+        time.sleep(0.02)
+    require(final_running == 0 and final_waiting == 0, "running/waiting gauges did not return to zero")
+
+    required_success_delta = concurrency + 5
     deadline = time.monotonic() + 2
     while True:
         after, after_parity, _ = fetch_metrics(base_url, artifact_dir / "metrics-after.prom", args.promtool)
@@ -365,7 +435,15 @@ def qualify_http(args: argparse.Namespace) -> dict[str, Any]:
         },
         "raw_stream": {k: v for k, v in raw_stream.items() if k != "text"},
         "chat_stream": {k: v for k, v in chat_stream.items() if k != "text"},
+        "stopped_nonstream": {"finish_reason": stopped_choice.get("finish_reason"), "usage": stopped_usage},
+        "stopped_stream": {k: v for k, v in stopped_stream.items() if k != "text"},
         "concurrent_requests": len(concurrent_results),
+        "saturation_gauges": {
+            "max_running": max_running,
+            "max_waiting": max_waiting,
+            "final_running": final_running,
+            "final_waiting": final_waiting,
+        },
     }
     (artifact_dir / "http-contract-summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
@@ -480,6 +558,12 @@ def build_parser() -> argparse.ArgumentParser:
     http.add_argument("--model")
     http.add_argument("--artifact-dir", required=True)
     http.add_argument("--concurrency", type=int, default=4)
+    http.add_argument("--saturation-tokens", type=int, default=8)
+    http.add_argument(
+        "--require-waiting",
+        action="store_true",
+        help="require the saturation run to observe a nonzero waiting gauge",
+    )
     http.add_argument("--promtool")
     http.set_defaults(handler=qualify_http)
     report = subparsers.add_parser("guidellm-report", help="qualify GuideLLM JSON/CSV/HTML outputs")

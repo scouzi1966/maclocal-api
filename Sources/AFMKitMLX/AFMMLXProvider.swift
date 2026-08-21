@@ -80,6 +80,7 @@ public final class AFMMLXModel:
     AFMModel,
     AFMTextTokenizing,
     AFMRawTextGenerating,
+    AFMGenerationAdmitting,
     @unchecked Sendable
 {
     public let descriptor: AFMModelDescriptor
@@ -148,6 +149,10 @@ public final class AFMMLXModel:
 
     public func availability() async -> AFMModelAvailability {
         .available
+    }
+
+    public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        try await service.admitGeneration(timeout: timeout)
     }
 
     public func load(

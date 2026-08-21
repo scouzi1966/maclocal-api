@@ -111,7 +111,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private static let debugPipeline = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
 
     private func admitGeneration() async throws -> GenerationAdmission {
-        let acceptedAt = Date().timeIntervalSince1970
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
         if let admitting = service as? any AFMMLXGenerationAdmitting {
             let lease = try await admitting.generationAdmitter.admitGeneration(
                 timeout: .seconds(Self.slotQueueTimeout)

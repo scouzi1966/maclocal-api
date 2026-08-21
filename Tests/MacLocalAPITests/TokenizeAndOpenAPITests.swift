@@ -114,11 +114,38 @@ struct TokenizeAndOpenAPITests {
         #expect(spec.contains("only one final exact usage event"))
     }
 
+    @Test("T1.7 Foundation and gateway OpenAPI omit unavailable raw completions")
+    func openAPIOmitsRawCompletionsWithoutProviderCapability() throws {
+        for mode in ["foundation", "gateway"] {
+            let paths = try Self.paths(
+                OpenAPIController.specJSON(rawCompletionsAvailable: false)
+            )
+            #expect(paths["/v1/completions"] == nil, "unexpected raw route for \(mode)")
+        }
+    }
+
+    @Test("T1.7 MLX and DwarfStar OpenAPI declare available raw completions")
+    func openAPIIncludesRawCompletionsForQualifiedProviders() throws {
+        for mode in ["mlx", "dwarfstar"] {
+            let paths = try Self.paths(
+                OpenAPIController.specJSON(rawCompletionsAvailable: true)
+            )
+            #expect(paths["/v1/completions"] != nil, "missing raw route for \(mode)")
+        }
+    }
+
     @Test("T1.7 docs page references /openapi.json on same origin")
     func docsHTMLReferencesSpec() {
         let html = OpenAPIController.docsHTML
         #expect(html.contains("/openapi.json"))
         #expect(html.contains("scalar"))
+    }
+
+    private static func paths(_ spec: String) throws -> [String: Any] {
+        let document = try #require(
+            JSONSerialization.jsonObject(with: Data(spec.utf8)) as? [String: Any]
+        )
+        return try #require(document["paths"] as? [String: Any])
     }
 }
 

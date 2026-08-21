@@ -16,6 +16,12 @@ import Foundation
 /// renderer from a CDN. The page works offline only if the CDN is reachable;
 /// agents that need a fully offline UI should consume `/openapi.json` directly.
 struct OpenAPIController: RouteCollection {
+    private let renderedSpec: String
+
+    init(rawCompletionsAvailable: Bool = false) {
+        renderedSpec = Self.specJSON(rawCompletionsAvailable: rawCompletionsAvailable)
+    }
+
     func boot(routes: RoutesBuilder) throws {
         routes.get("openapi.json", use: openAPI)
         routes.get("docs", use: docs)
@@ -25,7 +31,7 @@ struct OpenAPIController: RouteCollection {
         let response = Response(status: .ok)
         response.headers.add(name: .contentType, value: "application/json")
         response.headers.add(name: .accessControlAllowOrigin, value: "*")
-        response.body = .init(string: Self.specJSON)
+        response.body = .init(string: renderedSpec)
         return response
     }
 
@@ -56,7 +62,32 @@ struct OpenAPIController: RouteCollection {
     /// Hand-curated OpenAPI 3.1 spec. Intentionally kept compact — describes
     /// the surface agents actually call rather than every property of every
     /// payload. JSON-encoded inline so we don't fight SPM resource bundling.
-    static let specJSON: String = #"""
+    static let specJSON = specJSON(rawCompletionsAvailable: true)
+
+    static func specJSON(rawCompletionsAvailable: Bool) -> String {
+        guard !rawCompletionsAvailable else { return completeSpecJSON }
+        guard
+            let data = completeSpecJSON.data(using: .utf8),
+            var document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            var paths = document["paths"] as? [String: Any]
+        else {
+            preconditionFailure("The embedded OpenAPI document must be valid JSON")
+        }
+        paths.removeValue(forKey: "/v1/completions")
+        document["paths"] = paths
+        guard
+            let rendered = try? JSONSerialization.data(
+                withJSONObject: document,
+                options: [.sortedKeys]
+            ),
+            let json = String(data: rendered, encoding: .utf8)
+        else {
+            preconditionFailure("The filtered OpenAPI document must remain valid JSON")
+        }
+        return json
+    }
+
+    private static let completeSpecJSON: String = #"""
     {
       "openapi": "3.1.0",
       "info": {

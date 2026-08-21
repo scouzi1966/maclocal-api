@@ -213,6 +213,50 @@ private final class StreamingScratch: @unchecked Sendable {
     var streamStatStoppedBySequence = false
 }
 
+struct MLXSerialStopSequenceBuffer: Sendable {
+    private let stopSequences: [String]
+    private let retainedSuffixLength: Int
+    private var buffer = ""
+    private(set) var stopped = false
+
+    init(stopSequences: [String]) {
+        self.stopSequences = stopSequences.filter { !$0.isEmpty }
+        self.retainedSuffixLength = max(0, (self.stopSequences.map(\.count).max() ?? 0) - 1)
+    }
+
+    mutating func append(_ text: String) -> String {
+        guard !stopped, !text.isEmpty else { return "" }
+        guard !stopSequences.isEmpty else { return text }
+        buffer += text
+
+        let firstMatch = stopSequences.compactMap { buffer.range(of: $0) }.min {
+            $0.lowerBound < $1.lowerBound
+        }
+        if let firstMatch {
+            let visible = String(buffer[..<firstMatch.lowerBound])
+            buffer = ""
+            stopped = true
+            return visible
+        }
+
+        guard buffer.count > retainedSuffixLength else { return "" }
+        let flushEnd = buffer.index(buffer.endIndex, offsetBy: -retainedSuffixLength)
+        let visible = String(buffer[..<flushEnd])
+        buffer = String(buffer[flushEnd...])
+        return visible
+    }
+
+    mutating func finish() -> String {
+        guard !stopped else {
+            buffer = ""
+            return ""
+        }
+        let visible = buffer
+        buffer = ""
+        return visible
+    }
+}
+
 public final class MLXModelService: @unchecked Sendable {
     private struct ConstrainedDecodingSetup {
         let processor: GrammarLogitProcessor
@@ -561,7 +605,7 @@ public final class MLXModelService: @unchecked Sendable {
             )
         }
 
-        let acceptedAt = Date().timeIntervalSince1970
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
         let token = telemetryObserver.requestAccepted(at: acceptedAt)
         guard !Task.isCancelled else {
             _ = telemetryObserver.requestFailed(token, reason: .cancelled, at: acceptedAt)
@@ -578,7 +622,7 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     private func beginSerialTelemetryRequest() -> AFMInferenceRequestToken {
-        let now = Date().timeIntervalSince1970
+        let now = ProcessInfo.processInfo.systemUptime
         let token: AFMInferenceRequestToken
         if let admittedToken = AFMGenerationContext.telemetryToken {
             token = admittedToken
@@ -619,7 +663,7 @@ public final class MLXModelService: @unchecked Sendable {
             token,
             observation: AFMInferenceRequestFinishObservation(
                 reason: reason,
-                completedAt: Date().timeIntervalSince1970,
+                completedAt: ProcessInfo.processInfo.systemUptime,
                 fullPromptTokens: fullPromptTokens,
                 computedPromptTokens: computedPromptTokens,
                 generatedTokens: generatedTokens,
@@ -2189,7 +2233,7 @@ public final class MLXModelService: @unchecked Sendable {
         try beginOperation()
         defer { endOperation() }
 
-        let serialQueuedAt = Date()
+        let serialQueuedAt = ProcessInfo.processInfo.systemUptime
         let serialTelemetryToken = beginSerialTelemetryRequest()
         var serialRequestRecorded = false
         defer {
@@ -2197,7 +2241,7 @@ public final class MLXModelService: @unchecked Sendable {
                 _ = telemetryObserver.requestFailed(
                     serialTelemetryToken,
                     reason: Task.isCancelled ? .cancelled : .inference,
-                    at: Date().timeIntervalSince1970
+                    at: ProcessInfo.processInfo.systemUptime
                 )
             }
             endSerialTelemetryRequest()
@@ -2551,8 +2595,8 @@ public final class MLXModelService: @unchecked Sendable {
                 promptTime: promptTime
             )
 
-            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
-                ? serialQueuedAt.addingTimeInterval(promptTime)
+            let firstTokenAt: Double? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt + promptTime
                 : nil
             let serialFinishedReason: AFMInferenceFinishReason
             if stoppedBySequence {
@@ -2569,7 +2613,7 @@ public final class MLXModelService: @unchecked Sendable {
                 computedPromptTokens: promptTokens,
                 generatedTokens: completionTokens,
                 maximumOutputTokens: effectiveMaxTokens,
-                firstTokenAt: firstTokenAt?.timeIntervalSince1970
+                firstTokenAt: firstTokenAt
             )
 
             return (modelID, finalContent, promptTokens, completionTokens, nil, responseToolCalls, 0, promptTime, generateTime, stoppedBySequence)
@@ -2840,7 +2884,7 @@ public final class MLXModelService: @unchecked Sendable {
                 serialTelemetryToken,
                 fullPromptTokens: inputTokens.count,
                 computedPromptTokens: max(0, inputTokens.count - cachedTokenCount),
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
 
             let activeStops = ((stop ?? []) + self.implicitStopSequences).filter { !$0.isEmpty }
@@ -3100,8 +3144,8 @@ public final class MLXModelService: @unchecked Sendable {
                 insertTime: saveInsertTime
             )
 
-            let firstTokenAt: Date? = (completionTokens > 0 && promptTime >= 0)
-                ? serialQueuedAt.addingTimeInterval(promptTime)
+            let firstTokenAt: Double? = (completionTokens > 0 && promptTime >= 0)
+                ? serialQueuedAt + promptTime
                 : nil
             let serialFinishedReason: AFMInferenceFinishReason
             if stoppedBySequence {
@@ -3118,7 +3162,7 @@ public final class MLXModelService: @unchecked Sendable {
                 computedPromptTokens: max(0, promptTokens - cachedTokenCount),
                 generatedTokens: completionTokens,
                 maximumOutputTokens: effectiveMaxTokens,
-                firstTokenAt: firstTokenAt?.timeIntervalSince1970
+                firstTokenAt: firstTokenAt
             )
 
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence)
@@ -3403,7 +3447,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     allTokens.append(tok)
                                     self.telemetryObserver.outputToken(
                                         telemetryToken,
-                                        at: Date().timeIntervalSince1970
+                                        at: ProcessInfo.processInfo.systemUptime
                                     )
                                     let full = context.tokenizer.decode(tokens: allTokens)
                                     if full.count > prevText.count {
@@ -3456,7 +3500,7 @@ public final class MLXModelService: @unchecked Sendable {
                             _ = self.telemetryObserver.requestFailed(
                                 telemetryToken,
                                 reason: Task.isCancelled ? .cancelled : .inference,
-                                at: Date().timeIntervalSince1970
+                                at: ProcessInfo.processInfo.systemUptime
                             )
                             continuation.finish(throwing: error)
                         }
@@ -3696,7 +3740,7 @@ public final class MLXModelService: @unchecked Sendable {
                             streamTelemetryToken,
                             fullPromptTokens: inputTokens.count,
                             computedPromptTokens: max(0, inputTokens.count - streamCachedTokens),
-                            at: Date().timeIntervalSince1970
+                            at: ProcessInfo.processInfo.systemUptime
                         )
 
                         // Emit cached token count so the controller can include it in usage
@@ -3708,11 +3752,14 @@ public final class MLXModelService: @unchecked Sendable {
                         // Stop sequences only apply to content OUTSIDE <think> blocks —
                         // thinking models emit reasoning inside <think>...</think> tags
                         // and stop strings like "3." or "\n" commonly appear in reasoning.
-                        let maxStopLen = activeStops.map(\.count).max() ?? 0
-                        var stopBuffer = ""
+                        var stopBuffer = MLXSerialStopSequenceBuffer(
+                            stopSequences: activeStops
+                        )
                         var insideThink = templateInjectedThink
                         let genStart = Date()
                         var firstTokenTime: Date?
+                        var observedGenerationTokens = 0
+                        var emittedFinalInfo = false
 
                         var pendingLogprobs: [TokenLogprobData]? = nil
                         // INSTRUMENT: Dump cache state right before generation starts (streaming)
@@ -3736,9 +3783,10 @@ public final class MLXModelService: @unchecked Sendable {
                                 if case .tokenLogprobs(let lps) = piece {
                                     pendingLogprobs = lps
                                 } else if case .chunk(let rawText) = piece {
+                                    observedGenerationTokens += 1
                                     self.telemetryObserver.outputToken(
                                         streamTelemetryToken,
-                                        at: Date().timeIntervalSince1970
+                                        at: ProcessInfo.processInfo.systemUptime
                                     )
                                     if firstTokenTime == nil { firstTokenTime = Date() }
                                     var resolved: [ResolvedLogprob]?
@@ -3768,6 +3816,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     if let te = self.thinkEndTag, text.contains(te) { insideThink = false }
 
                                     if !activeStops.isEmpty && !insideThink {
+                                        let stopScopedText: String
                                         // If we just transitioned out of think, pass the reasoning tail +
                                         // end tag through (the controller needs the end tag to close the
                                         // think block — swallowing it left the stream inside reasoning
@@ -3776,33 +3825,21 @@ public final class MLXModelService: @unchecked Sendable {
                                             let throughEnd = String(text[..<thinkEndRange.upperBound])
                                             continuation.yield(StreamChunk(text: throughEnd, logprobs: resolved))
                                             resolved = nil
-                                            let afterThink = String(text[thinkEndRange.upperBound...])
-                                            if !afterThink.isEmpty {
-                                                stopBuffer += afterThink
-                                            }
+                                            stopScopedText = String(text[thinkEndRange.upperBound...])
                                         } else {
-                                            stopBuffer += text
+                                            stopScopedText = text
                                         }
-                                        // Check for a complete stop string match
-                                        if let match = activeStops.first(where: { stopBuffer.contains($0) }) {
-                                            // Emit text up to the stop string
-                                            if let range = stopBuffer.range(of: match) {
-                                                let before = String(stopBuffer[..<range.lowerBound])
-                                                if !before.isEmpty {
-                                                    continuation.yield(StreamChunk(text: before, logprobs: resolved, stoppedBySequence: true))
-                                                } else {
-                                                    continuation.yield(StreamChunk(text: "", logprobs: resolved, stoppedBySequence: true))
-                                                }
-                                            }
+                                        let visible = stopBuffer.append(stopScopedText)
+                                        if !visible.isEmpty || stopBuffer.stopped {
+                                            continuation.yield(StreamChunk(
+                                                text: visible,
+                                                logprobs: resolved,
+                                                stoppedBySequence: stopBuffer.stopped ? true : nil
+                                            ))
+                                        }
+                                        if stopBuffer.stopped {
                                             streamScratch.streamStatStoppedBySequence = true  // /metrics: finished_reason=stop
                                             break
-                                        }
-                                        // Flush safe portion of the buffer (keep tail that could be partial stop match)
-                                        if stopBuffer.count > maxStopLen {
-                                            let flushEnd = stopBuffer.index(stopBuffer.endIndex, offsetBy: -maxStopLen)
-                                            let flushText = String(stopBuffer[..<flushEnd])
-                                            stopBuffer = String(stopBuffer[flushEnd...])
-                                            continuation.yield(StreamChunk(text: flushText, logprobs: resolved))
                                         }
                                     } else {
                                         // Inside <think> or no stop sequences — pass through
@@ -3814,6 +3851,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     let responseTC = Self.convertToolCall(tc, index: 0)
                                     continuation.yield(StreamChunk(text: "", toolCalls: [responseTC]))
                                 } else if case .info(let info) = piece {
+                                    emittedFinalInfo = true
                                     // Emit real token counts and timing as a final info chunk
                                     let finalPromptTokens = fullPromptTokenCount
                                     self.logUsageChunk(
@@ -3860,8 +3898,26 @@ public final class MLXModelService: @unchecked Sendable {
                             throw error
                         }
                         // Flush any remaining buffered text (no stop match found)
-                        if !activeStops.isEmpty && !stopBuffer.isEmpty {
-                            continuation.yield(StreamChunk(text: stopBuffer))
+                        let trailingText = stopBuffer.finish()
+                        if !trailingText.isEmpty {
+                            continuation.yield(StreamChunk(text: trailingText))
+                        }
+                        if streamScratch.streamStatStoppedBySequence && !emittedFinalInfo {
+                            let elapsed = Date().timeIntervalSince(genStart)
+                            let promptTime = firstTokenTime?.timeIntervalSince(genStart) ?? 0
+                            let generateTime = max(0, elapsed - promptTime)
+                            streamScratch.streamStatPromptTokens = fullPromptTokenCount
+                            streamScratch.streamStatCompletionTokens = observedGenerationTokens
+                            streamScratch.streamStatPromptTime = promptTime
+                            streamScratch.streamStatGenerateTime = generateTime
+                            continuation.yield(StreamChunk(
+                                text: "",
+                                promptTokens: fullPromptTokenCount,
+                                completionTokens: observedGenerationTokens,
+                                promptTime: promptTime,
+                                generateTime: generateTime,
+                                stoppedBySequence: true
+                            ))
                         }
                         // Synchronize GPU after generation completes (or breaks early).
                         Stream.gpu.synchronize()
@@ -3991,7 +4047,7 @@ public final class MLXModelService: @unchecked Sendable {
                     _ = self.telemetryObserver.requestFailed(
                         streamTelemetryToken,
                         reason: Task.isCancelled ? .cancelled : .inference,
-                        at: Date().timeIntervalSince1970
+                        at: ProcessInfo.processInfo.systemUptime
                     )
                     continuation.finish(throwing: error)
                 }

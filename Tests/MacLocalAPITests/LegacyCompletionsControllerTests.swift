@@ -6,6 +6,7 @@ import XCTVapor
 @testable import AFMKitCore
 @testable import AFMOpenAICompat
 @testable import AFMServer
+@testable import AFMKitServices
 
 final class LegacyCompletionsControllerTests: XCTestCase {
     private var app: Application!
@@ -223,14 +224,104 @@ final class LegacyCompletionsControllerTests: XCTestCase {
         }
     }
 
-    private func register(_ spy: RawGeneratorSpy) throws {
+    func testRawCompletionWaitsBehindChatCapacityAndReleasesLiveGauges() async throws {
+        let collector = InferenceTelemetryCollector()
+        let gate = SaturatingGenerationAdmitter(capacity: 1, collector: collector)
+        let chatLease = try await gate.admitGeneration(timeout: .seconds(1))
+        let spy = RawGeneratorSpy(events: [
+            .completed(.init(
+                finishReason: .stop,
+                promptTokens: 1,
+                completionTokens: 0,
+                totalTokens: 1
+            )),
+        ])
+        try register(
+            spy,
+            generationAdmitter: AnyAFMGenerationAdmitter(gate),
+            telemetry: AFMServerTelemetryAdapter(collector: collector)
+        )
+
+        let observation = SaturationObservation()
+        let releaseChat = Task { [chatLease, collector, observation, spy] in
+            let deadline = ContinuousClock.now + .seconds(1)
+            while ContinuousClock.now < deadline {
+                let snapshot = collector.metricsSnapshot()
+                if snapshot.waitingRequests == 1 {
+                    observation.store(snapshot: snapshot, generatorCalls: spy.callCount)
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            chatLease.release()
+        }
+
+        try await post(#"{"prompt":"raw behind chat"}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+        await releaseChat.value
+
+        let saturated = try XCTUnwrap(observation.value)
+        XCTAssertEqual(saturated.snapshot.runningRequests, 1)
+        XCTAssertEqual(saturated.snapshot.waitingRequests, 1)
+        XCTAssertEqual(saturated.generatorCalls, 0)
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.runningRequests, 0)
+        XCTAssertEqual(snapshot.waitingRequests, 0)
+        XCTAssertEqual(spy.callCount, 1)
+    }
+
+    func testRawCompletionCapacityTimeoutReturns503WithoutStartingGenerator() async throws {
+        let collector = InferenceTelemetryCollector()
+        let gate = SaturatingGenerationAdmitter(capacity: 1, collector: collector)
+        let occupiedLease = try await gate.admitGeneration(timeout: .seconds(1))
+        defer { occupiedLease.release() }
+        let spy = RawGeneratorSpy(events: [])
+        try register(
+            spy,
+            generationAdmitter: AnyAFMGenerationAdmitter(gate),
+            slotQueueTimeout: .milliseconds(30),
+            telemetry: AFMServerTelemetryAdapter(collector: collector)
+        )
+
+        try await post(#"{"prompt":"timeout"}"#) { response in
+            XCTAssertEqual(response.status, .serviceUnavailable)
+            XCTAssertEqual(response.headers.first(name: "Retry-After"), "2")
+            let error = try Self.errorDetail(response.body.string)
+            XCTAssertEqual(error["type"] as? String, "server_busy")
+            XCTAssertEqual(error["code"] as? String, "server_busy")
+        }
+        XCTAssertEqual(spy.callCount, 0)
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.runningRequests, 1)
+        XCTAssertEqual(snapshot.waitingRequests, 0)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 1)
+    }
+
+    private func register(
+        _ spy: RawGeneratorSpy,
+        generationAdmitter: AnyAFMGenerationAdmitter? = nil,
+        slotQueueTimeout: Duration = .seconds(240),
+        telemetry: AFMServerTelemetryAdapter = .standalone()
+    ) throws {
         try CompletionsController(
             modelID: "test-model",
-            generator: spy.generator
+            generator: spy.generator,
+            generationAdmitter: generationAdmitter,
+            slotQueueTimeout: slotQueueTimeout,
+            telemetry: telemetry
         ).boot(routes: app)
     }
 
     private func post(
+        _ json: String,
+        assertions: @escaping (XCTHTTPResponse) throws -> Void
+    ) async throws {
+        try await Self.post(on: app, json, assertions: assertions)
+    }
+
+    private static func post(
+        on app: Application,
         _ json: String,
         assertions: @escaping (XCTHTTPResponse) throws -> Void
     ) async throws {
@@ -265,6 +356,103 @@ final class LegacyCompletionsControllerTests: XCTestCase {
             guard event.hasPrefix("data: ") else { return nil }
             return String(event.dropFirst("data: ".count))
         }
+    }
+}
+
+private final class SaturationObservation: @unchecked Sendable {
+    struct Value: Sendable {
+        let snapshot: AFMInferenceMetricsSnapshot
+        let generatorCalls: Int
+    }
+
+    private let lock = NSLock()
+    private var storedValue: Value?
+
+    var value: Value? {
+        lock.withLock { storedValue }
+    }
+
+    func store(snapshot: AFMInferenceMetricsSnapshot, generatorCalls: Int) {
+        lock.withLock {
+            storedValue = Value(snapshot: snapshot, generatorCalls: generatorCalls)
+        }
+    }
+}
+
+private final class SaturatingGenerationAdmitter:
+    AFMGenerationAdmitting,
+    @unchecked Sendable
+{
+    private struct State {
+        var running = 0
+        var waiting = 0
+    }
+
+    private let capacity: Int
+    private let collector: InferenceTelemetryCollector
+    private let lock = NSLock()
+    private var state = State()
+
+    init(capacity: Int, collector: InferenceTelemetryCollector) {
+        self.capacity = capacity
+        self.collector = collector
+    }
+
+    func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
+        let token = collector.requestAccepted(at: acceptedAt)
+        let deadline = ContinuousClock.now + (timeout ?? .seconds(30))
+        var registeredWaiting = false
+
+        while true {
+            let acquired = lock.withLock { () -> Bool in
+                guard state.running < capacity else {
+                    if !registeredWaiting {
+                        state.waiting += 1
+                        registeredWaiting = true
+                    }
+                    return false
+                }
+                if registeredWaiting { state.waiting = max(0, state.waiting - 1) }
+                state.running += 1
+                return true
+            }
+            publishState()
+            if acquired {
+                collector.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
+                return AFMGenerationLease(telemetryToken: token) { [weak self] in
+                    self?.release()
+                }
+            }
+            if Task.isCancelled || ContinuousClock.now >= deadline {
+                lock.withLock {
+                    if registeredWaiting { state.waiting = max(0, state.waiting - 1) }
+                }
+                publishState()
+                _ = collector.requestFailed(
+                    token,
+                    reason: Task.isCancelled ? .cancelled : .inference,
+                    at: ProcessInfo.processInfo.systemUptime
+                )
+                throw Task.isCancelled
+                    ? AFMGenerationAdmissionError.cancelled
+                    : AFMGenerationAdmissionError.timedOut
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    private func release() {
+        lock.withLock { state.running = max(0, state.running - 1) }
+        publishState()
+    }
+
+    private func publishState() {
+        let snapshot = lock.withLock { state }
+        collector.updateProviderState(AFMInferenceProviderState(
+            runningRequests: snapshot.running,
+            waitingRequests: snapshot.waiting
+        ))
     }
 }
 

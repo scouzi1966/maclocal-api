@@ -47,6 +47,7 @@ public final class AFMGenerationLease: @unchecked Sendable {
 public enum AFMGenerationContext {
     @TaskLocal public static var telemetryToken: AFMInferenceRequestToken?
     @TaskLocal public static var acceptedAt: Double?
+    @TaskLocal public static var admissionLease: AFMGenerationLease?
     @TaskLocal public static var ignoreEndOfSequence = false
 }
 

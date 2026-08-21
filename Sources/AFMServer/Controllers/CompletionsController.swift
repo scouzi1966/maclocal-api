@@ -6,17 +6,25 @@ import Vapor
 /// OpenAI-compatible raw-prompt completion endpoint. This deliberately does
 /// not translate prompts into chat messages or invoke a chat template.
 struct CompletionsController: RouteCollection {
+    private static let defaultSlotQueueTimeout: Duration = .seconds(240)
+
     private let modelID: String
     private let generator: AnyAFMRawTextGenerator
+    private let generationAdmitter: AnyAFMGenerationAdmitter?
+    private let slotQueueTimeout: Duration
     private let telemetry: AFMServerTelemetryAdapter
 
     init(
         modelID: String,
         generator: AnyAFMRawTextGenerator,
+        generationAdmitter: AnyAFMGenerationAdmitter? = nil,
+        slotQueueTimeout: Duration = Self.defaultSlotQueueTimeout,
         telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {
         self.modelID = modelID
         self.generator = generator
+        self.generationAdmitter = generationAdmitter
+        self.slotQueueTimeout = slotQueueTimeout
         self.telemetry = telemetry
     }
 
@@ -133,15 +141,48 @@ struct CompletionsController: RouteCollection {
             seed: request.seed,
             ignoreEndOfSequence: request.ignoreEOS ?? false
         )
-        let events = generator.rawTextGenerationEvents(for: providerRequest)
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
+        let lease: AFMGenerationLease?
+        do {
+            lease = try await generationAdmitter?.admitGeneration(timeout: slotQueueTimeout)
+        } catch {
+            telemetry.recordRejection(.capacity)
+            let response = try errorResponse(
+                request: req,
+                status: .serviceUnavailable,
+                message: "Server at capacity. Please retry shortly.",
+                type: "server_busy",
+                code: "server_busy"
+            )
+            response.headers.add(name: "Retry-After", value: "2")
+            return response
+        }
+        let events: AsyncStream<AFMRawTextGenerationEvent>
+        if let lease {
+            events = AFMGenerationContext.$admissionLease.withValue(lease) {
+                AFMGenerationContext.$telemetryToken.withValue(lease.telemetryToken) {
+                    AFMGenerationContext.$acceptedAt.withValue(acceptedAt) {
+                        AFMGenerationContext.$ignoreEndOfSequence.withValue(
+                            request.ignoreEOS ?? false
+                        ) {
+                            generator.rawTextGenerationEvents(for: providerRequest)
+                        }
+                    }
+                }
+            }
+        } else {
+            events = generator.rawTextGenerationEvents(for: providerRequest)
+        }
 
         if request.stream == true {
             return streamingResponse(
                 request: req,
                 completionRequest: request,
-                events: events
+                events: events,
+                lease: lease
             )
         }
+        defer { lease?.release() }
         return try await nonStreamingResponse(request: req, events: events)
     }
 
@@ -197,7 +238,8 @@ struct CompletionsController: RouteCollection {
     private func streamingResponse(
         request: Request,
         completionRequest: CompletionRequest,
-        events: AsyncStream<AFMRawTextGenerationEvent>
+        events: AsyncStream<AFMRawTextGenerationEvent>,
+        lease: AFMGenerationLease?
     ) -> Response {
         let response = Response(status: .ok)
         response.headers.add(name: .contentType, value: "text/event-stream")
@@ -210,6 +252,7 @@ struct CompletionsController: RouteCollection {
         let created = Int(Date().timeIntervalSince1970)
         let includeUsage = completionRequest.includeStreamingUsage
         response.body = .init(asyncStream: { writer in
+            defer { lease?.release() }
             let connectionToken = telemetry.connectionOpened()
             defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()

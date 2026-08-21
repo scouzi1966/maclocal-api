@@ -39,7 +39,6 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         var startedAt: Double?
         var firstTokenAt: Double?
         var previousTokenAt: Double?
-        var outputTokenTimestamps: [Double]
         var recordedFullPromptTokens: UInt64
         var recordedComputedPromptTokens: UInt64
         var recordedGeneratedTokens: UInt64
@@ -47,7 +46,41 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
 
     private struct TimedAmount: Sendable {
         let timestamp: Double
-        let amount: UInt64
+        var amount: UInt64
+    }
+
+    private struct RollingWindow: Sendable {
+        private static let bucketWidth = 0.1
+        private static let maximumBucketCount = 102
+        private var buckets: [TimedAmount] = []
+
+        mutating func record(_ amount: UInt64, at timestamp: Double, window: Double) {
+            guard amount > 0, timestamp.isFinite else { return }
+            prune(at: timestamp, window: window)
+            let bucketTimestamp = floor(timestamp / Self.bucketWidth) * Self.bucketWidth
+            if let lastIndex = buckets.indices.last,
+               buckets[lastIndex].timestamp == bucketTimestamp {
+                buckets[lastIndex].amount &+= amount
+            } else if buckets.last.map({ bucketTimestamp > $0.timestamp }) ?? true {
+                buckets.append(TimedAmount(timestamp: bucketTimestamp, amount: amount))
+            } else {
+                buckets = [TimedAmount(timestamp: bucketTimestamp, amount: amount)]
+            }
+            if buckets.count > Self.maximumBucketCount {
+                buckets.removeFirst(buckets.count - Self.maximumBucketCount)
+            }
+        }
+
+        mutating func rate(at timestamp: Double, window: Double) -> Double {
+            prune(at: timestamp, window: window)
+            let sum = buckets.reduce(UInt64(0)) { $0 &+ $1.amount }
+            return Double(sum) / window
+        }
+
+        private mutating func prune(at timestamp: Double, window: Double) {
+            let cutoff = timestamp - window
+            buckets.removeAll { $0.timestamp <= cutoff }
+        }
     }
 
     private struct State: Sendable {
@@ -91,9 +124,9 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         var legacyCacheMissesTotal: UInt64 = 0
 
         var requests: [AFMInferenceRequestToken: RequestState] = [:]
-        var promptWindow: [TimedAmount] = []
-        var generationWindow: [TimedAmount] = []
-        var terminalWindow: [TimedAmount] = []
+        var promptWindow = RollingWindow()
+        var generationWindow = RollingWindow()
+        var terminalWindow = RollingWindow()
 
         var endToEndLatency = MutableHistogram(buckets: Buckets.requestLatency)
         var queueLatency = MutableHistogram(buckets: Buckets.requestLatency)
@@ -235,7 +268,11 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         state.withLock { state in
             let amount = UInt64(count)
             state.generatedTokensTotal &+= amount
-            state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: amount))
+            state.generationWindow.record(
+                amount,
+                at: timestamp,
+                window: Self.rollingWindowSeconds
+            )
         }
     }
 
@@ -245,7 +282,11 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         state.withLock { state in
             let amount = UInt64(count)
             state.computedPromptTokensTotal &+= amount
-            state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: amount))
+            state.promptWindow.record(
+                amount,
+                at: timestamp,
+                window: Self.rollingWindowSeconds
+            )
         }
     }
 
@@ -257,7 +298,7 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         let timestamp = now()
         state.withLock { state in
             state.terminalRequestsTotal &+= 1
-            state.terminalWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
+            state.terminalWindow.record(1, at: timestamp, window: Self.rollingWindowSeconds)
         }
     }
 
@@ -290,7 +331,6 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
                 acceptedAt: queuedAt,
                 startedAt: startedAt,
                 firstTokenAt: firstTokenAt,
-                previousTokenTimes: [],
                 completedAt: completedAt,
                 fullPromptTokens: 0,
                 computedPromptTokens: promptTokens,
@@ -344,7 +384,6 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         acceptedAt: Double,
         startedAt: Double?,
         firstTokenAt: Double?,
-        previousTokenTimes: [Double],
         completedAt: Double,
         fullPromptTokens: Int,
         computedPromptTokens: Int,
@@ -368,12 +407,11 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             state.decodeLatency.observe(decode)
             if generatedTokens > 1 {
                 state.timePerOutputToken.observe(decode / Double(generatedTokens - 1))
+            } else if generatedTokens == 1 {
+                state.timePerOutputToken.observe(0)
             }
         }
         if let ttft { state.timeToFirstToken.observe(ttft) }
-        for interval in zip(previousTokenTimes, previousTokenTimes.dropFirst()).map({ $1 - $0 }) {
-            state.interTokenLatency.observe(max(0, interval))
-        }
         if fullPromptTokens > 0 { state.fullPromptTokens.observe(Double(fullPromptTokens)) }
         if computedPromptTokens > 0 {
             state.computedPromptTokens.observe(Double(computedPromptTokens))
@@ -398,15 +436,6 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
         values.keys.sorted().map { AFMNamedCount(name: $0, count: values[$0, default: 0]) }
     }
 
-    private static func windowRate(
-        _ values: inout [TimedAmount],
-        at timestamp: Double
-    ) -> Double {
-        let cutoff = timestamp - rollingWindowSeconds
-        values.removeAll { $0.timestamp < cutoff }
-        let sum = values.reduce(UInt64(0)) { $0 &+ $1.amount }
-        return Double(sum) / rollingWindowSeconds
-    }
 }
 
 extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
@@ -416,7 +445,6 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
             state.acceptedRequestsTotal &+= 1
             state.requests[token] = RequestState(
                 acceptedAt: timestamp,
-                outputTokenTimestamps: [],
                 recordedFullPromptTokens: 0,
                 recordedComputedPromptTokens: 0,
                 recordedGeneratedTokens: 0
@@ -439,6 +467,7 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
         computedPromptTokens: Int,
         at timestamp: Double
     ) {
+        let receivedAt = now()
         state.withLock { state in
             guard var request = state.requests[token] else { return }
             let full = UInt64(max(0, fullPromptTokens))
@@ -452,7 +481,11 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
             state.fullPromptTokensTotal &+= fullDelta
             state.computedPromptTokensTotal &+= computedDelta
             if computedDelta > 0 {
-                state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: computedDelta))
+                state.promptWindow.record(
+                    computedDelta,
+                    at: receivedAt,
+                    window: Self.rollingWindowSeconds
+                )
             }
             request.recordedFullPromptTokens = max(request.recordedFullPromptTokens, full)
             request.recordedComputedPromptTokens = max(request.recordedComputedPromptTokens, computed)
@@ -461,14 +494,17 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
     }
 
     public func outputToken(_ token: AFMInferenceRequestToken, at timestamp: Double) {
+        let receivedAt = now()
         state.withLock { state in
             guard var request = state.requests[token] else { return }
             if request.firstTokenAt == nil { request.firstTokenAt = timestamp }
+            if let previousTokenAt = request.previousTokenAt {
+                state.interTokenLatency.observe(max(0, timestamp - previousTokenAt))
+            }
             request.previousTokenAt = timestamp
-            request.outputTokenTimestamps.append(timestamp)
             request.recordedGeneratedTokens &+= 1
             state.generatedTokensTotal &+= 1
-            state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
+            state.generationWindow.record(1, at: receivedAt, window: Self.rollingWindowSeconds)
             state.requests[token] = request
         }
     }
@@ -546,18 +582,29 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
             state.terminalRequestsTotal &+= 1
             state.terminalCounts[observation.reason.rawValue, default: 0] &+= 1
             if remainingComputed > 0 {
-                state.promptWindow.append(TimedAmount(timestamp: timestamp, amount: remainingComputed))
+                state.promptWindow.record(
+                    remainingComputed,
+                    at: timestamp,
+                    window: Self.rollingWindowSeconds
+                )
             }
             if remainingGenerated > 0 {
-                state.generationWindow.append(TimedAmount(timestamp: timestamp, amount: remainingGenerated))
+                state.generationWindow.record(
+                    remainingGenerated,
+                    at: timestamp,
+                    window: Self.rollingWindowSeconds
+                )
             }
-            state.terminalWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
+            state.terminalWindow.record(
+                1,
+                at: timestamp,
+                window: Self.rollingWindowSeconds
+            )
             Self.observeLatency(
                 state: &state,
                 acceptedAt: request.acceptedAt,
                 startedAt: request.startedAt,
                 firstTokenAt: request.firstTokenAt,
-                previousTokenTimes: request.outputTokenTimestamps,
                 completedAt: observation.completedAt,
                 fullPromptTokens: observation.fullPromptTokens,
                 computedPromptTokens: observation.computedPromptTokens,
@@ -575,13 +622,18 @@ extension InferenceTelemetryCollector: AFMInferenceTelemetryObserving {
         reason: AFMInferenceFailureReason,
         at timestamp: Double
     ) -> Bool {
-        state.withLock { state in
+        let receivedAt = now()
+        return state.withLock { state in
             guard let request = state.requests.removeValue(forKey: token) else { return false }
             state.terminalRequestsTotal &+= 1
             let finishReason: AFMInferenceFinishReason = reason == .cancelled ? .abort : .error
             state.terminalCounts[finishReason.rawValue, default: 0] &+= 1
             state.failureCounts[reason.rawValue, default: 0] &+= 1
-            state.terminalWindow.append(TimedAmount(timestamp: timestamp, amount: 1))
+            state.terminalWindow.record(
+                1,
+                at: receivedAt,
+                window: Self.rollingWindowSeconds
+            )
             state.endToEndLatency.observe(max(0, timestamp - request.acceptedAt))
             if let startedAt = request.startedAt {
                 state.queueLatency.observe(max(0, startedAt - request.acceptedAt))
@@ -621,9 +673,18 @@ extension InferenceTelemetryCollector: AFMInferenceMetricsSnapshotSource {
         let monotonicNow = now()
         let wallNow = wallTime()
         return state.withLock { state in
-            let promptRate = Self.windowRate(&state.promptWindow, at: monotonicNow)
-            let generationRate = Self.windowRate(&state.generationWindow, at: monotonicNow)
-            let requestRate = Self.windowRate(&state.terminalWindow, at: monotonicNow)
+            let promptRate = state.promptWindow.rate(
+                at: monotonicNow,
+                window: Self.rollingWindowSeconds
+            )
+            let generationRate = state.generationWindow.rate(
+                at: monotonicNow,
+                window: Self.rollingWindowSeconds
+            )
+            let requestRate = state.terminalWindow.rate(
+                at: monotonicNow,
+                window: Self.rollingWindowSeconds
+            )
             let failures = state.failureCounts.merging(state.ingressRejections) { $0 &+ $1 }
             return AFMInferenceMetricsSnapshot(
                 timestampMilliseconds: Int64(wallNow * 1_000),

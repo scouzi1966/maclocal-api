@@ -1,6 +1,8 @@
 import AFMKitCore
 import XCTest
 
+@testable import AFMKitMLX
+
 final class RawTextGenerationContractTests: XCTestCase {
     private struct PlainModel: AFMModel {
         let descriptor = AFMModelDescriptor(
@@ -22,7 +24,7 @@ final class RawTextGenerationContractTests: XCTestCase {
         }
     }
 
-    private struct RawModel: AFMModel, AFMRawTextGenerating {
+    private struct RawModel: AFMModel, AFMRawTextGenerating, AFMGenerationAdmitting {
         let descriptor = AFMModelDescriptor(
             providerID: "test",
             modelID: "raw",
@@ -59,12 +61,20 @@ final class RawTextGenerationContractTests: XCTestCase {
                 continuation.finish()
             }
         }
+
+        func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+            let token = AFMNoopInferenceTelemetryObserver().requestAccepted(at: 0)
+            return AFMGenerationLease(telemetryToken: token) {}
+        }
     }
 
     func testAnyModelRetainsOnlyConformingRawCapability() async {
         XCTAssertNil(AnyAFMModel(PlainModel()).rawTextGenerator)
-        let generator = AnyAFMModel(RawModel()).rawTextGenerator
+        XCTAssertNil(AnyAFMModel(PlainModel()).generationAdmitter)
+        let model = AnyAFMModel(RawModel())
+        let generator = model.rawTextGenerator
         XCTAssertNotNil(generator)
+        XCTAssertNotNil(model.generationAdmitter)
 
         let request = AFMRawTextGenerationRequest(
             prompt: "raw prompt",
@@ -102,5 +112,24 @@ final class RawTextGenerationContractTests: XCTestCase {
             ignoreEndOfSequence: true
         )
         XCTAssertTrue(extended.ignoreEndOfSequence)
+    }
+
+    func testSerialStopBufferSuppressesBoundarySpanningStopAndDiscardedTail() {
+        var buffer = MLXSerialStopSequenceBuffer(stopSequences: ["STOP"])
+        var visible = buffer.append("answer ST")
+        visible += buffer.append("OP leaked")
+
+        XCTAssertTrue(buffer.stopped)
+        XCTAssertEqual(visible, "answer ")
+        XCTAssertEqual(buffer.finish(), "")
+    }
+
+    func testSerialStopBufferFlushesPartialCandidateWhenGenerationCompletes() {
+        var buffer = MLXSerialStopSequenceBuffer(stopSequences: ["STOP"])
+        var visible = buffer.append("answer ST")
+        visible += buffer.finish()
+
+        XCTAssertFalse(buffer.stopped)
+        XCTAssertEqual(visible, "answer ST")
     }
 }

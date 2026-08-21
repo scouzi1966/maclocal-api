@@ -92,20 +92,18 @@ actor BatchScheduler {
         let id: UUID
         let requestId: String
         let telemetryToken: AFMInferenceRequestToken
+        let admissionLease: AFMGenerationLease?
         let ignoreEndOfSequence: Bool
         let continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation
         let promptTokenCount: Int
-        /// Wall-clock instant the request was accepted by `submit()` —
+        /// Monotonic instant the request was accepted by `submit()` —
         /// drives e2e latency, queue time, and TTFT in `/metrics`.
-        let queuedAt: Date
+        let queuedAt: Double
         /// Set to the moment prefill begins (prefillStart), so elapsed includes prefill + decode.
         let startTime: Date
         let prefillTime: TimeInterval
         var tokenCount = 0
         var firstTokenTime: TimeInterval = 0
-        /// Wall-clock instant the first generated token was yielded to the
-        /// continuation, or nil if the request finished before producing any.
-        var firstTokenAt: Date?
         let inputTokens: [Int]
         let cachedTokens: Int
         /// Token boundary represented by the persisted prefix snapshot. DeepSeek
@@ -154,10 +152,11 @@ actor BatchScheduler {
             id: UUID,
             requestId: String = "",
             telemetryToken: AFMInferenceRequestToken,
+            admissionLease: AFMGenerationLease?,
             ignoreEndOfSequence: Bool,
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
-            queuedAt: Date,
+            queuedAt: Double,
             startTime: Date,
             prefillTime: TimeInterval,
             inputTokens: [Int],
@@ -184,6 +183,7 @@ actor BatchScheduler {
             self.id = id
             self.requestId = requestId
             self.telemetryToken = telemetryToken
+            self.admissionLease = admissionLease
             self.ignoreEndOfSequence = ignoreEndOfSequence
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
@@ -410,10 +410,11 @@ actor BatchScheduler {
         let id: UUID
         let requestId: String
         let telemetryToken: AFMInferenceRequestToken
+        let admissionLease: AFMGenerationLease?
         let ignoreEndOfSequence: Bool
-        /// Wall-clock instant the request was accepted by `submit()`. Used to
+        /// Monotonic instant the request was accepted by `submit()`. Used to
         /// derive queue time, e2e latency, and TTFT in `/metrics`.
-        let queuedAt: Date
+        let queuedAt: Double
         let input: LMInput
         let parameters: GenerateParameters
         let promptTokens: Int
@@ -479,7 +480,7 @@ actor BatchScheduler {
     }
 
     nonisolated func admitGeneration(timeout: TimeInterval) async throws -> AFMGenerationLease {
-        let acceptedAt = Date().timeIntervalSince1970
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
         let token = telemetryObserver.requestAccepted(at: acceptedAt)
         _admissionWaitCount.withLock { $0 += 1 }
         publishProviderState()
@@ -491,7 +492,7 @@ actor BatchScheduler {
             _ = telemetryObserver.requestFailed(
                 token,
                 reason: reason,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
             publishProviderState()
             throw Task.isCancelled
@@ -499,7 +500,7 @@ actor BatchScheduler {
                 : AFMGenerationAdmissionError.timedOut
         }
 
-        telemetryObserver.requestStarted(token, at: Date().timeIntervalSince1970)
+        telemetryObserver.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
         publishProviderState()
         return AFMGenerationLease(telemetryToken: token) { [weak self] in
             self?.releaseReservation()
@@ -571,12 +572,13 @@ actor BatchScheduler {
 
         _inFlightCount.withLock { $0 = max(0, $0 - removed.count) }
         for request in removed {
+            request.admissionLease?.transferReleaseToProvider()
             clearCancellation(request.id)
             request.continuation.finish(throwing: CancellationError())
             _ = telemetryObserver.requestFailed(
                 request.telemetryToken,
                 reason: .cancelled,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
         }
         publishProviderState()
@@ -673,7 +675,7 @@ actor BatchScheduler {
 
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
         let slotID = UUID()
-        let acceptedAt = AFMGenerationContext.acceptedAt ?? Date().timeIntervalSince1970
+        let acceptedAt = AFMGenerationContext.acceptedAt ?? ProcessInfo.processInfo.systemUptime
         let telemetryToken: AFMInferenceRequestToken
         if let admittedToken = AFMGenerationContext.telemetryToken {
             telemetryToken = admittedToken
@@ -681,7 +683,7 @@ actor BatchScheduler {
             telemetryToken = telemetryObserver.requestAccepted(at: acceptedAt)
             telemetryObserver.requestStarted(
                 telemetryToken,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
         }
 
@@ -690,14 +692,18 @@ actor BatchScheduler {
             self?.cancelSlots(ids: [slotID])
         }
 
-        // Note: slot already reserved by tryReserve() in the controller layer.
+        // Note: slot already reserved by admission in the controller layer. Once
+        // submitted, the scheduler owns releasing that reservation on every exit.
+        let admissionLease = AFMGenerationContext.admissionLease
+        admissionLease?.transferReleaseToProvider()
         _pendingQueue.withLock {
             $0.append(PendingRequest(
                 id: slotID,
                 requestId: requestId,
                 telemetryToken: telemetryToken,
+                admissionLease: admissionLease,
                 ignoreEndOfSequence: AFMGenerationContext.ignoreEndOfSequence,
-                queuedAt: Date(timeIntervalSince1970: acceptedAt),
+                queuedAt: acceptedAt,
                 input: input,
                 parameters: parameters,
                 promptTokens: promptTokens,
@@ -770,11 +776,12 @@ actor BatchScheduler {
             let result = q; q.removeAll(); return result
         }
         for req in pending {
+            req.admissionLease?.transferReleaseToProvider()
             req.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             _ = telemetryObserver.requestFailed(
                 req.telemetryToken,
                 reason: .internal,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
         }
 
@@ -785,12 +792,13 @@ actor BatchScheduler {
         }
 
         for slot in slots {
+            slot.admissionLease?.transferReleaseToProvider()
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             slot.constraintRuntime?.matcherHandle?.release()
             _ = telemetryObserver.requestFailed(
                 slot.telemetryToken,
                 reason: .internal,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
         }
         // Reset in-flight counter
@@ -854,13 +862,14 @@ actor BatchScheduler {
             }
             if Task.isCancelled || _isShutdown.withLock({ $0 }) {
                 for req in newRequests {
+                    req.admissionLease?.transferReleaseToProvider()
                     _inFlightCount.withLock { $0 = max(0, $0 - 1) }
                     req.continuation.finish(
                         throwing: MLXServiceError.serviceShuttingDown)
                     _ = telemetryObserver.requestFailed(
                         req.telemetryToken,
                         reason: .internal,
-                        at: Date().timeIntervalSince1970
+                        at: ProcessInfo.processInfo.systemUptime
                     )
                 }
                 if !slots.isEmpty {
@@ -875,12 +884,13 @@ actor BatchScheduler {
                 for req in newRequests {
                     if isCancellationRequested(req.id) {
                         clearCancellation(req.id)
+                        req.admissionLease?.transferReleaseToProvider()
                         _inFlightCount.withLock { $0 = max(0, $0 - 1) }
                         req.continuation.finish(throwing: CancellationError())
                         _ = telemetryObserver.requestFailed(
                             req.telemetryToken,
                             reason: .cancelled,
-                            at: Date().timeIntervalSince1970
+                            at: ProcessInfo.processInfo.systemUptime
                         )
                         continue
                     }
@@ -1052,7 +1062,6 @@ actor BatchScheduler {
                     if slot.firstTokenTime == 0 {
                         let now = Date()
                         slot.firstTokenTime = now.timeIntervalSince(slot.startTime)
-                        slot.firstTokenAt = now
                     }
 
                     if token == tokenizer.unknownTokenId
@@ -1072,7 +1081,7 @@ actor BatchScheduler {
                     slot.tokenCount += 1
                     telemetryObserver.outputToken(
                         slot.telemetryToken,
-                        at: Date().timeIntervalSince1970
+                        at: ProcessInfo.processInfo.systemUptime
                     )
                     slot.detokenizer.append(token: token)
                     if let chunk = slot.detokenizer.next() {
@@ -1155,7 +1164,7 @@ actor BatchScheduler {
                 slot.tokenCount += 1
                 telemetryObserver.outputToken(
                     slot.telemetryToken,
-                    at: Date().timeIntervalSince1970
+                    at: ProcessInfo.processInfo.systemUptime
                 )
                 slot.detokenizer.append(token: token)
                 if let chunk = slot.detokenizer.next() {
@@ -1423,7 +1432,7 @@ actor BatchScheduler {
             req.telemetryToken,
             fullPromptTokens: inputTokens.count,
             computedPromptTokens: max(0, inputTokens.count - cachedTokens),
-            at: Date().timeIntervalSince1970
+            at: ProcessInfo.processInfo.systemUptime
         )
 
         let unsupportedCacheTypes = cache.compactMap { layerCache -> String? in
@@ -1452,6 +1461,7 @@ actor BatchScheduler {
             id: req.id,
             requestId: req.requestId,
             telemetryToken: req.telemetryToken,
+            admissionLease: req.admissionLease,
             ignoreEndOfSequence: req.ignoreEndOfSequence,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
@@ -1512,7 +1522,7 @@ actor BatchScheduler {
             slot.tokenCount += 1
             telemetryObserver.outputToken(
                 slot.telemetryToken,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
             slot.detokenizer.append(token: firstToken)
             if let firstChunk = slot.detokenizer.next() {
@@ -1592,7 +1602,7 @@ actor BatchScheduler {
             tokenCount += 1
             telemetryObserver.outputToken(
                 req.telemetryToken,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
             detokenizer.append(token: tokenId)
             if let chunk = detokenizer.next() {
@@ -1615,7 +1625,9 @@ actor BatchScheduler {
         let generateTime = Date().timeIntervalSince(genStart)
         print("[\(batchTs())] [BatchScheduler] Serial cache generation done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
 
-        // Signal completion
+        // Signal completion. Mark scheduler ownership before exposing the
+        // terminal event so stream teardown cannot race a second release.
+        req.admissionLease?.transferReleaseToProvider()
         req.continuation.yield(StreamChunk(
             text: "",
             promptTokens: inputTokens.count,
@@ -1632,7 +1644,7 @@ actor BatchScheduler {
             req.telemetryToken,
             observation: AFMInferenceRequestFinishObservation(
                 reason: reason,
-                completedAt: Date().timeIntervalSince1970,
+                completedAt: ProcessInfo.processInfo.systemUptime,
                 fullPromptTokens: inputTokens.count,
                 computedPromptTokens: max(0, inputTokens.count - cachedTokens),
                 generatedTokens: tokenCount,
@@ -1814,6 +1826,7 @@ actor BatchScheduler {
                 id: req.id,
                 requestId: req.requestId,
                 telemetryToken: req.telemetryToken,
+                admissionLease: req.admissionLease,
                 ignoreEndOfSequence: req.ignoreEndOfSequence,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
@@ -1870,7 +1883,7 @@ actor BatchScheduler {
                 slot.tokenCount += 1
                 telemetryObserver.outputToken(
                     slot.telemetryToken,
-                    at: Date().timeIntervalSince1970
+                    at: ProcessInfo.processInfo.systemUptime
                 )
                 slot.detokenizer.append(token: firstToken)
                 if let firstChunk = slot.detokenizer.next() {
@@ -1897,7 +1910,7 @@ actor BatchScheduler {
                 requests[index].telemetryToken,
                 fullPromptTokens: tokens.count,
                 computedPromptTokens: tokens.count,
-                at: Date().timeIntervalSince1970
+                at: ProcessInfo.processInfo.systemUptime
             )
         }
     }
@@ -2071,6 +2084,9 @@ actor BatchScheduler {
             insertTime: saveInsertTime
         )
 
+        // Mark scheduler ownership before exposing the terminal event so the
+        // controller's stream cleanup cannot release the reservation twice.
+        slot.admissionLease?.transferReleaseToProvider()
         slot.continuation.yield(StreamChunk(
             text: "",
             promptTokens: slot.promptTokenCount,
@@ -2100,7 +2116,7 @@ actor BatchScheduler {
         } else {
             finishedReason = .stop
         }
-        let completedAt = Date().timeIntervalSince1970
+        let completedAt = ProcessInfo.processInfo.systemUptime
         if wasCancelled {
             _ = telemetryObserver.requestFailed(
                 slot.telemetryToken,

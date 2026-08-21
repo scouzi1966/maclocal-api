@@ -64,17 +64,21 @@ public final class LegacyAFMMLXAdmissionAdapter:
     }
 
     public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
-        let acceptedAt = Date().timeIntervalSince1970
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
         let token = observer.requestAccepted(at: acceptedAt)
         let seconds = timeout.map(Self.seconds) ?? 30
         guard await scheduler.waitForSlot(timeout: seconds) else {
             let reason: AFMInferenceFailureReason = Task.isCancelled ? .cancelled : .inference
-            _ = observer.requestFailed(token, reason: reason, at: Date().timeIntervalSince1970)
+            _ = observer.requestFailed(
+                token,
+                reason: reason,
+                at: ProcessInfo.processInfo.systemUptime
+            )
             throw Task.isCancelled
                 ? AFMGenerationAdmissionError.cancelled
                 : AFMGenerationAdmissionError.timedOut
         }
-        observer.requestStarted(token, at: Date().timeIntervalSince1970)
+        observer.requestStarted(token, at: ProcessInfo.processInfo.systemUptime)
         return AFMGenerationLease(telemetryToken: token) { [scheduler] in
             scheduler.releaseSlot()
         }

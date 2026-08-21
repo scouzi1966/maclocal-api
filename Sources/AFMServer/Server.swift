@@ -318,16 +318,23 @@ public class Server: @unchecked Sendable {
             mlxChatService = mlxServiceAdapter
         }
         let rawTextGenerator: AnyAFMRawTextGenerator?
+        let rawTextGenerationAdmitter: AnyAFMGenerationAdmitter?
         if let retained = afmModel?.rawTextGenerator {
             rawTextGenerator = retained
+            rawTextGenerationAdmitter = afmModel?.generationAdmitter
         } else if let mlxModelService, let mlxModelID {
             rawTextGenerator = AnyAFMRawTextGenerator(AFMMLXModel(
                 modelID: AFMModelID(rawValue: mlxModelID),
                 attachedService: mlxModelService
             ))
+            rawTextGenerationAdmitter = mlxModelService.generationAdmitter
         } else {
             rawTextGenerator = nil
+            rawTextGenerationAdmitter = nil
         }
+        let rawCompletionRouteAvailable = rawTextGenerator != nil
+            && mlxModelID != nil
+            && mlxChatService != nil
 
         app.get("health") { req async -> HealthResponse in
             return HealthResponse(
@@ -480,7 +487,9 @@ public class Server: @unchecked Sendable {
             contextWindow: contextWindow
         ))
         // GET /openapi.json + /docs — schema discovery for self-configuring agents (T1.7).
-        try app.register(collection: OpenAPIController())
+        try app.register(collection: OpenAPIController(
+            rawCompletionsAvailable: rawCompletionRouteAvailable
+        ))
 
         if let mlxModelID = mlxModelID,
            let mlxChatService {
@@ -508,6 +517,7 @@ public class Server: @unchecked Sendable {
                 try app.register(collection: CompletionsController(
                     modelID: mlxModelID,
                     generator: rawTextGenerator,
+                    generationAdmitter: rawTextGenerationAdmitter,
                     telemetry: telemetry
                 ))
             }

@@ -1823,6 +1823,11 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore11AnyAFMModelV18generationAdmitterAA0c13AFMGenerationF0VSgvp",
+      "target": "s:10AFMKitCore11AnyAFMModelV"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore11AnyAFMModelV4load8progressAA0D10DescriptorVySdYbcSg_tYaKF",
       "sourceOrigin": {
         "displayName": "AFMModel.load(progress:)",
@@ -2382,7 +2387,17 @@
     },
     {
       "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO14admissionLeaseAA0cF0CSgvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
       "source": "s:10AFMKitCore20AFMGenerationContextO14telemetryTokenAA019AFMInferenceRequestF0VSgvpZ",
+      "target": "s:10AFMKitCore20AFMGenerationContextO"
+    },
+    {
+      "kind": "memberOf",
+      "source": "s:10AFMKitCore20AFMGenerationContextO15$admissionLease12_Concurrency9TaskLocalCyAA0cF0CSgGvpZ",
       "target": "s:10AFMKitCore20AFMGenerationContextO"
     },
     {
@@ -31816,6 +31831,112 @@
       "declarationFragments": [
         {
           "kind": "identifier",
+          "spelling": "$admissionLease"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "<"
+        },
+        {
+          "kind": "text",
+          "spelling": "?>"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore18AFMGenerationLeaseC",
+          "spelling": "AFMGenerationLease"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+          "spelling": "TaskLocal"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO15$admissionLease12_Concurrency9TaskLocalCyAA0cF0CSgGvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "$admissionLease"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "<"
+          },
+          {
+            "kind": "text",
+            "spelling": "?>"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore18AFMGenerationLeaseC",
+            "spelling": "AFMGenerationLease"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:12_Concurrency9TaskLocalC",
+            "spelling": "TaskLocal"
+          }
+        ],
+        "title": "$admissionLease"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "$admissionLease"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
           "spelling": "$ignoreEndOfSequence"
         },
         {
@@ -36289,6 +36410,102 @@
       "pathComponents": [
         "AFMInferenceProviderState",
         "activeLogicalCachePositions"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "admissionLease"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "get"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "static"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "var"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": " }"
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "? { "
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore18AFMGenerationLeaseC",
+          "spelling": "AFMGenerationLease"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore20AFMGenerationContextO14admissionLeaseAA0cF0CSgvpZ"
+      },
+      "kind": {
+        "displayName": "Type Property",
+        "identifier": "swift.type.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "admissionLease"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "static"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "var"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore18AFMGenerationLeaseC",
+            "spelling": "AFMGenerationLease"
+          }
+        ],
+        "title": "admissionLease"
+      },
+      "pathComponents": [
+        "AFMGenerationContext",
+        "admissionLease"
       ]
     },
     {
@@ -41859,6 +42076,78 @@
       "pathComponents": [
         "AFMInferenceMetricsSnapshot",
         "generatedTokensTotal"
+      ]
+    },
+    {
+      "accessLevel": "public",
+      "declarationFragments": [
+        {
+          "kind": "identifier",
+          "spelling": "generationAdmitter"
+        },
+        {
+          "kind": "keyword",
+          "spelling": "let"
+        },
+        {
+          "kind": "text",
+          "spelling": " "
+        },
+        {
+          "kind": "text",
+          "spelling": ": "
+        },
+        {
+          "kind": "text",
+          "spelling": "?"
+        },
+        {
+          "kind": "typeIdentifier",
+          "preciseIdentifier": "s:10AFMKitCore24AnyAFMGenerationAdmitterV",
+          "spelling": "AnyAFMGenerationAdmitter"
+        }
+      ],
+      "identifier": {
+        "interfaceLanguage": "swift",
+        "precise": "s:10AFMKitCore11AnyAFMModelV18generationAdmitterAA0c13AFMGenerationF0VSgvp"
+      },
+      "kind": {
+        "displayName": "Instance Property",
+        "identifier": "swift.property"
+      },
+      "names": {
+        "subHeading": [
+          {
+            "kind": "identifier",
+            "spelling": "generationAdmitter"
+          },
+          {
+            "kind": "keyword",
+            "spelling": "let"
+          },
+          {
+            "kind": "text",
+            "spelling": " "
+          },
+          {
+            "kind": "text",
+            "spelling": ": "
+          },
+          {
+            "kind": "text",
+            "spelling": "?"
+          },
+          {
+            "kind": "typeIdentifier",
+            "preciseIdentifier": "s:10AFMKitCore24AnyAFMGenerationAdmitterV",
+            "spelling": "AnyAFMGenerationAdmitter"
+          }
+        ],
+        "title": "generationAdmitter"
+      },
+      "pathComponents": [
+        "AnyAFMModel",
+        "generationAdmitter"
       ]
     },
     {

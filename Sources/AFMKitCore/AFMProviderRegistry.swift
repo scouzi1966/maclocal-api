@@ -36,6 +36,7 @@ public extension AFMModel {
 
 public struct AnyAFMModel: AFMModel, Sendable {
     public let rawTextGenerator: AnyAFMRawTextGenerator?
+    public let generationAdmitter: AnyAFMGenerationAdmitter?
 
     private let descriptorValue: AFMModelDescriptor
     private let availabilityOperation: @Sendable () async -> AFMModelAvailability
@@ -51,6 +52,13 @@ public struct AnyAFMModel: AFMModel, Sendable {
             rawTextGenerator = AnyAFMRawTextGenerator(generator)
         } else {
             rawTextGenerator = nil
+        }
+        if let admitter = model as? any AFMGenerationAdmitting {
+            generationAdmitter = AnyAFMGenerationAdmitter { timeout in
+                try await admitter.admitGeneration(timeout: timeout)
+            }
+        } else {
+            generationAdmitter = nil
         }
         descriptorValue = model.descriptor
         availabilityOperation = { await model.availability() }
