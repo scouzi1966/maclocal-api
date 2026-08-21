@@ -253,6 +253,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         let continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
         let telemetryObserver: any AFMInferenceTelemetryObserving
         let telemetryToken: AFMInferenceRequestToken
+        let telemetryStarted: Bool
         var prompt: ds4_tokens
         var promptReleased = false
         var prefilled = false
@@ -280,6 +281,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             prompt: ds4_tokens,
             telemetryObserver: any AFMInferenceTelemetryObserving,
             telemetryToken: AFMInferenceRequestToken,
+            telemetryStarted: Bool,
             onEvent: @escaping @Sendable (AFMGenerationEvent) -> Void,
             continuation: CheckedContinuation<AFMDwarfStarGenerationResult, any Error>
         ) {
@@ -288,6 +290,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             self.prompt = prompt
             self.telemetryObserver = telemetryObserver
             self.telemetryToken = telemetryToken
+            self.telemetryStarted = telemetryStarted
             self.onEvent = onEvent
             self.continuation = continuation
             randomState = UInt64(bitPattern: Int64(request.options.seed ?? 0x5eed))
@@ -515,8 +518,14 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                let acceptedAt = ProcessInfo.processInfo.systemUptime
-                let telemetryToken = telemetryObserver.requestAccepted(at: acceptedAt)
+                let admittedTelemetryToken = AFMGenerationContext.telemetryToken
+                let acceptedAt = AFMGenerationContext.acceptedAt
+                    ?? ProcessInfo.processInfo.systemUptime
+                let telemetryToken = admittedTelemetryToken
+                    ?? telemetryObserver.requestAccepted(at: acceptedAt)
+                if admittedTelemetryToken != nil {
+                    AFMGenerationContext.admissionLease?.transferTelemetryToProvider()
+                }
                 pendingJobs.append(
                     GenerationJob(
                         id: id,
@@ -524,6 +533,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                         prompt: prompt,
                         telemetryObserver: telemetryObserver,
                         telemetryToken: telemetryToken,
+                        telemetryStarted: admittedTelemetryToken != nil,
                         onEvent: onEvent,
                         continuation: continuation)
                 )
@@ -625,7 +635,9 @@ public actor AFMDwarfStarRuntimeCoordinator {
             job.cachedInputTokens = cachedTokens
             slots[slotIndex].job = job
             let now = ProcessInfo.processInfo.systemUptime
-            job.telemetryObserver.requestStarted(job.telemetryToken, at: now)
+            if !job.telemetryStarted {
+                job.telemetryObserver.requestStarted(job.telemetryToken, at: now)
+            }
             job.telemetryObserver.promptTokensProcessed(
                 job.telemetryToken,
                 fullPromptTokens: Int(job.prompt.len),

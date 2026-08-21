@@ -65,7 +65,7 @@ final class AFMKitMLXChatServingAdapter:
 
     var maxConcurrent: Int { service?.maxConcurrent ?? fixedMaxConcurrent }
     var providerGenerationAdmitter: AnyAFMGenerationAdmitter? {
-        service?.generationAdmitter
+        service?.generationAdmitter ?? fixedModel?.generationAdmitter
     }
     var servingConfiguration: AFMMLXServingConfiguration {
         service?.servingConfiguration ?? fixedServingConfiguration
@@ -392,11 +392,6 @@ final class AFMKitMLXChatServingAdapter:
 
         let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
             let task = Task {
-                defer {
-                    if self.service == nil {
-                        self.releaseSlot()
-                    }
-                }
                 var promptTokens = 0
                 var completionTokens = 0
                 var cachedTokens = 0

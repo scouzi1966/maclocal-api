@@ -7,6 +7,47 @@ final class AFMDwarfStarProviderTests: XCTestCase {
     func testModelErasureRetainsRawCompletionCapability() {
         let model = AFMDwarfStarModel(modelID: "raw", modelPath: "/missing/model.gguf")
         XCTAssertNotNil(AnyAFMModel(model).rawTextGenerator)
+        XCTAssertNotNil(AnyAFMModel(model).generationAdmitter)
+    }
+
+    func testGenerationAdmissionDoesNotOverAdmitOrReleaseAReplacement() async throws {
+        let model = AFMDwarfStarModel(
+            modelID: "admission",
+            modelPath: "/missing/model.gguf",
+            maxConcurrent: 2,
+            runtime: AFMDwarfStarRuntimeCoordinator()
+        )
+        let admitter = try XCTUnwrap(AnyAFMModel(model).generationAdmitter)
+        let first = try await admitter.admitGeneration(timeout: .zero)
+        let second = try await admitter.admitGeneration(timeout: .zero)
+
+        await assertCapacityRejected(admitter)
+
+        first.release()
+        let replacement = try await admitter.admitGeneration(timeout: .zero)
+        first.release()
+
+        await assertCapacityRejected(admitter)
+
+        second.release()
+        replacement.release()
+        let final = try await admitter.admitGeneration(timeout: .zero)
+        final.release()
+    }
+
+    private func assertCapacityRejected(
+        _ admitter: AnyAFMGenerationAdmitter,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            _ = try await admitter.admitGeneration(timeout: .zero)
+            XCTFail("admission exceeded configured capacity", file: file, line: line)
+        } catch let error as AFMGenerationAdmissionError {
+            XCTAssertEqual(error, .capacity, file: file, line: line)
+        } catch {
+            XCTFail("unexpected admission error: \(error)", file: file, line: line)
+        }
     }
 
     func testIgnoreEOSSuppressesOnlyTheEOSTerminalCandidate() {

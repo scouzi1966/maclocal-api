@@ -71,7 +71,12 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
     }
 }
 
-public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked Sendable {
+public final class AFMDwarfStarModel:
+    AFMModel,
+    AFMRawTextGenerating,
+    AFMGenerationAdmitting,
+    @unchecked Sendable
+{
     public let descriptor: AFMModelDescriptor
 
     private let modelPath: String
@@ -86,6 +91,7 @@ public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked
     private let maxConcurrent: Int
     private let runtime: AFMDwarfStarRuntimeCoordinator
     private let telemetryObserver: any AFMInferenceTelemetryObserving
+    private let generationAdmission: AFMDwarfStarGenerationAdmission
 
     public init(
         modelID: AFMModelID,
@@ -113,6 +119,10 @@ public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked
         self.maxConcurrent = max(1, maxConcurrent)
         self.runtime = runtime
         self.telemetryObserver = AFMNoopInferenceTelemetryObserver()
+        self.generationAdmission = AFMDwarfStarGenerationAdmission(
+            maximumConcurrentRequests: maxConcurrent,
+            telemetryObserver: self.telemetryObserver
+        )
         self.descriptor = AFMModelDescriptor(
             providerID: AFMDwarfStarProviderFactory.providerID,
             modelID: modelID,
@@ -160,6 +170,10 @@ public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked
         self.maxConcurrent = max(1, maxConcurrent)
         self.runtime = runtime
         self.telemetryObserver = telemetryObserver
+        self.generationAdmission = AFMDwarfStarGenerationAdmission(
+            maximumConcurrentRequests: maxConcurrent,
+            telemetryObserver: telemetryObserver
+        )
         self.descriptor = AFMModelDescriptor(
             providerID: AFMDwarfStarProviderFactory.providerID,
             modelID: modelID,
@@ -207,6 +221,10 @@ public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked
         FileManager.default.fileExists(atPath: modelPath)
             ? .available
             : .unavailable(reason: "Model or checkpoint does not exist at \(modelPath)")
+    }
+
+    public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
+        try await generationAdmission.admitGeneration(timeout: timeout)
     }
 
     public func load(
