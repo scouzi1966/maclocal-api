@@ -17,6 +17,10 @@ import Tokenizers
 import Hub
 import HuggingFace
 
+private enum AFMMLXPreflightedMediaContext {
+    @TaskLocal static var request: AFMMLXResolvedMediaRequest?
+}
+
 private extension Dictionary where Key == String, Value == AnyCodable {
     var afmIncludeSchemaInPrompt: Bool? {
         guard case .bool(let value)? = self["afm_include_schema_in_prompt"]?.value else {
@@ -2231,7 +2235,7 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let resolvedMedia = try await Self.resolveMediaRequest(messages)
+        let resolvedMedia = try await Self.resolvedMediaRequest(for: messages)
         let messages = resolvedMedia.messages
         let runtime = try validatedRuntimeForRequest(
             modelID: modelID,
@@ -3182,7 +3186,7 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        let resolvedMedia = try await Self.resolveMediaRequest(messages)
+        let resolvedMedia = try await Self.resolvedMediaRequest(for: messages)
         let messages = resolvedMedia.messages
         let runtime = try validatedRuntimeForRequest(
             modelID: modelID,
@@ -6158,8 +6162,10 @@ public final class MLXModelService: @unchecked Sendable {
     public func preflightMediaRequest(
         model rawModel: String,
         messages: [AFMOpenAICompat.Message]
-    ) async throws -> [AFMOpenAICompat.Message] {
-        guard Self.containsMedia(in: messages) else { return messages }
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        guard Self.containsMedia(in: messages) else {
+            return AFMMLXResolvedMediaRequest(messages: messages, mediaKinds: [])
+        }
         let modelID = normalizeModel(rawModel)
         let state = withStateLock {
             (
@@ -6183,7 +6189,16 @@ public final class MLXModelService: @unchecked Sendable {
             qualification: qualification,
             factory: factory
         )
-        return resolved.messages
+        return resolved
+    }
+
+    public func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([AFMOpenAICompat.Message]) async throws -> Result
+    ) async throws -> Result {
+        try await AFMMLXPreflightedMediaContext.$request.withValue(request) {
+            try await operation(request.messages)
+        }
     }
 
     private func validatedRuntimeForRequest(
@@ -6244,6 +6259,15 @@ public final class MLXModelService: @unchecked Sendable {
         } catch {
             throw MLXServiceError.invalidMediaInput(error.localizedDescription)
         }
+    }
+
+    static func resolvedMediaRequest(
+        for messages: [AFMOpenAICompat.Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        if let preflighted = AFMMLXPreflightedMediaContext.request {
+            return preflighted
+        }
+        return try await resolveMediaRequest(messages)
     }
 
     private static func validateMediaKinds(

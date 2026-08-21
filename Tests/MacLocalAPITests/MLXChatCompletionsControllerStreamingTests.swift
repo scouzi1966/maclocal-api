@@ -832,6 +832,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertFalse(res.body.string.contains("data:"))
         }
         XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 0)
         XCTAssertEqual(service.reserveSlotCallCount, 0)
         XCTAssertEqual(service.generateStreamingCallCount, 0)
     }
@@ -864,6 +865,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertContains(res.body.string, #""code":"vision_assets_unavailable""#)
         }
         XCTAssertEqual(service.preflightCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 0)
         XCTAssertEqual(service.reserveSlotCallCount, 0)
         XCTAssertEqual(service.generateCallCount, 0)
     }
@@ -962,6 +964,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertFalse(res.body.string.contains(#""role":"assistant""#))
         }
         XCTAssertEqual(service.generateStreamingCallCount, 1)
+        XCTAssertEqual(service.preflightHandoffCallCount, 1)
         XCTAssertEqual(service.releaseSlotCallCount, 1)
     }
 
@@ -1015,6 +1018,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
 
         XCTAssertEqual(service.preflightCallCount, 2)
+        XCTAssertEqual(service.preflightHandoffCallCount, 2)
         XCTAssertEqual(service.generateCallCount, 1)
         XCTAssertEqual(service.generateStreamingCallCount, 1)
         for messages in service.recordedPreflightMessages
@@ -1283,6 +1287,7 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private(set) var recordedGenerateMessages: [[Message]] = []
     private(set) var recordedStreamingMessages: [[Message]] = []
     private(set) var preflightCallCount = 0
+    private(set) var preflightHandoffCallCount = 0
     private(set) var reserveSlotCallCount = 0
     private(set) var generateCallCount = 0
     private(set) var generateStreamingCallCount = 0
@@ -1360,14 +1365,24 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message] {
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
         let failure = stateLock.withLock {
             preflightCallCount += 1
             recordedPreflightMessages.append(messages)
             return preflightFailure
         }
         if let failure { throw failure }
-        return messages
+        return AFMMLXResolvedMediaRequest(messages: messages, mediaKinds: [])
+    }
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result {
+        stateLock.withLock { preflightHandoffCallCount += 1 }
+        return try await operation(request.messages)
     }
     func tryReserveSlot() -> Bool {
         stateLock.withLock { reserveSlotCallCount += 1 }

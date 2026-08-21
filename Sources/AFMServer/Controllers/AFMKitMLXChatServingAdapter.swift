@@ -67,7 +67,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     func preflightMediaRequest(
         model: String,
         messages: [Message]
-    ) async throws -> [Message] {
+    ) async throws -> AFMMLXResolvedMediaRequest {
         if let service {
             return try await service.preflightMediaRequest(model: model, messages: messages)
         }
@@ -80,7 +80,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         } catch {
             throw MLXServiceError.invalidMediaInput(error.localizedDescription)
         }
-        guard let descriptor = fixedModel?.descriptor else { return resolved.messages }
+        guard let descriptor = fixedModel?.descriptor else { return resolved }
         for kind in resolved.mediaKinds {
             let supported: Bool
             switch kind {
@@ -96,7 +96,20 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 )
             }
         }
-        return resolved.messages
+        return resolved
+    }
+
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result {
+        if let service {
+            return try await service.withPreflightedMediaRequest(
+                request,
+                operation: operation
+            )
+        }
+        return try await operation(request.messages)
     }
 
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {

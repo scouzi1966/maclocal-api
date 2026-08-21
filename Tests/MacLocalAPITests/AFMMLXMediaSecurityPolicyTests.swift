@@ -8,6 +8,33 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
         ["93.184.216.34"]
     }
 
+    func testDirectServiceMediaResolutionStillRejectsUntrustedLocalFiles() async {
+        let messages = [
+            Message(
+                role: "user",
+                content: .parts([
+                    ContentPart(
+                        type: "image_url",
+                        image_url: ImageURL(
+                            url: "file:///Users/example/private.png",
+                            detail: nil
+                        )
+                    ),
+                ])
+            ),
+        ]
+
+        do {
+            _ = try await MLXModelService.resolvedMediaRequest(for: messages)
+            XCTFail("Expected direct service media resolution to reject file URLs")
+        } catch {
+            XCTAssertEqual(
+                error as? AFMMLXMediaInputError,
+                .unsupportedScheme("file")
+            )
+        }
+    }
+
     func testRejectsUnsafeAndUnencryptedSchemes() async {
         for raw in [
             "file:///Users/example/private.png",

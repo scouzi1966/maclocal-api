@@ -149,11 +149,11 @@ struct MLXChatCompletionsController: RouteCollection {
 
             // Media admission is provider-owned. Resolve bounded remote payloads
             // before slot reservation and before constructing an SSE response.
-            let resolvedMessages = try await service.preflightMediaRequest(
+            let preflightedMedia = try await service.preflightMediaRequest(
                 model: modelID,
                 messages: chatRequest.messages
             )
-            chatRequest = chatRequest.replacingMessages(resolvedMessages)
+            chatRequest = chatRequest.replacingMessages(preflightedMedia.messages)
 
             let effectiveTools = try Self.resolveEffectiveTools(
                 chatRequest.tools,
@@ -209,7 +209,15 @@ struct MLXChatCompletionsController: RouteCollection {
             let extractThinking = !rawOutput || isWebUI
 
             if chatRequest.stream == true && streamingEnabled {
-                return try await createStreamingResponse(req: req, chatRequest: chatRequest, extractThinking: extractThinking, effectiveResponseFormat: effectiveResponseFormat, grammarDowngraded: grammarDowngraded, requestId: reqId)
+                return try await createStreamingResponse(
+                    req: req,
+                    chatRequest: chatRequest,
+                    preflightedMedia: preflightedMedia,
+                    extractThinking: extractThinking,
+                    effectiveResponseFormat: effectiveResponseFormat,
+                    grammarDowngraded: grammarDowngraded,
+                    requestId: reqId
+                )
             }
 
             // In concurrent mode, non-streaming requests currently bypass the
@@ -252,28 +260,32 @@ struct MLXChatCompletionsController: RouteCollection {
             let result: AFMMLXChatGenerationResult
             if service.maxConcurrent >= 2 {
                 // Batch mode: route through scheduler for batched decode
-                let streamResult: AFMMLXChatStreamingResult = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: reqId
-                )
+                let streamResult: AFMMLXChatStreamingResult =
+                    try await service.withPreflightedMediaRequest(preflightedMedia) {
+                        trustedMessages in
+                        try await service.generateStreaming(
+                            model: modelID,
+                            messages: trustedMessages,
+                            temperature: effectiveTemp,
+                            maxTokens: effectiveMaxTokens,
+                            topP: effectiveTopP,
+                            repetitionPenalty: effectiveRepetitionPenalty,
+                            topK: effectiveTopK,
+                            minP: effectiveMinP,
+                            presencePenalty: effectivePresencePenalty,
+                            seed: effectiveSeed,
+                            logprobs: chatRequest.logprobs,
+                            topLogprobs: chatRequest.topLogprobs,
+                            tools: effectiveTools,
+                            toolChoice: chatRequest.toolChoice,
+                            parallelToolCalls: chatRequest.parallelToolCalls,
+                            stop: effectiveStop,
+                            responseFormat: effectiveResponseFormat,
+                            chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                            preserveStructuralTags: !extractThinking,
+                            requestId: reqId
+                        )
+                    }
 
                 // Collect stream into complete response
                 var fullText = ""
@@ -369,26 +381,29 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             } else {
                 // Serial mode: use existing generate() path
-                result = try await service.generate(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
-                )
+                result = try await service.withPreflightedMediaRequest(preflightedMedia) {
+                    trustedMessages in
+                    try await service.generate(
+                        model: modelID,
+                        messages: trustedMessages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
+                    )
+                }
             }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
@@ -554,7 +569,15 @@ struct MLXChatCompletionsController: RouteCollection {
         }
     }
 
-    private func createStreamingResponse(req: Request, chatRequest: ChatCompletionRequest, extractThinking: Bool, effectiveResponseFormat: ResponseFormat?, grammarDowngraded: Bool = false, requestId: String = "") async throws -> Response {
+    private func createStreamingResponse(
+        req: Request,
+        chatRequest: ChatCompletionRequest,
+        preflightedMedia: AFMMLXResolvedMediaRequest,
+        extractThinking: Bool,
+        effectiveResponseFormat: ResponseFormat?,
+        grammarDowngraded: Bool = false,
+        requestId: String = ""
+    ) async throws -> Response {
         let httpResponse = Response(status: .ok)
         httpResponse.headers.add(name: .contentType, value: "text/event-stream")
         httpResponse.headers.add(name: .cacheControl, value: "no-cache")
@@ -636,28 +659,32 @@ struct MLXChatCompletionsController: RouteCollection {
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     ); fflush(stdout)
                 }
-                let res = try await service.generateStreaming(
-                    model: modelID,
-                    messages: chatRequest.messages,
-                    temperature: effectiveTemp,
-                    maxTokens: effectiveMaxTokens,
-                    topP: effectiveTopP,
-                    repetitionPenalty: effectiveRepetitionPenalty,
-                    topK: effectiveTopK,
-                    minP: effectiveMinP,
-                    presencePenalty: effectivePresencePenalty,
-                    seed: effectiveSeed,
-                    logprobs: chatRequest.logprobs,
-                    topLogprobs: chatRequest.topLogprobs,
-                    tools: effectiveTools,
-                    toolChoice: chatRequest.toolChoice,
-                    parallelToolCalls: chatRequest.parallelToolCalls,
-                    stop: effectiveStop,
-                    responseFormat: effectiveResponseFormat,
-                    chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                    preserveStructuralTags: !extractThinking,
-                    requestId: streamReqId
-                )
+                let res = try await service.withPreflightedMediaRequest(
+                    preflightedMedia
+                ) { trustedMessages in
+                    try await service.generateStreaming(
+                        model: modelID,
+                        messages: trustedMessages,
+                        temperature: effectiveTemp,
+                        maxTokens: effectiveMaxTokens,
+                        topP: effectiveTopP,
+                        repetitionPenalty: effectiveRepetitionPenalty,
+                        topK: effectiveTopK,
+                        minP: effectiveMinP,
+                        presencePenalty: effectivePresencePenalty,
+                        seed: effectiveSeed,
+                        logprobs: chatRequest.logprobs,
+                        topLogprobs: chatRequest.topLogprobs,
+                        tools: effectiveTools,
+                        toolChoice: chatRequest.toolChoice,
+                        parallelToolCalls: chatRequest.parallelToolCalls,
+                        stop: effectiveStop,
+                        responseFormat: effectiveResponseFormat,
+                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                        preserveStructuralTags: !extractThinking,
+                        requestId: streamReqId
+                    )
+                }
                 reservationTransferredToScheduler = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(

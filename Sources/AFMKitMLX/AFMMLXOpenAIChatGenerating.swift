@@ -112,7 +112,18 @@ public protocol AFMMLXOpenAIChatServing:
     /// Resolve and validate media against the immutable capability state of the
     /// active container. Remote media is returned as a bounded canonical data URL
     /// so generation never performs a second network fetch.
-    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message]
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> AFMMLXResolvedMediaRequest
+
+    /// Run one generation operation with a provider-issued media preflight
+    /// result. Implementations may use this scope to avoid inspecting the same
+    /// canonical payload again; callers cannot construct the token themselves.
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result
 
     /// Runtime-usable descriptor for the active model, if this service owns one.
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor?
@@ -132,8 +143,24 @@ public extension AFMMLXOpenAIChatServing {
         )
     }
 
-    func preflightMediaRequest(model: String, messages: [Message]) async throws -> [Message] {
-        messages
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        do {
+            return try await AFMMLXMediaSecurityPolicy.resolveRequest(in: messages)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MLXServiceError.invalidMediaInput(error.localizedDescription)
+        }
+    }
+
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result {
+        try await operation(request.messages)
     }
 
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor? { nil }
