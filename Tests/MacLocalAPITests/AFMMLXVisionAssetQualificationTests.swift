@@ -342,6 +342,66 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertTrue(try qualify(directory).isAssetUsable)
     }
 
+    func testQwenPatchEmbeddingRejectsFullyAmbiguousLayoutWithoutProvenance() throws {
+        let ambiguousShape = [32, 3, 3, 3, 3]
+        XCTAssertNil(
+            Qwen3_5VisionPatchEmbeddingLayout.classify(
+                shape: ambiguousShape,
+                outputChannels: 32,
+                inputChannels: 3,
+                temporalPatchSize: 3,
+                patchSize: 3
+            )
+        )
+
+        let directory = try makeAmbiguousPatchEmbeddingDirectory()
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testQwenPatchEmbeddingUsesExplicitTrustedProvenance() throws {
+        let ambiguousShape = [32, 3, 3, 3, 3]
+        let rawLayout = try XCTUnwrap(
+            Qwen3_5VisionPatchEmbeddingLayout.classify(
+                shape: ambiguousShape,
+                outputChannels: 32,
+                inputChannels: 3,
+                temporalPatchSize: 3,
+                patchSize: 3,
+                trustedProvenance: .rawConv3D
+            )
+        )
+        XCTAssertEqual(rawLayout, .rawConv3D)
+
+        let rawWeight = MLXArray(
+            (0..<ambiguousShape.reduce(1, *)).map(Float.init)
+        ).reshaped(ambiguousShape)
+        let sanitized = rawLayout.sanitize(rawWeight)
+        XCTAssertEqual(sanitized.shape, ambiguousShape)
+        XCTAssertNotEqual(
+            sanitized.asArray(Float.self),
+            rawWeight.asArray(Float.self),
+            "Trusted raw Conv3D provenance must transpose data even when dimensions are equal"
+        )
+
+        XCTAssertEqual(
+            Qwen3_5VisionPatchEmbeddingLayout.classify(
+                shape: ambiguousShape,
+                outputChannels: 32,
+                inputChannels: 3,
+                temporalPatchSize: 3,
+                patchSize: 3,
+                trustedProvenance: .mlx
+            ),
+            .mlx
+        )
+
+        let directory = try makeAmbiguousPatchEmbeddingDirectory(provenance: .mlx)
+        XCTAssertTrue(try qualify(directory).isAssetUsable)
+    }
+
     func testMXFPPackedVisionWeightRequiresScaleTensor() throws {
         let directory = try makeModelDirectory()
         let packedWeight = "vision_tower.blocks.0.attn.proj.weight"
@@ -723,6 +783,31 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             metadata["\(prefix).norm2.bias"] = ("F16", [32])
         }
         return metadata
+    }
+
+    private func makeAmbiguousPatchEmbeddingDirectory(
+        provenance: Qwen3_5VisionPatchEmbeddingLayout? = nil
+    ) throws -> URL {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision["patch_size"] = 3
+        vision["temporal_patch_size"] = 3
+        vision["in_channels"] = 3
+        config["vision_config"] = vision
+        config["vision_patch_embedding_layout"] = provenance?.rawValue
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+        try mutateProcessor(in: directory) { processor in
+            processor["patch_size"] = 3
+            processor["temporal_patch_size"] = 3
+        }
+        try rewriteVisionShard(
+            in: directory,
+            metadata: [
+                "vision_tower.patch_embed.proj.weight": ("F16", [32, 3, 3, 3, 3])
+            ]
+        )
+        return directory
     }
 
     private static func requiredVisionTensorNames(depth: Int) -> Set<String> {

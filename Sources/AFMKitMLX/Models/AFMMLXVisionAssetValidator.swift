@@ -362,6 +362,8 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             ?? (config["quantization"] as? [String: Any])
         let mode = (quantization?["mode"] as? String)?.lowercased()
         let isMXFP = mode == "mxfp4" || mode == "mxfp8"
+        let patchEmbeddingProvenance = (config["vision_patch_embedding_layout"] as? String)
+            .flatMap(Qwen3_5VisionPatchEmbeddingLayout.init(rawValue:))
 
         for tensorName in required where !tensorName.hasSuffix(".weight") {
             guard tensors[tensorName]?.shape == expectedShapes[tensorName] else {
@@ -388,7 +390,8 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                 guard matchesUnquantizedQwenShape(
                     metadata.shape,
                     logicalShape: logicalShape,
-                    tensorName: weightName
+                    tensorName: weightName,
+                    patchEmbeddingProvenance: patchEmbeddingProvenance
                 ) else { return false }
                 continue
             }
@@ -424,12 +427,13 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
     private static func matchesUnquantizedQwenShape(
         _ shape: [Int],
         logicalShape: [Int],
-        tensorName: String
+        tensorName: String,
+        patchEmbeddingProvenance: Qwen3_5VisionPatchEmbeddingLayout?
     ) -> Bool {
-        guard shape != logicalShape else { return true }
-        guard tensorName == "vision_tower.patch_embed.proj.weight",
-              logicalShape.count == 5
-        else { return false }
+        guard tensorName == "vision_tower.patch_embed.proj.weight" else {
+            return shape == logicalShape
+        }
+        guard logicalShape.count == 5 else { return false }
 
         guard logicalShape[2] == logicalShape[3] else { return false }
         return Qwen3_5VisionPatchEmbeddingLayout.classify(
@@ -437,7 +441,8 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             outputChannels: logicalShape[0],
             inputChannels: logicalShape[4],
             temporalPatchSize: logicalShape[1],
-            patchSize: logicalShape[2]
+            patchSize: logicalShape[2],
+            trustedProvenance: patchEmbeddingProvenance
         ) != nil
     }
 

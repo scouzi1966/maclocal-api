@@ -20,6 +20,7 @@ public struct Qwen3_5MoEVLConfiguration: Codable, Sendable {
     var modelType: String = "qwen3_5_moe"
     var textConfig: Qwen3_5MoEVLTextConfiguration
     var visionConfig: Qwen3VLConfiguration.VisionConfiguration
+    var visionPatchEmbeddingLayout: Qwen3_5VisionPatchEmbeddingLayout?
 
     // Token IDs (defaults match Qwen3-VL)
     private var _imageTokenId: Int?
@@ -41,6 +42,7 @@ public struct Qwen3_5MoEVLConfiguration: Codable, Sendable {
         case modelType = "model_type"
         case textConfig = "text_config"
         case visionConfig = "vision_config"
+        case visionPatchEmbeddingLayout = "vision_patch_embedding_layout"
         case _imageTokenId = "image_token_id"
         case _videoTokenId = "video_token_id"
         case _imageTokenIndex = "image_token_index"
@@ -51,28 +53,39 @@ public struct Qwen3_5MoEVLConfiguration: Codable, Sendable {
     }
 }
 
-public enum Qwen3_5VisionPatchEmbeddingLayout: Equatable, Sendable {
+public enum Qwen3_5VisionPatchEmbeddingLayout: String, Codable, Equatable, Sendable {
     case mlx
-    case rawConv3D
+    case rawConv3D = "raw_conv3d"
 
     public static func classify(
         shape: [Int],
         outputChannels: Int,
         inputChannels: Int,
         temporalPatchSize: Int,
-        patchSize: Int
+        patchSize: Int,
+        trustedProvenance: Self? = nil
     ) -> Self? {
         let mlxShape = [
             outputChannels, temporalPatchSize, patchSize, patchSize, inputChannels,
         ]
-        if shape == mlxShape {
-            return .mlx
-        }
-
         let rawShape = [
             outputChannels, inputChannels, temporalPatchSize, patchSize, patchSize,
         ]
-        return shape == rawShape ? .rawConv3D : nil
+        let matchesMLX = shape == mlxShape
+        let matchesRaw = shape == rawShape
+
+        if matchesMLX && matchesRaw {
+            return trustedProvenance
+        }
+        if matchesMLX {
+            return trustedProvenance == nil || trustedProvenance == .mlx ? .mlx : nil
+        }
+        if matchesRaw {
+            return trustedProvenance == nil || trustedProvenance == .rawConv3D
+                ? .rawConv3D
+                : nil
+        }
+        return nil
     }
 
     public func sanitize(_ weight: MLXArray) -> MLXArray {
@@ -1748,7 +1761,8 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
                     outputChannels: vision.hiddenSize,
                     inputChannels: vision.inChannels,
                     temporalPatchSize: vision.temporalPatchSize,
-                    patchSize: vision.patchSize
+                    patchSize: vision.patchSize,
+                    trustedProvenance: config.visionPatchEmbeddingLayout
                 ) {
                     sanitizedWeights[key] = layout.sanitize(value)
                 }
