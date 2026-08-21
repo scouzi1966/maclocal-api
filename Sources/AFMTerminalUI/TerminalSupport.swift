@@ -12,19 +12,34 @@ public struct TerminalCapabilities: Equatable, Sendable {
 
     public static func detect(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        isTTY: Bool = isatty(STDIN_FILENO) != 0
+        inputFD: Int32 = STDIN_FILENO,
+        outputFD: Int32 = STDOUT_FILENO
     ) -> Self {
+        detect(
+            environment: environment,
+            inputIsTTY: isatty(inputFD) != 0,
+            outputIsTTY: isatty(outputFD) != 0
+        )
+    }
+
+    public static func detect(
+        environment: [String: String],
+        inputIsTTY: Bool,
+        outputIsTTY: Bool
+    ) -> Self {
+        let isInteractive = inputIsTTY && outputIsTTY
         let program = environment["TERM_PROGRAM"] ?? environment["TERM"] ?? "terminal"
         let term = environment["TERM"] ?? ""
-        let color = isTTY && environment["NO_COLOR"] == nil && term != "dumb"
+        let color = isInteractive && environment["NO_COLOR"] == nil && term != "dumb"
         let imageProtocol: InlineImageProtocol
-        if program == "iTerm.app" { imageProtocol = .iTerm2 }
+        if !isInteractive { imageProtocol = .none }
+        else if program == "iTerm.app" { imageProtocol = .iTerm2 }
         else if term.contains("kitty") || environment["KITTY_WINDOW_ID"] != nil { imageProtocol = .kitty }
         else { imageProtocol = .none }
         return Self(
-            isInteractive: isTTY,
+            isInteractive: isInteractive,
             color: color,
-            hyperlinks: isTTY && term != "dumb",
+            hyperlinks: isInteractive && term != "dumb",
             inlineImages: imageProtocol,
             terminalProgram: program
         )

@@ -39,17 +39,34 @@ public struct TerminalChatConfiguration: Sendable {
 }
 
 public enum TUIInvocationPolicy {
-    public static func validate(tui: Bool, webUI: Bool, singlePrompt: Bool, pipedInput: Bool) throws {
+    public static func validate(
+        tui: Bool,
+        webUI: Bool,
+        singlePrompt: Bool,
+        inputIsTTY: Bool,
+        outputIsTTY: Bool
+    ) throws {
         guard tui else { return }
         if webUI { throw TUIInvocationError.conflict("--tui cannot be combined with --webui") }
         if singlePrompt { throw TUIInvocationError.conflict("--tui cannot be combined with --single-prompt") }
-        if pipedInput { throw TUIInvocationError.conflict("--tui requires an interactive terminal and cannot read piped input") }
+        if !inputIsTTY { throw TUIInvocationError.conflict("--tui requires interactive terminal input") }
+        if !outputIsTTY { throw TUIInvocationError.conflict("--tui requires interactive terminal output") }
     }
 }
 
 public enum TUIInvocationError: Error, LocalizedError, Equatable {
     case conflict(String)
     public var errorDescription: String? { if case .conflict(let value) = self { return value }; return nil }
+}
+
+public struct TUILogprobConfiguration: Equatable, Sendable {
+    public let enabled: Bool
+    public let maximum: Int?
+
+    public init(maximum: Int?) {
+        self.enabled = maximum != nil
+        self.maximum = maximum
+    }
 }
 
 struct GenerationSnapshot: Sendable {

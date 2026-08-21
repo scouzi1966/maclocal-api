@@ -77,23 +77,33 @@ public enum TUIArtifactActions {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let url = directory.appendingPathComponent("artifact.html")
+        let contentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+        let containerSecurityPolicy = contentSecurityPolicy.replacingOccurrences(
+            of: "frame-src 'none'",
+            with: "frame-src 'self'"
+        )
         let html: String
         if ["html", "htm"].contains(language) {
-            let escaped = block.content
+            let document = """
+            <!doctype html><meta charset="utf-8">
+            <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy)">
+            \(block.content)
+            """
+            let escaped = document
                 .replacingOccurrences(of: "&", with: "&amp;")
                 .replacingOccurrences(of: "\"", with: "&quot;")
                 .replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;")
             html = """
             <!doctype html><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:">
+            <meta http-equiv="Content-Security-Policy" content="\(containerSecurityPolicy)">
             <title>AFM TUI HTML Preview</title>
             <iframe sandbox="allow-scripts" srcdoc="\(escaped)" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>
             """
         } else {
             let document = """
             <!doctype html><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:">
+            <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy)">
             <style>body{font:16px -apple-system;padding:2rem;color:#eee;background:#111}pre{white-space:pre-wrap}</style>
             <div id="app"></div><script>\(block.content)</script>
             """
@@ -104,7 +114,7 @@ public enum TUIArtifactActions {
                 .replacingOccurrences(of: ">", with: "&gt;")
             html = """
             <!doctype html><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:">
+            <meta http-equiv="Content-Security-Policy" content="\(containerSecurityPolicy)">
             <title>AFM TUI JavaScript Preview</title>
             <iframe sandbox="allow-scripts" srcdoc="\(escaped)" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>
             """
@@ -115,7 +125,15 @@ public enum TUIArtifactActions {
 
     public static func openInBrowser(_ block: TUICodeBlock) throws -> URL {
         let url = try prepareBrowserArtifact(block)
-        try runOpen([url.path])
+        guard let executableURL = Bundle.main.executableURL else {
+            throw TUIArtifactError.commandFailed("Unable to locate the afm executable for browser preview")
+        }
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["__tui-preview", url.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
         return url
     }
 
@@ -197,16 +215,5 @@ public enum TUIArtifactActions {
             data.append(contentsOf: buffer.prefix(count))
         }
         return data
-    }
-
-    private static func runOpen(_ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw TUIArtifactError.commandFailed("open failed") }
     }
 }

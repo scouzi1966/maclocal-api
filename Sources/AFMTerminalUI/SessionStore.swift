@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import AFMOpenAICompat
 
@@ -89,15 +90,33 @@ public struct TUISessionSummary: Equatable, Sendable {
     public let matchingSnippet: String?
 }
 
+public enum TUISessionStoreError: Error, LocalizedError, Equatable {
+    case sessionTooLarge(maximumBytes: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .sessionTooLarge(let maximumBytes):
+            return "Session exceeds the \(maximumBytes)-byte save/load limit."
+        }
+    }
+}
+
 public final class TUISessionStore: @unchecked Sendable {
-    private static let maximumSessionBytes = 10_000_000
+    public static let defaultMaximumSessionBytes = 32_000_000
     public let directory: URL
     private let fileManager: FileManager
+    private let maximumSessionBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let lock = NSLock()
 
-    public init(directory: URL? = nil, fileManager: FileManager = .default) {
+    public init(
+        directory: URL? = nil,
+        fileManager: FileManager = .default,
+        maximumSessionBytes: Int = TUISessionStore.defaultMaximumSessionBytes
+    ) {
         self.fileManager = fileManager
+        self.maximumSessionBytes = max(0, maximumSessionBytes)
         if let directory {
             self.directory = directory
         } else {
@@ -113,30 +132,98 @@ public final class TUISessionStore: @unchecked Sendable {
 
     @discardableResult
     public func save(_ session: TUISession) throws -> URL {
+        lock.lock()
+        defer { lock.unlock() }
         try ensureDirectory()
         let target = url(for: session.id)
-        let temporary = directory.appendingPathComponent(".\(session.id.uuidString).tmp")
+        let temporary = directory.appendingPathComponent(
+            ".\(session.id.uuidString).\(UUID().uuidString).tmp"
+        )
+        defer { try? fileManager.removeItem(at: temporary) }
         let data = try encoder.encode(session)
-        try data.write(to: temporary, options: .atomic)
-        if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
-        try fileManager.moveItem(at: temporary, to: target)
-        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        guard data.count <= maximumSessionBytes else {
+            throw TUISessionStoreError.sessionTooLarge(maximumBytes: maximumSessionBytes)
+        }
+        try TUIArtifactActions.save(data, to: temporary)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600, .modificationDate: session.updatedAt],
+            ofItemAtPath: temporary.path
+        )
+        guard Darwin.rename(temporary.path, target.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         return target
     }
 
     public func load(id: UUID) throws -> TUISession {
-        try decoder.decode(
+        lock.lock()
+        defer { lock.unlock() }
+        return try decoder.decode(
             TUISession.self,
-            from: TUIArtifactActions.readRegularFile(at: url(for: id), maximumBytes: Self.maximumSessionBytes)
+            from: TUIArtifactActions.readRegularFile(at: url(for: id), maximumBytes: maximumSessionBytes)
         )
     }
 
     public func recent(limit: Int = 20) throws -> [TUISessionSummary] {
-        Array(try summaries(query: nil).prefix(max(0, limit)))
+        lock.lock()
+        defer { lock.unlock() }
+        let limit = max(0, limit)
+        guard limit > 0 else { return [] }
+
+        var candidates: [SessionFile] = []
+        try forEachSessionURL { url in
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            candidates.append(SessionFile(
+                url: url,
+                modificationDate: values?.contentModificationDate ?? .distantPast
+            ))
+            candidates.sort { $0.modificationDate > $1.modificationDate }
+            if candidates.count > limit { candidates.removeLast(candidates.count - limit) }
+        }
+
+        return candidates.compactMap { candidate in
+            guard let metadata = try? decoder.decode(
+                SessionMetadata.self,
+                from: TUIArtifactActions.readRegularFile(
+                    at: candidate.url,
+                    maximumBytes: maximumSessionBytes
+                )
+            ) else { return nil }
+            return TUISessionSummary(
+                id: metadata.id,
+                title: metadata.title,
+                updatedAt: metadata.updatedAt,
+                matchingSnippet: nil
+            )
+        }
     }
 
     public func search(_ query: String, limit: Int = 20) throws -> [TUISessionSummary] {
-        Array(try summaries(query: query).prefix(max(0, limit)))
+        lock.lock()
+        defer { lock.unlock() }
+        let limit = max(0, limit)
+        let lowered = query.lowercased()
+        guard limit > 0, !lowered.isEmpty else { return [] }
+
+        var result: [TUISessionSummary] = []
+        try forEachSessionURL { url in
+            guard let session = try? decoder.decode(
+                TUISession.self,
+                from: TUIArtifactActions.readRegularFile(at: url, maximumBytes: maximumSessionBytes)
+            ) else { return }
+            let matching = (session.messages.map(\.textContent) + Array(session.reasoningByMessage.values))
+                .first { $0.lowercased().contains(lowered) }
+            guard session.title.lowercased().contains(lowered) || matching != nil else { return }
+            result.append(TUISessionSummary(
+                id: session.id,
+                title: session.title,
+                updatedAt: session.updatedAt,
+                matchingSnippet: matching
+            ))
+            result.sort { $0.updatedAt > $1.updatedAt }
+            if result.count > limit { result.removeLast(result.count - limit) }
+        }
+        return result
     }
 
     public func exportMarkdown(_ session: TUISession, to url: URL, overwrite: Bool = false) throws {
@@ -151,28 +238,33 @@ public final class TUISessionStore: @unchecked Sendable {
         try TUIArtifactActions.save(Data(markdown.utf8), to: url, overwrite: overwrite)
     }
 
-    private func summaries(query: String?) throws -> [TUISessionSummary] {
-        guard fileManager.fileExists(atPath: directory.path) else { return [] }
-        let lowered = query?.lowercased()
-        let sessions: [TUISession] = try fileManager.contentsOfDirectory(
+    private struct SessionMetadata: Decodable {
+        let id: UUID
+        let title: String
+        let updatedAt: Date
+    }
+
+    private struct SessionFile {
+        let url: URL
+        let modificationDate: Date
+    }
+
+    private func forEachSessionURL(_ body: (URL) -> Void) throws {
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        var enumerationError: Error?
+        guard let enumerator = fileManager.enumerator(
             at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ).filter { $0.pathExtension == "json" }.compactMap { url in
-            try? decoder.decode(
-                TUISession.self,
-                from: TUIArtifactActions.readRegularFile(at: url, maximumBytes: Self.maximumSessionBytes)
-            )
-        }
-        return sessions.compactMap { session in
-            guard let lowered, !lowered.isEmpty else {
-                return TUISessionSummary(id: session.id, title: session.title, updatedAt: session.updatedAt, matchingSnippet: nil)
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
+            errorHandler: { _, error in
+                enumerationError = error
+                return false
             }
-            let matching = (session.messages.map(\.textContent) + Array(session.reasoningByMessage.values))
-                .first { $0.lowercased().contains(lowered) }
-            guard session.title.lowercased().contains(lowered) || matching != nil else { return nil }
-            return TUISessionSummary(id: session.id, title: session.title, updatedAt: session.updatedAt, matchingSnippet: matching)
-        }.sorted { $0.updatedAt > $1.updatedAt }
+        ) else { return }
+        for case let url as URL in enumerator where url.pathExtension == "json" {
+            body(url)
+        }
+        if let enumerationError { throw enumerationError }
     }
 
     private func ensureDirectory() throws {

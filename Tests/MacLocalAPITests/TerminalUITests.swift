@@ -2,6 +2,9 @@ import Darwin
 import XCTest
 import AFMKit
 import AFMOpenAICompat
+#if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+import FoundationModels
+#endif
 @testable import AFMKitFoundationModels
 @testable import AFMTerminalUI
 
@@ -179,6 +182,8 @@ final class TUIArtifactActionsTests: XCTestCase {
         let html = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(html.contains("Content-Security-Policy"))
         XCTAssertTrue(html.contains("default-src 'none'"))
+        XCTAssertTrue(html.contains("form-action 'none'"))
+        XCTAssertTrue(html.contains("connect-src 'none'"))
         XCTAssertTrue(html.contains("querySelector"))
         XCTAssertTrue(html.contains("sandbox=\"allow-scripts\""))
         XCTAssertFalse(html.contains("<script>document.querySelector"))
@@ -194,7 +199,21 @@ final class TUIArtifactActionsTests: XCTestCase {
         let html = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(html.contains("sandbox=\"allow-scripts\""))
         XCTAssertTrue(html.contains("default-src 'none'"))
+        XCTAssertTrue(html.contains("form-action 'none'"))
         XCTAssertFalse(html.contains("<script>document.body"))
+    }
+
+    func testBrowserNavigationBoundaryRejectsOutboundAndSiblingNavigation() {
+        let artifact = URL(fileURLWithPath: "/Volumes/edata2/afm-preview/artifact.html")
+        let boundary = TUIBrowserNavigationBoundary(artifactURL: artifact)
+
+        XCTAssertTrue(boundary.allows(artifact))
+        XCTAssertTrue(boundary.allows(URL(string: "about:blank")))
+        XCTAssertTrue(boundary.allows(URL(string: "about:srcdoc")))
+        XCTAssertFalse(boundary.allows(URL(string: "https://example.com/exfiltrate")))
+        XCTAssertFalse(boundary.allows(URL(string: "data:text/html,escaped")))
+        XCTAssertFalse(boundary.allows(artifact.deletingLastPathComponent().appendingPathComponent("sibling.html")))
+        XCTAssertFalse(boundary.allows(URL(string: "custom-scheme://escape")))
     }
 
     func testBrowserPreparationRejectsExecutableLanguages() {
@@ -286,6 +305,105 @@ final class TUISessionStoreTests: XCTestCase {
         XCTAssertEqual(session.messages.count, 1)
         XCTAssertEqual(session.reasoningByMessage, ["0": "r1"])
     }
+
+    func testTwentyMegabyteImageSessionRoundTripsWithinSharedSaveLoadLimit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(directory: root)
+        let imageData = Data(repeating: 0xA5, count: 20_000_000)
+        let imageURL = "data:image/png;base64,\(imageData.base64EncodedString())"
+        let session = TUISession(backend: "MLX", model: "test/model", messages: [
+            Message(role: "user", content: .parts([
+                ContentPart(type: "text", text: "inspect"),
+                ContentPart(type: "image_url", image_url: ImageURL(url: imageURL, detail: "auto"))
+            ]))
+        ])
+
+        let url = try store.save(session)
+        let fileSize = try XCTUnwrap(
+            (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
+        )
+        XCTAssertGreaterThan(fileSize, 10_000_000)
+        XCTAssertLessThanOrEqual(fileSize, TUISessionStore.defaultMaximumSessionBytes)
+        XCTAssertEqual(try store.load(id: session.id).messages.count, 1)
+    }
+
+    func testOversizedReplacementIsRejectedWithoutDestroyingLoadableSession() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(directory: root, maximumSessionBytes: 1_024)
+        var session = TUISession(title: "original", backend: "MLX", model: "test/model")
+        try store.save(session)
+
+        session.title = String(repeating: "x", count: 2_000)
+        XCTAssertThrowsError(try store.save(session)) { error in
+            XCTAssertEqual(
+                error as? TUISessionStoreError,
+                .sessionTooLarge(maximumBytes: 1_024)
+            )
+        }
+        XCTAssertEqual(try store.load(id: session.id).title, "original")
+    }
+
+    func testRecentHistoryUsesBoundedMetadataDecoding() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ids = (0..<4).map { _ in UUID() }
+        for (index, id) in ids.enumerated() {
+            let updatedAt = Date(timeIntervalSince1970: TimeInterval(index + 1))
+            let malformedFullSession = try JSONSerialization.data(withJSONObject: [
+                "id": id.uuidString,
+                "title": "Metadata \(index)",
+                "updatedAt": ISO8601DateFormatter().string(from: updatedAt),
+                "messages": "intentionally not decodable as a session"
+            ])
+            let url = root.appendingPathComponent("\(id.uuidString).json")
+            try malformedFullSession.write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: updatedAt], ofItemAtPath: url.path)
+        }
+        let store = TUISessionStore(directory: root)
+
+        let recent = try store.recent(limit: 2)
+        XCTAssertEqual(recent.map(\.id), [ids[3], ids[2]])
+        XCTAssertEqual(recent.map(\.title), ["Metadata 3", "Metadata 2"])
+        XCTAssertThrowsError(try store.load(id: ids[3]))
+        XCTAssertTrue(try store.recent(limit: 0).isEmpty)
+    }
+
+    func testConcurrentStoresAtomicallyReplaceTheSameSession() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = UUID()
+        let stores = (0..<6).map { _ in TUISessionStore(directory: root) }
+        let validTitles = Set((0..<6).map { "writer-\($0)" })
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for (index, store) in stores.enumerated() {
+                group.addTask {
+                    for iteration in 0..<20 {
+                        let session = TUISession(
+                            id: id,
+                            title: "writer-\(index)",
+                            backend: "MLX",
+                            model: "test/model",
+                            messages: [.init(role: "assistant", content: String(repeating: "\(iteration)", count: 200))]
+                        )
+                        try store.save(session)
+                        let loaded = try store.load(id: id)
+                        guard validTitles.contains(loaded.title), loaded.messages.count == 1 else {
+                            throw CocoaError(.fileReadCorruptFile)
+                        }
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let loaded = try stores[0].load(id: id)
+        XCTAssertTrue(validTitles.contains(loaded.title))
+        XCTAssertEqual(loaded.messages.count, 1)
+    }
 }
 
 final class GenerationBufferTests: XCTestCase {
@@ -345,6 +463,37 @@ final class FoundationStopSequenceFilterTests: XCTestCase {
         XCTAssertEqual(filter.consume("hello<EN"), "hello")
         XCTAssertEqual(filter.finish(), "<EN")
     }
+
+    #if canImport(FoundationModels) && !DISABLE_FOUNDATION_MODELS
+    func testAcceptedTranscriptReplacesHiddenPostStopOutput() throws {
+        let original = Transcript(entries: [
+            .instructions(.init(
+                segments: [.text(.init(content: "Be concise"))],
+                toolDefinitions: []
+            )),
+            .prompt(.init(segments: [.text(.init(content: "Earlier question"))])),
+            .response(.init(assetIDs: [], segments: [.text(.init(content: "Earlier answer"))]))
+        ])
+
+        let accepted = FoundationModelService.acceptedTranscript(
+            from: original,
+            prompt: "User: continue\n\nAssistant: ",
+            response: "visible prefix",
+            options: GenerationOptions()
+        )
+
+        XCTAssertEqual(accepted.count, original.count + 2)
+        guard case .response(let response) = accepted[accepted.index(before: accepted.endIndex)] else {
+            return XCTFail("Expected the replacement transcript to end with a response")
+        }
+        let text = response.segments.compactMap { segment -> String? in
+            guard case .text(let value) = segment else { return nil }
+            return value.content
+        }.joined()
+        XCTAssertEqual(text, "visible prefix")
+        XCTAssertFalse(text.contains("hidden suffix"))
+    }
+    #endif
 }
 
 final class TUIConversationPolicyTests: XCTestCase {
@@ -371,6 +520,16 @@ final class TUIConversationPolicyTests: XCTestCase {
         XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "Foundation", modelName: "one"))
         XCTAssertThrowsError(try AFMTerminalChat.validateRestoredSession(session, backendName: "MLX", modelName: "two"))
     }
+
+    func testMLXMaximumLogprobsEnablesLogprobCollection() {
+        let enabled = TUILogprobConfiguration(maximum: 7)
+        XCTAssertTrue(enabled.enabled)
+        XCTAssertEqual(enabled.maximum, 7)
+
+        let disabled = TUILogprobConfiguration(maximum: nil)
+        XCTAssertFalse(disabled.enabled)
+        XCTAssertNil(disabled.maximum)
+    }
 }
 
 final class TerminalLifecycleAndInvocationTests: XCTestCase {
@@ -392,7 +551,8 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
     func testNoColorAndDumbTerminalFallback() {
         let capabilities = TerminalCapabilities.detect(
             environment: ["TERM": "dumb", "NO_COLOR": "1", "TERM_PROGRAM": "Apple_Terminal"],
-            isTTY: true
+            inputIsTTY: true,
+            outputIsTTY: true
         )
         XCTAssertFalse(capabilities.color)
         XCTAssertFalse(capabilities.hyperlinks)
@@ -400,10 +560,38 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
     }
 
     func testTUIArgumentConflictsAreRejected() {
-        XCTAssertNoThrow(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, pipedInput: false))
-        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: true, singlePrompt: false, pipedInput: false))
-        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: true, pipedInput: false))
-        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, pipedInput: true))
+        XCTAssertNoThrow(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: true, outputIsTTY: true))
+        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: true, singlePrompt: false, inputIsTTY: true, outputIsTTY: true))
+        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: true, inputIsTTY: true, outputIsTTY: true))
+        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: false, outputIsTTY: true))
+        XCTAssertThrowsError(try TUIInvocationPolicy.validate(tui: true, webUI: false, singlePrompt: false, inputIsTTY: true, outputIsTTY: false))
+    }
+
+    func testTerminalCapabilitiesRequirePTYInputAndOutput() throws {
+        var master: Int32 = 0
+        var slave: Int32 = 0
+        XCTAssertEqual(openpty(&master, &slave, nil, nil, nil), 0)
+        defer { close(master); close(slave) }
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(pipe(&descriptors), 0)
+        defer { close(descriptors[0]); close(descriptors[1]) }
+
+        let environment = ["TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app"]
+        XCTAssertTrue(TerminalCapabilities.detect(
+            environment: environment,
+            inputFD: slave,
+            outputFD: slave
+        ).isInteractive)
+        XCTAssertFalse(TerminalCapabilities.detect(
+            environment: environment,
+            inputFD: slave,
+            outputFD: descriptors[1]
+        ).isInteractive)
+        XCTAssertFalse(TerminalCapabilities.detect(
+            environment: environment,
+            inputFD: descriptors[0],
+            outputFD: slave
+        ).isInteractive)
     }
 
 

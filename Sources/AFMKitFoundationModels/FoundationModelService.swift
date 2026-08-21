@@ -375,6 +375,41 @@ public class FoundationModelService: @unchecked Sendable {
         }
         return Transcript(entries: entries)
     }
+
+    static func acceptedTranscript(
+        from previousTranscript: Transcript,
+        prompt: String,
+        response: String,
+        options: GenerationOptions
+    ) -> Transcript {
+        var entries = Array(previousTranscript)
+        entries.append(.prompt(.init(
+            segments: [.text(.init(content: prompt))],
+            options: options
+        )))
+        entries.append(.response(.init(
+            assetIDs: [],
+            segments: [.text(.init(content: response))]
+        )))
+        return Transcript(entries: entries)
+    }
+
+    private func restoreAcceptedResponse(
+        previousTranscript: Transcript,
+        prompt: String,
+        response: String,
+        options: GenerationOptions
+    ) {
+        session = LanguageModelSession(
+            model: model,
+            transcript: Self.acceptedTranscript(
+                from: previousTranscript,
+                prompt: prompt,
+                response: response,
+                options: options
+            )
+        )
+    }
     #endif
     
     public func generateResponse(for messages: [Message], temperature: Double? = nil, randomness: String? = nil, maxTokens: Int? = nil, stop: [String]? = nil) async throws -> String {
@@ -387,8 +422,18 @@ public class FoundationModelService: @unchecked Sendable {
 
         do {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+            let previousTranscript = session.transcript
             let response = try await session.respond(to: prompt, options: options)
-            return applyStopSequences(to: response.content, stopSequences: stop)
+            let acceptedResponse = applyStopSequences(to: response.content, stopSequences: stop)
+            if acceptedResponse != response.content {
+                restoreAcceptedResponse(
+                    previousTranscript: previousTranscript,
+                    prompt: prompt,
+                    response: acceptedResponse,
+                    options: options
+                )
+            }
+            return acceptedResponse
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -457,10 +502,12 @@ public class FoundationModelService: @unchecked Sendable {
 
                 do {
                     let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    let previousTranscript = session.transcript
                     // Use native streaming API — partialResponse.content is cumulative,
                     // so we must extract only the new delta each iteration.
                     let stream = session.streamResponse(to: prompt, options: options)
                     var previousContent = ""
+                    var acceptedResponse = ""
                     var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
                     for try await partialResponse in stream {
                         try Task.checkCancellation()
@@ -469,12 +516,26 @@ public class FoundationModelService: @unchecked Sendable {
                         if full.count > previousContent.count {
                             let delta = String(full.dropFirst(previousContent.count))
                             let output = stopFilter.consume(delta)
-                            if !output.isEmpty { continuation.yield(output) }
+                            if !output.isEmpty {
+                                acceptedResponse += output
+                                continuation.yield(output)
+                            }
                         }
                         previousContent = full
                     }
                     let finalOutput = stopFilter.finish()
-                    if !finalOutput.isEmpty { continuation.yield(finalOutput) }
+                    if !finalOutput.isEmpty {
+                        acceptedResponse += finalOutput
+                        continuation.yield(finalOutput)
+                    }
+                    if stopFilter.stopped {
+                        self.restoreAcceptedResponse(
+                            previousTranscript: previousTranscript,
+                            prompt: prompt,
+                            response: acceptedResponse,
+                            options: options
+                        )
+                    }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish(throwing: CancellationError())
@@ -521,8 +582,19 @@ public class FoundationModelService: @unchecked Sendable {
 
         do {
             let options = try createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+            let previousTranscript = session.transcript
             let response = try await session.respond(to: prompt, schema: schema, options: options)
-            return applyStopSequences(to: response.content.jsonString, stopSequences: stop)
+            let rawResponse = response.content.jsonString
+            let acceptedResponse = applyStopSequences(to: rawResponse, stopSequences: stop)
+            if acceptedResponse != rawResponse {
+                restoreAcceptedResponse(
+                    previousTranscript: previousTranscript,
+                    prompt: prompt,
+                    response: acceptedResponse,
+                    options: options
+                )
+            }
+            return acceptedResponse
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -576,9 +648,11 @@ public class FoundationModelService: @unchecked Sendable {
 
                 do {
                     let options = try self.createGenerationOptions(temperature: temperature, randomness: randomness, maxTokens: maxTokens)
+                    let previousTranscript = session.transcript
                     let stream = session.streamResponse(to: prompt, schema: schema, options: options)
                     var previousJson = ""
                     var processedPrefixCount = 0
+                    var acceptedResponse = ""
                     var stopFilter = FoundationStopSequenceFilter(stopSequences: stop)
                     for try await partialResponse in stream {
                         try Task.checkCancellation()
@@ -589,17 +663,34 @@ public class FoundationModelService: @unchecked Sendable {
                             let stablePrefix = String(currentJson.prefix(stablePrefixCount))
                             let delta = String(stablePrefix.dropFirst(processedPrefixCount))
                             let output = stopFilter.consume(delta)
-                            if !output.isEmpty { continuation.yield(output) }
+                            if !output.isEmpty {
+                                acceptedResponse += output
+                                continuation.yield(output)
+                            }
                             processedPrefixCount = stablePrefixCount
                         }
                         previousJson = currentJson
                     }
                     if !stopFilter.stopped, previousJson.count > processedPrefixCount {
                         let output = stopFilter.consume(String(previousJson.dropFirst(processedPrefixCount)))
-                        if !output.isEmpty { continuation.yield(output) }
+                        if !output.isEmpty {
+                            acceptedResponse += output
+                            continuation.yield(output)
+                        }
                     }
                     let finalOutput = stopFilter.finish()
-                    if !finalOutput.isEmpty { continuation.yield(finalOutput) }
+                    if !finalOutput.isEmpty {
+                        acceptedResponse += finalOutput
+                        continuation.yield(finalOutput)
+                    }
+                    if stopFilter.stopped {
+                        self.restoreAcceptedResponse(
+                            previousTranscript: previousTranscript,
+                            prompt: prompt,
+                            response: acceptedResponse,
+                            options: options
+                        )
+                    }
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish(throwing: CancellationError())

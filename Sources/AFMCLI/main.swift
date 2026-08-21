@@ -558,7 +558,8 @@ struct MlxCommand: ParsableCommand {
                 tui: tui,
                 webUI: webui,
                 singlePrompt: singlePrompt != nil,
-                pipedInput: isatty(STDIN_FILENO) == 0
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
             )
         } catch {
             throw ValidationError(error.localizedDescription)
@@ -748,6 +749,7 @@ struct MlxCommand: ParsableCommand {
                     try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
                 )
             }
+            let tuiLogprobs = TUILogprobConfiguration(maximum: maxLogprobs)
             let engineConfig = EngineConfig(
                 instructions: instructions,
                 kvBits: kvBits,
@@ -780,7 +782,8 @@ struct MlxCommand: ParsableCommand {
                 repetitionPenalty: repetitionPenalty,
                 presencePenalty: presencePenalty,
                 seed: seed,
-                topLogprobs: maxLogprobs,
+                logprobs: tuiLogprobs.enabled,
+                topLogprobs: tuiLogprobs.maximum,
                 stop: stop?.split(separator: ",").map(String.init),
                 tools: try Self.parseToolsJSON(toolsJson),
                 responseFormat: defaultGuidedJsonSchema,
@@ -2048,7 +2051,8 @@ struct RootCommand: ParsableCommand {
                 tui: tui,
                 webUI: webui,
                 singlePrompt: singlePrompt != nil,
-                pipedInput: isatty(STDIN_FILENO) == 0
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
             )
         } catch {
             throw ValidationError(error.localizedDescription)
@@ -2122,7 +2126,21 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
+    if CommandLine.arguments.count != 3 {
+        fputs("Invalid TUI preview invocation.\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+    do {
+        let artifactURL = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
+        try MainActor.assumeIsolated {
+            try TUIBrowserPreview.run(artifactURL: artifactURL)
+        }
+    } catch {
+        fputs("Unable to open TUI preview: \(error.localizedDescription)\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
         var cmd = try DwarfStarBenchmarkCommand.parse(args)
