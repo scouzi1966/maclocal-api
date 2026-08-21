@@ -102,7 +102,7 @@ struct BatchCompletionsController: RouteCollection {
         let pp = presencePenalty
         let sd = seed
 
-        response.body = .init(asyncStream: { writer in
+        response.useAFMAsyncBody { writer in
             let encoder = JSONEncoder()
 
             await withTaskGroup(of: Void.self) { group in
@@ -147,7 +147,7 @@ struct BatchCompletionsController: RouteCollection {
             }
 
             svc.releaseBatchReference()
-        })
+        }
 
         return response
     }

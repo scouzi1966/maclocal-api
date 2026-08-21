@@ -97,7 +97,7 @@ actor BackendProxyService {
         // Capture the URL request for use in the closure
         let capturedURLRequest = urlRequest
 
-        response.body = .init(asyncStream: { writer in
+        response.useAFMAsyncBody { writer in
             do {
                 let (bytes, urlResponse) = try await URLSession.shared.bytes(for: capturedURLRequest)
 
@@ -267,7 +267,7 @@ actor BackendProxyService {
                 let errorMsg = "⚠️ **Backend Connection Error**\n\n\(error.localizedDescription)"
                 try? await Self.writeSSEError(errorMsg, writer: writer)
             }
-        })
+        }
 
         return response
     }

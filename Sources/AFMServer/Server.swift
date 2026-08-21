@@ -290,6 +290,7 @@ public class Server: @unchecked Sendable {
         app.middleware.use(ActiveConnectionsMiddleware())
 
         try routes()
+        app.useAFMHTTPServer()
     }
     
     private func routes() throws {

@@ -178,17 +178,10 @@ run_required_patch_step() {
 # Resolve once on a fresh clone, then apply the idempotent source patch before
 # SwiftPM decides whether dependency products are current.
 MLX_SAFETENSORS_SOURCE="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
-VAPOR_REQUEST_SOURCE="$ROOT_DIR/.build/checkouts/vapor/Sources/Vapor/Request/Request.swift"
-if [[ ! -f "$MLX_SAFETENSORS_SOURCE" || ! -f "$VAPOR_REQUEST_SOURCE" ]]; then
-    echo "[swiftpm-reliable] Resolving patched SwiftPM dependencies." >&2
+if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
+    echo "[swiftpm-reliable] Resolving SwiftPM dependencies." >&2
     swift package resolve
 fi
-run_required_patch_step \
-    "Vapor request channel-close future" \
-    "$ROOT_DIR/Scripts/apply-vapor-request-channel-close.sh"
-run_required_patch_step \
-    "Vapor request channel-close verification" \
-    "$ROOT_DIR/Scripts/apply-vapor-request-channel-close.sh" --check
 run_required_patch_step \
     "DeepSeek V4 kernels" \
     "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"

@@ -359,7 +359,7 @@ struct ChatCompletionsController: RouteCollection {
             await inflightRegistry.register(id: streamReqId, cancel: { cancelHandle.cancel() })
         }
 
-        httpResponse.body = .init(asyncStream: { writer in
+        httpResponse.useAFMAsyncBody { writer in
             let bodyTask = Task<Void, Never> {
             // PR #122: Streaming routes account for their own
             // afm:num_active_connections. See MLXChatCompletionsController
@@ -567,7 +567,7 @@ struct ChatCompletionsController: RouteCollection {
             if !streamReqId.isEmpty {
                 await inflightRegistry.release(id: streamReqId)
             }
-        })
+        }
 
         return httpResponse
     }
@@ -586,7 +586,7 @@ struct ChatCompletionsController: RouteCollection {
         let streamId = UUID().uuidString
         let model = chatRequest.model ?? "foundation"
 
-        httpResponse.body = .init(asyncStream: { writer in
+        httpResponse.useAFMAsyncBody { writer in
             // Bypass streaming (vision OCR / speech) — same active-connections
             // bracket as the regular chat path. (PR #122 review fix)
             StatsAggregator.shared.connectionStarted()
@@ -629,7 +629,7 @@ struct ChatCompletionsController: RouteCollection {
                 try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
                 try? await writer.write(.end)
             }
-        })
+        }
 
         return httpResponse
     }

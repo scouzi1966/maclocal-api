@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import Vapor
 import XCTVapor
 import Darwin
@@ -1056,11 +1057,12 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             repetitionPenalty: nil
         ).boot(routes: app)
 
+        app.useAFMHTTPServer()
         try app.boot()
         try await app.server.start(address: .hostname("127.0.0.1", port: 0))
         do {
-            guard let port = app.http.server.shared.localAddress?.port else {
-                XCTFail("Vapor did not publish its allocated test port")
+            guard let port = app.afmHTTPServer?.localAddress?.port else {
+                XCTFail("AFM HTTP server did not publish its allocated test port")
                 await app.server.shutdown()
                 return
             }
@@ -1096,6 +1098,39 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 
         XCTAssertEqual(service.generateCallCount, 0)
         XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testAFMHTTPServerWritesRegisteredStreamingBody() async throws {
+        app.get("afm-stream-probe") { _ async throws -> Response in
+            let response = Response(status: .ok)
+            response.headers.contentType = .init(type: "text", subType: "event-stream")
+            response.useAFMAsyncBody { writer in
+                try await writer.write(.buffer(.init(string: "data: ready\n\n")))
+                try await writer.write(.end)
+            }
+            return response
+        }
+
+        app.useAFMHTTPServer()
+        try app.boot()
+        try await app.server.start(address: .hostname("127.0.0.1", port: 0))
+        do {
+            guard let port = app.afmHTTPServer?.localAddress?.port else {
+                XCTFail("AFM HTTP server did not publish its allocated test port")
+                await app.server.shutdown()
+                return
+            }
+
+            let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/afm-stream-probe"))
+            let (data, urlResponse) = try await URLSession.shared.data(from: url)
+            let httpResponse = try XCTUnwrap(urlResponse as? HTTPURLResponse)
+            XCTAssertEqual(httpResponse.statusCode, 200)
+            XCTAssertEqual(String(decoding: data, as: UTF8.self), "data: ready\n\n")
+        } catch {
+            await app.server.shutdown()
+            throw error
+        }
+        await app.server.shutdown()
     }
 
     func testStreamingMediaFailureUsesStructuredErrorEventNotAssistantMarkdown() async throws {

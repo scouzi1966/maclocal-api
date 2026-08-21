@@ -235,7 +235,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     disconnectCancellation.disarm()
                 }
             }
-            req.connectionCloseFuture?.whenComplete { [weak disconnectCancellation] _ in
+            req.onAFMConnectionClose { [weak disconnectCancellation] in
                 disconnectCancellation?.cancel()
             }
             if isStreamingRequest && !reqId.isEmpty {
@@ -724,7 +724,7 @@ struct MLXChatCompletionsController: RouteCollection {
         // Capture the registry on the request thread so the asyncStream closure
         // can release the cancel hook without re-resolving it.
         let inflightRegistry = req.application.inflightRegistry
-        httpResponse.body = .init(asyncStream: { writer in
+        httpResponse.useAFMAsyncBody { writer in
             defer { disconnectCancellation.disarm() }
             // T1.4/T1.5: Wrap the streaming body in an explicit Task so we can
             // cancel it from outside (cancel endpoint, client disconnect detection).
@@ -1764,7 +1764,7 @@ struct MLXChatCompletionsController: RouteCollection {
             if !streamReqId.isEmpty {
                 await inflightRegistry.release(id: streamReqId)
             }
-        })
+        }
 
         return httpResponse
     }
