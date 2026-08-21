@@ -15,6 +15,11 @@ Until AFMKit publishes its first tag, use the immutable checkpoint:
 )
 ```
 
+AFMKit is private during this checkpoint. Vesta source builds require an
+authenticated GitHub identity with read access; this is not a public downstream
+installation path. Do not production-merge the private URL in either consumer
+until AFMKit is public or an approved public immutable artifact replaces it.
+
 Select only the products the app target needs:
 
 ```swift

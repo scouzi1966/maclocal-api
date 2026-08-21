@@ -39,16 +39,41 @@ grep -Fqx "Tag: $EXPECTED_TAG" <<<"$METADATA" || {
 }
 
 CONTENTS="$(unzip -Z1 "$WHEEL")"
+if [[ "$PACKAGE_ROOT" == "macafm" ]] && grep -Eq '^macafm_next/' <<<"$CONTENTS"; then
+  echo "[wheel] stable wheel contains stale nightly package data" >&2
+  exit 1
+fi
+if [[ "$PACKAGE_ROOT" == "macafm_next" ]] && grep -Eq '^macafm/' <<<"$CONTENTS"; then
+  echo "[wheel] nightly wheel contains stale stable package data" >&2
+  exit 1
+fi
 for required in \
   "$PACKAGE_ROOT/bin/afm" \
-  "$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib" \
-  "$PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/metal/moe.metal" \
   "$PACKAGE_ROOT/share/webui/index.html.gz"; do
   grep -Fqx "$required" <<<"$CONTENTS" || {
     echo "[wheel] missing required payload: $required" >&2
     exit 1
   }
 done
+
+FLAT_METALLIB="$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib"
+NESTED_METALLIB="$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib"
+if grep -Fqx "$FLAT_METALLIB" <<<"$CONTENTS"; then
+  WHEEL_METALLIB="$FLAT_METALLIB"
+elif grep -Fqx "$NESTED_METALLIB" <<<"$CONTENTS"; then
+  WHEEL_METALLIB="$NESTED_METALLIB"
+else
+  echo "[wheel] missing AFMKit MLX metallib in flat or Xcode 27 bundle layout" >&2
+  exit 1
+fi
+
+FLAT_DWARF_METAL="$PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/metal/moe.metal"
+NESTED_DWARF_METAL="$PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/Contents/Resources/metal/moe.metal"
+if ! grep -Fqx "$FLAT_DWARF_METAL" <<<"$CONTENTS" && \
+   ! grep -Fqx "$NESTED_DWARF_METAL" <<<"$CONTENTS"; then
+  echo "[wheel] missing DwarfStar Metal source in flat or Xcode 27 bundle layout" >&2
+  exit 1
+fi
 
 mkdir -p "$VERIFY_ROOT"
 VERIFY_DIR="$(mktemp -d "$VERIFY_ROOT/run.XXXXXX")"
@@ -57,12 +82,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
-unzip -q "$WHEEL" "$PACKAGE_ROOT/bin/*" -d "$VERIFY_DIR"
+unzip -q "$WHEEL" "$PACKAGE_ROOT/*" -d "$VERIFY_DIR"
 EXTRACTED_BIN="$VERIFY_DIR/$PACKAGE_ROOT/bin/afm"
-EXTRACTED_METALLIB="$VERIFY_DIR/$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib"
+EXTRACTED_METALLIB="$VERIFY_DIR/$WHEEL_METALLIB"
 chmod +x "$EXTRACTED_BIN"
 
 "$SCRIPT_DIR/check-macos26-compatibility.sh" "$EXTRACTED_BIN" "$EXTRACTED_METALLIB"
 "$EXTRACTED_BIN" --version >/dev/null
 
-echo "[wheel] verified native AFM payload and executable: $WHEEL"
+PYTHON="${AFM_WHEEL_PYTHON:-python3}"
+"$PYTHON" -m venv "$VERIFY_DIR/venv"
+PIP_DISABLE_PIP_VERSION_CHECK=1 \
+  "$VERIFY_DIR/venv/bin/python" -m pip install --no-deps --force-reinstall "$WHEEL" >/dev/null
+"$VERIFY_DIR/venv/bin/afm" --version >/dev/null
+
+site_metallib="$(find "$VERIFY_DIR/venv" -path "*/site-packages/$WHEEL_METALLIB" -type f -print -quit)"
+if [[ -z "$site_metallib" ]]; then
+  echo "[wheel] installed wheel is missing its AFMKit MLX metallib" >&2
+  exit 1
+fi
+
+echo "[wheel] verified archive payload plus installed-wheel launch: $WHEEL"

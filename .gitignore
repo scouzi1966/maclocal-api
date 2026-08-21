@@ -1,7 +1,8 @@
 # Swift Package Manager
 .build/
 Packages/
-Package.resolved
+# The root lock is a release input. It pins the complete SwiftPM graph.
+!Package.resolved
 *.xcworkspace
 *.xcodeproj
 

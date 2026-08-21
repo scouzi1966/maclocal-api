@@ -241,7 +241,7 @@ afm mlx -m <model> --chat-template-kwargs '{"enable_thinking":false}'
 
 ## Use AFM as a Swift package
 
-The repository publishes focused Swift Package Manager products:
+The repository defines focused Swift Package Manager products:
 
 - `AFMKitCore` — provider contracts and core types
 - `AFMOpenAICompat` — OpenAI-compatible request/response types
@@ -255,14 +255,13 @@ The repository publishes focused Swift Package Manager products:
 - `AFMServer` — Vapor HTTP layer
 - `afm` — CLI executable
 
-```swift
-dependencies: [
-    .package(
-        url: "https://github.com/scouzi1966/maclocal-api.git",
-        branch: "main"
-    )
-]
-```
+AFMKit is a private dependency while its API is under development. A source or
+downstream SwiftPM build therefore requires authenticated read access to
+`scouzi1966/AFMKit`; an unauthenticated public clone cannot currently resolve
+this package graph. See [AFMKit URL consumption](docs/afmkit-url-consumption.md)
+for the immutable revision and CI authentication contract. Do not publish or
+production-merge this dependency graph until AFMKit is public or an approved
+public immutable artifact replaces it.
 
 Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the [consumer examples](Examples/).
 
@@ -271,10 +270,17 @@ Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the [con
 ```bash
 git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
+gh auth login
+gh auth setup-git
 ./build.sh
 ```
 
-The complete build initializes submodules, applies AFM-owned vendor patches, builds the WebUI, rebuilds Metal resources when the toolchain is available, and creates the release executable. Add `--install` to install it on your `PATH`.
+The authenticated build resolves only the revisions in the tracked
+`Package.resolved`, initializes pinned submodules, builds the locked WebUI, and
+packages AFMKit-owned runtime resources without mutating dependency sources. CI
+uses a masked `AFMKIT_READ_TOKEN` with read access to the private AFMKit
+repository. Add `--install` to install under `INSTALL_PREFIX` (default
+`/usr/local`).
 
 ## Requirements
 

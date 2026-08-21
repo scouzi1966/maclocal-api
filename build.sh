@@ -214,6 +214,11 @@ cd "$ROOT_DIR"
 log_info "Repository: $ROOT_DIR"
 log_info "Build configuration: $BUILD_CONFIG"
 
+# Fail before submodule or WebUI work when the private transition dependency is
+# inaccessible. The resolver prints the exact local and CI remediation without
+# placing credentials in Package.swift, Package.resolved, or logs.
+"$SCRIPTS_DIR/resolve-release-dependencies.sh" --check-access
+
 # ---------------------------------------------------------------------------
 # Step 1: Submodules
 # ---------------------------------------------------------------------------
@@ -272,7 +277,7 @@ if $DO_WEBUI; then
   fi
   (
     cd "$WEBUI_DIR"
-    npm install
+    npm ci
     npm run build
   )
   if [ -f "$ROOT_DIR/vendor/llama.cpp/tools/server/public/index.html.gz" ]; then
@@ -293,7 +298,7 @@ if $DO_CLEAN; then
 fi
 
 log_step "Resolving Swift packages"
-swift package resolve
+"$SCRIPTS_DIR/resolve-release-dependencies.sh"
 
 log_step "Validating AFMKit-owned resources"
 if ! AFMKIT_SOURCE_METALLIB="$($SCRIPTS_DIR/resolve-afmkit-resource.sh --source)"; then
@@ -511,6 +516,7 @@ if $DO_INSTALL; then
     fi
     run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
     run_install_command cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME"
+    run_install_command rm -rf "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
     run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/$BUNDLE_NAME" \
       "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
   done

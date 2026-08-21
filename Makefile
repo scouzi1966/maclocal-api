@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check patch-revert verify-afmkit-consumer-boundary
+.PHONY: build clean install uninstall portable dist test release-gate test-release-tooling help submodules submodule-status webui verify-webui build-with-webui patch patch-check patch-revert verify-afmkit-consumer-boundary resolve-release-dependencies
 
 PATCH_SH := Scripts/apply-mlx-patches.sh
 
@@ -23,8 +23,11 @@ patch-revert:
 verify-afmkit-consumer-boundary:
 	@Scripts/check-afmkit-consumer-boundary.sh
 
+resolve-release-dependencies: verify-afmkit-consumer-boundary
+	@Scripts/resolve-release-dependencies.sh
+
 # Build the release binary (portable by default)
-build: verify-afmkit-consumer-boundary
+build: resolve-release-dependencies
 	@echo "🔨 Building AFM..."
 	@Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
@@ -58,7 +61,7 @@ webui: submodules
 		echo "❌ Error: webui source not found. Run 'make submodules' first."; \
 		exit 1; \
 	fi
-	@cd vendor/llama.cpp/tools/server/webui && npm install && npm run build
+	@cd vendor/llama.cpp/tools/server/webui && npm ci && npm run build
 	@mkdir -p Resources/webui
 	@cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
 	@Scripts/verify-webui.sh Resources/webui/index.html.gz
@@ -80,15 +83,13 @@ clean:
 	@echo "✅ Clean complete"
 
 # Install to system (requires sudo)
-install: verify-afmkit-consumer-boundary
+install: resolve-release-dependencies
 	@INSTALL_PREFIX="$(or $(INSTALL_PREFIX),/usr/local)" \
 		./build.sh --stable --yes --no-clean --skip-webui --install
 
 # Uninstall from system
 uninstall:
-	@echo "🗑️  Uninstalling AFM..."
-	@sudo rm -f /usr/local/bin/afm
-	@echo "✅ AFM uninstalled"
+	@INSTALL_PREFIX="$(or $(INSTALL_PREFIX),/usr/local)" Scripts/uninstall.sh
 
 # Create distribution package
 dist: portable
@@ -105,8 +106,14 @@ test: build
 		echo "✅ Portability test passed" || echo "⚠️  Portability test failed"; \
 		rm -f "$$TEST_BIN"
 
+test-release-tooling:
+	@Scripts/tests/test-release-tooling.sh
+
+release-gate:
+	@Scripts/validate-release.sh
+
 # Development build (debug)
-debug: verify-afmkit-consumer-boundary
+debug: resolve-release-dependencies
 	@echo "🐛 Building debug version..."
 	@Scripts/swiftpm-reliable.sh build
 	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
@@ -130,9 +137,11 @@ help:
 	@echo "  patch-revert    - Revert explicitly applied vendor patches"
 	@echo "  verify-afmkit-consumer-boundary - Check immutable dependency and packaging ownership"
 	@echo "  install         - Install to /usr/local/bin (requires sudo)"
-	@echo "  uninstall       - Remove from /usr/local/bin"
+	@echo "  uninstall       - Remove only AFM-owned files under INSTALL_PREFIX"
 	@echo "  dist            - Create distribution package"
 	@echo "  test            - Test the binary and portability"
+	@echo "  test-release-tooling - Test release lock, resource, and uninstall tooling"
+	@echo "  release-gate    - Run the complete local source/package release gate"
 	@echo "  debug           - Build debug version"
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"

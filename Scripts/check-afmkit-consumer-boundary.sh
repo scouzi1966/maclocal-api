@@ -9,37 +9,126 @@ fail() {
   exit 1
 }
 
-for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar; do
+for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat; do
   [[ ! -d "Sources/$shadow_target" ]] || \
     fail "consumer shadow target still exists: Sources/$shadow_target"
 done
 
-grep -Fq 'revision: "dfeab23e95ea1979432958e3f9b002beb5685191"' Package.swift || \
-  fail "Package.swift does not pin the immutable AFMKit checkpoint"
-grep -Fq 'exact: "0.31.6-afm.3"' Package.swift || \
-  fail "Package.swift does not pin mlx-swift-lm 0.31.6-afm.3"
-grep -Fq 'exact: "0.31.6-afm.1"' Package.swift || \
-  fail "Package.swift does not pin mlx-swift-afm 0.31.6-afm.1"
+facade_files=(Sources/AFMKitFoundationModels/*.swift)
+[[ ${#facade_files[@]} -eq 1 && -f "${facade_files[0]}" ]] || \
+  fail "AFMKitFoundationModels must contain only its compatibility facade"
+grep -Fqx '@_exported import AFMKitApple' "${facade_files[0]}" || \
+  fail "AFMKitFoundationModels must re-export the AFMKitApple product"
+if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${facade_files[0]}"; then
+  fail "AFMKitFoundationModels facade contains a local implementation"
+fi
+
+[[ -f Package.resolved ]] || \
+  fail "tracked Package.resolved is missing; restore it before resolving dependencies"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git ls-files --error-unmatch -- Package.resolved >/dev/null 2>&1 || \
+    fail "Package.resolved must be intentionally tracked as the release lock"
+fi
 
 python3 - <<'PY'
 import json
+import os
+import re
+import subprocess
 from pathlib import Path
 
-expected = {
-    "afmkit": "dfeab23e95ea1979432958e3f9b002beb5685191",
-    "mlx-swift-afm": "6000b7b26b70be2713c74e9ec2adeb89be07b9e5",
-    "mlx-swift-lm": "e0d7fa71bc5e422a416f191c297264f698391561",
+
+def fail(message: str) -> None:
+    raise SystemExit(f"[afmkit-boundary] {message}")
+
+
+lock = json.loads(Path("Package.resolved").read_text())
+if not re.fullmatch(r"[0-9a-f]{64}", lock.get("originHash", "")):
+    fail("Package.resolved has no valid manifest origin hash")
+
+pins = lock.get("pins", [])
+if not pins:
+    fail("Package.resolved contains no dependency pins")
+
+pins_by_identity = {}
+for pin in pins:
+    identity = pin.get("identity")
+    if not identity or identity in pins_by_identity:
+        fail(f"duplicate or missing package identity: {identity!r}")
+    if pin.get("kind") != "remoteSourceControl":
+        fail(f"{identity} is not pinned as remote source control")
+    state = pin.get("state", {})
+    revision = state.get("revision", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        fail(f"{identity} has no immutable 40-character revision")
+    if state.get("branch"):
+        fail(f"{identity} is resolved from mutable branch {state['branch']!r}")
+    pins_by_identity[identity] = pin
+
+manifest_environment = os.environ.copy()
+for name in (
+    "MACLOCAL_AFMKIT_PATH",
+    "MACLOCAL_MLX_SWIFT_LM_PATH",
+    "AFMKIT_MLX_SWIFT_PATH",
+    "AFMKIT_MLX_SWIFT_LM_PATH",
+):
+    manifest_environment.pop(name, None)
+package = json.loads(
+    subprocess.check_output(
+        ["swift", "package", "dump-package"], env=manifest_environment
+    )
+)
+direct_identities = set()
+for dependency in package.get("dependencies", []):
+    source = dependency.get("sourceControl")
+    if not source:
+        fail("release manifest contains a local or non-source-control dependency")
+    descriptor = source[0]
+    identity = descriptor["identity"]
+    direct_identities.add(identity)
+    pin = pins_by_identity.get(identity)
+    if pin is None:
+        fail(f"direct dependency {identity} is absent from Package.resolved")
+    requirement = descriptor.get("requirement", {})
+    if "revision" in requirement:
+        required_revision = requirement["revision"][0]
+        if pin["state"]["revision"] != required_revision:
+            fail(f"{identity} does not match its manifest revision")
+    if "exact" in requirement:
+        required_version = requirement["exact"][0]
+        if pin["state"].get("version") != required_version:
+            fail(f"{identity} does not match exact version {required_version}")
+
+required_direct = {
+    "afmkit",
+    "mlx-swift-afm",
+    "mlx-swift-lm",
 }
-pins = {
-    pin["identity"]: pin["state"].get("revision")
-    for pin in json.loads(Path("Package.resolved").read_text())["pins"]
-}
-for identity, revision in expected.items():
-    if pins.get(identity) != revision:
-        raise SystemExit(
-            f"[afmkit-boundary] {identity} resolved to {pins.get(identity)!r}, "
-            f"expected {revision}"
-        )
+missing = sorted(required_direct - direct_identities)
+if missing:
+    fail(f"required AFM release dependencies are missing: {', '.join(missing)}")
+
+afmkit = pins_by_identity["afmkit"]
+if afmkit["location"] != "https://github.com/scouzi1966/AFMKit.git":
+    fail("AFMKit release lock points at an unexpected source")
+
+gitlinks = subprocess.check_output(
+    ["git", "ls-files", "-s", "vendor"], text=True
+).splitlines()
+gitlinks_by_path = {}
+for line in gitlinks:
+    fields = line.split(None, 3)
+    if fields and fields[0] == "160000":
+        if not re.fullmatch(r"[0-9a-f]{40}", fields[1]):
+            fail(f"invalid submodule revision in release graph: {line}")
+        gitlinks_by_path[fields[3]] = fields[1]
+declared_paths = subprocess.check_output(
+    ["git", "config", "-f", ".gitmodules", "--get-regexp", "path"], text=True
+).splitlines()
+for line in declared_paths:
+    path = line.split(None, 1)[1]
+    if path not in gitlinks_by_path:
+        fail(f"declared submodule is not pinned by a gitlink: {path}")
 PY
 
 if grep -Eq '^(build|debug):.*(PATCH_STAMP|patch)' Makefile; then
@@ -51,9 +140,10 @@ fi
 
 if grep -ERn \
   'MacLocalAPI_AFMKit(MLX|DwarfStar)\.bundle' \
-  .github/workflows Scripts/build-nightly-wheel.sh Scripts/create-tarball.sh \
+  .github/workflows Scripts/build-native-wheel.sh Scripts/build-nightly-wheel.sh \
+  Scripts/build-stable-wheel.sh Scripts/create-tarball.sh \
   Scripts/generate-tap-versioned.sh Scripts/publish-next.sh Scripts/publish-stable.sh \
-  Scripts/verify-native-wheel.sh >/dev/null; then
+  Scripts/verify-native-wheel.sh Scripts/verify-release-archive.sh >/dev/null; then
   fail "release packaging still references a maclocal-api-owned provider bundle"
 fi
 
@@ -62,7 +152,19 @@ for workflow in .github/workflows/nightly.yml .github/workflows/release.yml; do
     fail "$workflow does not package the AFMKit MLX resource bundle"
   grep -Fq 'AFMKit_AFMKitDwarfStar.bundle' "$workflow" || \
     fail "$workflow does not package the AFMKit DwarfStar resource bundle"
+  grep -Fq 'Scripts/validate-release.sh' "$workflow" || \
+    fail "$workflow does not run the complete local release gate"
+  grep -Fq 'AFMKIT_READ_TOKEN' "$workflow" || \
+    fail "$workflow does not declare authenticated private AFMKit access"
 done
+
+for project in pyproject.toml pyproject-next.toml; do
+  grep -Fq '"bin/*/*/*/*/*"' "$project" || \
+    fail "$project does not package nested Xcode 27 provider resources"
+done
+
+grep -Fq '.macOS("26.0")' Package.swift || \
+  fail "Package.swift no longer preserves the macOS 26 deployment boundary"
 
 if grep -ERn \
   '\b(MLXModelService|BatchScheduler|RequestSlot|RadixTreeCache|ToolCallStreamingRuntime)\b' \
@@ -71,4 +173,66 @@ if grep -ERn \
   fail "AFMServer reaches into AFMKitMLX implementation types"
 fi
 
-echo "[afmkit-boundary] immutable graph, facades, and release ownership verified"
+# Reject provider declarations even if a copied source was renamed or lightly
+# reformatted. When AFMKit is already resolved, also compare normalized source
+# bodies to catch near copies without relying on filenames.
+python3 - <<'PY'
+import difflib
+import re
+from pathlib import Path
+
+
+def normalized(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"//.*", "", text)
+    return re.sub(r"\s+", "", text)
+
+
+owned_types = {
+    "FoundationModelService",
+    "FoundationModelError",
+    "JSONSchemaConverter",
+    "OpenAIRequest",
+    "OpenAIResponse",
+    "OpenAIResponseFormatPolicy",
+}
+declaration = re.compile(
+    r"\b(?:class|struct|enum|protocol|actor)\s+(" + "|".join(owned_types) + r")\b"
+)
+local_files = list(Path("Sources").rglob("*.swift"))
+for path in local_files:
+    if declaration.search(path.read_text(errors="ignore")):
+        raise SystemExit(
+            f"[afmkit-boundary] AFMKit-owned provider declaration copied into {path}"
+        )
+
+checkout = Path(".build/checkouts/AFMKit/Sources")
+if checkout.is_dir():
+    provider_roots = [
+        checkout / "AFMKitApple",
+        checkout / "AFMOpenAICompat",
+        checkout / "AFMKitMLX",
+        checkout / "AFMKitDwarfStar",
+    ]
+    provider_sources = []
+    for root in provider_roots:
+        if root.is_dir():
+            provider_sources.extend(root.rglob("*.swift"))
+    remote_bodies = [
+        (path, normalized(path.read_text(errors="ignore")))
+        for path in provider_sources
+    ]
+    for local in local_files:
+        body = normalized(local.read_text(errors="ignore"))
+        if len(body) < 500:
+            continue
+        for remote, remote_body in remote_bodies:
+            if abs(len(body) - len(remote_body)) > max(len(body), len(remote_body)) * 0.12:
+                continue
+            if difflib.SequenceMatcher(None, body, remote_body).ratio() >= 0.92:
+                raise SystemExit(
+                    f"[afmkit-boundary] near-copied provider source: {local} matches {remote}"
+                )
+PY
+
+echo "[afmkit-boundary] tracked immutable graph, AFMKit facades, and release ownership verified"

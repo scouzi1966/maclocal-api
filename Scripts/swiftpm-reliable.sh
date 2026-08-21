@@ -43,6 +43,11 @@ if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
 fi
 shift
 
+if [[ -z "${MACLOCAL_AFMKIT_PATH:-}" && ! -f "$ROOT_DIR/.build/checkouts/AFMKit/Package.swift" ]]; then
+    echo "[swiftpm-reliable] Resolving the authenticated release dependency graph." >&2
+    "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" || exit $?
+fi
+
 LOG_DIR="$ROOT_DIR/.build-reliable-logs"
 STATE_DIR="$ROOT_DIR/.build-reliable-state"
 mkdir -p "$LOG_DIR" "$STATE_DIR"
@@ -57,7 +62,7 @@ RETRY_LOG="$LOG_DIR/${SUBCOMMAND}-${STAMP}-native-retry.log"
 if [[ "$SUBCOMMAND" == "test" && -z "${MACAFM_MLX_METALLIB:-}" ]]; then
     if ! CANONICAL_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --source 2>/dev/null)"; then
         echo "[swiftpm-reliable] Resolving AFMKit before locating its MLX resource." >&2
-        swift package resolve || exit $?
+        "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" || exit $?
         CANONICAL_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --source)" || exit $?
     fi
     export MACAFM_MLX_METALLIB="$CANONICAL_METALLIB"
@@ -214,7 +219,7 @@ if [[ "$USE_LOCAL_MLX_PATCH_STACK" == "1" ]]; then
     MLX_SAFETENSORS_SOURCE="$MLX_SWIFT_CHECKOUT/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
     if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
         echo "[swiftpm-reliable] Resolving mlx-swift before applying local compatibility patches." >&2
-        swift package resolve
+        "$ROOT_DIR/Scripts/resolve-release-dependencies.sh"
     fi
     run_required_patch_step \
         "DeepSeek V4 kernels" \

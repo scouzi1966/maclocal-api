@@ -108,10 +108,7 @@ cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"
-ARCHIVE_WEBUI="$PACKAGE_WORK_ROOT/archive-webui.html.gz"
-tar -xOzf "$OUTPUT" "$DIRNAME/Resources/webui/index.html.gz" > "$ARCHIVE_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
-rm -f "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-release-archive.sh" "$OUTPUT"
 cleanup_staging
 trap - EXIT
 
