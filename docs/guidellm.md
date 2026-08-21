@@ -178,6 +178,13 @@ false, no usage event is emitted.
 Streaming failures after HTTP headers produce one OpenAI error event and close
 the stream. They do not emit generated success text, finish usage, or `[DONE]`.
 
+Compatibility for Swift package consumers is source compatibility after a
+rebuild. Existing protocol requirements remain unchanged, deprecated
+`StatsAggregator` names remain available, and old initializer overloads still
+compile. This is not binary ABI, precompiled-module, witness-table, or hot-swap
+compatibility; downstream binaries that include AFMKit modules must be rebuilt
+from source against this version.
+
 ## Qualification Boundaries
 
 | Runtime or mode | Raw completions | Metrics | GuideLLM claim |
