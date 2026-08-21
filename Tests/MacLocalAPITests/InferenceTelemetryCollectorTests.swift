@@ -91,6 +91,41 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
         XCTAssertEqual(tpot.bucketCounts.first, 1)
     }
 
+    func testExplicitZeroMaximumOutputTokensIsObservedButUnspecifiedIsNot() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let explicitZero = collector.requestAccepted(at: 10)
+        collector.requestStarted(explicitZero, at: 11)
+        XCTAssertTrue(collector.requestFinished(
+            explicitZero,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .length,
+                completedAt: 12,
+                fullPromptTokens: 1,
+                computedPromptTokens: 1,
+                generatedTokens: 0,
+                maximumOutputTokens: 0
+            )
+        ))
+
+        let unspecified = collector.requestAccepted(at: 13)
+        collector.requestStarted(unspecified, at: 14)
+        XCTAssertTrue(collector.requestFinished(
+            unspecified,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .stop,
+                completedAt: 15,
+                fullPromptTokens: 1,
+                computedPromptTokens: 1,
+                generatedTokens: 0
+            )
+        ))
+
+        let histogram = collector.metricsSnapshot().maximumOutputTokens
+        XCTAssertEqual(histogram.count, 1)
+        XCTAssertEqual(histogram.sum, 0)
+        XCTAssertEqual(histogram.bucketCounts.first, 1)
+    }
+
     func testProviderEpochTimestampsCannotPinBoundedRollingGauges() {
         let clock = Clock(100)
         let collector = InferenceTelemetryCollector(
@@ -285,6 +320,22 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
         XCTAssertEqual(rate("computed_prompt_throughput", in: snapshot), 0)
         XCTAssertEqual(rate("generation_throughput", in: snapshot), 0)
         XCTAssertEqual(rate("request_throughput", in: snapshot), 0)
+    }
+
+    func testOutOfOrderRollingCallbacksPreserveNewerBuckets() {
+        let clock = Clock(100)
+        let collector = InferenceTelemetryCollector(
+            now: { clock.read() },
+            wallTime: { 1_000 }
+        )
+        collector.legacyAddGeneratedTokens(10)
+        clock.set(101)
+        collector.legacyAddGeneratedTokens(20)
+        clock.set(100.5)
+        collector.legacyAddGeneratedTokens(5)
+        clock.set(101)
+
+        XCTAssertEqual(rate("generation_throughput", in: collector.metricsSnapshot()), 3.5)
     }
 
     func testProviderStateClampsLogicalAndOptionalCacheGauges() {

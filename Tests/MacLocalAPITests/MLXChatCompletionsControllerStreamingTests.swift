@@ -93,6 +93,48 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(snapshot.generatedTokensTotal, 3)
     }
 
+    func testAdmissionCancellationIsNonRetryableAndNotIngressCapacity() async throws {
+        let collector = InferenceTelemetryCollector()
+        let service = FakeMLXChatService(
+            streamingResult: Self.makeDelayedStreamingResult(
+                modelID: "test-model",
+                chunks: [],
+                delayNanoseconds: nil
+            )
+        )
+        service.providerGenerationAdmitter = AnyAFMGenerationAdmitter { _ in
+            let now = ProcessInfo.processInfo.systemUptime
+            let token = collector.requestAccepted(at: now)
+            _ = collector.requestFailed(token, reason: .cancelled, at: now)
+            throw AFMGenerationAdmissionError.cancelled
+        }
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil,
+            telemetry: AFMServerTelemetryAdapter(collector: collector)
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: false)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status.code, 499)
+            XCTAssertNil(response.headers.first(name: "Retry-After"))
+            XCTAssertContains(response.body.string, #""code":"cancelled""#)
+        }
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "cancelled" }?.count, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 0)
+    }
+
     func testStreamingControllerParsesRawToolCallTextIntoSSEToolCalls() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",

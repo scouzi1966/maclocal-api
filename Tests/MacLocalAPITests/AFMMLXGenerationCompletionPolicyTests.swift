@@ -1,6 +1,6 @@
 import XCTest
 import AFMKitCore
-import AFMKitMLX
+@testable import AFMKitMLX
 
 final class AFMMLXGenerationCompletionPolicyTests: XCTestCase {
     func testSummaryUsesFinalContentForNormalStop() {
@@ -89,5 +89,42 @@ final class AFMMLXGenerationCompletionPolicyTests: XCTestCase {
         XCTAssertEqual(summary.historyText, "hidden")
         XCTAssertTrue(summary.hasReasoning)
         XCTAssertEqual(summary.finishReason, .cancelled)
+    }
+
+    func testSerialTelemetryReasonRejectsCancellationBeforeSuccess() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try MLXModelService.serialTelemetryFinishReason(
+                generatedTokens: 1,
+                maximumOutputTokens: 10
+            )
+        }
+
+        do {
+            _ = try await task.value
+            XCTFail("cancelled serial generation must not report success")
+        } catch is CancellationError {
+            // Expected: the caller records AFMInferenceFailureReason.cancelled.
+        } catch {
+            XCTFail("unexpected cancellation error: \(error)")
+        }
+    }
+
+    func testSerialTelemetryReasonPreservesStopAndLength() throws {
+        XCTAssertEqual(
+            try MLXModelService.serialTelemetryFinishReason(
+                generatedTokens: 2,
+                maximumOutputTokens: 2
+            ),
+            .length
+        )
+        XCTAssertEqual(
+            try MLXModelService.serialTelemetryFinishReason(
+                generatedTokens: 1,
+                maximumOutputTokens: 2,
+                stoppedBySequence: true
+            ),
+            .stop
+        )
     }
 }

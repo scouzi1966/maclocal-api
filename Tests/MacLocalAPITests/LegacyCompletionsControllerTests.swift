@@ -76,6 +76,31 @@ final class LegacyCompletionsControllerTests: XCTestCase {
         XCTAssertEqual(request.presencePenalty, 0.3)
         XCTAssertEqual(request.seed, 42)
         XCTAssertTrue(request.ignoreEndOfSequence)
+        XCTAssertEqual(spy.requestedMaximumOutputTokens.last!, 2)
+    }
+
+    func testMaximumOutputTokenContextDistinguishesZeroFromOmission() async throws {
+        let spy = RawGeneratorSpy(events: [
+            .completed(.init(
+                finishReason: .length,
+                promptTokens: 1,
+                completionTokens: 0,
+                totalTokens: 1
+            )),
+        ])
+        try register(spy)
+
+        try await post(#"{"prompt":"zero","max_tokens":0}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+        try await post(#"{"prompt":"omitted"}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+
+        let values = spy.requestedMaximumOutputTokens
+        XCTAssertEqual(values.count, 2)
+        XCTAssertEqual(values[0], 0)
+        XCTAssertNil(values[1])
     }
 
     func testStreamingCompletionEmitsTextFinishFinalUsageAndDoneInOrder() async throws {
@@ -295,7 +320,63 @@ final class LegacyCompletionsControllerTests: XCTestCase {
         let snapshot = collector.metricsSnapshot()
         XCTAssertEqual(snapshot.runningRequests, 1)
         XCTAssertEqual(snapshot.waitingRequests, 0)
-        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "inference" }?.count, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 0)
+    }
+
+    func testAdmissionErrorsMapWithoutRetryOrIngressDoubleCounting() async throws {
+        let cases: [(
+            error: AFMGenerationAdmissionError,
+            failure: AFMInferenceFailureReason,
+            status: HTTPResponseStatus,
+            code: String,
+            retryable: Bool
+        )] = [
+            (.timedOut, .inference, .serviceUnavailable, "server_busy", true),
+            (
+                .cancelled,
+                .cancelled,
+                HTTPResponseStatus(statusCode: 499, reasonPhrase: "Client Closed Request"),
+                "cancelled",
+                false
+            ),
+            (.internalFailure, .internal, .internalServerError, "internal_error", false),
+        ]
+
+        for testCase in cases {
+            let caseApp = try await Application.make(.testing)
+            let collector = InferenceTelemetryCollector()
+            let spy = RawGeneratorSpy(events: [])
+            let admitter = AnyAFMGenerationAdmitter { _ in
+                let now = ProcessInfo.processInfo.systemUptime
+                let token = collector.requestAccepted(at: now)
+                _ = collector.requestFailed(token, reason: testCase.failure, at: now)
+                throw testCase.error
+            }
+            try CompletionsController(
+                modelID: "test-model",
+                generator: spy.generator,
+                generationAdmitter: admitter,
+                telemetry: AFMServerTelemetryAdapter(collector: collector)
+            ).boot(routes: caseApp)
+
+            try await Self.post(on: caseApp, #"{"prompt":"classified"}"#) { response in
+                XCTAssertEqual(response.status.code, testCase.status.code)
+                XCTAssertEqual(
+                    response.headers.first(name: "Retry-After") != nil,
+                    testCase.retryable
+                )
+                let error = try Self.errorDetail(response.body.string)
+                XCTAssertEqual(error["code"] as? String, testCase.code)
+            }
+
+            let snapshot = collector.metricsSnapshot()
+            XCTAssertEqual(snapshot.acceptedRequestsTotal, 1)
+            XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+            XCTAssertEqual(snapshot.failureCounts.first { $0.name == "capacity" }?.count, 0)
+            XCTAssertEqual(spy.callCount, 0)
+            try await caseApp.asyncShutdown()
+        }
     }
 
     private func register(
@@ -460,6 +541,7 @@ private final class RawGeneratorSpy: @unchecked Sendable {
     private let lock = NSLock()
     private let events: [AFMRawTextGenerationEvent]
     private var requests: [AFMRawTextGenerationRequest] = []
+    private var requestedMaximumOutputTokenValues: [Int?] = []
 
     init(events: [AFMRawTextGenerationEvent]) {
         self.events = events
@@ -467,7 +549,12 @@ private final class RawGeneratorSpy: @unchecked Sendable {
 
     var generator: AnyAFMRawTextGenerator {
         AnyAFMRawTextGenerator { [self] request in
-            lock.withLock { requests.append(request) }
+            lock.withLock {
+                requests.append(request)
+                requestedMaximumOutputTokenValues.append(
+                    AFMGenerationContext.requestedMaximumOutputTokens
+                )
+            }
             return AsyncStream { continuation in
                 for event in events { continuation.yield(event) }
                 continuation.finish()
@@ -481,5 +568,9 @@ private final class RawGeneratorSpy: @unchecked Sendable {
 
     var callCount: Int {
         lock.withLock { requests.count }
+    }
+
+    var requestedMaximumOutputTokens: [Int?] {
+        lock.withLock { requestedMaximumOutputTokenValues }
     }
 }
