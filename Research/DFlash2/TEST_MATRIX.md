@@ -14,14 +14,20 @@ Run before any large model inference:
 No long Qwen or Muse generation is authorized by this gate. Report readiness
 and coordinate with the AFMKit usability study first.
 
-Current gate result (updated 2026-08-20):
+Current gate result (updated 2026-08-21):
 
 - `Scripts/swiftpm-reliable.sh build --target AFMKitMLX`: pass;
 - `Scripts/swiftpm-reliable.sh build --target AFMCLI`: pass;
 - `Scripts/swiftpm-reliable.sh test --filter AFMMLXDFlash2ConfigurationTests`:
-  15 pass;
+  23 pass;
+- `Scripts/swiftpm-reliable.sh test --filter BatchCompletionsControllerTests`:
+  17 pass;
+- `Scripts/swiftpm-reliable.sh test --filter TokenizeAndOpenAPITests`:
+  11 pass;
 - `Scripts/swiftpm-reliable.sh test --filter AFMMLXSpeculativeDecodingTests`:
   22 pass;
+- focused Release selection across DFlash2 configuration, batch routing, and
+  streaming cancellation: 58 XCTest cases pass with zero failures;
 - final focused selection across DFlash2 config, speculative policy/setup,
   model architecture, AFMKit adapter/provider, stream translation/controller,
   OpenAPI/metrics, and batch routing: 143 XCTest plus 78 Swift Testing cases
@@ -35,7 +41,22 @@ Current gate result (updated 2026-08-20):
 - official Qwen and Muse target/drafter pairs: bounded greedy live smoke pass
   for request `off`, required non-streaming, required streaming with usage, and
   nonzero speculative counters, run serially under the shared lock;
-- no full live matrix or local performance run was made.
+- review-remediation Qwen production-path qualification: omitted temperature
+  and non-neutral penalties use AR for preferred and reject required requests;
+  explicit greedy required generation reports normal token/timing telemetry;
+  reasoning remains separated from visible content; partial SSE cancellation
+  preserves observed output, emits `cancelled` without stop/usage, stops
+  speculative work, and leaves the server healthy;
+- Qwen prefix-cache qualification: preferred uses AR, required rejects with
+  `prefix_cache`, and speculative cycles remain zero;
+- Muse batch qualification: two preferred rows complete through AR, a required
+  row emits `batch.error` with reason `batch`, and speculative cycles remain
+  zero;
+- complete Release attempts run the 437-case Swift Testing portion cleanly but
+  the XCTest process terminates with signal 11 in the unrelated macOS 27
+  Foundation Models request-adapter test under Xcode 27 beta 3; focused DFlash2
+  Release coverage is clean and the crash report is retained;
+- no AI judge, full live matrix, or local performance run was made.
 
 ## Fixture Matrix
 
@@ -47,16 +68,19 @@ Current gate result (updated 2026-08-20):
 | Target pairing | Qwen/Qwen draft; Muse/Muse draft; Qwen/Muse cross-pair; changed vocab/layers/hidden/rope/token IDs | Valid pairs pass; mismatches fail deterministically |
 | Backward compatibility | No drafter, MTP, EAGLE3, DSpARK, legacy DFlash descriptor fixture | Existing selection remains unchanged |
 | Startup conflicts | DFlash2+MTP, DFlash2+EAGLE3, DFlash2+DwarfStar/DSpark, invalid block limit, missing draft | Actionable startup error; no implicit mode choice |
-| Request controls | omitted, disabled, preferred, required, wrong strategy, invalid draft limit | Off default; stable decoding/errors |
+| Request controls | omitted/nil temperature, disabled, preferred, required, sampling modifiers, penalties, wrong strategy, invalid draft limit | Normal defaults preserved; stable AR fallback or pre-emission errors |
 | Fallback timing | unavailable before output; runtime error before output; runtime error after output | Preferred may pre-output fallback only; no replay after output |
-| Telemetry | zero cycles, partial acceptance, full acceptance, cancellation, fallback | Counts and timing definitions remain consistent |
+| Telemetry | zero cycles, partial acceptance, full acceptance, cancellation, fallback, base timing/usage | Counts and timing definitions remain consistent; cancellation commits no partial success |
 
 Implemented fixture coverage includes exact released Qwen/Muse metadata,
-name-only rejection, target shape mismatch, provider-neutral startup mapping,
-OpenAI request decoding, nested selector weight keys, greedy target equivalence,
-cancellation, stop/sampling fallback, OpenAPI schema, and existing speculative
-policy regression. Remaining fixture rows should be added before live defaults
-or sampling support changes.
+name-only rejection, full metadata/tensor preflight, target shape mismatch,
+provider-neutral startup mapping, independent service/model ownership, OpenAI
+request decoding, nested selector weight keys, greedy target equivalence,
+complete EOS handling, cancellation propagation, nonstreaming reasoning
+boundaries, omitted-temperature and penalty policy, prefix/concurrency/batch
+fallback reasons, base/speculative telemetry, OpenAPI schema, and existing
+speculative policy regression. Runtime-error-after-emission and broader feature
+combinations remain matrix work before expanding supported modes.
 
 ## Live Target Matrix
 
@@ -90,8 +114,9 @@ Current expected routing:
   required error before emission.
 - Prefix cache or `--concurrent`: preferred mode uses AR and emits a neutral
   fallback reason; required mode rejects before generation.
-- Reasoning remains downstream token parsing and must be checked live for both
-  targets before claiming support beyond token-equivalent greedy output.
+- Reasoning remains downstream token parsing. Qwen prompt-opened reasoning and
+  the bounded Muse reasoning/content comparison pass; broader reasoning levels
+  remain part of the exhaustive matrix.
 
 ## Output Equivalence
 

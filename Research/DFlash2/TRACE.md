@@ -288,10 +288,101 @@ baseline prewarm totals of 3 drafted, 3 accepted, 4 emitted, and 1 cycle; the
 single subsequent request added 3 drafted, 1 accepted, 2 emitted, and 1 cycle.
 This ruled out telemetry double counting.
 
-These are bounded smoke results, not the full matrix. Long generation,
-reasoning-level comparisons, tools, cancellation, memory limits, statistical
-sampling, prefix snapshots, batch verification, and performance remain
-unqualified on the released checkpoints.
+At that checkpoint these were bounded smoke results, not the full matrix. Long
+generation, reasoning-level comparisons, tools, cancellation, memory limits,
+statistical sampling, prefix snapshots, batch verification, and performance
+were still unqualified on the released checkpoints.
+
+## 2026-08-20 to 2026-08-21 Independent Review Remediation
+
+The independent review of PR #196 identified ten release blockers. Checkpoints
+`3b9b7c0`, `6135f0c`, `cf7c0bc`, and `24c6ce9` close them as follows:
+
+1. DFlash2 eligibility now treats omitted temperature as the normal sampling
+   default (`0.6`), accepts only explicit greedy temperature, and gates top-p,
+   top-k, min-p, repetition, and presence modifiers. Preferred uses AR;
+   required fails before emission.
+2. DFlash2 builds one EOS set from configured, tokenizer, and extra token IDs.
+   The shared generator checks EOS before callback/append, so secondary
+   terminators are neither exposed nor counted in streaming or nonstreaming.
+3. Request mode `off` and explicit DFlash2 preferred/required govern DFlash2,
+   DSpARK, MTP, and EAGLE3 selection rather than only the DFlash fast-path flag.
+4. Process-global DFlash2 state was removed. Each `MLXModelService` owns runtime
+   state keyed to its service instance, model ID, drafter, loaded container, and
+   validated target metadata.
+5. Vendor callbacks and AFMKit provider/service paths propagate
+   `CancellationError`. Partial output is not converted to a successful stop,
+   usage completion, or speculative metric commit.
+6. Nonstreaming DFlash2 seeds the response parser from the prompt-opened
+   reasoning boundary, keeping private reasoning in `reasoning_content`.
+7. DFlash2 now publishes prompt/completion token counts and prompt/decode
+   timings through the normal response and process metrics paths.
+8. Both batch controllers force preferred work to deterministic AR and reject
+   required DFlash2 as a pre-emission batch conflict; Muse is not run as serial
+   DFlash inside the batch endpoint.
+9. Public `AFMMLXRuntimeAdapter` construction uses the same compatibility
+   preflight as production, covering target metadata bytes, architecture,
+   context/RoPE/token IDs, feature taps, block limit, and safetensor shapes.
+10. Service-level regressions cover nil temperature, independent sampling
+    controls and penalties (including nil companion fields), secondary EOS,
+    partial cancellation, prompt-opened reasoning, independent service scopes,
+    prefix/concurrency/batch reasons, forced-AR batch behavior, and base plus
+    speculative telemetry.
+
+The patch definition in `Scripts/patches/DFlash2.swift` remains the source of
+truth. `Scripts/check-dflash2-vendor-patch.sh` passes, and the dirty
+`vendor/mlx-swift-lm` submodule remains expected materialized output from the
+repository patch workflow described above. No dependency repository was
+pushed.
+
+Focused validation after the review fixes:
+
+```text
+Debug AFMMLXDFlash2ConfigurationTests: 23/23 pass
+Debug BatchCompletionsControllerTests: 17/17 pass
+Debug TokenizeAndOpenAPITests: 11/11 pass
+Release DFlash2 + batch + stream cancellation selection: 58/58 pass
+Scripts/check-dflash2-vendor-patch.sh: pass
+git diff --check: pass
+```
+
+Two complete Release attempts reached 437/437 passing Swift Testing cases, but
+the XCTest process terminated with signal 11 in
+`MLXFoundationLanguageModelTests.testGenerationConfigDisablesThinkingByDefaultForReasoningModels`.
+Repeated crash reports locate the fault in
+`AFMFoundationModelsRequestAdapter.generationConfig` under macOS 27.0 and
+Xcode 27 beta 3. Isolated empty- and nonempty-metadata tests reproduce the
+same unrelated compiler/framework code-generation fault. Experimental guards
+were removed; no unrelated workaround is included in this branch. Logs are in
+`.build/qualification/dflash2-review-fixes-20260820`.
+
+Production-path qualification used Release `afm` binaries built from `cf7c0bc`
+for the Qwen sampling/reasoning/cancellation run and `24c6ce9` for the Qwen
+prefix and Muse batch runs. It used the same released Qwen/Muse snapshots listed
+above, atomic shared lock acquisition, an owner record, and trap-based cleanup.
+No run overlapped another agent's live or Release suite. Evidence is retained
+under `.build/qualification/dflash2-review-fixes-20260820/live`:
+
+- `qwen-final/summary.json`: preferred omitted-temperature and penalty requests
+  returned 200 through AR; required variants returned 400; explicit greedy
+  required generation returned content and nonzero normal usage/timings;
+  reasoning was split into nonempty `reasoning_content` and visible `content`
+  without leaked think tags;
+- the Qwen SSE cancellation probe cancelled only after a nonempty partial token,
+  returned `finish_reason=cancelled` without stop or usage, held speculative
+  cycles at 22 after cancellation, and passed a subsequent health check;
+- `qwen-prefix/summary.json`: preferred prefix-cache conflict used AR, required
+  returned 400 with `prefix_cache`, and speculative cycles stayed zero;
+- `muse-batch/summary.json`: two preferred batch rows completed through AR, the
+  required row emitted `batch.error` with stable reason `batch`, and speculative
+  cycles stayed `0 -> 0`.
+
+The focused Release artifact is
+`.build/qualification/dflash2-review-fixes-20260820/release/focused-final.log`.
+The two broad attempt logs are `broad-release.log` and
+`broad-release-rerun.log`. No comprehensive, Promptfoo, UI, performance, or AI
+judge suite was run; those are not needed to claim the bounded production paths
+above and remain outside this qualification.
 
 ## Exact Performance Methodology
 

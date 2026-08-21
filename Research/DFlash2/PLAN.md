@@ -1,8 +1,8 @@
 # DFlash 2 Implementation Plan
 
-Status: takeover audit, corrective implementation, and focused qualification
-complete; bounded official-model smoke tests pass, full live matrix and
-performance qualification remain open, 2026-08-20
+Status: independent-review remediation, focused Release testing, and the
+requested production-path live qualification are complete; the exhaustive live
+matrix and performance qualification remain open, 2026-08-21
 
 ## Objective
 
@@ -24,15 +24,26 @@ Implemented and pushed:
 - `--dflash2`, `--dflash2-block`, and `--dflash2-required` startup controls;
 - provider-neutral AFMKit startup/request contracts and OpenAPI schema;
 - serial streaming/non-streaming service integration and neutral metrics;
+- service/model-bound runtime ownership with retained validated target metadata;
+- explicit-greedy request eligibility that preserves the normal omitted
+  temperature default and gates sampling and non-neutral penalties;
+- complete configured/tokenizer/extra EOS handling without emitting or counting
+  terminal EOS tokens;
+- cancellation propagation without partial-success completion or telemetry;
+- deterministic AR fallback for preferred prefix, concurrent, and batch work,
+  with pre-emission errors for required requests;
 - versioned AFMKit response/stream telemetry, including explicit fallback
   reasons and proposed/accepted/emitted/cycle/phase totals;
+- base prompt/decode timing and token telemetry on the DFlash path;
+- one shared public/production compatibility preflight for target metadata,
+  token IDs, context/RoPE, and safetensor shapes;
 - reproducible vendor overlay/drift checks and focused losslessness tests.
 
-Deliberately deferred behind deterministic fallback/error policy: sampling,
-explicit string stops, tools/grammar/logprobs, speculative prefix snapshots, and
-concurrent/batched DFlash 2. No heavy live model run or local speed claim has
-been made beyond bounded four/eight-token smoke tests; no local speed claim has
-been made.
+Deliberately unsupported behind deterministic fallback/error policy: sampling,
+non-neutral repetition/presence penalties, explicit string stops,
+tools/grammar/logprobs, speculative prefix snapshots, and concurrent/batched
+DFlash 2. Preferred requests use AR and required requests fail before emission.
+No local speed claim has been made.
 
 ## Current Inventory
 
@@ -42,15 +53,15 @@ been made.
 | AFMKit facade | `Sources/AFMKit/AFMEngine.swift` | `EngineConfig` has MTP and EAGLE3-specific fields; maps into MLX provider configuration |
 | MLX configuration/lifecycle | `Sources/AFMKitMLX/AFMMLXRuntime.swift` | Applies provider configuration to `MLXModelService`; owns model load and scheduler startup |
 | Speculative policy | `Sources/AFMKitMLX/AFMMLXSpeculativeDecoding.swift` | Off/auto/MTP/EAGLE3/DFlash2 policy; DFlash2 fast path is greedy, serial, text-only, and excludes unsupported modifiers/stops |
-| Runtime bridge | `Sources/AFMKitMLX/AFMMLXRuntimeAdapter.swift` | Runtime enum and execution bridge cover MTP, EAGLE3, and DFlash2 |
-| Main MLX service | `Sources/AFMKitMLX/Models/MLXModelService.swift` | Loads MTP/DFlash2 resources; installs EAGLE3; emits DFlash2 telemetry; batch scheduler remains AR |
+| Runtime bridge | `Sources/AFMKitMLX/AFMMLXRuntimeAdapter.swift` | Runtime enum and execution bridge cover MTP, EAGLE3, and DFlash2; public construction uses the production compatibility preflight |
+| Main MLX service | `Sources/AFMKitMLX/Models/MLXModelService.swift` | Owns DFlash2 state per service/model container, loads speculative resources, emits DFlash2 and base telemetry, and keeps the batch scheduler AR |
 | Model resolution/download | `MLXModelService.ensureLoaded`, `downloadModel`, `MLXCacheResolver` | Hub download progress/stages and resumable cache resolution already exist; MTP has an auxiliary-repository resolver |
 | CLI | `Sources/AFMCLI/main.swift` | `--mtp`, `--mtp-model`, `--eagle3`; DSpark is restricted to DwarfStar; startup config flows through `AFMMLXRuntimeConfiguration` |
 | OpenAI request | `Sources/AFMOpenAICompat/OpenAIRequest.swift` | Includes provider-neutral `speculative_decoding` mode, requirement, drafter, and draft-limit controls |
 | HTTP execution | `Sources/AFMServer/Controllers/MLXChatCompletionsController.swift` and `AFMLocalClient.swift` | Both streaming and non-streaming call the shared service |
 | Prefix cache | `MLXModelService` and `BatchScheduler` | Serial radix cache and batch cache are AR-oriented; speculative paths currently bypass cache reuse |
 | Batch/concurrency | `BatchScheduler.swift` | Concurrent mode routes through batched AR; existing MTP/EAGLE3 fast paths are serial only |
-| Cancellation | service speculative stream and normal generation tasks | SSE termination cancels the task; token callbacks observe cancellation |
+| Cancellation | service speculative stream and normal generation tasks | SSE termination cancels the task; DFlash callbacks throw `CancellationError`, and no partial success or speculative totals are committed |
 | Metrics | `Sources/AFMKitMLX/Models/StatsAggregator.swift` | Exports neutral drafted, accepted, emitted, cycle, strategy, and phase-time counters |
 | DSpARK | `Sources/AFMKitDwarfStar/*`, `CDwarfStar`, DS4 vendor | Different GGUF/fixed-schedule runtime with its own support model and scheduler; not a reusable DFlash runtime |
 | Vendor workflow | `Scripts/patches`, `Scripts/apply-mlx-patches.sh`, `Scripts/check-mlx-source-selection.sh` | Reproducible source overlays are applied to `vendor/mlx-swift-lm`; URL consumers use a pinned pre-patched fork |
