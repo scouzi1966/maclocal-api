@@ -1,0 +1,30 @@
+<ESC>[1;95m▌ Calculus workspace<ESC>[0m
+
+For <ESC>[96mf: D ⊆ ℝ → ℝ<ESC>[0m,
+
+
+<ESC>[96m┌─<ESC>[0m<ESC>[96m math <ESC>[0m
+<ESC>[96m│<ESC>[0m <ESC>[96mf'(a) = lim_(h → 0) (f(a+h)-f(a))/(h)<ESC>[0m
+<ESC>[96m└─<ESC>[0m
+
+
+<ESC>[96m│<ESC>[0m The same response can contain prose, math, source, and a patch.
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m swift <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mstruct<ESC>[0m <ESC>[94mGradient<ESC>[0m {
+<ESC>[2;37m│ 2 │<ESC>[0m     <ESC>[95mlet<ESC>[0m values<ESC>[93m: [Double]<ESC>[0m
+<ESC>[2;37m│ 3 │<ESC>[0m     <ESC>[95mfunc<ESC>[0m magnitude() <ESC>[96m-><ESC>[0m <ESC>[94mDouble<ESC>[0m { values.reduce(<ESC>[91m0<ESC>[0m) { $0 <ESC>[96m+<ESC>[0m $1 <ESC>[96m*<ESC>[0m $1 }.squareRoot() }
+<ESC>[2;37m│ 4 │<ESC>[0m }
+<ESC>[2;37m└─────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m diff <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[91m-let method = "finite differences"<ESC>[0m
+<ESC>[2;37m│ 2 │<ESC>[0m <ESC>[92m+let method = "automatic differentiation"<ESC>[0m
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌────────────┬──────────┐<ESC>[0m
+<ESC>[2;37m│<ESC>[0m <ESC>[1mSurface   <ESC>[0m <ESC>[2;37m│<ESC>[0m <ESC>[1mShortcut<ESC>[0m <ESC>[2;37m│<ESC>[0m
+<ESC>[2;37m├────────────┼──────────┤<ESC>[0m
+<ESC>[2;37m│<ESC>[0m Transcript <ESC>[2;37m│<ESC>[0m Ctrl-T   <ESC>[2;37m│<ESC>[0m
+<ESC>[2;37m│<ESC>[0m Blocks     <ESC>[2;37m│<ESC>[0m /blocks  <ESC>[2;37m│<ESC>[0m
+<ESC>[2;37m└────────────┴──────────┘<ESC>[0m

@@ -1,7 +1,7 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test test-tui help submodules submodule-status webui verify-webui build-with-webui patch patch-check
 
 PATCH_SH := Scripts/apply-mlx-patches.sh
 PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
@@ -106,6 +106,10 @@ test: build
 		echo "✅ Portability test passed" || echo "⚠️  Portability test failed"; \
 		rm -f "$$TEST_BIN"
 
+# Focused deterministic TUI snapshots plus real pseudo-terminal behavior.
+test-tui:
+	@Scripts/test-tui.sh
+
 # Development build (debug)
 debug: $(PATCH_STAMP)
 	@echo "🐛 Building debug version..."
@@ -133,6 +137,7 @@ help:
 	@echo "  uninstall       - Remove from /usr/local/bin"
 	@echo "  dist            - Create distribution package"
 	@echo "  test            - Test the binary and portability"
+	@echo "  test-tui        - Run focused TUI snapshots and pseudo-terminal tests"
 	@echo "  debug           - Build debug version"
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"

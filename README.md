@@ -105,6 +105,14 @@ afm --tui
 afm mlx -m Qwen3-0.6B-4bit --tui
 ```
 
+TUI changes have a model-free regression harness. `make test-tui` runs stable
+Markdown/math/code snapshots and exercises keyboard input, terminal sizing,
+alternate-screen cleanup, and raw-mode restoration through a real macOS
+pseudo-terminal. If an intentional visual change updates the expected output,
+run `Scripts/test-tui.sh --record`, inspect the snapshot diff, then rerun
+`make test-tui` normally. The same focused suite runs automatically on relevant
+pull requests.
+
 The terminal UI streams responses, separates optional reasoning, and renders both answers
 and visible reasoning through a native CommonMark/GFM renderer. Headings, nested/task lists,
 quotes, tables, links, inline formatting, fenced code, and raw HTML are presented as inert

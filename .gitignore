@@ -2,6 +2,7 @@
 .build/
 Packages/
 Package.resolved
+!Tests/TUIHarness/Package.resolved
 *.xcworkspace
 *.xcodeproj
 
