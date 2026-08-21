@@ -144,7 +144,8 @@ if [ "$ACTUAL_PYTHON_VERSION" != "$PYTHON_VERSION" ]; then
     echo "[ERROR] Wheel metadata reports '$ACTUAL_PYTHON_VERSION'; expected '$PYTHON_VERSION'"
     exit 1
 fi
-ACTUAL_VERSION=$(AFM_BUILD_VERSION="v-invalid-host-override" PYTHONPATH="$WHEEL_SMOKE" \
+ACTUAL_VERSION=$(cd "$WHEEL_SMOKE" && \
+    AFM_BUILD_VERSION="v-invalid-host-override" PYTHONPATH="$WHEEL_SMOKE" \
     python3 -c 'from macafm_next.cli import main; main()' --version)
 EXPECTED_VERSION="v${BUILD_VERSION#v}"
 if [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; then
