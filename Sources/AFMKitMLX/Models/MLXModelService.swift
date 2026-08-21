@@ -271,6 +271,80 @@ struct MLXSerialStopSequenceBuffer: Sendable {
     }
 }
 
+enum MLXSpeculativeEngine: String, CaseIterable, Sendable {
+    case dspark
+    case mtp
+    case eagle3
+}
+
+enum MLXSpeculativeGenerationMode: CaseIterable, Sendable {
+    case nonStreaming
+    case streaming
+}
+
+final class MLXSpeculativeOutputAccounting: @unchecked Sendable {
+    enum Disposition: Equatable {
+        case suppress(continueGenerating: Bool)
+        case emit(continueGenerating: Bool)
+        case stop
+
+        var shouldContinue: Bool {
+            switch self {
+            case .suppress(let shouldContinue), .emit(let shouldContinue):
+                return shouldContinue
+            case .stop:
+                return false
+            }
+        }
+    }
+
+    static let maximumConsecutiveSuppressedEndOfSequenceTokens = 64
+
+    let engine: MLXSpeculativeEngine
+    let mode: MLXSpeculativeGenerationMode
+    let generatorMaximumTokens: Int
+
+    private let maximumVisibleTokens: Int
+    private let endOfSequenceTokenIDs: Set<Int>
+    private let ignoreEndOfSequence: Bool
+    private(set) var visibleTokenIDs: [Int] = []
+    private var consecutiveSuppressedEndOfSequenceTokens = 0
+
+    init(
+        engine: MLXSpeculativeEngine,
+        mode: MLXSpeculativeGenerationMode,
+        maximumVisibleTokens: Int,
+        endOfSequenceTokenIDs: Set<Int>,
+        ignoreEndOfSequence: Bool
+    ) {
+        self.engine = engine
+        self.mode = mode
+        self.maximumVisibleTokens = Swift.max(0, maximumVisibleTokens)
+        self.endOfSequenceTokenIDs = endOfSequenceTokenIDs
+        self.ignoreEndOfSequence = ignoreEndOfSequence
+        self.generatorMaximumTokens = ignoreEndOfSequence
+            ? Int.max
+            : Swift.max(0, maximumVisibleTokens)
+    }
+
+    var visibleTokenCount: Int { visibleTokenIDs.count }
+
+    func consume(_ tokenID: Int) -> Disposition {
+        if endOfSequenceTokenIDs.contains(tokenID) {
+            guard ignoreEndOfSequence else { return .stop }
+            consecutiveSuppressedEndOfSequenceTokens += 1
+            let shouldContinue = consecutiveSuppressedEndOfSequenceTokens
+                < Self.maximumConsecutiveSuppressedEndOfSequenceTokens
+            return .suppress(continueGenerating: shouldContinue)
+        }
+
+        consecutiveSuppressedEndOfSequenceTokens = 0
+        guard visibleTokenIDs.count < maximumVisibleTokens else { return .stop }
+        visibleTokenIDs.append(tokenID)
+        return .emit(continueGenerating: visibleTokenIDs.count < maximumVisibleTokens)
+    }
+}
+
 public final class MLXModelService: @unchecked Sendable {
     private struct ConstrainedDecodingSetup {
         let processor: GrammarLogitProcessor
@@ -2395,6 +2469,13 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
+                let accounting = MLXSpeculativeOutputAccounting(
+                    engine: .dspark,
+                    mode: .nonStreaming,
+                    maximumVisibleTokens: effectiveMaxTokens,
+                    endOfSequenceTokenIDs: eos,
+                    ignoreEndOfSequence: ignoreEndOfSequence
+                )
                 let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
                     .flatMap(Int.init)
                 let t0 = Date.timeIntervalSinceReferenceDate
@@ -2402,16 +2483,22 @@ public final class MLXModelService: @unchecked Sendable {
                     model: model, draftLimit: limit
                 ).generate(
                     promptIds: promptIds,
-                    maxTokens: effectiveMaxTokens,
-                    eosIds: stoppingEOS)
+                    maxTokens: accounting.generatorMaximumTokens,
+                    eosIds: stoppingEOS,
+                    onToken: ignoreEndOfSequence
+                        ? { accounting.consume($0).shouldContinue }
+                        : nil)
                 let elapsed = Date.timeIntervalSinceReferenceDate - t0
-                let textIds = (ids.last.map { eos.contains($0) } ?? false)
-                    ? Array(ids.dropLast()) : ids
+                let textIds = ignoreEndOfSequence
+                    ? accounting.visibleTokenIDs
+                    : ((ids.last.map { eos.contains($0) } ?? false)
+                        ? Array(ids.dropLast()) : ids)
+                let visibleCount = ignoreEndOfSequence ? accounting.visibleTokenCount : ids.count
                 if debugLogging {
-                    let tps = elapsed > 0 ? Double(ids.count) / elapsed : 0
-                    print("[\(ts())] [DSpARK] generated \(ids.count) tok in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", tps)) tok/s)")
+                    let tps = elapsed > 0 ? Double(visibleCount) / elapsed : 0
+                    print("[\(ts())] [DSpARK] generated \(visibleCount) tok in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", tps)) tok/s)")
                 }
-                return (context.tokenizer.decode(tokens: textIds), promptIds.count, ids.count)
+                return (context.tokenizer.decode(tokens: textIds), promptIds.count, visibleCount)
             }) {
                 let reason = try Self.serialTelemetryFinishReason(
                     generatedTokens: result.2,
@@ -2446,21 +2533,37 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
+                let accounting = MLXSpeculativeOutputAccounting(
+                    engine: .mtp,
+                    mode: .nonStreaming,
+                    maximumVisibleTokens: effectiveMaxTokens,
+                    endOfSequenceTokenIDs: eos,
+                    ignoreEndOfSequence: ignoreEndOfSequence
+                )
                 let t0 = Date.timeIntervalSinceReferenceDate
                 let outIds = gen.generate(
                     promptIds: promptIds,
-                    maxTokens: effectiveMaxTokens,
-                    eosIds: stoppingEOS
+                    maxTokens: accounting.generatorMaximumTokens,
+                    eosIds: stoppingEOS,
+                    onToken: ignoreEndOfSequence
+                        ? { accounting.consume($0).shouldContinue }
+                        : nil
                 )
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 // strip a trailing EOS for the returned text
-                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let textIds = ignoreEndOfSequence
+                    ? accounting.visibleTokenIDs
+                    : ((outIds.last.map { eos.contains($0) } ?? false)
+                        ? Array(outIds.dropLast()) : outIds)
+                let visibleCount = ignoreEndOfSequence
+                    ? accounting.visibleTokenCount
+                    : outIds.count
                 let text = context.tokenizer.decode(tokens: textIds)
                 if debugLogging {
-                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
-                    print("[\(ts())] [MTP] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                    let tps = gt > 0 ? Double(visibleCount) / gt : 0
+                    print("[\(ts())] [MTP] generated \(visibleCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                 }
-                return (text, promptIds.count, outIds.count)
+                return (text, promptIds.count, visibleCount)
             }) {
                 let reason = try Self.serialTelemetryFinishReason(
                     generatedTokens: mtpResult.2,
@@ -2496,6 +2599,13 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
+                let accounting = MLXSpeculativeOutputAccounting(
+                    engine: .eagle3,
+                    mode: .nonStreaming,
+                    maximumVisibleTokens: effectiveMaxTokens,
+                    endOfSequenceTokenIDs: eos,
+                    ignoreEndOfSequence: ignoreEndOfSequence
+                )
                 let t0 = Date.timeIntervalSinceReferenceDate
                 let gen = Gemma4Eagle3Generator(drafter: drafter)
                 // blockSize 2 is the sweet spot on the dense 31B (each round drafts only the carried
@@ -2503,16 +2613,26 @@ public final class MLXModelService: @unchecked Sendable {
                 // larger blocks add sequential drafter forwards that erase the savings). Overridable.
                 let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                 let outIds = gen.generateSpeculative(
-                    model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
-                    eosIds: stoppingEOS, blockSize: block)
+                    model: model, promptIds: promptIds,
+                    maxTokens: accounting.generatorMaximumTokens,
+                    eosIds: stoppingEOS, blockSize: block,
+                    onToken: ignoreEndOfSequence
+                        ? { accounting.consume($0).shouldContinue }
+                        : nil)
                 let gt = Date.timeIntervalSinceReferenceDate - t0
-                let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
+                let textIds = ignoreEndOfSequence
+                    ? accounting.visibleTokenIDs
+                    : ((outIds.last.map { eos.contains($0) } ?? false)
+                        ? Array(outIds.dropLast()) : outIds)
+                let visibleCount = ignoreEndOfSequence
+                    ? accounting.visibleTokenCount
+                    : outIds.count
                 let text = context.tokenizer.decode(tokens: textIds)
                 if debugLogging {
-                    let tps = gt > 0 ? Double(outIds.count) / gt : 0
-                    print("[\(ts())] [EAGLE3] generated \(outIds.count) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
+                    let tps = gt > 0 ? Double(visibleCount) / gt : 0
+                    print("[\(ts())] [EAGLE3] generated \(visibleCount) tok in \(String(format: "%.2f", gt))s (\(String(format: "%.1f", tps)) tok/s)")
                 }
-                return (text, promptIds.count, outIds.count)
+                return (text, promptIds.count, visibleCount)
             }) {
                 let reason = try Self.serialTelemetryFinishReason(
                     generatedTokens: e3Result.2,
@@ -3543,22 +3663,35 @@ public final class MLXModelService: @unchecked Sendable {
                             let outCount = try await container.perform { context -> Int in
                                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                                 let stoppingEOS = ignoreEndOfSequence ? Set<Int>() : eos
-                                var allTokens: [Int] = []
+                                let engine: MLXSpeculativeEngine = useDSpark
+                                    ? .dspark
+                                    : (useEagle3 ? .eagle3 : .mtp)
+                                let accounting = MLXSpeculativeOutputAccounting(
+                                    engine: engine,
+                                    mode: .streaming,
+                                    maximumVisibleTokens: maxTok,
+                                    endOfSequenceTokenIDs: eos,
+                                    ignoreEndOfSequence: ignoreEndOfSequence
+                                )
                                 var prevText = ""
                                 let emit: (Int) -> Bool = { tok in
                                     if Task.isCancelled { return false }    // client disconnected
-                                    if !ignoreEndOfSequence && eos.contains(tok) { return false }
-                                    allTokens.append(tok)
+                                    let disposition = accounting.consume(tok)
+                                    guard case .emit(let shouldContinue) = disposition else {
+                                        return disposition.shouldContinue
+                                    }
                                     self.telemetryObserver.outputToken(
                                         telemetryToken,
                                         at: ProcessInfo.processInfo.systemUptime
                                     )
-                                    let full = context.tokenizer.decode(tokens: allTokens)
+                                    let full = context.tokenizer.decode(
+                                        tokens: accounting.visibleTokenIDs
+                                    )
                                     if full.count > prevText.count {
                                         continuation.yield(StreamChunk(text: String(full.dropFirst(prevText.count))))
                                         prevText = full
                                     }
-                                    return true
+                                    return shouldContinue
                                 }
                                 if useDSpark, let model = context.model as? DeepseekV4Model {
                                     let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
@@ -3566,20 +3699,24 @@ public final class MLXModelService: @unchecked Sendable {
                                     let generator = DeepseekV4DSparkGenerator(
                                         model: model, draftLimit: limit)
                                     _ = generator.generate(
-                                        promptIds: promptIds, maxTokens: maxTok,
+                                        promptIds: promptIds,
+                                        maxTokens: accounting.generatorMaximumTokens,
                                         eosIds: stoppingEOS, onToken: emit)
                                 } else if useEagle3, let drafter = Eagle3Runtime.shared.active,
                                    let model = context.model as? Gemma4Model {
                                     let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
                                     let g = Gemma4Eagle3Generator(drafter: drafter)
                                     _ = g.generateSpeculative(model: model, promptIds: promptIds,
-                                                              maxTokens: maxTok, eosIds: stoppingEOS,
+                                                              maxTokens: accounting.generatorMaximumTokens,
+                                                              eosIds: stoppingEOS,
                                                               blockSize: block, onToken: emit)
                                 } else if let gen = mtpBinding?.generator {
-                                    _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
+                                    _ = gen.generate(
+                                                     promptIds: promptIds,
+                                                     maxTokens: accounting.generatorMaximumTokens,
                                                      eosIds: stoppingEOS, onToken: emit)
                                 }
-                                return allTokens.count
+                                return accounting.visibleTokenCount
                             }
                             let gt = Date.timeIntervalSinceReferenceDate - t0
                             if dbg {

@@ -10,6 +10,30 @@ import XCTest
 @testable import AFMKitMLX
 
 final class MLXSerialIgnoreEOSTests: XCTestCase {
+    func testDSparkNonStreamingIgnoreEOSPreservesVisibleBudgetAndUsage() {
+        assertSpeculativeIgnoreEOS(engine: .dspark, mode: .nonStreaming)
+    }
+
+    func testDSparkStreamingIgnoreEOSPreservesVisibleBudgetAndTelemetry() {
+        assertSpeculativeIgnoreEOS(engine: .dspark, mode: .streaming)
+    }
+
+    func testMTPNonStreamingIgnoreEOSPreservesVisibleBudgetAndUsage() {
+        assertSpeculativeIgnoreEOS(engine: .mtp, mode: .nonStreaming)
+    }
+
+    func testMTPStreamingIgnoreEOSPreservesVisibleBudgetAndTelemetry() {
+        assertSpeculativeIgnoreEOS(engine: .mtp, mode: .streaming)
+    }
+
+    func testEagle3NonStreamingIgnoreEOSPreservesVisibleBudgetAndUsage() {
+        assertSpeculativeIgnoreEOS(engine: .eagle3, mode: .nonStreaming)
+    }
+
+    func testEagle3StreamingIgnoreEOSPreservesVisibleBudgetAndTelemetry() {
+        assertSpeculativeIgnoreEOS(engine: .eagle3, mode: .streaming)
+    }
+
     func testSerialStreamingStopsAtEOSByDefaultAndHonorsIgnoreEOS() async throws {
         let defaultObservation = try await streamingGenerationObservation(ignoreEOS: false)
         let ignoredEOSObservation = try await streamingGenerationObservation(ignoreEOS: true)
@@ -92,7 +116,7 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
             )
         }
 
-        let observation = try await schedulerObservation(from: stream)
+        let observation = try await Self.schedulerObservation(from: stream)
         await scheduler.shutdown()
 
         XCTAssertEqual(observation.text, "")
@@ -117,8 +141,8 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
             )
         }
 
-        async let first = schedulerObservation(from: streams.0)
-        async let second = schedulerObservation(from: streams.1)
+        async let first = Self.schedulerObservation(from: streams.0)
+        async let second = Self.schedulerObservation(from: streams.1)
         let (firstObservation, secondObservation) = try await (first, second)
         let observations = [firstObservation, secondObservation]
         await scheduler.shutdown()
@@ -224,7 +248,7 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
         return Observation(text: text, tokenCount: tokenCount)
     }
 
-    private func schedulerObservation(
+    private static func schedulerObservation(
         from stream: AsyncThrowingStream<StreamChunk, Error>
     ) async throws -> Observation {
         var text = ""
@@ -264,6 +288,36 @@ final class MLXSerialIgnoreEOSTests: XCTestCase {
         }
         XCTFail("scheduler cancellation did not reach telemetry")
     }
+
+    private func assertSpeculativeIgnoreEOS(
+        engine: MLXSpeculativeEngine,
+        mode: MLXSpeculativeGenerationMode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let eos = FixedEOSTokenizer.eosTokenID
+        let accounting = MLXSpeculativeOutputAccounting(
+            engine: engine,
+            mode: mode,
+            maximumVisibleTokens: 2,
+            endOfSequenceTokenIDs: [eos],
+            ignoreEndOfSequence: true
+        )
+        var telemetryTokens = 0
+
+        for token in [eos, 10, eos, 11] {
+            let disposition = accounting.consume(token)
+            if case .emit = disposition { telemetryTokens += 1 }
+            if !disposition.shouldContinue { break }
+        }
+
+        XCTAssertEqual(accounting.engine, engine, file: file, line: line)
+        XCTAssertEqual(accounting.mode, mode, file: file, line: line)
+        XCTAssertEqual(accounting.generatorMaximumTokens, Int.max, file: file, line: line)
+        XCTAssertEqual(accounting.visibleTokenIDs, [10, 11], file: file, line: line)
+        XCTAssertEqual(accounting.visibleTokenCount, 2, file: file, line: line)
+        XCTAssertEqual(telemetryTokens, 2, file: file, line: line)
+    }
 }
 
 private struct Observation {
@@ -282,7 +336,7 @@ private final class FixedEOSTokenModel: Module, LanguageModel {
 
     func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         let batchSize = inputs.ndim > 1 ? inputs.dim(0) : 1
-        let logits = Array(
+        let logits: [Float] = Array(
             repeating: [Float(0), 0, 10, 0],
             count: batchSize
         ).flatMap { $0 }

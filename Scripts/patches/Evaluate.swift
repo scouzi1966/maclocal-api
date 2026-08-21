@@ -887,7 +887,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     }
 
     mutating func excludeLastTokenFromGenerationLimit() {
-        tokenCount = max(0, tokenCount - 1)
+        tokenCount = Swift.max(0, tokenCount - 1)
         lastLogprobInfo = nil
     }
 
