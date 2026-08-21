@@ -181,6 +181,56 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertFalse(qualification.isAssetUsable)
     }
 
+    func testQwenVisionOutHiddenSizeMustMatchTextHiddenSize() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision["out_hidden_size"] = 32
+        config["vision_config"] = vision
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionConfiguration))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testQwenVisionHiddenSizeMustBeDivisibleByHeadCount() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision["num_heads"] = 3
+        config["vision_config"] = vision
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionConfiguration))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testQwenPatchEmbeddingAcceptsRuntimeAndRawConv3DLayouts() throws {
+        let layouts = [
+            [32, 2, 2, 2, 3],
+            [32, 3, 2, 2, 2],
+        ]
+
+        for layout in layouts {
+            let directory = try makeModelDirectory()
+            try rewriteVisionShard(
+                in: directory,
+                metadata: [
+                    "vision_tower.patch_embed.proj.weight": ("F16", layout)
+                ]
+            )
+
+            XCTAssertTrue(
+                try qualify(directory).isAssetUsable,
+                "Expected Conv3D layout \(layout) to qualify"
+            )
+        }
+    }
+
     func testMXFPPackedVisionWeightRequiresScaleTensor() throws {
         let directory = try makeModelDirectory()
         let packedWeight = "vision_tower.blocks.0.attn.proj.weight"
@@ -500,6 +550,9 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
 
     private static func fixtureConfiguration() -> [String: Any] {
         var config = Qwen38PublishedConfigFixture.mxfp8
+        var text = config["text_config"] as! [String: Any]
+        text["hidden_size"] = 64
+        config["text_config"] = text
         var vision = config["vision_config"] as! [String: Any]
         vision["depth"] = 2
         vision["deepstack_visual_indexes"] = []

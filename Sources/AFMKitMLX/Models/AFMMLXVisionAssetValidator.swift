@@ -75,7 +75,7 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         if isQwenConditional {
             hasVisionConfiguration = configData.flatMap {
                 try? JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: $0)
-            } != nil
+            } != nil && hasCoherentQwenVisionDimensions(in: config)
         } else {
             hasVisionConfiguration = config["vision_config"] is [String: Any]
         }
@@ -140,6 +140,21 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
 
     private static func isQwenConditionalModelType(_ canonicalModelType: String) -> Bool {
         canonicalModelType == "qwen3_5" || canonicalModelType == "qwen3_5_moe"
+    }
+
+    private static func hasCoherentQwenVisionDimensions(
+        in config: [String: Any]
+    ) -> Bool {
+        guard let text = config["text_config"] as? [String: Any],
+              let vision = config["vision_config"] as? [String: Any],
+              let textHidden = positiveInteger(text["hidden_size"]),
+              let visionHidden = positiveInteger(vision["hidden_size"]),
+              let outHidden = positiveInteger(vision["out_hidden_size"]),
+              let visionHeads = positiveInteger(vision["num_heads"])
+        else { return false }
+
+        return outHidden == textHidden
+            && visionHidden.isMultiple(of: visionHeads)
     }
 
     private static func selectedProcessorClass(
@@ -339,7 +354,11 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
                 return false
             }
             guard hasQuantizedRepresentation else {
-                guard metadata.shape == logicalShape else { return false }
+                guard matchesUnquantizedQwenShape(
+                    metadata.shape,
+                    logicalShape: logicalShape,
+                    tensorName: weightName
+                ) else { return false }
                 continue
             }
             guard metadata.dtype.uppercased() == "U32",
@@ -369,6 +388,24 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             }
         }
         return true
+    }
+
+    private static func matchesUnquantizedQwenShape(
+        _ shape: [Int],
+        logicalShape: [Int],
+        tensorName: String
+    ) -> Bool {
+        guard shape != logicalShape else { return true }
+        guard tensorName == "vision_tower.patch_embed.proj.weight",
+              logicalShape.count == 5
+        else { return false }
+
+        // The runtime sanitizer converts raw Conv3D [out, in, t, h, w]
+        // checkpoints to MLX's [out, t, h, w, in] layout.
+        return shape == [
+            logicalShape[0], logicalShape[4], logicalShape[1],
+            logicalShape[2], logicalShape[3],
+        ]
     }
 
     private static func expectedQwenVisionTensorShapes(
