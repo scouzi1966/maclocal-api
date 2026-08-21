@@ -903,17 +903,89 @@ Serialized MTP plus VLM live qualification:
   record. The trap stopped PID 93756 and removed this task's lock at
   `2026-08-21T02:46:02Z`; a different task acquired a new lock afterward.
 
+### Checkpoint 7: fresh independent-review remediation
+
+Transport and request hardening on 2026-08-21:
+
+- Remote media resolution now passes a validated numeric address into a pinned
+  `NWConnection`. TLS still verifies the original host through SNI and the HTTP
+  `Host` header, but the connection endpoint cannot perform a second DNS lookup.
+  Every redirect destination is independently resolved, policy-checked, and
+  pinned before its request. The transport has a structured 30-second timeout,
+  propagates task cancellation into `NWConnection.cancel()`, disables proxies,
+  and bounds HTTP headers and fixed, chunked, or close-delimited response bodies.
+- Media admission uses the resolved response MIME and decoded payload, never a
+  remote URL extension. Public input remains HTTPS or strict data URLs only;
+  trusted WebUI/CLI/Telegram/AFMKit local files are converted through the
+  explicit bounded local-to-data-URL path.
+- Request-wide budgets cap media at 8 items, 20 MiB per item, 40 MiB aggregate,
+  64 Mi-pixels decoded, 120 aggregate video seconds, and 3,600 aggregate
+  video frames. Inline audio contributes to item and aggregate-byte limits.
+  ImageIO/CoreImage and AVFoundation inspect decoded dimensions, duration, video
+  tracks, and exact sample counts before generation.
+- Late streaming failures no longer become successful assistant markdown. The
+  SSE stream emits a structured OpenAI error envelope with the stable media code
+  and then `[DONE]`; preflight failures remain regular JSON errors before SSE
+  commitment.
+
+Qualification and capability corrections:
+
+- Indexed safetensor shards must exactly match the weight map and have complete,
+  contiguous, non-overlapping payload ranges with valid tensor byte lengths.
+  Complete configured Qwen vision blocks, mergers, and deep-stack mergers are
+  required. Packed vision weights require quantization metadata and scales;
+  affine formats also require biases, while MXFP rejects affine biases that its
+  loader does not consume.
+- Automatic qualified Qwen vision startup with MTP selects the VLM-compatible
+  `MTPGenerator` path. Runtime capability descriptors add speculative decoding
+  only when MTP is enabled and a binding for the loaded model was actually
+  created. AFMKit, fixed-model adapters, `/props`, and `/v1/models` all read that
+  loaded descriptor.
+
+Focused Release verification:
+
+- Security, qualification, descriptor, provider, controller, and structured
+  streaming cohort: 64 tests passed, 0 failures. Log:
+  `.build-reliable-logs/test-20260820-233550.log`.
+- Strict indexed-shard and quantization cohort: 15 tests passed, 0 failures.
+  Log: `.build-reliable-logs/test-20260820-233938.log`.
+- Architecture, loaded-mode, provider/runtime descriptor, automatic VLM+MTP,
+  media preflight, and server capability cohort: 94 tests passed, 0 failures.
+  Log: `.build-reliable-logs/test-20260820-234245.log`.
+- `Scripts/apply-mlx-patches.sh --check` passed all 39 patches;
+  `Scripts/verify-webui.sh`, the bundled `readAsDataURL` assertion, and
+  `git diff --check` passed.
+
+Fresh serialized live qualification:
+
+- Under the shared lock, commit `0a00e65` launched Release `afm` with the real
+  `mlx-community/Qwen3.8-27B-mxfp8` snapshot, automatic factory selection, and
+  `--mtp --mtp-depth 2 --temperature 0 --no-think --prewarm n`. Startup logged
+  `factory=VLM`, loaded the Qwen vision MTP head, and generated text with MTP.
+- `/v1/models` advertised both `vision` and `speculative_decoding`; `/props`
+  reported `modalities.vision=true`. Text-only non-streaming returned exact
+  `TEXT_ONLY_OK`; PNG non-streaming returned exact
+  `Qwen3's Gated DeltaNet Explained`; JPEG streaming returned exact `AFM`, no
+  structured error event, a normal stop/usage sequence, and `[DONE]`.
+- Durable ignored evidence is in
+  `test-reports/issue-191-review2-20260820-mtp-vlm/`. `assertions.txt` contains
+  10 passing assertions, `artifact-sha256.txt` hashes every response and the
+  server log, and `cleanup.txt` records exit 0, server PID 80968 stopped, and
+  lock removal at `2026-08-21T04:00:06Z`.
+
 ### Completion state
 
-The approved implementation scope is complete in commits `78fe3b8`, `c307728`,
-`4973c6b`, `b3940d3`, `886a4e6`, `e80c1d7`, and `0ab033e`. The runtime uses one
-static startup container, complete Qwen conditional-generation snapshots select
-VLM, incomplete optional vision assets preserve LLM text startup, and request
-admission plus capability surfaces reflect actual runtime state. Public media
-loading is bounded and SSRF-resistant, trusted local media has an explicit host
-path, indexed vision qualification fails closed, and automatic VLM startup is
-compatible with MTP. Both 4-bit and MXFP8 Qwen 3.8 snapshots passed grounded
-vision qualification through the existing AFM-owned patch workflow.
+The approved implementation scope is complete through commits `863817a`,
+`bf1a29c`, and `0a00e65`, on top of the original issue checkpoints. The runtime
+uses one static startup container, complete Qwen conditional-generation
+snapshots select VLM, incomplete optional vision assets preserve LLM text
+startup, and request admission plus capability surfaces reflect actual runtime
+state. Public media loading is request-bounded, cancellation-aware, DNS-pinned,
+and SSRF-resistant; trusted local media has an explicit host path; indexed
+vision qualification fails closed; and automatic VLM startup is compatible
+with an actually loaded MTP binding. Both 4-bit and MXFP8 Qwen 3.8 snapshots
+passed grounded vision qualification through the existing AFM-owned patch
+workflow.
 
 No recorded pre-change LLM throughput baseline was available in this worktree,
 and there is no dedicated vision-tower invocation counter. The text fast path is
