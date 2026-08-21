@@ -114,17 +114,6 @@ extension MlxCommand {
     ) throws {
         let store = AFMEvaluationSuiteStore()
         let suites = try suiteNames.map { try store.load(named: $0) }
-        let resultDirectory = try store.makeRunDirectory(model: modelID, suites: suiteNames)
-        let resultsURL = resultDirectory.appendingPathComponent("results.jsonl")
-        let runURL = resultDirectory.appendingPathComponent("run.json")
-        let reportURL = resultDirectory.appendingPathComponent("report.html")
-        let logURL = resultDirectory.appendingPathComponent("eval.log")
-        let suiteSnapshotURL = resultDirectory.appendingPathComponent("suites.json")
-        FileManager.default.createFile(atPath: resultsURL.path, contents: nil)
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        try AFMEvaluationReportWriter.jsonEncoder().encode(suites)
-            .write(to: suiteSnapshotURL, options: [.atomic])
-
         let baseParameters = AFMEvaluationParameters(
             temperature: temperature ?? 0,
             maxTokens: maxTokens ?? 256,
@@ -139,6 +128,20 @@ extension MlxCommand {
             stop: stop.map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } },
             responseFormat: defaultResponseFormat
         )
+        try AFMEvaluationRunPolicy.validatePlannedOutput(
+            suites: suites,
+            baseParameters: baseParameters)
+
+        let resultDirectory = try store.makeRunDirectory(model: modelID, suites: suiteNames)
+        let resultsURL = resultDirectory.appendingPathComponent("results.jsonl")
+        let runURL = resultDirectory.appendingPathComponent("run.json")
+        let reportURL = resultDirectory.appendingPathComponent("report.html")
+        let logURL = resultDirectory.appendingPathComponent("eval.log")
+        let suiteSnapshotURL = resultDirectory.appendingPathComponent("suites.json")
+        FileManager.default.createFile(atPath: resultsURL.path, contents: nil)
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        try AFMEvaluationReportWriter.jsonEncoder().encode(suites)
+            .write(to: suiteSnapshotURL, options: [.atomic])
         let engine = AFMEngine(
             backend: .mlx(modelID: modelID),
             config: EngineConfig(
@@ -182,6 +185,7 @@ extension MlxCommand {
 
         let evaluationTask = Task {
             var results: [AFMEvaluationCaseResult] = []
+            var lastSnapshotAt: Date?
             do {
                 let reporter = MLXLoadReporter(modelID: modelID)
                 reporter.start()
@@ -282,16 +286,24 @@ extension MlxCommand {
                             results.append(result)
                             outputsByCaseID[testCase.id] = generated.content
                             try Self.appendJSONLine(result, to: resultsURL)
-                            try Self.persistEvaluationReport(
-                                results: results,
-                                modelID: modelID,
-                                suites: suiteNames,
-                                startedAt: startedAt,
-                                interrupted: interruptController.isInterrupted,
-                                reproducibilityCommand: reproducibilityCommand,
-                                systemInfo: systemInfo,
-                                runURL: runURL,
-                                reportURL: reportURL)
+                            let snapshotTime = Date()
+                            if AFMEvaluationRunPolicy.shouldWriteSnapshot(
+                                completedCases: results.count,
+                                lastSnapshotAt: lastSnapshotAt,
+                                now: snapshotTime
+                            ) {
+                                try Self.persistEvaluationReport(
+                                    results: results,
+                                    modelID: modelID,
+                                    suites: suiteNames,
+                                    startedAt: startedAt,
+                                    interrupted: interruptController.isInterrupted,
+                                    reproducibilityCommand: reproducibilityCommand,
+                                    systemInfo: systemInfo,
+                                    runURL: runURL,
+                                    reportURL: reportURL)
+                                lastSnapshotAt = snapshotTime
+                            }
                             print("\(scoring.0.rawValue) · \(generated.completionTokens) tok · \(String(format: "%.1f", tokensPerSecond ?? 0)) tok/s")
                         } catch {
                             if interruptController.isInterrupted { break }
@@ -321,16 +333,24 @@ extension MlxCommand {
                             results.append(result)
                             try Self.appendJSONLine(result, to: resultsURL)
                             try Self.appendLog("\(suite.name)/\(testCase.id): \(error.localizedDescription)", to: logURL)
-                            try Self.persistEvaluationReport(
-                                results: results,
-                                modelID: modelID,
-                                suites: suiteNames,
-                                startedAt: startedAt,
-                                interrupted: interruptController.isInterrupted,
-                                reproducibilityCommand: reproducibilityCommand,
-                                systemInfo: systemInfo,
-                                runURL: runURL,
-                                reportURL: reportURL)
+                            let snapshotTime = Date()
+                            if AFMEvaluationRunPolicy.shouldWriteSnapshot(
+                                completedCases: results.count,
+                                lastSnapshotAt: lastSnapshotAt,
+                                now: snapshotTime
+                            ) {
+                                try Self.persistEvaluationReport(
+                                    results: results,
+                                    modelID: modelID,
+                                    suites: suiteNames,
+                                    startedAt: startedAt,
+                                    interrupted: interruptController.isInterrupted,
+                                    reproducibilityCommand: reproducibilityCommand,
+                                    systemInfo: systemInfo,
+                                    runURL: runURL,
+                                    reportURL: reportURL)
+                                lastSnapshotAt = snapshotTime
+                            }
                             print("error")
                         }
                     }
@@ -544,6 +564,7 @@ extension MlxCommand {
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
+        try handle.synchronize()
     }
 
     private static func appendLog(_ value: String, to url: URL) throws {

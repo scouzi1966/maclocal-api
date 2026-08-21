@@ -50,8 +50,10 @@ and `non-streaming-seeded` checks cross-path seeded equivalence.
 Each run creates a unique directory beneath `~/.afm/evals` named with the UTC date and
 time, sanitized model name, and selected suites. It contains:
 
-- `run.json`: complete machine-readable metadata, aggregates inputs, and results.
-- `results.jsonl`: one durable record per completed case, appended as the run proceeds.
+- `run.json`: complete machine-readable metadata, aggregate inputs, and results. It is
+  refreshed periodically rather than rewritten after every case.
+- `results.jsonl`: one durable record per completed case, appended and synchronized as
+  the run proceeds. This is the recovery source between report snapshots.
 - `suites.json`: exact suite definitions used for reproduction.
 - `eval.log`: infrastructure errors without environment-variable dumps.
 - `report.html`: a self-contained, HTML-escaped report.
@@ -68,6 +70,13 @@ SIGINT/SIGTERM takes effect at the next case boundary. Completed JSONL records a
 latest HTML/JSON snapshots remain available. Schema/model-load and generation
 infrastructure failures return nonzero. Ordinary deterministic quality misses remain
 visible in the report but do not make the process fail.
+
+To keep large local suites predictable, AFM writes cumulative JSON/HTML snapshots on
+the first completed case, then at most every 25 cases or 30 seconds, and always once at
+completion, interruption, or infrastructure failure. A run is rejected before model
+loading when the merged CLI, suite-default, and case-level `maxTokens` values can request
+more than 1,000,000 output tokens in aggregate. Split a larger campaign into separate
+suites or lower its token ceilings.
 
 ## Custom suites
 
@@ -116,6 +125,7 @@ checks. Checks are case-insensitive unless `caseSensitive` is true.
 
 For safety and predictable local resource use, names cannot contain path separators,
 suite files are capped at 5 MB and 1,000 cases, prompt/system text is capped at 64 KB
-per field, generation parameters have bounded ranges, and scaffold mode never
+per field, aggregate planned output is capped at 1,000,000 tokens, generation
+parameters have bounded ranges, and scaffold mode never
 overwrites a file. Suite files define inference inputs only: there are no commands,
 hooks, environment interpolation, network callbacks, or arbitrary file paths.

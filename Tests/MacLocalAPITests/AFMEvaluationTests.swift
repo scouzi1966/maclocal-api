@@ -221,6 +221,48 @@ final class AFMEvaluationTests: XCTestCase {
         XCTAssertThrowsError(try store.scaffold(named: "../escape"))
     }
 
+    func testRunPolicyRejectsUnboundedAggregateOutput() throws {
+        let base = AFMEvaluationParameters(maxTokens: 256)
+        let acceptable = AFMEvaluationSuite(
+            name: "acceptable",
+            description: "Within the run budget.",
+            cases: (0..<10).map { .init(id: "case-\($0)", prompt: "test") })
+        XCTAssertNoThrow(try AFMEvaluationRunPolicy.validatePlannedOutput(
+            suites: [acceptable],
+            baseParameters: base))
+
+        let oversized = AFMEvaluationSuite(
+            name: "oversized",
+            description: "Exceeds the aggregate run budget.",
+            defaults: .init(maxTokens: 32_768),
+            cases: (0..<31).map { .init(id: "case-\($0)", prompt: "test") })
+        XCTAssertThrowsError(try AFMEvaluationRunPolicy.validatePlannedOutput(
+            suites: [oversized],
+            baseParameters: base)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("1000000 output tokens"))
+        }
+    }
+
+    func testSnapshotPolicyIsBoundedByCaseCountAndElapsedTime() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(AFMEvaluationRunPolicy.shouldWriteSnapshot(
+            completedCases: 1,
+            lastSnapshotAt: nil,
+            now: now))
+        XCTAssertFalse(AFMEvaluationRunPolicy.shouldWriteSnapshot(
+            completedCases: 2,
+            lastSnapshotAt: now,
+            now: now.addingTimeInterval(29)))
+        XCTAssertTrue(AFMEvaluationRunPolicy.shouldWriteSnapshot(
+            completedCases: 25,
+            lastSnapshotAt: now,
+            now: now.addingTimeInterval(1)))
+        XCTAssertTrue(AFMEvaluationRunPolicy.shouldWriteSnapshot(
+            completedCases: 2,
+            lastSnapshotAt: now,
+            now: now.addingTimeInterval(30)))
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("afm-eval-tests-\(UUID().uuidString)", isDirectory: true)

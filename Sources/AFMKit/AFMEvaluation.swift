@@ -322,6 +322,7 @@ public enum AFMEvaluationError: LocalizedError {
     case invalidSuite(String)
     case suiteNotFound(String)
     case conflictingCLI(String)
+    case runTooLarge(String)
 
     public var errorDescription: String? {
         switch self {
@@ -329,7 +330,48 @@ public enum AFMEvaluationError: LocalizedError {
         case .suiteNotFound(let name):
             return "Evaluation suite '\(name)' was not found. Use --eval-list to see available suites."
         case .conflictingCLI(let message): return message
+        case .runTooLarge(let message): return "Evaluation run is too large: \(message)"
         }
+    }
+}
+
+package enum AFMEvaluationRunPolicy {
+    static let maximumPlannedOutputTokens = 1_000_000
+    static let snapshotCaseInterval = 25
+    static let snapshotTimeInterval: TimeInterval = 30
+
+    static func validatePlannedOutput(
+        suites: [AFMEvaluationSuite],
+        baseParameters: AFMEvaluationParameters
+    ) throws {
+        var total = 0
+        for suite in suites {
+            for testCase in suite.cases {
+                let parameters = baseParameters
+                    .merging(suite.defaults)
+                    .merging(testCase.parameters)
+                let caseTokens = parameters.maxTokens ?? 256
+                let (next, overflow) = total.addingReportingOverflow(caseTokens)
+                guard !overflow, next <= maximumPlannedOutputTokens else {
+                    throw AFMEvaluationError.runTooLarge(
+                        "the selected suites can request more than "
+                            + "\(maximumPlannedOutputTokens) output tokens. "
+                            + "Reduce the case count or maxTokens values.")
+                }
+                total = next
+            }
+        }
+    }
+
+    static func shouldWriteSnapshot(
+        completedCases: Int,
+        lastSnapshotAt: Date?,
+        now: Date
+    ) -> Bool {
+        guard completedCases > 0 else { return false }
+        if completedCases.isMultiple(of: snapshotCaseInterval) { return true }
+        guard let lastSnapshotAt else { return true }
+        return now.timeIntervalSince(lastSnapshotAt) >= snapshotTimeInterval
     }
 }
 
