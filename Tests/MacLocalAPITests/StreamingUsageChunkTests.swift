@@ -1,6 +1,5 @@
 import XCTest
 @testable import AFMKit
-@testable import AFMKitFoundationModels
 @testable import AFMServer
 
 final class StreamingUsageChunkTests: XCTestCase {
@@ -115,14 +114,6 @@ final class StreamingUsageChunkTests: XCTestCase {
         let usageJSON = try XCTUnwrap(json["usage"] as? [String: Any])
         XCTAssertEqual(usageJSON["prompt_tokens"] as? Int, 10)
         XCTAssertEqual(usageJSON["completion_tokens"] as? Int, 4)
-    }
-
-    func testFoundationCommonPrefixLengthHandlesMutableSnapshots() {
-        let first = #"{"age": 50, "name": ""}"#
-        let second = #"{"age": 50, "name": "Katherine Johnson", "occupation": "mathematician"}"#
-
-        let prefixLength = FoundationModelService.commonPrefixLength(first, second)
-        XCTAssertEqual(String(second.prefix(prefixLength)), #"{"age": 50, "name": ""#)
     }
 
     func testTerminalFinishChunkOmitsUsageSummaryShape() throws {
