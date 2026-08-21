@@ -153,9 +153,18 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     }
 
     public func respond(to request: AFMRequest) async throws -> AFMModelResponse {
-        var ownsCallerReservation = schedulerAdmissionOwnership == .callerReserved
+        let callerAdmission: AFMMLXSchedulerAdmission? = switch schedulerAdmissionOwnership {
+        case .model:
+            nil
+        case .caller(let admission):
+            admission
+        }
+        guard callerAdmission?.isAdmitted != false else {
+            throw AFMError.unavailable("MLX scheduler is at capacity")
+        }
+        var callerReservation = callerAdmission?.reservation
         defer {
-            if ownsCallerReservation { service.releaseSlot() }
+            if let callerReservation { service.releaseSlot(callerReservation) }
         }
         _ = try await load(progress: nil)
         do {
@@ -163,7 +172,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 == .schedulerStream {
                 var accumulator = AFMMLXResponseAccumulator(modelID: modelID)
                 let stream = streamResponse(to: request)
-                ownsCallerReservation = false
+                callerReservation = nil
                 for try await event in stream {
                     accumulator.consume(event)
                 }
@@ -261,9 +270,15 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     ) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                var ownsReservation = schedulerAdmissionOwnership == .callerReserved
+                var reservation: AFMMLXSchedulerReservation? =
+                    switch schedulerAdmissionOwnership {
+                    case .model:
+                        nil
+                    case .caller(let admission):
+                        admission.reservation
+                    }
                 defer {
-                    if ownsReservation { service.releaseSlot() }
+                    if let reservation { service.releaseSlot(reservation) }
                 }
                 do {
                     if let streamingLoadOverride {
@@ -271,12 +286,26 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                     } else {
                         _ = try await load(progress: nil)
                     }
-                    if schedulerAdmissionOwnership == .model {
-                        guard await service.waitForSlot(timeout: 30) else {
-                            throw AFMError.unavailable("MLX scheduler is at capacity")
-                        }
-                        ownsReservation = true
+                    let schedulerAdmission: AFMMLXSchedulerAdmission
+                    switch schedulerAdmissionOwnership {
+                    case .model:
+                        schedulerAdmission = await service.waitForSlot(timeout: 30)
+                    case .caller(let admission):
+                        schedulerAdmission = admission
                     }
+                    guard schedulerAdmission.isAdmitted else {
+                        throw AFMError.unavailable("MLX scheduler is at capacity")
+                    }
+                    reservation = schedulerAdmission.reservation
+                    let submissionAdmission: BatchSchedulerSubmissionAdmission =
+                        switch schedulerAdmission {
+                        case .serial:
+                            .unreserved
+                        case .reserved(let reservation):
+                            .reserved(reservation)
+                        case .unavailable:
+                            .unreserved
+                        }
                     let tools = request.effectiveOpenAITools()
                     let result = try await service.generateStreamingWithSchedulerAdmission(
                         model: modelID,
@@ -299,9 +328,9 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                         speculativeDecoding: request.speculativeDecodingOptions(),
                         preserveStructuralTags: request.preserveStructuralTags,
                         requestId: nil,
-                        admission: ownsReservation ? .reserved : .unreserved
+                        admission: submissionAdmission
                     )
-                    ownsReservation = false
+                    reservation = nil
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
                         thinkEndTag: result.thinkEndTag,

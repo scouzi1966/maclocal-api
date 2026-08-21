@@ -392,12 +392,21 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         maxTokens: Int = 4
     ) async throws {
         _ = try await load()
-        guard await service.waitForSlot(timeout: 30) else {
+        let schedulerAdmission = await service.waitForSlot(timeout: 30)
+        guard schedulerAdmission.isAdmitted else {
             throw AFMError.unavailable("MLX scheduler is at capacity during prewarm")
         }
-        var ownsReservation = true
+        var reservation = schedulerAdmission.reservation
         defer {
-            if ownsReservation { service.releaseSlot() }
+            if let reservation { service.releaseSlot(reservation) }
+        }
+        let submissionAdmission: BatchSchedulerSubmissionAdmission = switch schedulerAdmission {
+        case .serial:
+            .unreserved
+        case .reserved(let reservation):
+            .reserved(reservation)
+        case .unavailable:
+            .unreserved
         }
         let result = try await service.generateStreamingWithSchedulerAdmission(
             model: modelID,
@@ -406,9 +415,9 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             maxTokens: maxTokens,
             topP: nil,
             repetitionPenalty: nil,
-            admission: .reserved
+            admission: submissionAdmission
         )
-        ownsReservation = false
+        reservation = nil
         for try await _ in result.stream {
             try Task.checkCancellation()
         }

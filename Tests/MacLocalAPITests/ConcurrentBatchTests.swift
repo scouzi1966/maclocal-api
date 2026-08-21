@@ -151,10 +151,11 @@ struct ConcurrentBatchTests {
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
 
         admission.finish()
-        #expect(admission.tryReserve())
+        let reservation = admission.tryReserve()
+        #expect(reservation != nil)
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 1))
         #expect(!admission.reserveForUnreservedSubmission())
-        #expect(admission.consumeReservationForSubmission())
+        #expect(admission.consumeReservationForSubmission(reservation!))
         #expect(admission.snapshot == .init(inFlightCount: 1, reservedCount: 0))
     }
 

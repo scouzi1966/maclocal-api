@@ -173,7 +173,8 @@ struct BatchCompletionsController: RouteCollection {
         let isStreaming = chatReq.stream ?? false
 
         do {
-            guard service.tryReserveSlot() else {
+            let schedulerAdmission = service.tryReserveSlot()
+            guard schedulerAdmission.isAdmitted else {
                 let errorEvent = makeErrorEvent(customId: customId, message: "Server at capacity", type: "server_error", encoder: encoder)
                 continuation.yield(errorEvent)
                 decrementAndFinishIfDone(activeCount: activeCount, continuation: continuation)
@@ -181,8 +182,9 @@ struct BatchCompletionsController: RouteCollection {
             }
             var reservationTransferred = false
             defer {
-                if !reservationTransferred {
-                    service.releaseSlot()
+                if !reservationTransferred,
+                   let reservation = schedulerAdmission.reservation {
+                    service.releaseSlot(reservation)
                 }
             }
 
@@ -213,7 +215,8 @@ struct BatchCompletionsController: RouteCollection {
                 speculativeDecoding: AFMMLXBatchSpeculativePolicy.forceAutoregressive(
                     chatReq.speculativeDecoding),
                 preserveStructuralTags: false,
-                requestId: nil
+                requestId: nil,
+                schedulerAdmission: schedulerAdmission
             )
             reservationTransferred = true
 

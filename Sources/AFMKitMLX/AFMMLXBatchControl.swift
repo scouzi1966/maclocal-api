@@ -1,14 +1,57 @@
 import Foundation
 
-/// Defines who admitted an attached MLX request to the scheduler.
-///
-/// Direct AFMKit model calls admit themselves. Server adapters use
-/// `callerReserved` after their controller has already reserved capacity; the
-/// attached model adopts that reservation and either transfers it to the
-/// scheduler or releases it if setup fails.
+/// Identity-bearing capacity reserved from one concrete scheduler.
+public final class AFMMLXSchedulerReservation: @unchecked Sendable, Hashable {
+    package let schedulerID: UUID
+    package let reservationID: UUID
+
+    package init(schedulerID: UUID, reservationID: UUID = UUID()) {
+        self.schedulerID = schedulerID
+        self.reservationID = reservationID
+    }
+
+    public static func == (
+        lhs: AFMMLXSchedulerReservation,
+        rhs: AFMMLXSchedulerReservation
+    ) -> Bool {
+        lhs.schedulerID == rhs.schedulerID
+            && lhs.reservationID == rhs.reservationID
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(schedulerID)
+        hasher.combine(reservationID)
+    }
+}
+
+/// Result of asking a runtime for request capacity.
+public enum AFMMLXSchedulerAdmission: Equatable, Sendable {
+    /// No scheduler is installed; the request must use the serial model path.
+    case serial
+    /// Capacity was reserved from a specific scheduler for this caller.
+    case reserved(AFMMLXSchedulerReservation)
+    /// Scheduler capacity is currently unavailable or admission is closed.
+    case unavailable
+
+    public var isAdmitted: Bool {
+        switch self {
+        case .serial, .reserved:
+            return true
+        case .unavailable:
+            return false
+        }
+    }
+
+    public var reservation: AFMMLXSchedulerReservation? {
+        guard case .reserved(let reservation) = self else { return nil }
+        return reservation
+    }
+}
+
+/// Defines who admitted an attached MLX request.
 public enum AFMMLXSchedulerAdmissionOwnership: Sendable {
     case model
-    case callerReserved
+    case caller(AFMMLXSchedulerAdmission)
 }
 
 public enum AFMMLXRequestMetadata {
@@ -22,19 +65,21 @@ public enum AFMMLXRequestMetadata {
 public protocol AFMMLXRequestScheduling: Sendable {
     var maxConcurrent: Int { get }
 
-    func tryReserveSlot() -> Bool
-    func waitForSlot(timeout: TimeInterval) async -> Bool
-    func releaseSlot()
+    func tryReserveSlot() -> AFMMLXSchedulerAdmission
+    func waitForSlot(timeout: TimeInterval) async -> AFMMLXSchedulerAdmission
+    @discardableResult
+    func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool
 }
 
 public extension AFMMLXRequestScheduling {
-    func waitForSlot(timeout: TimeInterval) async -> Bool {
-        if Task.isCancelled { return false }
+    func waitForSlot(timeout: TimeInterval) async -> AFMMLXSchedulerAdmission {
+        if Task.isCancelled { return .unavailable }
         if timeout <= 0 {
             return tryReserveSlot()
         }
 
-        if tryReserveSlot() { return true }
+        var admission = tryReserveSlot()
+        if admission.isAdmitted { return admission }
 
         let initialPollNanoseconds: UInt64 = 10_000_000
         let maximumPollNanoseconds: UInt64 = 500_000_000
@@ -42,13 +87,14 @@ public extension AFMMLXRequestScheduling {
         var delay = initialPollNanoseconds
 
         while ContinuousClock.now < deadline {
-            if Task.isCancelled { return false }
+            if Task.isCancelled { return .unavailable }
             try? await Task.sleep(nanoseconds: delay)
-            if Task.isCancelled { return false }
-            if tryReserveSlot() { return true }
+            if Task.isCancelled { return .unavailable }
+            admission = tryReserveSlot()
+            if admission.isAdmitted { return admission }
             delay = min(delay * 2, maximumPollNanoseconds)
         }
-        return false
+        return .unavailable
     }
 }
 

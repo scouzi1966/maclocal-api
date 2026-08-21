@@ -260,7 +260,8 @@ struct BatchAPIController: RouteCollection {
 
         do {
             // Reserve slot
-            guard service.tryReserveSlot() else {
+            let schedulerAdmission = service.tryReserveSlot()
+            guard schedulerAdmission.isAdmitted else {
                 let result = BatchResultLine(
                     id: resultId, customId: inputLine.customId,
                     response: nil,
@@ -271,8 +272,9 @@ struct BatchAPIController: RouteCollection {
             }
             var reservationTransferred = false
             defer {
-                if !reservationTransferred {
-                    service.releaseSlot()
+                if !reservationTransferred,
+                   let reservation = schedulerAdmission.reservation {
+                    service.releaseSlot(reservation)
                 }
             }
 
@@ -302,7 +304,8 @@ struct BatchAPIController: RouteCollection {
                 speculativeDecoding: AFMMLXBatchSpeculativePolicy.forceAutoregressive(
                     chatReq.speculativeDecoding),
                 preserveStructuralTags: false,
-                requestId: nil
+                requestId: nil,
+                schedulerAdmission: schedulerAdmission
             )
             reservationTransferred = true
 

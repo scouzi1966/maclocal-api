@@ -317,6 +317,7 @@ public enum MLXServiceError: Error, LocalizedError {
     case noMetalDevice
     case serviceShuttingDown
     case serverBusy(Int)
+    case invalidSchedulerReservation
 
     public var errorDescription: String? {
         switch self {
@@ -336,6 +337,8 @@ public enum MLXServiceError: Error, LocalizedError {
             return "MLX service is shutting down"
         case .serverBusy(let max):
             return "Server at capacity (\(max) concurrent requests). Please retry shortly."
+        case .invalidSchedulerReservation:
+            return "Scheduler reservation does not belong to the active scheduler request"
         }
     }
 }
@@ -723,18 +726,26 @@ public final class MLXModelService: @unchecked Sendable {
     /// Scheduled teardown work item (cancelled if new batch arrives).
     private var teardownWorkItem: DispatchWorkItem?
 
-    /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
-    public func tryReserveSlot() -> Bool {
-        withStateLock({ scheduler })?.tryReserve() ?? true
+    /// Atomically acquire scheduler capacity, or identify the serial path.
+    public func tryReserveSlot() -> AFMMLXSchedulerAdmission {
+        guard let scheduler = withStateLock({ scheduler }) else { return .serial }
+        guard let reservation = scheduler.tryReserve() else { return .unavailable }
+        return .reserved(reservation)
     }
-    /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
-    public func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
-        guard let sched = withStateLock({ scheduler }) else { return true }
-        return await sched.waitForSlot(timeout: timeout)
+    /// Wait for scheduler capacity, or identify the serial path.
+    public func waitForSlot(
+        timeout: TimeInterval = 30
+    ) async -> AFMMLXSchedulerAdmission {
+        guard let scheduler = withStateLock({ scheduler }) else { return .serial }
+        guard let reservation = await scheduler.waitForSlot(timeout: timeout) else {
+            return .unavailable
+        }
+        return .reserved(reservation)
     }
-    /// Release a reserved slot (call if request fails before generation starts).
-    public func releaseSlot() {
-        withStateLock({ scheduler })?.releaseReservation()
+    /// Release only the matching reservation from the active scheduler.
+    @discardableResult
+    public func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool {
+        withStateLock({ scheduler })?.releaseReservation(reservation) ?? false
     }
 
     var schedulerAdmissionSnapshot: BatchSchedulerAdmissionState.Snapshot? {
@@ -743,6 +754,16 @@ public final class MLXModelService: @unchecked Sendable {
 
     var installedScheduler: BatchScheduler? {
         withStateLock { scheduler }
+    }
+
+    func replaceInstalledSchedulerForTesting(
+        with replacement: BatchScheduler?
+    ) -> BatchScheduler? {
+        withStateLock {
+            let previous = scheduler
+            scheduler = replacement
+            return previous
+        }
     }
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
@@ -4001,6 +4022,9 @@ public final class MLXModelService: @unchecked Sendable {
             if releaseSchedulerExecutionOnExit {
                 Task { await self.modelExecutionCoordinator.releaseSchedulerGeneration() }
             }
+        }
+        if hasSerialExecutionLease, case .reserved = admission {
+            throw MLXServiceError.invalidSchedulerReservation
         }
 
         let promptText = buildPrompt(from: messages)

@@ -167,6 +167,33 @@ public protocol AFMMLXOpenAIChatServing:
 {
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 
+    /// Generate using capacity already acquired by the caller. The concrete
+    /// admission value is transferred to the returned stream on success.
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> AFMMLXChatStreamingResult
+
     /// Reset and read provider-specific request memory telemetry. Providers
     /// that do not execute through MLX must not initialize MLX merely to serve
     /// an OpenAI-compatible request.
@@ -611,6 +638,63 @@ extension MLXModelService {
 }
 
 extension MLXModelService: AFMMLXOpenAIChatServing {
+    public func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> AFMMLXChatStreamingResult {
+        let submissionAdmission: BatchSchedulerSubmissionAdmission =
+            switch schedulerAdmission {
+            case .serial:
+                .unreserved
+            case .reserved(let reservation):
+                .reserved(reservation)
+            case .unavailable:
+                throw MLXServiceError.serverBusy(maxConcurrent)
+            }
+        return try await generateStreamingWithSchedulerAdmission(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId,
+            admission: submissionAdmission)
+    }
+
     public func resetRequestPeakMemory() {
         GPU.resetPeakMemory()
     }

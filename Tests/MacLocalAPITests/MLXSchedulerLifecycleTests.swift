@@ -15,11 +15,11 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
 
     func testCallerReservedLoadFailureReleasesReservation() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
-        XCTAssertTrue(service.tryReserveSlot())
+        let reservation = try reserved(service.tryReserveSlot())
         let model = AFMMLXModel(
             modelID: AFMModelID(rawValue: Self.modelID),
             attachedService: service,
-            schedulerAdmissionOwnership: .callerReserved,
+            schedulerAdmissionOwnership: .caller(.reserved(reservation)),
             testingStreamingLoad: { throw ExpectedLoadFailure() })
 
         do {
@@ -37,11 +37,11 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
 
     func testCallerReservedRespondLoadFailureReleasesReservation() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
-        XCTAssertTrue(service.tryReserveSlot())
+        let reservation = try reserved(service.tryReserveSlot())
         let model = AFMMLXModel(
             modelID: AFMModelID(rawValue: Self.modelID),
             attachedService: service,
-            schedulerAdmissionOwnership: .callerReserved)
+            schedulerAdmissionOwnership: .caller(.reserved(reservation)))
         _ = service.beginShutdown()
 
         do {
@@ -61,12 +61,12 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
 
     func testCallerReservedLoadCancellationReleasesReservation() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
-        XCTAssertTrue(service.tryReserveSlot())
+        let reservation = try reserved(service.tryReserveSlot())
         let probe = SchedulerCancellationProbe()
         let model = AFMMLXModel(
             modelID: AFMModelID(rawValue: Self.modelID),
             attachedService: service,
-            schedulerAdmissionOwnership: .callerReserved,
+            schedulerAdmissionOwnership: .caller(.reserved(reservation)),
             testingStreamingLoad: { try await probe.run() })
         let stream = model.streamResponse(to: AFMRequest(messages: []))
         let consumer = Task {
@@ -91,12 +91,13 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
     func testUnreservedSubmissionCannotConsumeAnotherRequestsReservation() {
         let admission = BatchSchedulerAdmissionState(maxConcurrent: 1)
 
-        XCTAssertTrue(admission.tryReserve())
+        let reservation = admission.tryReserve()
+        XCTAssertNotNil(reservation)
         XCTAssertFalse(admission.reserveForUnreservedSubmission())
         XCTAssertEqual(
             admission.snapshot,
             .init(inFlightCount: 1, reservedCount: 1))
-        XCTAssertTrue(admission.consumeReservationForSubmission())
+        XCTAssertTrue(admission.consumeReservationForSubmission(reservation!))
         XCTAssertEqual(
             admission.snapshot,
             .init(inFlightCount: 1, reservedCount: 0))
@@ -105,12 +106,13 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
     func testReservedAndUnreservedSubmissionsRemainIndependentWhenInterleaved() {
         let admission = BatchSchedulerAdmissionState(maxConcurrent: 2)
 
-        XCTAssertTrue(admission.tryReserve())
+        let reservation = admission.tryReserve()
+        XCTAssertNotNil(reservation)
         XCTAssertTrue(admission.reserveForUnreservedSubmission())
         XCTAssertEqual(
             admission.snapshot,
             .init(inFlightCount: 2, reservedCount: 1))
-        XCTAssertTrue(admission.consumeReservationForSubmission())
+        XCTAssertTrue(admission.consumeReservationForSubmission(reservation!))
         XCTAssertEqual(
             admission.snapshot,
             .init(inFlightCount: 2, reservedCount: 0))
@@ -124,8 +126,8 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
         let service = try await makeScheduledService(maxConcurrent: 2)
         let adapter = AFMKitMLXChatServingAdapter(service: service)
 
-        let reserved = await adapter.waitForSlot(timeout: 0)
-        XCTAssertTrue(reserved)
+        let schedulerAdmission = await adapter.waitForSlot(timeout: 0)
+        XCTAssertTrue(schedulerAdmission.isAdmitted)
         XCTAssertEqual(
             service.schedulerAdmissionSnapshot,
             .init(inFlightCount: 1, reservedCount: 1))
@@ -151,7 +153,8 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             chatTemplateKwargs: nil,
             speculativeDecoding: nil,
             preserveStructuralTags: false,
-            requestId: "attached-controller")
+            requestId: "attached-controller",
+            schedulerAdmission: schedulerAdmission)
 
         try await waitUntil {
             service.schedulerAdmissionSnapshot
@@ -167,8 +170,9 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
 
     func testDirectGenerationCannotStealReservedAdapterCapacity() async throws {
         let service = try await makeScheduledService(maxConcurrent: 2)
-        XCTAssertTrue(service.tryReserveSlot())
-        XCTAssertTrue(service.tryReserveSlot())
+        let firstAdmission = service.tryReserveSlot()
+        _ = try reserved(firstAdmission)
+        let secondReservation = try reserved(service.tryReserveSlot())
 
         do {
             _ = try await service.generate(
@@ -211,17 +215,56 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             chatTemplateKwargs: nil,
             speculativeDecoding: nil,
             preserveStructuralTags: false,
-            requestId: "reserved-adapter")
+            requestId: "reserved-adapter",
+            schedulerAdmission: firstAdmission)
         for try await _ in result.stream {}
         XCTAssertEqual(
             service.schedulerAdmissionSnapshot,
             .init(inFlightCount: 1, reservedCount: 1))
 
-        service.releaseSlot()
+        XCTAssertTrue(service.releaseSlot(secondReservation))
         XCTAssertEqual(
             service.schedulerAdmissionSnapshot,
             .init(inFlightCount: 0, reservedCount: 0))
         await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+    }
+
+    func testSerialAdmissionDoesNotCreateSchedulerReservation() {
+        let service = makeLoadedService()
+
+        XCTAssertEqual(service.tryReserveSlot(), .serial)
+        XCTAssertNil(service.schedulerAdmissionSnapshot)
+    }
+
+    func testReplacementAndForeignSchedulerCannotReleaseReservation() async throws {
+        let firstService = try await makeScheduledService(maxConcurrent: 2)
+        let secondService = try await makeScheduledService(maxConcurrent: 2)
+        let firstReservation = try reserved(firstService.tryReserveSlot())
+        let secondReservation = try reserved(secondService.tryReserveSlot())
+
+        XCTAssertFalse(secondService.releaseSlot(firstReservation))
+        XCTAssertFalse(firstService.releaseSlot(secondReservation))
+        let firstScheduler = try XCTUnwrap(firstService.installedScheduler)
+        let secondScheduler = try XCTUnwrap(secondService.installedScheduler)
+        XCTAssertTrue(
+            firstService.replaceInstalledSchedulerForTesting(with: secondScheduler)
+                === firstScheduler)
+        defer {
+            _ = firstService.replaceInstalledSchedulerForTesting(with: firstScheduler)
+        }
+        XCTAssertFalse(firstService.releaseSlot(firstReservation))
+        XCTAssertEqual(
+            firstService.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 1, reservedCount: 1))
+        XCTAssertEqual(
+            secondService.schedulerAdmissionSnapshot,
+            .init(inFlightCount: 1, reservedCount: 1))
+
+        _ = firstService.replaceInstalledSchedulerForTesting(with: firstScheduler)
+        XCTAssertTrue(firstService.releaseSlot(firstReservation))
+        XCTAssertTrue(secondService.releaseSlot(secondReservation))
+        await firstService.shutdownAndReleaseResources(timeoutSeconds: 1)
+        await secondService.shutdownAndReleaseResources(timeoutSeconds: 1)
     }
 
     func testDirectGenerateCollectsSchedulerStreamWithoutDoubleAdmission() async throws {
@@ -377,11 +420,15 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
             canonicalModelType: "llama",
             isVisionConfiguration: false,
             requiresVisionModelFactory: false)
-        return MLXModelService(
+        let service = MLXModelService(
             resolver: MLXCacheResolver(),
             testingModelID: Self.modelID,
             container: container,
             architecture: architecture)
+        addTeardownBlock {
+            await service.shutdownAndReleaseResources(timeoutSeconds: 1)
+        }
+        return service
     }
 
     private func makeModelFixture() -> (
@@ -434,6 +481,18 @@ final class MLXSchedulerLifecycleTests: XCTestCase {
                 return XCTFail("unexpected error: \(error)", file: file, line: line)
             }
         }
+    }
+
+    private func reserved(
+        _ admission: AFMMLXSchedulerAdmission,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> AFMMLXSchedulerReservation {
+        guard case .reserved(let reservation) = admission else {
+            XCTFail("expected scheduler reservation, got \(admission)", file: file, line: line)
+            throw NSError(domain: "MLXSchedulerLifecycleTests", code: 2)
+        }
+        return reservation
     }
 }
 

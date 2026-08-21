@@ -1129,6 +1129,8 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
     private let streamingResult: AFMMLXChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMMLXChatStreamingResult)?
     private let stateLock = NSLock()
+    private let schedulerID = UUID()
+    private var reservationIDs = Set<UUID>()
     private(set) var recordedGenerateToolNames: [[String]] = []
     private(set) var recordedStreamingToolNames: [[String]] = []
     private(set) var recordedGenerateToolChoices: [String] = []
@@ -1200,8 +1202,21 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
 
     func normalizeModel(_ raw: String) -> String { raw }
     func resolvedToolCallParser(logBypass: Bool) -> String? { toolCallParser }
-    func tryReserveSlot() -> Bool { true }
-    func releaseSlot() {}
+    func tryReserveSlot() -> AFMMLXSchedulerAdmission {
+        guard maxConcurrent >= 2 else { return .serial }
+        return stateLock.withLock {
+            let reservation = AFMMLXSchedulerReservation(schedulerID: schedulerID)
+            reservationIDs.insert(reservation.reservationID)
+            return .reserved(reservation)
+        }
+    }
+    @discardableResult
+    func releaseSlot(_ reservation: AFMMLXSchedulerReservation) -> Bool {
+        guard reservation.schedulerID == schedulerID else { return false }
+        return stateLock.withLock {
+            reservationIDs.remove(reservation.reservationID) != nil
+        }
+    }
     func ensureBatchMode(concurrency: Int) async throws {}
     func releaseBatchReference() {}
     func cancelBatchSlots(ids: Set<UUID>) async {}
@@ -1344,6 +1359,61 @@ private final class FakeMLXChatService: AFMMLXOpenAIChatServing, @unchecked Send
             responseFormat: responseFormat,
             chatTemplateKwargs: chatTemplateKwargs
         )
+    }
+
+    func generateStreaming(
+        model: String,
+        messages: [Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        toolChoice: ToolChoice?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?,
+        preserveStructuralTags: Bool,
+        requestId: String?,
+        schedulerAdmission: AFMMLXSchedulerAdmission
+    ) async throws -> AFMMLXChatStreamingResult {
+        let result = try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            toolChoice: toolChoice,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            preserveStructuralTags: preserveStructuralTags,
+            requestId: requestId)
+        if case .reserved(let reservation) = schedulerAdmission {
+            guard reservation.schedulerID == schedulerID,
+                  stateLock.withLock({ reservationIDs.remove(reservation.reservationID) != nil })
+            else {
+                throw MLXServiceError.invalidSchedulerReservation
+            }
+        }
+        return result
     }
 
     func generateStreaming(

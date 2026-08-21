@@ -31,7 +31,7 @@ extension Gemma4VLM: FixedDecodeCohortModel {
 }
 
 enum BatchSchedulerSubmissionAdmission: Sendable {
-    case reserved
+    case reserved(AFMMLXSchedulerReservation)
     case unreserved
 }
 
@@ -45,49 +45,62 @@ final class BatchSchedulerAdmissionState: @unchecked Sendable {
 
     private struct State {
         var inFlightCount = 0
-        var reservedCount = 0
+        var reservationIDs = Set<UUID>()
     }
 
     let maxConcurrent: Int
+    let schedulerID: UUID
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    init(maxConcurrent: Int) {
+    init(maxConcurrent: Int, schedulerID: UUID = UUID()) {
         self.maxConcurrent = maxConcurrent
+        self.schedulerID = schedulerID
     }
 
-    func tryReserve() -> Bool {
-        state.withLock { state in
-            guard state.inFlightCount < maxConcurrent else { return false }
-            state.inFlightCount += 1
-            state.reservedCount += 1
-            return true
-        }
-    }
-
-    func tryReserveMultiple(count: Int) -> Bool {
-        guard count > 0 else { return true }
+    func tryReserve() -> AFMMLXSchedulerReservation? {
+        let reservation = AFMMLXSchedulerReservation(schedulerID: schedulerID)
         return state.withLock { state in
-            guard state.inFlightCount + count <= maxConcurrent else { return false }
-            state.inFlightCount += count
-            state.reservedCount += count
-            return true
+            guard state.inFlightCount < maxConcurrent else { return nil }
+            state.inFlightCount += 1
+            state.reservationIDs.insert(reservation.reservationID)
+            return reservation
         }
     }
 
-    func releaseReservation(count: Int = 1) {
-        guard count > 0 else { return }
-        state.withLock { state in
-            let released = min(count, state.reservedCount)
-            state.reservedCount -= released
-            state.inFlightCount = max(0, state.inFlightCount - released)
+    func tryReserveMultiple(count: Int) -> [AFMMLXSchedulerReservation]? {
+        guard count > 0 else { return [] }
+        let reservations = (0 ..< count).map { _ in
+            AFMMLXSchedulerReservation(schedulerID: schedulerID)
+        }
+        return state.withLock { state in
+            guard state.inFlightCount + count <= maxConcurrent else { return nil }
+            state.inFlightCount += count
+            state.reservationIDs.formUnion(reservations.map(\.reservationID))
+            return reservations
+        }
+    }
+
+    @discardableResult
+    func releaseReservation(_ reservation: AFMMLXSchedulerReservation) -> Bool {
+        guard reservation.schedulerID == schedulerID else { return false }
+        return state.withLock { state in
+            guard state.reservationIDs.remove(reservation.reservationID) != nil else {
+                return false
+            }
+            state.inFlightCount = max(0, state.inFlightCount - 1)
+            return true
         }
     }
 
     /// Transfer one caller-owned reservation to a submitted request.
-    func consumeReservationForSubmission() -> Bool {
-        state.withLock { state in
-            guard state.reservedCount > 0 else { return false }
-            state.reservedCount -= 1
+    func consumeReservationForSubmission(
+        _ reservation: AFMMLXSchedulerReservation
+    ) -> Bool {
+        guard reservation.schedulerID == schedulerID else { return false }
+        return state.withLock { state in
+            guard state.reservationIDs.remove(reservation.reservationID) != nil else {
+                return false
+            }
             return true
         }
     }
@@ -111,7 +124,7 @@ final class BatchSchedulerAdmissionState: @unchecked Sendable {
     func reset() {
         state.withLock { state in
             state.inFlightCount = 0
-            state.reservedCount = 0
+            state.reservationIDs.removeAll(keepingCapacity: false)
         }
     }
 
@@ -119,7 +132,7 @@ final class BatchSchedulerAdmissionState: @unchecked Sendable {
         state.withLock {
             Snapshot(
                 inFlightCount: $0.inFlightCount,
-                reservedCount: $0.reservedCount)
+                reservedCount: $0.reservationIDs.count)
         }
     }
 }
@@ -525,10 +538,10 @@ actor BatchScheduler {
     /// suspension point while slots are active.
     private let _cancelledSlotIDs = OSAllocatedUnfairLock(initialState: Set<UUID>())
 
-    /// Atomically reserve a slot if under capacity. Returns true if reserved.
-    nonisolated func tryReserve() -> Bool {
+    /// Atomically reserve a slot if under capacity.
+    nonisolated func tryReserve() -> AFMMLXSchedulerReservation? {
         admissionLock.withLock {
-            guard !_isShutdown.withLock({ $0 }) else { return false }
+            guard !_isShutdown.withLock({ $0 }) else { return nil }
             return admissionState.tryReserve()
         }
     }
@@ -538,41 +551,52 @@ actor BatchScheduler {
     private static let maxPollInterval: UInt64     = 500_000_000  // 500ms
 
     /// Wait up to `timeout` seconds for a slot to become available.
-    /// Returns true if a slot was reserved, false if timed out, cancelled, or shutdown.
-    nonisolated func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
-        if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
-        if tryReserve() { return true }
+    /// Returns a reservation, or nil if timed out, cancelled, or shut down.
+    nonisolated func waitForSlot(
+        timeout: TimeInterval = 30
+    ) async -> AFMMLXSchedulerReservation? {
+        if Task.isCancelled || _isShutdown.withLock({ $0 }) { return nil }
+        if let reservation = tryReserve() { return reservation }
 
         let deadline = ContinuousClock.now + .seconds(timeout)
         var delay = Self.initialPollInterval
 
         while ContinuousClock.now < deadline {
-            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return nil }
             try? await Task.sleep(nanoseconds: delay)
-            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return false }
-            if tryReserve() { return true }
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) { return nil }
+            if let reservation = tryReserve() { return reservation }
             delay = min(delay * 2, Self.maxPollInterval)
         }
-        return false
+        return nil
     }
 
     /// Release a reserved slot (call if request fails before reaching submit).
-    nonisolated func releaseReservation() {
-        admissionState.releaseReservation()
+    @discardableResult
+    nonisolated func releaseReservation(
+        _ reservation: AFMMLXSchedulerReservation
+    ) -> Bool {
+        admissionState.releaseReservation(reservation)
     }
 
     /// Atomically reserve N slots. Returns true if all N were reserved,
     /// false if insufficient capacity (no slots reserved in that case).
-    nonisolated func tryReserveMultiple(count: Int) -> Bool {
+    nonisolated func tryReserveMultiple(
+        count: Int
+    ) -> [AFMMLXSchedulerReservation]? {
         admissionLock.withLock {
-            guard !_isShutdown.withLock({ $0 }) else { return false }
+            guard !_isShutdown.withLock({ $0 }) else { return nil }
             return admissionState.tryReserveMultiple(count: count)
         }
     }
 
     /// Release N slot reservations at once.
-    nonisolated func releaseMultipleReservations(count: Int) {
-        admissionState.releaseReservation(count: count)
+    nonisolated func releaseMultipleReservations(
+        _ reservations: [AFMMLXSchedulerReservation]
+    ) {
+        for reservation in reservations {
+            admissionState.releaseReservation(reservation)
+        }
     }
 
     /// Current number of active + pending slots (for teardown decisions).
@@ -740,14 +764,14 @@ actor BatchScheduler {
         // shutdown cannot drain immediately before a late enqueue.
         let admissionResult = admissionLock.withLock { () -> AdmissionResult in
             guard !_isShutdown.withLock({ $0 }) else {
-                if case .reserved = admission {
-                    admissionState.releaseReservation()
+                if case .reserved(let reservation) = admission {
+                    admissionState.releaseReservation(reservation)
                 }
                 return .shuttingDown
             }
             let admitted = switch admission {
-            case .reserved:
-                admissionState.consumeReservationForSubmission()
+            case .reserved(let reservation):
+                admissionState.consumeReservationForSubmission(reservation)
             case .unreserved:
                 admissionState.reserveForUnreservedSubmission()
             }
