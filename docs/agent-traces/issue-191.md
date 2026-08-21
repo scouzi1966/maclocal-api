@@ -1,6 +1,6 @@
-# Issue #191 Phase A: Qwen 3.8 VLM Planning Trace
+# Issue #191: Qwen 3.8 VLM Implementation Trace
 
-Status: architecture gate 2 approved; implementation in progress.
+Status: implementation and live acceptance complete; ready for review.
 
 Issue: <https://github.com/scouzi1966/maclocal-api/issues/191>
 
@@ -17,8 +17,8 @@ and clear errors for incomplete vision checkpoints. Live acceptance requires
 JPEG and PNG WebUI requests plus two distinguishable images that produce
 grounded, observably different answers.
 
-This trace is Phase A only. It does not authorize feature implementation or an
-upstream pull request.
+The first sections retain the architecture-review evidence that governed the
+implementation. The final sections record the completed code and qualification.
 
 ## Current-state evidence
 
@@ -124,10 +124,11 @@ upstream pull request.
   the index contains 333 `vision_tower.*` and 1,847 `language_model.*` keys.
   This supports using the existing patched Qwen 3.5 VLM implementation, but no
   live model load or inference was performed during Phase A.
-- A locally cached Qwen 3.8 MXFP8 snapshot is incomplete (four of six indexed
-  shards), so it is not evidence that the MXFP8 variant can currently pass live
-  qualification. The repository implementation log independently records the
-  shared `qwen3_5` text/vision contract
+- At initial review, the locally cached Qwen 3.8 MXFP8 snapshot was incomplete
+  (four of six indexed shards), so it was not Phase A live evidence. All six
+  shards became available before final qualification; the current MXFP8 result
+  is recorded under Checkpoint 5. The repository implementation log also records
+  the shared `qwen3_5` text/vision contract
   (`docs/qwen3.8-27b-mxfp8-implementation-log.md`).
 
 ### Image DTOs and request conversion already preserve multimodal content
@@ -761,21 +762,94 @@ Live WebUI evidence:
   `.build-reliable-logs/issue-191-webui.png` (42,760 bytes). Model artifacts and
   machine-specific cache paths were not copied into the repository.
 
-### Completion state and deferred gates
+### Checkpoint 5: takeover audit and MXFP8 acceptance
+
+Final code and deterministic verification on 2026-08-20:
+
+- Tightened processor qualification to decode both
+  `BaseProcessorConfiguration` and `Qwen3VLProcessorConfiguration`. A JSON file
+  that merely exists or names a class can no longer advertise usable vision
+  when the processor that `VLMModelFactory` constructs would fail to decode.
+- Added a repository-name-independence regression: the published Qwen 3.8
+  configuration resolves to canonical `qwen3_5` conditional generation even
+  when the repository identifier contains no Qwen/version hints.
+- Added one controller test that submits the same ordered OpenAI multipart
+  text/image message through `stream=false` and `stream=true`, then asserts the
+  exact image URL and detail survive to the serving boundary in both modes.
+- `./Scripts/swiftpm-reliable.sh test -c release --filter
+  'AFMMLXVisionAssetQualificationTests|AFMMLXModelArchitectureTests|MLXChatCompletionsControllerStreamingTests'`
+  executed 51 XCTest tests with 0 failures. Log:
+  `.build-reliable-logs/test-20260820-204230.log`.
+- The isolated post-comprehensive-run controller rerun executed 20 XCTest tests
+  with 0 failures. Log: `.build-reliable-logs/test-20260820-210834.log`.
+- A full `./Scripts/build-from-scratch.sh` Release build completed before live
+  qualification, including the bundled WebUI and patch verification. No
+  compatibility patch source, dependency revision, or upstream checkout was
+  changed.
+
+Live MXFP8 API evidence on 2026-08-20:
+
+- Launched the complete six-shard
+  `mlx-community/Qwen3.8-27B-mxfp8` snapshot without `--vlm`. Startup logged
+  `declared=qwen3_5 canonical=qwen3_5 vision=true factory=VLM`.
+- `/props.modalities.vision` was `true`; the loaded `/v1/models` entry included
+  `vision`, matching the actual VLM-backed runtime.
+- The identical grounded prompt, `Read the largest heading in this image. Reply
+  with only that heading.`, returned `Qwen3's Gated DeltaNet Explained` for
+  `media/ocr.png` via non-streaming OpenAI chat and `AFM` for
+  `assets/afm-social-preview.jpg` via streaming OpenAI chat. Both were HTTP 200;
+  the stream ended with a usage chunk and `[DONE]`.
+- A subsequent text-only non-streaming request returned `TEXT_ONLY_OK` at HTTP
+  200. The server logged a 29-token text prefill with `outcome=disabled`, while
+  both image requests logged `outcome=multimodal-skip`; no model reload,
+  factory transition, or scheduler shutdown occurred.
+- Image fixture SHA-256 values were
+  `25058c21ad7f83ed2fe9bd19094371f7d2837dc352859506e0b9a6faedb9edf2`
+  (PNG) and
+  `884a4b4ec39b0509a9668c14c8a45fe13279ef1a76e541f8aee2de3f836e3c16`
+  (JPEG).
+
+Live MXFP8 WebUI evidence on 2026-08-20:
+
+- In two fresh bundled-WebUI chats, the Images menu accepted and previewed the
+  same PNG and JPEG. The same prompt returned the same distinct grounded answers:
+  `Qwen3's Gated DeltaNet Explained` and `AFM`.
+- The WebUI used streaming generation for both requests. The browser-visible
+  assistant-message assertions passed and captured browser warnings/errors were
+  empty.
+- Durable local evidence is under
+  `test-reports/issue-191-20260820-mxfp8/`: request JSON, HTTP headers,
+  non-streaming response, SSE response, `/props`, `/v1/models`, redacted server
+  logs, DOM snapshots, `webui-assertions.txt`, and full-page screenshots
+  `webui-png-chat.png` (50,082 bytes) and `webui-jpeg-chat.png` (6,507 bytes).
+  `test-reports/` is intentionally ignored and no model/cache artifact is
+  committed.
+
+Comprehensive-suite note:
+
+- Two coordinated full `./Scripts/swiftpm-reliable.sh test -c release` attempts
+  reproduced an Xcode 27 Beta 3 `xctest` signal 11. Neither emitted an XCTest
+  assertion failure; both printed all 20 controller cases as passing, and the
+  concurrently reported Swift Testing result was 435 tests in 34 suites passed.
+  The controller suite then passed in isolation. Durable logs are
+  `full-release-test.log` and `full-release-test-retry.log` in the issue report
+  directory. This is recorded as a toolchain-level comprehensive-run blocker,
+  not represented as a passing full suite.
+
+### Completion state
 
 The approved implementation scope is complete in commits `78fe3b8`, `c307728`,
-`4973c6b`, and `b3940d3`. The runtime uses one static startup container, complete
-Qwen conditional-generation snapshots select VLM, incomplete optional vision
-assets preserve LLM text startup, and request admission plus capability surfaces
-reflect that actual runtime state.
+`4973c6b`, `b3940d3`, and `886a4e6`. The runtime uses one static startup
+container, complete Qwen conditional-generation snapshots select VLM,
+incomplete optional vision assets preserve LLM text startup, and request
+admission plus capability surfaces reflect actual runtime state. Both 4-bit and
+MXFP8 Qwen 3.8 snapshots passed grounded vision qualification without changes to
+the existing AFM-owned compatibility patch set.
 
-Two empirical comparisons remain intentionally unexecuted rather than hidden as
-passing results:
-
-- The Qwen 3.8 MXFP8 snapshot still has only four of six indexed shards, so the
-  plan's MXFP8 grounding repeat remains deferred until that cache is complete.
-- No recorded pre-change LLM throughput baseline was available in this worktree.
-  The same-process pre-image/post-image VLM measurements are recorded above;
-  there is also no dedicated vision-tower invocation counter, so the text fast
-  path is evidenced by its text-only tokenization and stable throughput rather
-  than a hardware-level tower trace.
+No recorded pre-change LLM throughput baseline was available in this worktree,
+and there is no dedicated vision-tower invocation counter. The text fast path is
+therefore evidenced by text-only tokenization, the processor/model early-return
+code, stable text throughput, and absence of multimodal prefill markers rather
+than a hardware-level tower counter. The only remaining external issue is the
+reproducible full-suite signal from the installed Xcode 27 Beta 3 toolchain;
+issue-specific, controller, and prior broad regression cohorts pass.
