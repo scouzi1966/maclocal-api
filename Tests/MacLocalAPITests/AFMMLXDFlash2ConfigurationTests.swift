@@ -201,9 +201,10 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         let eos = MLXModelService.completeEOSTokenIDs(
             configuredTokenIDs: [10, 11],
             tokenizerTokenID: 12,
+            unknownTokenID: 14,
             extraTokens: ["<end>", "<missing>"],
             tokenID: { $0 == "<end>" ? 13 : nil })
-        XCTAssertEqual(eos, [10, 11, 12, 13])
+        XCTAssertEqual(eos, [10, 11, 12, 13, 14])
     }
 
     func testServiceInstancesHaveIndependentDFlashRuntimeScopes() {
@@ -333,28 +334,24 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
     }
 
     func testMuseReleasedContractValidatesByMetadata() throws {
-        let config = try AFMMLXDFlash2Configuration(metadata: draftMetadata(
-            hidden: 6_656,
-            targetLayers: 52,
-            vocabulary: 202_048,
-            block: 16,
-            mask: 201_818,
-            targetLayerIDs: [1, 13, 25, 37, 49]))
+        let target = museTargetMetadata()
+        let config = try AFMMLXDFlash2Configuration(
+            metadata: museAssistantMetadata(), targetMetadata: target)
 
-        try config.validateTarget(metadata: [
-            "model_type": "muse_glimmer",
-            "text_config": [
-                "model_type": "muse_glimmer_text",
-                "hidden_size": 6_656,
-                "num_hidden_layers": 52,
-                "vocab_size": 202_048,
-                "max_position_embeddings": 131_072,
-                "bos_token_id": 200_000,
-                "eos_token_id": 200_001,
-                "sliding_window": 2_048,
-                "rope_parameters": ["rope_theta": 500_000],
-            ],
-        ])
+        XCTAssertEqual(config.draftArchitecture, "MuseGlimmerAssistantModel")
+        XCTAssertEqual(config.targetLayers, 52)
+        XCTAssertEqual(config.vocabularySize, 202_048)
+        XCTAssertEqual(config.targetLayerIDs, [1, 13, 25, 37, 49])
+        XCTAssertEqual(config.checkpointBlockSize, 16)
+        XCTAssertEqual(config.convolutionKernelSize, 0)
+        XCTAssertEqual(config.selectorRank, 0)
+        XCTAssertEqual(config.expectedTensorShapes().count, 53)
+        XCTAssertNotNil(config.expectedTensorShapes()["encoder.fc.weight"])
+        XCTAssertNil(config.expectedTensorShapes()["candidate_selector.hidden_projection.weight"])
+        try config.validateTarget(metadata: target)
+
+        XCTAssertThrowsError(try AFMMLXDFlash2Configuration(
+            metadata: museAssistantMetadata()))
     }
 
     func testRepositoryNameCannotMakeLegacyDFlashLookLikeDFlash2() {
@@ -667,6 +664,55 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
                 "conv_group_size": 16,
                 "selector_rank": 256,
                 "selector_top_k": 16,
+            ],
+        ]
+    }
+
+    private func museAssistantMetadata() -> [String: Any] {
+        [
+            "architectures": ["MuseGlimmerAssistantModel"],
+            "attention_dropout": 0,
+            "block_size": 16,
+            "bos_token_id": 200_000,
+            "dtype": "bfloat16",
+            "eos_token_id": 200_001,
+            "head_dim": 128,
+            "hidden_act": "silu",
+            "hidden_size": 6_656,
+            "intermediate_size": 19_968,
+            "layer_types": Array(repeating: "sliding_attention", count: 5),
+            "mask_token_id": 201_818,
+            "max_position_embeddings": 131_072,
+            "model_type": "muse_glimmer_assistant",
+            "num_attention_heads": 32,
+            "num_hidden_layers": 5,
+            "num_key_value_heads": 8,
+            "pad_token_id": 200_018,
+            "rms_norm_eps": 0.00001,
+            "rope_parameters": [
+                "rope_theta": 500_000.0,
+                "rope_type": "default",
+            ],
+            "sliding_window": 2_048,
+            "target_layer_ids": [1, 13, 25, 37, 49],
+            "transformers_version": "5.15.0.dev0",
+        ]
+    }
+
+    private func museTargetMetadata() -> [String: Any] {
+        [
+            "model_type": "muse_glimmer",
+            "text_config": [
+                "model_type": "muse_glimmer_text",
+                "hidden_size": 6_656,
+                "num_hidden_layers": 52,
+                "vocab_size": 202_048,
+                "max_position_embeddings": 131_072,
+                "bos_token_id": 200_000,
+                "eos_token_id": 200_001,
+                "pad_token_id": 200_018,
+                "sliding_window": 2_048,
+                "rope_parameters": ["rope_theta": 500_000],
             ],
         ]
     }

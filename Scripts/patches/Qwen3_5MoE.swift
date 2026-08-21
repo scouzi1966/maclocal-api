@@ -1290,14 +1290,14 @@ extension Qwen3_5MoEModel: DFlash2Target {
     }
 
     public func dflash2CaptureCache(_ cache: [any KVCache]) -> Any {
-        Qwen3MTPCacheSnapshot.capture(cache)
+        DFlash2CacheSnapshot.capture(cache)
     }
 
     public func dflash2RestoreCache(_ snapshot: Any, into cache: [any KVCache]) {
-        guard let snapshot = snapshot as? [Qwen3MTPCacheSnapshot.Layer] else {
+        guard let snapshot = snapshot as? [DFlash2CacheSnapshot.Layer] else {
             preconditionFailure("Invalid Qwen DFlash2 cache snapshot")
         }
-        Qwen3MTPCacheSnapshot.restore(snapshot, into: cache)
+        DFlash2CacheSnapshot.restore(snapshot, into: cache)
     }
 }
 

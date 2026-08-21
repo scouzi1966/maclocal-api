@@ -7,10 +7,10 @@ import MLXVLM
 import Tokenizers
 
 public final class AFMMLXDFlash2Runtime: @unchecked Sendable {
-    public let draft: DFlash2DraftModel
+    public let draft: any DFlashDraftingModel
     public let preflight: AFMMLXDFlash2Preflight
 
-    init(draft: DFlash2DraftModel, preflight: AFMMLXDFlash2Preflight) {
+    init(draft: any DFlashDraftingModel, preflight: AFMMLXDFlash2Preflight) {
         self.draft = draft
         self.preflight = preflight
     }
@@ -486,7 +486,10 @@ public struct AFMMLXRuntimeAdapter: Sendable {
             targetDirectory: targetDirectory,
             drafterDirectory: drafterDirectory,
             requestedBlockSize: blockSize)
-        let draft = try DFlash2DraftModel.load(directory: drafterDirectory.path)
+        let draft = try DFlashDraftModelFactory.load(
+            directory: drafterDirectory.path,
+            targetLayers: preflight.configuration.targetLayers,
+            vocabularySize: preflight.configuration.vocabularySize)
         let targetCompatible = try await container.perform { context in
             let loadedTargetData = try Data(contentsOf: context.configuration
                 .modelDirectory()
@@ -619,6 +622,9 @@ public struct AFMMLXRuntimeAdapter: Sendable {
         var result = configuration.eosTokenIds
         if let eosTokenID = tokenizer.eosTokenId {
             result.insert(eosTokenID)
+        }
+        if let unknownTokenID = tokenizer.unknownTokenId {
+            result.insert(unknownTokenID)
         }
         for token in configuration.extraEOSTokens {
             if let tokenID = tokenizer.convertTokenToId(token) {

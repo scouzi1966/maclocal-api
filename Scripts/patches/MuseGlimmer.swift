@@ -1225,14 +1225,6 @@ extension MuseGlimmer: LoRAModel {
     }
 }
 
-private struct MuseDFlash2CacheSnapshot {
-    struct Layer {
-        let state: [MLXArray]
-        let offset: Int
-    }
-    let layers: [Layer]
-}
-
 extension MuseGlimmer: DFlash2Target {
     public var dflash2HiddenSize: Int { config.textConfiguration.hiddenSize }
     public var dflash2LayerCount: Int { config.textConfiguration.hiddenLayers }
@@ -1254,22 +1246,13 @@ extension MuseGlimmer: DFlash2Target {
             tokenIDs, captureLayerIDs: captureLayerIDs, cache: cache)
     }
     public func dflash2CaptureCache(_ cache: [any KVCache]) -> Any {
-        MuseDFlash2CacheSnapshot(
-            layers: cache.map { .init(state: $0.state, offset: $0.offset) })
+        DFlash2CacheSnapshot.capture(cache)
     }
     public func dflash2RestoreCache(_ snapshot: Any, into cache: [any KVCache]) {
-        guard let snapshot = snapshot as? MuseDFlash2CacheSnapshot else {
+        guard let snapshot = snapshot as? [DFlash2CacheSnapshot.Layer] else {
             preconditionFailure("Invalid Muse DFlash2 cache snapshot")
         }
-        for (index, layer) in snapshot.layers.enumerated() {
-            var entry = cache[index]
-            if entry.isTrimmable {
-                let excess = entry.offset - layer.offset
-                if excess > 0 { _ = entry.trim(excess) }
-            } else {
-                entry.state = layer.state
-            }
-        }
+        DFlash2CacheSnapshot.restore(snapshot, into: cache)
     }
 }
 

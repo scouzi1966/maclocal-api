@@ -28,6 +28,37 @@ public protocol DFlash2Target: AnyObject {
     func dflash2RestoreCache(_ snapshot: Any, into cache: [any KVCache])
 }
 
+/// A verifier cache snapshot must preserve both storage and cursor metadata.
+/// Rotating caches update their backing arrays in place after wrapping, so
+/// retaining array references or trimming by offset is not a rollback.
+public enum DFlash2CacheSnapshot {
+    public struct Layer {
+        fileprivate let state: [MLXArray]
+        fileprivate let metaState: [String]
+    }
+
+    public static func capture(_ cache: [any KVCache]) -> [Layer] {
+        cache.map { entry in
+            let state = entry.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
+            if !state.isEmpty { eval(state) }
+            return Layer(state: state, metaState: entry.metaState)
+        }
+    }
+
+    public static func restore(_ snapshot: [Layer], into cache: [any KVCache]) {
+        precondition(snapshot.count == cache.count, "DFlash cache snapshot layer mismatch")
+        for (index, layer) in snapshot.enumerated() {
+            var entry = cache[index]
+            if !layer.state.isEmpty {
+                let state = layer.state.map { ($0 + MLXArray(0)).asType($0.dtype) }
+                eval(state)
+                entry.state = state
+            }
+            entry.metaState = layer.metaState
+        }
+    }
+}
+
 public struct DFlash2GenerationStatistics: Sendable {
     public let draftedTokens: Int
     public let acceptedDraftTokens: Int
@@ -50,7 +81,13 @@ public struct DFlash2GenerationResult: Sendable {
     public let statistics: DFlash2GenerationStatistics
 }
 
+public enum DFlashDraftArchitecture: String, Sendable {
+    case dflash = "MuseGlimmerAssistantModel"
+    case dflash2 = "DFlash2DraftModel"
+}
+
 public struct DFlash2DraftConfiguration: Sendable {
+    public let architecture: DFlashDraftArchitecture
     public let hiddenSize: Int
     public let intermediateSize: Int
     public let hiddenLayers: Int
@@ -72,16 +109,29 @@ public struct DFlash2DraftConfiguration: Sendable {
     public let layerTypes: [String]
     public let slidingWindow: Int?
 
-    public static func load(directory: String) throws -> Self {
+    public static func load(
+        directory: String,
+        targetLayers resolvedTargetLayers: Int? = nil,
+        vocabularySize resolvedVocabularySize: Int? = nil
+    ) throws -> Self {
         let data = try Data(contentsOf: URL(fileURLWithPath: directory + "/config.json"))
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (root["architectures"] as? [String])?.contains("DFlash2DraftModel") == true,
-              (root["is_causal"] as? Bool) == false,
-              let dflash = root["dflash_config"] as? [String: Any]
-        else {
-            throw DFlash2Error.invalidConfiguration(
-                "architectures must contain DFlash2DraftModel and is_causal must be false")
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DFlash2Error.invalidConfiguration("config.json must contain an object")
         }
+        let architectures = root["architectures"] as? [String] ?? []
+        let architecture: DFlashDraftArchitecture
+        if architectures.contains(DFlashDraftArchitecture.dflash2.rawValue) {
+            architecture = .dflash2
+        } else if architectures.contains(DFlashDraftArchitecture.dflash.rawValue) {
+            architecture = .dflash
+        } else {
+            throw DFlash2Error.invalidConfiguration(
+                "unsupported draft architectures: \(architectures)")
+        }
+        if architecture == .dflash2, (root["is_causal"] as? Bool) != false {
+            throw DFlash2Error.invalidConfiguration("DFlash2 requires is_causal=false")
+        }
+        let dflash = root["dflash_config"] as? [String: Any] ?? root
         func integer(_ object: [String: Any], _ key: String) throws -> Int {
             guard let value = (object[key] as? NSNumber)?.intValue else {
                 throw DFlash2Error.invalidConfiguration("missing \(key)")
@@ -96,40 +146,52 @@ public struct DFlash2DraftConfiguration: Sendable {
         }
         let hidden = try integer(root, "hidden_size")
         let layers = try integer(root, "num_hidden_layers")
-        let targetLayers = try integer(root, "num_target_layers")
+        let targetLayers = (root["num_target_layers"] as? NSNumber)?.intValue
+            ?? resolvedTargetLayers
+        let vocabularySize = (root["vocab_size"] as? NSNumber)?.intValue
+            ?? resolvedVocabularySize
+        guard let targetLayers, let vocabularySize else {
+            throw DFlash2Error.invalidConfiguration(
+                "draft config requires target num_hidden_layers and vocab_size")
+        }
         let targetIDs = (dflash["target_layer_ids"] as? [NSNumber])?.map(\.intValue) ?? []
-        let groupSize = try integer(dflash, "conv_group_size")
-        let kernelSize = try integer(dflash, "conv_kernel_size")
+        let groupSize = (dflash["conv_group_size"] as? NSNumber)?.intValue ?? 0
+        let kernelSize = (dflash["conv_kernel_size"] as? NSNumber)?.intValue ?? 0
         let layerTypes = root["layer_types"] as? [String] ?? []
         let slidingWindow = (root["sliding_window"] as? NSNumber)?.intValue
         let rope = root["rope_parameters"] as? [String: Any]
             ?? root["rope_scaling"] as? [String: Any]
             ?? root
-        guard hidden > 0, layers > 0, hidden.isMultiple(of: groupSize), kernelSize == 2,
+        guard hidden > 0, layers > 0,
               targetIDs.count == layers,
               targetIDs == targetIDs.sorted(), Set(targetIDs).count == targetIDs.count,
               targetIDs.allSatisfy({ $0 >= 0 && $0 < targetLayers }),
               layerTypes.count == layers,
               layerTypes.allSatisfy({ $0 == "sliding_attention" || $0 == "full_attention" }),
               !layerTypes.contains("sliding_attention") || (slidingWindow ?? 0) > 0 else {
-            throw DFlash2Error.invalidConfiguration("invalid hidden, convolution, or target-layer layout")
+            throw DFlash2Error.invalidConfiguration("invalid hidden or target-layer layout")
+        }
+        if architecture == .dflash2,
+           !(groupSize > 0 && hidden.isMultiple(of: groupSize) && kernelSize == 2) {
+            throw DFlash2Error.invalidConfiguration("invalid DFlash2 convolution layout")
         }
         return Self(
+            architecture: architecture,
             hiddenSize: hidden,
             intermediateSize: try integer(root, "intermediate_size"),
             hiddenLayers: layers,
             attentionHeads: try integer(root, "num_attention_heads"),
             keyValueHeads: try integer(root, "num_key_value_heads"),
             headDimension: try integer(root, "head_dim"),
-            vocabularySize: try integer(root, "vocab_size"),
+            vocabularySize: vocabularySize,
             targetLayers: targetLayers,
             targetLayerIDs: targetIDs,
             blockSize: try integer(dflash, "block_size"),
             maskTokenID: try integer(dflash, "mask_token_id"),
             convolutionKernelSize: kernelSize,
             convolutionGroupSize: groupSize,
-            selectorRank: try integer(dflash, "selector_rank"),
-            selectorTopK: try integer(dflash, "selector_top_k"),
+            selectorRank: (dflash["selector_rank"] as? NSNumber)?.intValue ?? 0,
+            selectorTopK: (dflash["selector_top_k"] as? NSNumber)?.intValue ?? 0,
             rmsNormEpsilon: try floating(root, "rms_norm_eps"),
             ropeTheta: try floating(rope, "rope_theta"),
             maxPositionEmbeddings: try integer(root, "max_position_embeddings"),
@@ -137,6 +199,12 @@ public struct DFlash2DraftConfiguration: Sendable {
             slidingWindow: slidingWindow
         )
     }
+}
+
+public protocol DFlashDraftingModel: AnyObject {
+    var config: DFlash2DraftConfiguration { get }
+    func callAsFunction(noiseEmbedding: MLXArray, targetHidden: MLXArray) -> MLXArray
+    func select(hidden: MLXArray, logits: MLXArray, anchor: Int) -> [Int]
 }
 
 public enum DFlash2Error: LocalizedError {
@@ -224,6 +292,7 @@ private final class DFlash2Attention: Module {
     let headDimension: Int
     let scale: Float
     let slidingWindow: Int?
+    let isCausal: Bool
     @ModuleInfo(key: "q_proj") var query: Linear
     @ModuleInfo(key: "k_proj") var key: Linear
     @ModuleInfo(key: "v_proj") var value: Linear
@@ -239,6 +308,7 @@ private final class DFlash2Attention: Module {
         scale = pow(Float(config.headDimension), -0.5)
         slidingWindow = config.layerTypes[layerIndex] == "sliding_attention"
             ? config.slidingWindow : nil
+        isCausal = config.architecture == .dflash && slidingWindow != nil
         _query.wrappedValue = Linear(config.hiddenSize, heads * headDimension, bias: false)
         _key.wrappedValue = Linear(config.hiddenSize, keyValueHeads * headDimension, bias: false)
         _value.wrappedValue = Linear(config.hiddenSize, keyValueHeads * headDimension, bias: false)
@@ -286,7 +356,10 @@ private final class DFlash2Attention: Module {
                 Int32(contextStart) ..< Int32(fullContext + block))[.newAxis, 0...]
             let contextMask = (keyIndices .< Int32(fullContext))
                 .&& ((queryIndices - keyIndices) .< Int32(slidingWindow))
-            let blockMask = keyIndices .>= Int32(fullContext)
+            var blockMask = keyIndices .>= Int32(fullContext)
+            if isCausal {
+                blockMask = blockMask .&& (keyIndices .<= queryIndices)
+            }
             mask = .array(contextMask .|| blockMask)
         } else {
             mask = .none
@@ -298,6 +371,28 @@ private final class DFlash2Attention: Module {
             scale: scale,
             mask: mask)
         return output(attended.transposed(0, 2, 1, 3).reshaped(batch, block, -1))
+    }
+}
+
+private final class DFlashDecoderLayer: Module {
+    @ModuleInfo(key: "self_attn") var attention: DFlash2Attention
+    @ModuleInfo var mlp: DFlash2MLP
+    @ModuleInfo(key: "input_layernorm") var inputNorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionNorm: RMSNorm
+
+    init(_ config: DFlash2DraftConfiguration, layerIndex: Int) {
+        _attention.wrappedValue = DFlash2Attention(config, layerIndex: layerIndex)
+        _mlp.wrappedValue = DFlash2MLP(config)
+        _inputNorm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+        _postAttentionNorm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+    }
+
+    func callAsFunction(_ hidden: MLXArray, targetContext: MLXArray) -> MLXArray {
+        var result = hidden + attention(inputNorm(hidden), targetContext: targetContext)
+        result = result + mlp(postAttentionNorm(result))
+        return result
     }
 }
 
@@ -364,7 +459,46 @@ private final class DFlash2CandidateSelector: Module {
     }
 }
 
-public final class DFlash2DraftModel: Module {
+public final class DFlashDraftModel: Module, DFlashDraftingModel {
+    public let config: DFlash2DraftConfiguration
+    @ModuleInfo private var layers: [DFlashDecoderLayer]
+    @ModuleInfo private var norm: RMSNorm
+    @ModuleInfo private var fc: Linear
+    @ModuleInfo(key: "hidden_norm") private var hiddenNorm: RMSNorm
+
+    public init(_ config: DFlash2DraftConfiguration) {
+        precondition(config.architecture == .dflash)
+        self.config = config
+        _layers.wrappedValue = (0 ..< config.hiddenLayers).map {
+            DFlashDecoderLayer(config, layerIndex: $0)
+        }
+        _norm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+        _fc.wrappedValue = Linear(
+            config.targetLayerIDs.count * config.hiddenSize, config.hiddenSize, bias: false)
+        _hiddenNorm.wrappedValue = RMSNorm(
+            dimensions: config.hiddenSize, eps: config.rmsNormEpsilon)
+    }
+
+    public func callAsFunction(
+        noiseEmbedding: MLXArray, targetHidden: MLXArray
+    ) -> MLXArray {
+        let context = hiddenNorm(fc(targetHidden))
+        var hidden = noiseEmbedding
+        for layer in layers {
+            hidden = layer(hidden, targetContext: context)
+        }
+        return norm(hidden)
+    }
+
+    public func select(hidden: MLXArray, logits: MLXArray, anchor: Int) -> [Int] {
+        (0 ..< logits.dim(1)).map { position in
+            argMax(logits[0, position, 0...], axis: -1).item(Int.self)
+        }
+    }
+}
+
+public final class DFlash2DraftModel: Module, DFlashDraftingModel {
     public let config: DFlash2DraftConfiguration
     @ModuleInfo private var layers: [DFlash2DecoderLayer]
     @ModuleInfo private var norm: RMSNorm
@@ -373,6 +507,7 @@ public final class DFlash2DraftModel: Module {
     @ModuleInfo(key: "candidate_selector") private var candidateSelector: DFlash2CandidateSelector
 
     public init(_ config: DFlash2DraftConfiguration) {
+        precondition(config.architecture == .dflash2)
         self.config = config
         _layers.wrappedValue = (0 ..< config.hiddenLayers).map {
             DFlash2DecoderLayer(config, layerIndex: $0)
@@ -399,35 +534,79 @@ public final class DFlash2DraftModel: Module {
         candidateSelector.select(hidden: hidden, logits: logits, anchor: anchor)
     }
 
-    public static func load(directory: String) throws -> DFlash2DraftModel {
-        let config = try DFlash2DraftConfiguration.load(directory: directory)
-        let model = DFlash2DraftModel(config)
+}
+
+public enum DFlashDraftModelFactory {
+    public static func load(
+        directory: String,
+        targetLayers: Int? = nil,
+        vocabularySize: Int? = nil
+    ) throws -> any DFlashDraftingModel {
+        let config = try DFlash2DraftConfiguration.load(
+            directory: directory,
+            targetLayers: targetLayers,
+            vocabularySize: vocabularySize)
+        let weights = try loadWeights(directory: directory, architecture: config.architecture)
+        switch config.architecture {
+        case .dflash:
+            let model = DFlashDraftModel(config)
+            try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+            eval(model)
+            return model
+        case .dflash2:
+            let model = DFlash2DraftModel(config)
+            try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+            eval(model)
+            return model
+        }
+    }
+
+    private static func loadWeights(
+        directory: String,
+        architecture: DFlashDraftArchitecture
+    ) throws -> [String: MLXArray] {
         var weights: [String: MLXArray] = [:]
         for file in try FileManager.default.contentsOfDirectory(atPath: directory)
             where file.hasSuffix(".safetensors") {
             for (key, value) in try MLX.loadArrays(
                 url: URL(fileURLWithPath: directory + "/" + file)) {
                 var mapped = key
-                if mapped == "candidate_selector.predecessor_codebook" {
+                if mapped == "candidate_selector.predecessor_codebook"
+                    || mapped == "candidate_selector.successor_codebook" {
                     mapped += ".weight"
-                } else if mapped == "candidate_selector.successor_codebook" {
-                    mapped += ".weight"
+                } else if architecture == .dflash, mapped == "encoder.fc.weight" {
+                    mapped = "fc.weight"
+                } else if architecture == .dflash,
+                          mapped == "encoder.output_norm_enc.weight" {
+                    mapped = "hidden_norm.weight"
                 }
                 weights[mapped] = value
             }
         }
-        try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
-        eval(model)
+        return weights
+    }
+}
+
+public extension DFlash2DraftModel {
+    static func load(directory: String) throws -> DFlash2DraftModel {
+        let model = try DFlashDraftModelFactory.load(directory: directory)
+        guard let model = model as? DFlash2DraftModel else {
+            throw DFlash2Error.invalidConfiguration("expected DFlash2DraftModel")
+        }
         return model
     }
 }
 
 public final class DFlash2Generator {
     private let target: any DFlash2Target
-    private let draft: DFlash2DraftModel
+    private let draft: any DFlashDraftingModel
     private let blockSize: Int
 
-    public init(target: any DFlash2Target, draft: DFlash2DraftModel, blockSize: Int) throws {
+    public init(
+        target: any DFlash2Target,
+        draft: any DFlashDraftingModel,
+        blockSize: Int
+    ) throws {
         guard target.dflash2HiddenSize == draft.config.hiddenSize,
               target.dflash2LayerCount == draft.config.targetLayers,
               target.dflash2VocabularySize == draft.config.vocabularySize else {
@@ -505,7 +684,7 @@ public final class DFlash2Generator {
             let noiseIDs = [staged] + Array(
                 repeating: draft.config.maskTokenID, count: cycleBlock - 1)
             let draftStart = DispatchTime.now().uptimeNanoseconds
-            let draftHidden = draft(
+            let draftHidden = draft.callAsFunction(
                 noiseEmbedding: target.dflash2Embed(array(noiseIDs)),
                 targetHidden: context)
             let proposalHidden = draftHidden[0..., 1..., 0...]
@@ -515,6 +694,7 @@ public final class DFlash2Generator {
             eval(proposalLogits)
             draftTime += elapsedSeconds(since: draftStart)
             draftedCount += proposal.count
+            if shouldStop() { throw CancellationError() }
 
             let candidate = [staged] + proposal
             let snapshot = target.dflash2CaptureCache(cache)
@@ -524,12 +704,17 @@ public final class DFlash2Generator {
             eval(verified.logits, verified.hidden)
             verifyTime += elapsedSeconds(since: verifyStart)
             cycles += 1
+            if shouldStop() { throw CancellationError() }
 
-            var accepted = 0
-            while accepted < proposal.count,
-                  proposal[accepted] == greedy(verified.logits, position: accepted) {
-                accepted += 1
+            var matched = 0
+            while matched < proposal.count,
+                  proposal[matched] == greedy(verified.logits, position: matched) {
+                matched += 1
             }
+            let terminalIndex = proposal.prefix(matched).firstIndex {
+                stopTokenIDs.contains($0)
+            }
+            let accepted = terminalIndex.map { $0 + 1 } ?? matched
             acceptedCount += accepted
             let committed = Array(candidate.prefix(accepted + 1))
 

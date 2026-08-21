@@ -31,7 +31,6 @@ public enum AFMMLXDFlash2PreflightValidator {
         drafterDirectory: URL,
         requestedBlockSize: Int?
     ) throws -> AFMMLXDFlash2Preflight {
-        let configuration = try AFMMLXDFlash2Configuration(directory: drafterDirectory)
         let targetConfigurationData = try Data(
             contentsOf: targetDirectory.appendingPathComponent("config.json"))
         guard let targetMetadata = try JSONSerialization.jsonObject(
@@ -39,6 +38,9 @@ public enum AFMMLXDFlash2PreflightValidator {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "target config.json must contain an object")
         }
+        let configuration = try AFMMLXDFlash2Configuration(
+            directory: drafterDirectory,
+            targetMetadata: targetMetadata)
 
         try configuration.validateTarget(metadata: targetMetadata)
         try configuration.validateWeights(in: drafterDirectory)
@@ -52,7 +54,9 @@ public enum AFMMLXDFlash2PreflightValidator {
 
 public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
     public static let architecture = "DFlash2DraftModel"
+    public static let museAssistantArchitecture = "MuseGlimmerAssistantModel"
 
+    public let draftArchitecture: String
     public let hiddenSize: Int
     public let intermediateSize: Int
     public let hiddenLayers: Int
@@ -76,17 +80,33 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
     public let eosTokenIDs: Set<Int>
     public let padTokenIDs: Set<Int>
 
-    public init(metadata: [String: Any]) throws {
+    public init(
+        metadata: [String: Any],
+        targetMetadata: [String: Any]? = nil
+    ) throws {
         let architectures = metadata["architectures"] as? [String] ?? []
-        guard architectures.contains(Self.architecture) else {
+        if architectures.contains(Self.architecture) {
+            draftArchitecture = Self.architecture
+        } else if architectures.contains(Self.museAssistantArchitecture) {
+            draftArchitecture = Self.museAssistantArchitecture
+        } else {
             throw AFMMLXDFlash2ConfigurationError.unsupportedArchitecture(architectures)
         }
-        guard (metadata["is_causal"] as? Bool) == false else {
+        guard draftArchitecture != Self.architecture
+                || (metadata["is_causal"] as? Bool) == false else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue("is_causal must be false")
         }
-        guard let dflash = metadata["dflash_config"] as? [String: Any] else {
+        let dflash: [String: Any]
+        if let nested = metadata["dflash_config"] as? [String: Any] {
+            dflash = nested
+        } else if draftArchitecture == Self.museAssistantArchitecture {
+            dflash = metadata
+        } else {
             throw AFMMLXDFlash2ConfigurationError.missingValue("dflash_config")
         }
+        let targetText = targetMetadata?["text_config"] as? [String: Any]
+            ?? targetMetadata
+            ?? [:]
 
         hiddenSize = try Self.positiveInt(metadata, "hidden_size")
         intermediateSize = try Self.positiveInt(metadata, "intermediate_size")
@@ -94,15 +114,19 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         attentionHeads = try Self.positiveInt(metadata, "num_attention_heads")
         keyValueHeads = try Self.positiveInt(metadata, "num_key_value_heads")
         headDimension = try Self.positiveInt(metadata, "head_dim")
-        vocabularySize = try Self.positiveInt(metadata, "vocab_size")
-        targetLayers = try Self.positiveInt(metadata, "num_target_layers")
+        vocabularySize = try Self.positiveInt(
+            metadata["vocab_size"] == nil ? targetText : metadata,
+            "vocab_size")
+        targetLayers = try metadata["num_target_layers"] == nil
+            ? Self.positiveInt(targetText, "num_hidden_layers")
+            : Self.positiveInt(metadata, "num_target_layers")
         targetLayerIDs = try Self.intArray(dflash, "target_layer_ids")
         checkpointBlockSize = try Self.positiveInt(dflash, "block_size")
         maskTokenID = try Self.nonnegativeInt(dflash, "mask_token_id")
-        convolutionKernelSize = try Self.positiveInt(dflash, "conv_kernel_size")
-        convolutionGroupSize = try Self.positiveInt(dflash, "conv_group_size")
-        selectorRank = try Self.positiveInt(dflash, "selector_rank")
-        selectorTopK = try Self.positiveInt(dflash, "selector_top_k")
+        convolutionKernelSize = try Self.optionalPositiveInt(dflash, "conv_kernel_size") ?? 0
+        convolutionGroupSize = try Self.optionalPositiveInt(dflash, "conv_group_size") ?? 0
+        selectorRank = try Self.optionalPositiveInt(dflash, "selector_rank") ?? 0
+        selectorTopK = try Self.optionalPositiveInt(dflash, "selector_top_k") ?? 0
         maxPositionEmbeddings = try Self.positiveInt(metadata, "max_position_embeddings")
         slidingWindow = try Self.optionalPositiveInt(metadata, "sliding_window")
         layerTypes = try Self.stringArray(metadata, "layer_types")
@@ -116,11 +140,12 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         eosTokenIDs = Self.tokenIDs(in: metadata, key: "eos_token_id")
         padTokenIDs = Self.tokenIDs(in: metadata, key: "pad_token_id")
 
-        guard convolutionKernelSize == 2 else {
+        guard draftArchitecture != Self.architecture || convolutionKernelSize == 2 else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "conv_kernel_size must be 2 for the supported DFlash2 runtime")
         }
-        guard hiddenSize.isMultiple(of: convolutionGroupSize) else {
+        guard draftArchitecture != Self.architecture
+                || hiddenSize.isMultiple(of: convolutionGroupSize) else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "hidden_size must be divisible by conv_group_size")
         }
@@ -135,7 +160,7 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "mask_token_id must be inside the draft vocabulary")
         }
-        guard selectorTopK <= vocabularySize else {
+        guard draftArchitecture != Self.architecture || selectorTopK <= vocabularySize else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue(
                 "selector_top_k must not exceed vocab_size")
         }
@@ -153,13 +178,13 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
         }
     }
 
-    public init(directory: URL) throws {
+    public init(directory: URL, targetMetadata: [String: Any]? = nil) throws {
         let url = directory.appendingPathComponent("config.json")
         let data = try Data(contentsOf: url)
         guard let metadata = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AFMMLXDFlash2ConfigurationError.invalidValue("config.json must contain an object")
         }
-        try self.init(metadata: metadata)
+        try self.init(metadata: metadata, targetMetadata: targetMetadata)
     }
 
     public func validateTarget(metadata: [String: Any]) throws {
@@ -287,15 +312,24 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
     }
 
     func expectedTensorShapes() -> [String: [Int]] {
-        var result: [String: [Int]] = [
-            "candidate_selector.hidden_projection.weight": [selectorRank, hiddenSize],
-            "candidate_selector.predecessor_codebook.weight": [vocabularySize, selectorRank],
-            "candidate_selector.successor_codebook.weight": [vocabularySize, selectorRank],
-            "fc.weight": [hiddenSize, hiddenSize * targetLayerIDs.count],
-            "hidden_norm.weight": [hiddenSize],
-            "norm.weight": [hiddenSize],
-        ]
-        let dynamicKernelOutputs = 2 * convolutionKernelSize * (hiddenSize / convolutionGroupSize)
+        var result: [String: [Int]] = ["norm.weight": [hiddenSize]]
+        if draftArchitecture == Self.architecture {
+            result["candidate_selector.hidden_projection.weight"] = [selectorRank, hiddenSize]
+            result["candidate_selector.predecessor_codebook.weight"] = [
+                vocabularySize, selectorRank,
+            ]
+            result["candidate_selector.successor_codebook.weight"] = [
+                vocabularySize, selectorRank,
+            ]
+            result["fc.weight"] = [hiddenSize, hiddenSize * targetLayerIDs.count]
+            result["hidden_norm.weight"] = [hiddenSize]
+        } else {
+            result["encoder.fc.weight"] = [hiddenSize, hiddenSize * targetLayerIDs.count]
+            result["encoder.output_norm_enc.weight"] = [hiddenSize]
+        }
+        let dynamicKernelOutputs = draftArchitecture == Self.architecture
+            ? 2 * convolutionKernelSize * (hiddenSize / convolutionGroupSize)
+            : 0
         for layer in 0 ..< hiddenLayers {
             let prefix = "layers.\(layer)"
             result["\(prefix).input_layernorm.weight"] = [hiddenSize]
@@ -309,9 +343,15 @@ public struct AFMMLXDFlash2Configuration: Equatable, Sendable {
             result["\(prefix).mlp.gate_proj.weight"] = [intermediateSize, hiddenSize]
             result["\(prefix).mlp.up_proj.weight"] = [intermediateSize, hiddenSize]
             result["\(prefix).mlp.down_proj.weight"] = [hiddenSize, intermediateSize]
-            for name in ["attention_conv", "mlp_conv"] {
-                result["\(prefix).\(name).base_kernel"] = [2, convolutionKernelSize, hiddenSize]
-                result["\(prefix).\(name).kernel_projection.weight"] = [dynamicKernelOutputs, hiddenSize]
+            if draftArchitecture == Self.architecture {
+                for name in ["attention_conv", "mlp_conv"] {
+                    result["\(prefix).\(name).base_kernel"] = [
+                        2, convolutionKernelSize, hiddenSize,
+                    ]
+                    result["\(prefix).\(name).kernel_projection.weight"] = [
+                        dynamicKernelOutputs, hiddenSize,
+                    ]
+                }
             }
         }
         return result

@@ -76,6 +76,93 @@ struct SpeculativeRequestCompatibility: Equatable {
     var isEligible: Bool { denialReason == nil }
 }
 
+actor MLXModelExecutionCoordinator {
+    enum Lease: Sendable {
+        case serial
+        case scheduler
+    }
+
+    struct Snapshot: Equatable, Sendable {
+        let activeSerialGenerations: Int
+        let promotionInProgress: Bool
+        let schedulerInstalled: Bool
+    }
+
+    private var activeSerialGenerations = 0
+    private var promotionInProgress = false
+    private var schedulerInstalled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquireGeneration() async -> Lease {
+        while promotionInProgress {
+            await waitForChange()
+        }
+        guard !schedulerInstalled else { return .scheduler }
+        activeSerialGenerations += 1
+        return .serial
+    }
+
+    func releaseSerialGeneration() {
+        precondition(activeSerialGenerations > 0)
+        activeSerialGenerations -= 1
+        signalChange()
+    }
+
+    /// Returns true only to the caller that owns scheduler construction.
+    func beginPromotion() async -> Bool {
+        while promotionInProgress {
+            await waitForChange()
+        }
+        guard !schedulerInstalled else { return false }
+
+        promotionInProgress = true
+        while activeSerialGenerations > 0 {
+            await waitForChange()
+        }
+        return true
+    }
+
+    func finishPromotion(schedulerInstalled: Bool) {
+        self.schedulerInstalled = schedulerInstalled
+        promotionInProgress = false
+        signalChange()
+    }
+
+    func beginSchedulerRemoval() async {
+        while promotionInProgress {
+            await waitForChange()
+        }
+        promotionInProgress = true
+    }
+
+    func finishSchedulerRemoval() {
+        schedulerInstalled = false
+        promotionInProgress = false
+        signalChange()
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            activeSerialGenerations: activeSerialGenerations,
+            promotionInProgress: promotionInProgress,
+            schedulerInstalled: schedulerInstalled)
+    }
+
+    private func waitForChange() async {
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func signalChange() {
+        let pending = waiters
+        waiters.removeAll(keepingCapacity: true)
+        for continuation in pending {
+            continuation.resume()
+        }
+    }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 public struct ResolvedLogprob: Sendable {
     public let token: String
@@ -538,8 +625,9 @@ public final class MLXModelService: @unchecked Sendable {
     /// Number of in-flight batch operations (for auto-teardown).
     private let _activeBatchCount = OSAllocatedUnfairLock(initialState: 0)
 
-    /// Whether a promotion is currently in progress (prevents races).
-    private var promotionInProgress = false
+    /// Prevents the scheduler and serial `container.perform` generations from
+    /// owning the same model at the same time during dynamic promotion.
+    private let modelExecutionCoordinator = MLXModelExecutionCoordinator()
 
     /// Scheduled teardown work item (cancelled if new batch arrives).
     private var teardownWorkItem: DispatchWorkItem?
@@ -1633,12 +1721,16 @@ public final class MLXModelService: @unchecked Sendable {
     static func completeEOSTokenIDs(
         configuredTokenIDs: Set<Int>,
         tokenizerTokenID: Int?,
+        unknownTokenID: Int?,
         extraTokens: [String],
         tokenID: (String) -> Int?
     ) -> Set<Int> {
         var result = configuredTokenIDs
         if let tokenizerTokenID {
             result.insert(tokenizerTokenID)
+        }
+        if let unknownTokenID {
+            result.insert(unknownTokenID)
         }
         for token in extraTokens {
             if let id = tokenID(token) {
@@ -1655,6 +1747,7 @@ public final class MLXModelService: @unchecked Sendable {
         completeEOSTokenIDs(
             configuredTokenIDs: configuration.eosTokenIds,
             tokenizerTokenID: tokenizer.eosTokenId,
+            unknownTokenID: tokenizer.unknownTokenId,
             extraTokens: Array(configuration.extraEOSTokens),
             tokenID: tokenizer.convertTokenToId)
     }
@@ -2216,7 +2309,10 @@ public final class MLXModelService: @unchecked Sendable {
             return
         }
         startedInBatchMode = true
+        let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
+        guard ownsPromotion else { return }
         guard let container = withStateLock({ currentContainer }) else {
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
             throw MLXServiceError.noModelLoaded
         }
         let prefixCaching = self.enablePrefixCaching
@@ -2232,12 +2328,14 @@ public final class MLXModelService: @unchecked Sendable {
                 cacheProfilePath: self.cacheProfilePath
             )
         }
-        self.scheduler = sched
+        withStateLock { self.scheduler = sched }
+        await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         print("[\(ts())] Concurrent mode: up to \(limit) parallel generations\(prefixCaching ? " (prefix caching enabled)" : "")")
     }
 
     /// Auto-promote from serial to batch mode for batch requests.
-    /// Thread-safe: uses stateLock + promotionInProgress to prevent races.
+    /// Waits for active serial generations to leave the model before publishing
+    /// the scheduler, and blocks new serial generations while promotion runs.
     public func ensureBatchMode(concurrency: Int) async throws {
         // Models that require serial generation never get a scheduler. Still increment the
         // batch reference so the caller's matching releaseBatchReference() stays balanced;
@@ -2246,33 +2344,13 @@ public final class MLXModelService: @unchecked Sendable {
             _activeBatchCount.withLock { $0 += 1 }
             return
         }
-        // Fast path: scheduler already exists
-        if withStateLock({ scheduler != nil }) {
+        teardownWorkItem?.cancel()
+        teardownWorkItem = nil
+        let ownsPromotion = await modelExecutionCoordinator.beginPromotion()
+        if !ownsPromotion {
             _activeBatchCount.withLock { $0 += 1 }
-            // Cancel any pending teardown
             teardownWorkItem?.cancel()
             teardownWorkItem = nil
-            return
-        }
-
-        // Check if another caller is already promoting
-        let shouldPromote = withStateLock { () -> Bool in
-            if scheduler != nil { return false }
-            if promotionInProgress { return false }
-            promotionInProgress = true
-            return true
-        }
-
-        if !shouldPromote {
-            // Wait for the other caller to finish promotion
-            while withStateLock({ promotionInProgress && scheduler == nil }) {
-                try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-            }
-            // Verify scheduler was actually installed — promotion may have failed
-            guard withStateLock({ scheduler != nil }) else {
-                throw MLXServiceError.noModelLoaded
-            }
-            _activeBatchCount.withLock { $0 += 1 }
             return
         }
 
@@ -2281,7 +2359,7 @@ public final class MLXModelService: @unchecked Sendable {
         self.maxConcurrent = limit
 
         guard let container = withStateLock({ currentContainer }) else {
-            withStateLock { promotionInProgress = false }
+            await modelExecutionCoordinator.finishPromotion(schedulerInstalled: false)
             throw MLXServiceError.noModelLoaded
         }
 
@@ -2299,8 +2377,8 @@ public final class MLXModelService: @unchecked Sendable {
 
         withStateLock {
             self.scheduler = sched
-            self.promotionInProgress = false
         }
+        await modelExecutionCoordinator.finishPromotion(schedulerInstalled: true)
         _activeBatchCount.withLock { $0 += 1 }
         print("[\(ts())] Auto-promoted to batch mode: \(limit) concurrent slots (prefix caching enabled)")
     }
@@ -2337,10 +2415,12 @@ public final class MLXModelService: @unchecked Sendable {
             guard sched.activeSlotCount == 0 else { return }
         }
 
+        await modelExecutionCoordinator.beginSchedulerRemoval()
         withStateLock {
             self.scheduler = nil
             self.maxConcurrent = 0
         }
+        await modelExecutionCoordinator.finishSchedulerRemoval()
         print("[\(ts())] Auto-teardown: returned to serial mode")
     }
 
@@ -2397,6 +2477,14 @@ public final class MLXModelService: @unchecked Sendable {
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
         let dflash2State = runtime.dflash2State
+        let executionLease = await modelExecutionCoordinator.acquireGeneration()
+        guard case .serial = executionLease else {
+            throw MLXServiceError.loadFailed(
+                "Direct generation is unavailable while the batch scheduler owns the model")
+        }
+        defer {
+            Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+        }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -3456,6 +3544,20 @@ public final class MLXModelService: @unchecked Sendable {
         let container = runtime.container
         let mtpBinding = runtime.mtpBinding
         let dflash2State = runtime.dflash2State
+        let executionLease = await modelExecutionCoordinator.acquireGeneration()
+        let hasSerialExecutionLease: Bool
+        switch executionLease {
+        case .serial:
+            hasSerialExecutionLease = true
+        case .scheduler:
+            hasSerialExecutionLease = false
+        }
+        var releaseSerialExecutionOnExit = hasSerialExecutionLease
+        defer {
+            if releaseSerialExecutionOnExit {
+                Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+            }
+        }
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -3525,7 +3627,10 @@ public final class MLXModelService: @unchecked Sendable {
             hasStopSequences: !(stop?.isEmpty ?? true))
 
         // --- Concurrent path: bypass container.perform lock, route through BatchScheduler ---
-        if let scheduler = self.scheduler {
+        if case .scheduler = executionLease {
+            guard let scheduler = withStateLock({ self.scheduler }) else {
+                throw MLXServiceError.noModelLoaded
+            }
             if requestRequiresDFlash2 {
                 throw MLXServiceError.loadFailed(
                     "DFlash2 is required but concurrent and batch execution use autoregressive decoding")
@@ -3741,7 +3846,10 @@ public final class MLXModelService: @unchecked Sendable {
                 let thinkStartTag = self.thinkStartTag
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
-                        defer { self.cleanupTempFiles(mediaTempFiles) }
+                        defer {
+                            self.cleanupTempFiles(mediaTempFiles)
+                            Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+                        }
                         StatsAggregator.shared.requestStarted()
                         if openedThink, let thinkStartTag {
                             continuation.yield(StreamChunk(text: thinkStartTag))
@@ -3868,6 +3976,7 @@ public final class MLXModelService: @unchecked Sendable {
                 }
                 streamOwnsTempFiles = true
                 endOperationOnExit = false
+                releaseSerialExecutionOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
             }
             if requestRequiresDFlash2 {
@@ -3895,7 +4004,10 @@ public final class MLXModelService: @unchecked Sendable {
             let streamScratch = StreamingScratch()
             streamScratch.userInput = userInput
             let task = Task {
-                defer { self.endOperation() }
+                defer {
+                    self.endOperation()
+                    Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+                }
                 do {
                     try await container.perform { context in
                         // Local generation params (the outer `params` is a captured
@@ -4420,14 +4532,17 @@ public final class MLXModelService: @unchecked Sendable {
 
         streamOwnsTempFiles = true
         endOperationOnExit = false
+        releaseSerialExecutionOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
 
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
         // Shut down concurrent scheduler first (cancels pending + active)
         if let scheduler = self.scheduler {
+            await modelExecutionCoordinator.beginSchedulerRemoval()
             await scheduler.shutdown()
-            self.scheduler = nil
+            withStateLock { self.scheduler = nil }
+            await modelExecutionCoordinator.finishSchedulerRemoval()
         }
 
         let start = Date()
