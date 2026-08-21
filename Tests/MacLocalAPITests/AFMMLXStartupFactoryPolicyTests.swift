@@ -2,6 +2,29 @@ import XCTest
 @testable import AFMKitMLX
 
 final class AFMMLXStartupFactoryPolicyTests: XCTestCase {
+    func testAutomaticQualifiedQwenVisionSelectionSupportsMTPRuntime() throws {
+        let architecture = try qwenArchitecture()
+        let qualification = qualification(
+            architecture: architecture,
+            missingAssets: []
+        )
+        let factory = AFMMLXModelFactoryPolicy.initialFactory(
+            forceVLM: false,
+            architecture: architecture,
+            visionQualification: qualification
+        )
+
+        XCTAssertEqual(factory, .vlm)
+        XCTAssertEqual(
+            AFMMLXMTPRuntimePolicy.compatibleModelKind(
+                mtpEnabled: true,
+                factory: factory,
+                canonicalModelType: architecture.canonicalModelType
+            ),
+            .qwenVision
+        )
+    }
+
     func testCompleteQwenConditionalGenerationSelectsVLM() throws {
         let architecture = try qwenArchitecture()
         let qualification = qualification(

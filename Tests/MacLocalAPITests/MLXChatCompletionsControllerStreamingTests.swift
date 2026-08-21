@@ -868,6 +868,69 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(service.generateCallCount, 0)
     }
 
+    func testUnsupportedMediaUsesStableOpenAIErrorForBothModes() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .unsupportedMediaInput(
+                model: "test-model",
+                kind: "image"
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        for stream in [false, true] {
+            let body = imageRequestBody(stream: stream)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { res async in
+                XCTAssertEqual(res.status, .badRequest)
+                XCTAssertEqual(res.headers.contentType, .json)
+                XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+                XCTAssertContains(res.body.string, #""code":"unsupported_media_input""#)
+            }
+        }
+        XCTAssertEqual(service.reserveSlotCallCount, 0)
+        XCTAssertEqual(service.generateCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
+    func testInvalidMediaReferenceUsesStableOpenAIErrorBeforeStreaming() async throws {
+        let service = FakeMLXChatService(
+            preflightFailure: .invalidMediaInput("image_url scheme 'file' is not allowed"),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = imageRequestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .badRequest)
+            XCTAssertEqual(res.headers.contentType, .json)
+            XCTAssertContains(res.body.string, #""type":"invalid_request_error""#)
+            XCTAssertContains(res.body.string, #""code":"invalid_media_input""#)
+            XCTAssertFalse(res.body.string.contains("data:"))
+        }
+        XCTAssertEqual(service.reserveSlotCallCount, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 0)
+    }
+
     func testOpenAIMultipartImageIsForwardedInStreamingAndNonStreamingModes() async throws {
         let service = FakeMLXChatService(
             generateResult: (

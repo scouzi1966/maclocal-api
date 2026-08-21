@@ -70,6 +70,11 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             return
         }
 
+        do {
+            try AFMMLXMediaSecurityPolicy.validateReferences(in: messages)
+        } catch {
+            throw MLXServiceError.invalidMediaInput(error.localizedDescription)
+        }
         guard let descriptor = fixedModel?.descriptor else { return }
         for message in messages {
             guard let content = message.content, case .parts(let parts) = content else {
@@ -90,7 +95,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
                 if !supported {
                     throw MLXServiceError.unsupportedMediaInput(
                         model: fixedModelID ?? model,
-                        kind: Self.mediaLabel(kind)
+                        kind: kind.label
                     )
                 }
             }
@@ -113,14 +118,6 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
         service?.resolvedToolCallParser(logBypass: logBypass)
-    }
-
-    private static func mediaLabel(_ kind: AFMMLXRequestMediaKind) -> String {
-        switch kind {
-        case .image: "image"
-        case .video: "video"
-        case .audio: "audio"
-        }
     }
 
     func tryReserveSlot() -> Bool {

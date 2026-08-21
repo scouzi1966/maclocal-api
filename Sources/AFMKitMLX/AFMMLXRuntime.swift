@@ -209,9 +209,9 @@ public struct AFMMLXRuntimeConfiguration: Sendable {
 
 public final class AFMMLXRuntime: @unchecked Sendable {
     public let modelID: String
-    public let descriptor: AFMModelDescriptor
     public let service: MLXModelService
 
+    private let declaredDescriptor: AFMModelDescriptor
     private let configuration: AFMMLXRuntimeConfiguration
     let initializesSchedulerOnLoad: Bool
 
@@ -228,7 +228,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         self.initializesSchedulerOnLoad = true
         self.service = service
         self.modelID = service.normalizeModel(modelID)
-        self.descriptor = AFMMLXModelDescriptor.describe(
+        self.declaredDescriptor = AFMMLXModelDescriptor.describe(
             modelID: self.modelID,
             resolver: resolver
         )
@@ -255,7 +255,7 @@ public final class AFMMLXRuntime: @unchecked Sendable {
         self.initializesSchedulerOnLoad = false
         self.service = service
         self.modelID = service.normalizeModel(modelID)
-        self.descriptor = AFMMLXModelDescriptor.describe(
+        self.declaredDescriptor = AFMMLXModelDescriptor.describe(
             modelID: self.modelID,
             resolver: resolver
         )
@@ -275,6 +275,10 @@ public final class AFMMLXRuntime: @unchecked Sendable {
             resolver: resolver,
             service: providedService
         )
+    }
+
+    public var descriptor: AFMModelDescriptor {
+        service.loadedModelDescriptor(model: modelID) ?? declaredDescriptor
     }
 
     public func load(

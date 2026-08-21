@@ -60,6 +60,14 @@ public enum AFMMLXRequestMediaKind: Hashable, Sendable {
     case image
     case video
     case audio
+
+    public var label: String {
+        switch self {
+        case .image: "image"
+        case .video: "video"
+        case .audio: "audio"
+        }
+    }
 }
 
 public enum AFMMLXRequestMediaPolicy {

@@ -19,7 +19,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertTrue(qualification.isConditionalGeneration)
         XCTAssertTrue(qualification.declaresVision)
         XCTAssertEqual(qualification.processorClass, "Qwen3VLProcessor")
-        XCTAssertEqual(qualification.visionTensorCount, 2)
+        XCTAssertEqual(qualification.visionTensorCount, 33)
         XCTAssertTrue(qualification.missingAssets.isEmpty)
         XCTAssertTrue(qualification.isUsableQwenConditionalGeneration)
     }
@@ -49,7 +49,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
 
         for (label, mutate) in mutations {
             let directory = try makeModelDirectory()
-            var config = Qwen38PublishedConfigFixture.mxfp8
+            var config = Self.fixtureConfiguration()
             try mutate(&config, directory)
             try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
 
@@ -75,6 +75,77 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
     }
 
+    func testIndexedCheckpointFailsWhenIndexReferencesMissingTensor() throws {
+        let directory = try makeModelDirectory()
+        var names = Self.requiredVisionTensorNames(depth: 2)
+        names.remove("vision_tower.blocks.1.attn.qkv.weight")
+        let weightMap = Dictionary(uniqueKeysWithValues: names.map {
+            ($0, "model-00001-of-00001.safetensors")
+        })
+        try Self.writeJSON(
+            ["weight_map": weightMap],
+            to: directory.appendingPathComponent("model.safetensors.index.json")
+        )
+        try Self.writeSafetensorHeader(
+            tensorNames: names,
+            to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        )
+
+        let qualification = try qualify(directory)
+
+        XCTAssertEqual(qualification.visionTensorCount, 0)
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+    }
+
+    func testIndexedCheckpointFailsWhenShardDoesNotContainMappedTensor() throws {
+        let directory = try makeModelDirectory()
+        let names = Self.requiredVisionTensorNames(depth: 2)
+        let omitted = try XCTUnwrap(names.first)
+        var shardNames = names
+        shardNames.remove(omitted)
+        var weightMap = Dictionary(uniqueKeysWithValues: names.map {
+            ($0, "model-00001-of-00001.safetensors")
+        })
+        weightMap["language_model.layers.0.weight"] = "model-00001-of-00001.safetensors"
+        try Self.writeJSON(
+            ["weight_map": weightMap],
+            to: directory.appendingPathComponent("model.safetensors.index.json")
+        )
+        try Self.writeSafetensorHeader(
+            tensorNames: shardNames.union(["language_model.layers.0.weight"]),
+            to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        )
+
+        XCTAssertTrue(try qualify(directory).missingAssets.contains(.visionWeights))
+    }
+
+    func testIndexedCheckpointFailsWhenShardPayloadIsTruncated() throws {
+        let directory = try makeModelDirectory()
+        let shard = directory.appendingPathComponent("model-00001-of-00001.safetensors")
+        var data = try Data(contentsOf: shard)
+        data.removeLast()
+        try data.write(to: shard)
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionWeights))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testMalformedQwenVisionConfigurationFailsQualification() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision.removeValue(forKey: "hidden_size")
+        config["vision_config"] = vision
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionConfiguration))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
     func testMalformedQwenProcessorMetadataIsNotUsable() throws {
         let directory = try makeModelDirectory()
         try Self.writeJSON(
@@ -92,16 +163,14 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
     func testStandaloneSafetensorHeaderQualifiesVisionWeights() throws {
         let directory = try makeModelDirectory(indexed: false)
         try Self.writeSafetensorHeader(
-            tensorNames: [
-                "vision_tower.patch_embed.proj.weight",
-                "language_model.embed_tokens.weight",
-            ],
+            tensorNames: Self.requiredVisionTensorNames(depth: 2)
+                .union(["language_model.embed_tokens.weight"]),
             to: directory.appendingPathComponent("weights.safetensors")
         )
 
         let qualification = try qualify(directory)
 
-        XCTAssertEqual(qualification.visionTensorCount, 1)
+        XCTAssertEqual(qualification.visionTensorCount, 33)
         XCTAssertTrue(qualification.isAssetUsable)
     }
 
@@ -154,7 +223,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         )
         directories.append(directory)
         try Self.writeJSON(
-            Qwen38PublishedConfigFixture.mxfp8,
+            Self.fixtureConfiguration(),
             to: directory.appendingPathComponent("config.json")
         )
         try Self.writeJSON(
@@ -170,17 +239,17 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             to: directory.appendingPathComponent("preprocessor_config.json")
         )
         if indexed {
-            try Self.writeJSON([
-                "weight_map": [
-                    "vision_tower.blocks.0.attn.qkv.weight":
-                        "model-00001-of-00001.safetensors",
-                    "model.visual.patch_embed.proj.weight":
-                        "model-00001-of-00001.safetensors",
-                    "language_model.layers.0.weight":
-                        "model-00001-of-00001.safetensors",
-                ]
-            ], to: directory.appendingPathComponent("model.safetensors.index.json"))
-            try Data().write(
+            let tensorNames = Self.requiredVisionTensorNames(depth: 2)
+                .union(["language_model.layers.0.weight"])
+            let weightMap = Dictionary(uniqueKeysWithValues: tensorNames.map {
+                ($0, "model-00001-of-00001.safetensors")
+            })
+            try Self.writeJSON(
+                ["weight_map": weightMap],
+                to: directory.appendingPathComponent("model.safetensors.index.json")
+            )
+            try Self.writeSafetensorHeader(
+                tensorNames: tensorNames,
                 to: directory.appendingPathComponent("model-00001-of-00001.safetensors")
             )
         }
@@ -193,16 +262,61 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
     }
 
     private static func writeSafetensorHeader(
-        tensorNames: [String],
+        tensorNames: Set<String>,
         to url: URL
     ) throws {
-        let entries = Dictionary(uniqueKeysWithValues: tensorNames.map {
-            ($0, ["dtype": "F16", "shape": [1], "data_offsets": [0, 0]] as [String: Any])
+        var offset = 0
+        let entries = Dictionary(uniqueKeysWithValues: tensorNames.sorted().map { name in
+            defer { offset += 2 }
+            return (
+                name,
+                [
+                    "dtype": "F16",
+                    "shape": [1],
+                    "data_offsets": [offset, offset + 2],
+                ] as [String: Any]
+            )
         })
         let header = try JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys])
         var length = UInt64(header.count).littleEndian
         var data = withUnsafeBytes(of: &length) { Data($0) }
         data.append(header)
+        data.append(Data(repeating: 0, count: offset))
         try data.write(to: url)
+    }
+
+    private static func fixtureConfiguration() -> [String: Any] {
+        var config = Qwen38PublishedConfigFixture.mxfp8
+        var vision = config["vision_config"] as! [String: Any]
+        vision["depth"] = 2
+        vision["deepstack_visual_indexes"] = []
+        config["vision_config"] = vision
+        return config
+    }
+
+    private static func requiredVisionTensorNames(depth: Int) -> Set<String> {
+        var names: Set<String> = [
+            "vision_tower.patch_embed.proj.weight",
+            "vision_tower.patch_embed.proj.bias",
+            "vision_tower.pos_embed.weight",
+        ]
+        let blockSuffixes = [
+            "attn.proj.bias", "attn.proj.weight", "attn.qkv.bias", "attn.qkv.weight",
+            "mlp.linear_fc1.bias", "mlp.linear_fc1.weight",
+            "mlp.linear_fc2.bias", "mlp.linear_fc2.weight",
+            "norm1.bias", "norm1.weight", "norm2.bias", "norm2.weight",
+        ]
+        for block in 0..<depth {
+            for suffix in blockSuffixes {
+                names.insert("vision_tower.blocks.\(block).\(suffix)")
+            }
+        }
+        for suffix in [
+            "linear_fc1.bias", "linear_fc1.weight",
+            "linear_fc2.bias", "linear_fc2.weight", "norm.bias", "norm.weight",
+        ] {
+            names.insert("vision_tower.merger.\(suffix)")
+        }
+        return names
     }
 }

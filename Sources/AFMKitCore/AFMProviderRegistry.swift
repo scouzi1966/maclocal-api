@@ -35,7 +35,7 @@ public extension AFMModel {
 }
 
 public struct AnyAFMModel: AFMModel, Sendable {
-    private let descriptorValue: AFMModelDescriptor
+    private let descriptorOperation: @Sendable () -> AFMModelDescriptor
     private let availabilityOperation: @Sendable () async -> AFMModelAvailability
     private let loadOperation:
         @Sendable ((@Sendable (Double) -> Void)?) async throws -> AFMModelDescriptor
@@ -45,7 +45,7 @@ public struct AnyAFMModel: AFMModel, Sendable {
     private let unloadOperation: @Sendable () async -> Void
 
     public init<Model: AFMModel>(_ model: Model) {
-        descriptorValue = model.descriptor
+        descriptorOperation = { model.descriptor }
         availabilityOperation = { await model.availability() }
         loadOperation = { progress in try await model.load(progress: progress) }
         respondOperation = { request in try await model.respond(to: request) }
@@ -53,7 +53,7 @@ public struct AnyAFMModel: AFMModel, Sendable {
         unloadOperation = { await model.unload() }
     }
 
-    public var descriptor: AFMModelDescriptor { descriptorValue }
+    public var descriptor: AFMModelDescriptor { descriptorOperation() }
 
     public func availability() async -> AFMModelAvailability {
         await availabilityOperation()

@@ -2,6 +2,10 @@ import Foundation
 import MLXVLM
 
 public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
+    private struct SafetensorEvidence {
+        let tensorNames: Set<String>
+    }
+
     private struct SnapshotFingerprint: Hashable {
         struct FileEvidence: Hashable {
             let name: String
@@ -53,11 +57,21 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         architecture: AFMMLXModelArchitecturePreflight,
         snapshotIdentity: String
     ) -> AFMMLXVisionAssetQualification {
-        let config = jsonObject(
-            at: modelDirectory.appendingPathComponent("config.json")
-        ) ?? [:]
+        let configURL = modelDirectory.appendingPathComponent("config.json")
+        let configData = try? Data(contentsOf: configURL)
+        let config = jsonObject(at: configURL) ?? [:]
         let isConditionalGeneration = conditionalGenerationArchitecture(in: config)
-        let hasVisionConfiguration = config["vision_config"] is [String: Any]
+        let isQwenConditional = isQwenConditionalModelType(
+            architecture.canonicalModelType
+        ) && isConditionalGeneration
+        let hasVisionConfiguration: Bool
+        if isQwenConditional {
+            hasVisionConfiguration = configData.flatMap {
+                try? JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: $0)
+            } != nil
+        } else {
+            hasVisionConfiguration = config["vision_config"] is [String: Any]
+        }
         let hasImageTokenIdentifiers = integer(config["image_token_id"]) != nil
             && integer(config["vision_start_token_id"]) != nil
             && integer(config["vision_end_token_id"]) != nil
@@ -65,7 +79,12 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             modelDirectory: modelDirectory,
             canonicalModelType: architecture.canonicalModelType
         )
-        let visionTensorCount = visionTensorNames(in: modelDirectory).count
+        let visionTensorNames = visionTensorNames(
+            in: modelDirectory,
+            config: config,
+            requiresCompleteQwenTower: isQwenConditional
+        )
+        let visionTensorCount = visionTensorNames.count
 
         var missing = Set<AFMMLXVisionAssetIssue>()
         if !isConditionalGeneration {
@@ -112,6 +131,10 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         }
     }
 
+    private static func isQwenConditionalModelType(_ canonicalModelType: String) -> Bool {
+        canonicalModelType == "qwen3_5" || canonicalModelType == "qwen3_5_moe"
+    }
+
     private static func selectedProcessorClass(
         modelDirectory: URL,
         canonicalModelType: String
@@ -141,38 +164,58 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         return baseConfig.processorClass
     }
 
-    private static func visionTensorNames(in modelDirectory: URL) -> Set<String> {
+    private static func visionTensorNames(
+        in modelDirectory: URL,
+        config: [String: Any],
+        requiresCompleteQwenTower: Bool
+    ) -> Set<String> {
         let indexURL = modelDirectory.appendingPathComponent(
             "model.safetensors.index.json"
         )
+        let names: Set<String>
         if FileManager.default.fileExists(atPath: indexURL.path) {
             guard let index = jsonObject(at: indexURL),
-                  let weightMap = index["weight_map"] as? [String: Any]
+                  let rawWeightMap = index["weight_map"] as? [String: Any]
             else { return [] }
-
-            let shardNames = Set(weightMap.values.compactMap { $0 as? String })
-            guard !shardNames.isEmpty,
-                  shardNames.allSatisfy({ shardName in
-                      FileManager.default.fileExists(
-                          atPath: modelDirectory.appendingPathComponent(shardName).path
-                      )
-                  })
-            else { return [] }
-            return Set(weightMap.keys.filter(isVisionTensorName))
+            let weightMap = rawWeightMap.compactMapValues { $0 as? String }
+            guard weightMap.count == rawWeightMap.count, !weightMap.isEmpty else {
+                return []
+            }
+            var shardEvidence: [String: SafetensorEvidence] = [:]
+            for shardName in Set(weightMap.values) {
+                let shardURL = modelDirectory.appendingPathComponent(shardName)
+                guard shardURL.standardizedFileURL.deletingLastPathComponent()
+                        == modelDirectory.standardizedFileURL,
+                      let evidence = safetensorEvidence(in: shardURL)
+                else { return [] }
+                shardEvidence[shardName] = evidence
+            }
+            guard weightMap.allSatisfy({ tensorName, shardName in
+                shardEvidence[shardName]?.tensorNames.contains(tensorName) == true
+            }) else { return [] }
+            names = Set(weightMap.keys.filter(isVisionTensorName))
+        } else {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: modelDirectory,
+                includingPropertiesForKeys: nil
+            ) else { return [] }
+            let weightFiles = files.filter {
+                $0.pathExtension == "safetensors"
+                    && $0.lastPathComponent != "mtp.safetensors"
+            }
+            guard !weightFiles.isEmpty else { return [] }
+            var discovered = Set<String>()
+            for file in weightFiles {
+                guard let evidence = safetensorEvidence(in: file) else { return [] }
+                discovered.formUnion(evidence.tensorNames.filter(isVisionTensorName))
+            }
+            names = discovered
         }
 
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: modelDirectory,
-            includingPropertiesForKeys: nil
-        ) else { return [] }
-        let weightFiles = files.filter {
-            $0.pathExtension == "safetensors"
-                && $0.lastPathComponent != "mtp.safetensors"
-        }
-        var names = Set<String>()
-        for file in weightFiles {
-            guard let tensorNames = safetensorNames(in: file) else { return [] }
-            names.formUnion(tensorNames.filter(isVisionTensorName))
+        if requiresCompleteQwenTower {
+            guard let required = requiredQwenVisionTensorNames(config: config),
+                  required.isSubset(of: Set(names.map(normalizedVisionTensorName)))
+            else { return [] }
         }
         return names
     }
@@ -181,7 +224,57 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         name.hasPrefix("vision_tower.") || name.hasPrefix("model.visual")
     }
 
-    private static func safetensorNames(in url: URL) -> Set<String>? {
+    private static func normalizedVisionTensorName(_ name: String) -> String {
+        if name.hasPrefix("model.visual.") {
+            return "vision_tower." + name.dropFirst("model.visual.".count)
+        }
+        return name
+    }
+
+    private static func requiredQwenVisionTensorNames(
+        config: [String: Any]
+    ) -> Set<String>? {
+        guard let vision = config["vision_config"] as? [String: Any],
+              let depth = integer(vision["depth"]), depth > 0
+        else { return nil }
+        let deepstackIndexes = (vision["deepstack_visual_indexes"] as? [Any])?
+            .compactMap(integer) ?? []
+        guard deepstackIndexes.allSatisfy({ $0 >= 0 && $0 < depth }) else {
+            return nil
+        }
+
+        var required: Set<String> = [
+            "vision_tower.patch_embed.proj.weight",
+            "vision_tower.patch_embed.proj.bias",
+            "vision_tower.pos_embed.weight",
+        ]
+        let blockSuffixes = [
+            "attn.proj.bias", "attn.proj.weight", "attn.qkv.bias", "attn.qkv.weight",
+            "mlp.linear_fc1.bias", "mlp.linear_fc1.weight",
+            "mlp.linear_fc2.bias", "mlp.linear_fc2.weight",
+            "norm1.bias", "norm1.weight", "norm2.bias", "norm2.weight",
+        ]
+        for block in 0..<depth {
+            for suffix in blockSuffixes {
+                required.insert("vision_tower.blocks.\(block).\(suffix)")
+            }
+        }
+        let mergerSuffixes = [
+            "linear_fc1.bias", "linear_fc1.weight",
+            "linear_fc2.bias", "linear_fc2.weight", "norm.bias", "norm.weight",
+        ]
+        for suffix in mergerSuffixes {
+            required.insert("vision_tower.merger.\(suffix)")
+        }
+        for index in deepstackIndexes.indices {
+            for suffix in mergerSuffixes {
+                required.insert("vision_tower.deepstack_merger_list.\(index).\(suffix)")
+            }
+        }
+        return required
+    }
+
+    private static func safetensorEvidence(in url: URL) -> SafetensorEvidence? {
         let maximumHeaderBytes = 64 * 1_024 * 1_024
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
@@ -195,10 +288,32 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         guard headerSize <= UInt64(maximumHeaderBytes),
               let header = try? handle.read(upToCount: Int(headerSize)),
               header.count == Int(headerSize),
-              let object = try? JSONSerialization.jsonObject(with: header)
-                as? [String: Any]
+              let object = try? JSONSerialization.jsonObject(with: header) as? [String: Any],
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = (attributes[.size] as? NSNumber)?.uint64Value
         else { return nil }
-        return Set(object.keys.filter { $0 != "__metadata__" })
+        let payloadStart = UInt64(8) + headerSize
+        guard payloadStart <= fileSize else { return nil }
+
+        var tensorNames = Set<String>()
+        var maximumEnd = UInt64(0)
+        for (name, rawMetadata) in object where name != "__metadata__" {
+            guard let metadata = rawMetadata as? [String: Any],
+                  metadata["dtype"] is String,
+                  metadata["shape"] is [Any],
+                  let offsets = metadata["data_offsets"] as? [Any],
+                  offsets.count == 2,
+                  let start = unsignedInteger(offsets[0]),
+                  let end = unsignedInteger(offsets[1]),
+                  start <= end
+            else { return nil }
+            maximumEnd = max(maximumEnd, end)
+            tensorNames.insert(name)
+        }
+        guard !tensorNames.isEmpty,
+              maximumEnd <= fileSize - payloadStart
+        else { return nil }
+        return SafetensorEvidence(tensorNames: tensorNames)
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {
@@ -209,6 +324,13 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
     private static func integer(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         return (value as? NSNumber)?.intValue
+    }
+
+    private static func unsignedInteger(_ value: Any?) -> UInt64? {
+        guard let number = value as? NSNumber, number.int64Value >= 0 else {
+            return nil
+        }
+        return number.uint64Value
     }
 
     private func snapshotFingerprint(for modelDirectory: URL) -> SnapshotFingerprint {

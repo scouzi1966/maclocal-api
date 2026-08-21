@@ -983,7 +983,8 @@ public final class Qwen3_5MTPHead: Module {
         sidecarPath: String,
         config: Qwen3_5MoEVLTextConfiguration,
         groupSize: Int = 32,
-        bits: Int = 4
+        bits: Int = 4,
+        mode: QuantizationMode = .affine
     ) throws -> Qwen3_5MTPHead {
         let head = Qwen3_5MTPHead(config)
 
@@ -1002,7 +1003,9 @@ public final class Qwen3_5MTPHead: Module {
         // Quantize exactly the linears that have a matching `.scales` tensor (the projections);
         // `fc` and the norms stay full-precision (no scales in the sidecar).
         quantize(model: head, filter: { path, _ in
-            weights["\(path).scales"] != nil ? (groupSize: groupSize, bits: bits) : nil
+            weights["\(path).scales"] != nil
+                ? (groupSize: groupSize, bits: bits, mode: mode)
+                : nil
         })
 
         try head.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
@@ -1655,8 +1658,19 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
     public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
 
     /// Build an MTP head matching this model's config from a `mtp.safetensors` sidecar.
-    public func loadMTPHead(sidecarPath: String) throws -> Qwen3_5MTPHead {
-        try Qwen3_5MTPHead.load(sidecarPath: sidecarPath, config: config.textConfig)
+    public func loadMTPHead(
+        sidecarPath: String,
+        groupSize: Int = 32,
+        bits: Int = 4,
+        mode: QuantizationMode = .affine
+    ) throws -> Qwen3_5MTPHead {
+        try Qwen3_5MTPHead.load(
+            sidecarPath: sidecarPath,
+            config: config.textConfig,
+            groupSize: groupSize,
+            bits: bits,
+            mode: mode
+        )
     }
 
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {

@@ -503,14 +503,25 @@ struct MLXChatCompletionsController: RouteCollection {
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
         } catch let serviceError as MLXServiceError {
-            if case .visionAssetsUnavailable = serviceError {
-                req.logger.error("[\(Self.timestamp())] MLX vision preflight error: \(serviceError.localizedDescription)")
+            let clientErrorCode: String?
+            switch serviceError {
+            case .visionAssetsUnavailable:
+                clientErrorCode = "vision_assets_unavailable"
+            case .unsupportedMediaInput:
+                clientErrorCode = "unsupported_media_input"
+            case .invalidMediaInput:
+                clientErrorCode = "invalid_media_input"
+            default:
+                clientErrorCode = nil
+            }
+            if let clientErrorCode {
+                req.logger.error("[\(Self.timestamp())] MLX request error: \(serviceError.localizedDescription)")
                 return try await createErrorResponse(
                     req: req,
                     error: OpenAIError(
                         message: serviceError.localizedDescription,
                         type: "invalid_request_error",
-                        code: "vision_assets_unavailable",
+                        code: clientErrorCode,
                         requestId: reqId.isEmpty ? nil : reqId
                     ),
                     status: .badRequest
