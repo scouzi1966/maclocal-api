@@ -11,6 +11,7 @@ public struct AFMServerTelemetryAdapter:
     private let snapshotSource: any AFMInferenceMetricsSnapshotSource
     private let ingressRecorder: any AFMIngressTelemetryRecording
     private let configureHandler: @Sendable (String, Int, Int) -> Void
+    let providerTelemetryObserver: (any AFMInferenceTelemetryObserving)?
 
     public init(
         snapshotSource: any AFMInferenceMetricsSnapshotSource,
@@ -19,11 +20,24 @@ public struct AFMServerTelemetryAdapter:
         self.snapshotSource = snapshotSource
         self.ingressRecorder = ingressRecorder
         self.configureHandler = { _, _, _ in }
+        self.providerTelemetryObserver = nil
+    }
+
+    public init(
+        snapshotSource: any AFMInferenceMetricsSnapshotSource,
+        ingressRecorder: any AFMIngressTelemetryRecording,
+        providerTelemetryObserver: any AFMInferenceTelemetryObserving
+    ) {
+        self.snapshotSource = snapshotSource
+        self.ingressRecorder = ingressRecorder
+        self.configureHandler = { _, _, _ in }
+        self.providerTelemetryObserver = providerTelemetryObserver
     }
 
     public init(collector: InferenceTelemetryCollector) {
         self.snapshotSource = collector
         self.ingressRecorder = collector
+        self.providerTelemetryObserver = collector
         self.configureHandler = {
             modelName,
             maximumConcurrentRequests,

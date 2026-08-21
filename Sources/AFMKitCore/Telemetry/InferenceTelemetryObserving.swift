@@ -151,3 +151,89 @@ public struct AFMNoopInferenceTelemetryObserver: AFMInferenceTelemetryObserving 
         at timestamp: Double
     ) -> Bool { true }
 }
+
+/// A default-provider telemetry endpoint that can be attached by a host after
+/// provider construction without changing explicitly injected observers.
+public final class AFMInferenceTelemetryRelay:
+    AFMInferenceTelemetryObserving,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var target: any AFMInferenceTelemetryObserving
+
+    public init(
+        target: any AFMInferenceTelemetryObserving = AFMNoopInferenceTelemetryObserver()
+    ) {
+        self.target = target
+    }
+
+    public func connect(to target: any AFMInferenceTelemetryObserving) {
+        lock.withLock { self.target = target }
+    }
+
+    private func observer() -> any AFMInferenceTelemetryObserving {
+        lock.withLock { target }
+    }
+
+    public func requestAccepted(at timestamp: Double) -> AFMInferenceRequestToken {
+        observer().requestAccepted(at: timestamp)
+    }
+
+    public func requestStarted(_ token: AFMInferenceRequestToken, at timestamp: Double) {
+        observer().requestStarted(token, at: timestamp)
+    }
+
+    public func promptTokensProcessed(
+        _ token: AFMInferenceRequestToken,
+        fullPromptTokens: Int,
+        computedPromptTokens: Int,
+        at timestamp: Double
+    ) {
+        observer().promptTokensProcessed(
+            token,
+            fullPromptTokens: fullPromptTokens,
+            computedPromptTokens: computedPromptTokens,
+            at: timestamp
+        )
+    }
+
+    public func outputToken(_ token: AFMInferenceRequestToken, at timestamp: Double) {
+        observer().outputToken(token, at: timestamp)
+    }
+
+    public func prefixCacheObserved(queriedTokens: Int, hitTokens: Int) {
+        observer().prefixCacheObserved(queriedTokens: queriedTokens, hitTokens: hitTokens)
+    }
+
+    public func speculativeRound(draftTokens: Int, acceptedTokens: Int) {
+        observer().speculativeRound(draftTokens: draftTokens, acceptedTokens: acceptedTokens)
+    }
+
+    public func preemptionObserved() {
+        observer().preemptionObserved()
+    }
+
+    public func updateProviderState(_ state: AFMInferenceProviderState) {
+        observer().updateProviderState(state)
+    }
+
+    public func requestFinished(
+        _ token: AFMInferenceRequestToken,
+        observation: AFMInferenceRequestFinishObservation
+    ) -> Bool {
+        observer().requestFinished(token, observation: observation)
+    }
+
+    public func requestFailed(
+        _ token: AFMInferenceRequestToken,
+        reason: AFMInferenceFailureReason,
+        at timestamp: Double
+    ) -> Bool {
+        observer().requestFailed(token, reason: reason, at: timestamp)
+    }
+}
+
+/// Optional capability used by hosts to connect default provider telemetry.
+public protocol AFMInferenceTelemetryConnecting: Sendable {
+    func connectInferenceTelemetry(to observer: any AFMInferenceTelemetryObserving)
+}

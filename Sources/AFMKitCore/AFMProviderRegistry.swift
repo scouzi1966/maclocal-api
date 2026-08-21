@@ -46,6 +46,8 @@ public struct AnyAFMModel: AFMModel, Sendable {
     private let streamOperation:
         @Sendable (AFMRequest) -> AsyncThrowingStream<AFMGenerationEvent, Error>
     private let unloadOperation: @Sendable () async -> Void
+    private let connectTelemetryOperation:
+        @Sendable (any AFMInferenceTelemetryObserving) -> Void
 
     public init<Model: AFMModel>(_ model: Model) {
         if let generator = model as? any AFMRawTextGenerating {
@@ -66,6 +68,13 @@ public struct AnyAFMModel: AFMModel, Sendable {
         respondOperation = { request in try await model.respond(to: request) }
         streamOperation = { request in model.streamResponse(to: request) }
         unloadOperation = { await model.unload() }
+        if let connector = model as? any AFMInferenceTelemetryConnecting {
+            connectTelemetryOperation = { observer in
+                connector.connectInferenceTelemetry(to: observer)
+            }
+        } else {
+            connectTelemetryOperation = { _ in }
+        }
     }
 
     public var descriptor: AFMModelDescriptor { descriptorValue }
@@ -92,6 +101,12 @@ public struct AnyAFMModel: AFMModel, Sendable {
 
     public func unload() async {
         await unloadOperation()
+    }
+
+    public func connectInferenceTelemetry(
+        to observer: any AFMInferenceTelemetryObserving
+    ) {
+        connectTelemetryOperation(observer)
     }
 }
 

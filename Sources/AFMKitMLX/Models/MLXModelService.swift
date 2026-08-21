@@ -345,7 +345,10 @@ final class MLXSpeculativeOutputAccounting: @unchecked Sendable {
     }
 }
 
-public final class MLXModelService: @unchecked Sendable {
+public final class MLXModelService:
+    AFMInferenceTelemetryConnecting,
+    @unchecked Sendable
+{
     private struct ConstrainedDecodingSetup {
         let processor: GrammarLogitProcessor
         let mode: String
@@ -358,7 +361,7 @@ public final class MLXModelService: @unchecked Sendable {
     }()
 
     private let resolver: MLXCacheResolver
-    private let telemetryObserver: any AFMInferenceTelemetryObserving
+    let telemetryObserver: any AFMInferenceTelemetryObserving
     private let registry = MLXModelRegistry()
     private let stateLock = NSLock()
     private var currentModelID: String?
@@ -677,7 +680,7 @@ public final class MLXModelService: @unchecked Sendable {
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
-        self.telemetryObserver = AFMNoopInferenceTelemetryObserver()
+        self.telemetryObserver = AFMInferenceTelemetryRelay()
         self.resolver.applyEnvironment()
     }
 
@@ -689,6 +692,12 @@ public final class MLXModelService: @unchecked Sendable {
         self.resolver = resolver
         self.telemetryObserver = telemetryObserver
         self.resolver.applyEnvironment()
+    }
+
+    public func connectInferenceTelemetry(
+        to observer: any AFMInferenceTelemetryObserving
+    ) {
+        (telemetryObserver as? AFMInferenceTelemetryRelay)?.connect(to: observer)
     }
 
     public var generationAdmitter: AnyAFMGenerationAdmitter {

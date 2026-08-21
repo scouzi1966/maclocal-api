@@ -248,8 +248,10 @@ public class Server: @unchecked Sendable {
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
         self.modelCreatedEpoch = Int(Date().timeIntervalSince1970)
-        self.telemetry = telemetry ?? AFMServerTelemetryAdapter(
-            collector: InferenceTelemetryCollector()
+        self.telemetry = Self.composeTelemetry(
+            telemetry: telemetry,
+            mlxModelService: mlxModelService,
+            afmModel: afmModel
         )
 
         // Create environment without command line arguments to prevent Vapor from parsing them
@@ -275,6 +277,19 @@ public class Server: @unchecked Sendable {
         }
 
         try configure()
+    }
+
+    static func composeTelemetry(
+        telemetry: AFMServerTelemetryAdapter?,
+        mlxModelService: MLXModelService?,
+        afmModel: AnyAFMModel?
+    ) -> AFMServerTelemetryAdapter {
+        let telemetry = telemetry ?? .standalone()
+        if let observer = telemetry.providerTelemetryObserver {
+            mlxModelService?.connectInferenceTelemetry(to: observer)
+            afmModel?.connectInferenceTelemetry(to: observer)
+        }
+        return telemetry
     }
     
     private func configure() throws {

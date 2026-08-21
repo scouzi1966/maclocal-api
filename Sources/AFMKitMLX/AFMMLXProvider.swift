@@ -10,7 +10,7 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
 
     public init(resolver: MLXCacheResolver = .init()) {
         self.resolver = resolver
-        self.telemetryObserver = AFMNoopInferenceTelemetryObserver()
+        self.telemetryObserver = AFMInferenceTelemetryRelay()
     }
 
     public init(
@@ -81,6 +81,7 @@ public final class AFMMLXModel:
     AFMTextTokenizing,
     AFMRawTextGenerating,
     AFMGenerationAdmitting,
+    AFMInferenceTelemetryConnecting,
     @unchecked Sendable
 {
     public let descriptor: AFMModelDescriptor
@@ -153,6 +154,12 @@ public final class AFMMLXModel:
 
     public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
         try await service.admitGeneration(timeout: timeout)
+    }
+
+    public func connectInferenceTelemetry(
+        to observer: any AFMInferenceTelemetryObserving
+    ) {
+        service.connectInferenceTelemetry(to: observer)
     }
 
     public func load(

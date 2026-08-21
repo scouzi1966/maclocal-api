@@ -8,7 +8,7 @@ public struct AFMDwarfStarProviderFactory: AFMProviderFactory {
     private let telemetryObserver: any AFMInferenceTelemetryObserving
 
     public init() {
-        telemetryObserver = AFMNoopInferenceTelemetryObserver()
+        telemetryObserver = AFMInferenceTelemetryRelay()
     }
 
     public init(telemetryObserver: any AFMInferenceTelemetryObserving) {
@@ -75,6 +75,7 @@ public final class AFMDwarfStarModel:
     AFMModel,
     AFMRawTextGenerating,
     AFMGenerationAdmitting,
+    AFMInferenceTelemetryConnecting,
     @unchecked Sendable
 {
     public let descriptor: AFMModelDescriptor
@@ -90,7 +91,7 @@ public final class AFMDwarfStarModel:
     private let enablePrefixCaching: Bool
     private let maxConcurrent: Int
     private let runtime: AFMDwarfStarRuntimeCoordinator
-    private let telemetryObserver: any AFMInferenceTelemetryObserving
+    let telemetryObserver: any AFMInferenceTelemetryObserving
     private let generationAdmission: AFMDwarfStarGenerationAdmission
 
     public init(
@@ -118,7 +119,7 @@ public final class AFMDwarfStarModel:
         self.enablePrefixCaching = enablePrefixCaching
         self.maxConcurrent = max(1, maxConcurrent)
         self.runtime = runtime
-        self.telemetryObserver = AFMNoopInferenceTelemetryObserver()
+        self.telemetryObserver = AFMInferenceTelemetryRelay()
         self.generationAdmission = AFMDwarfStarGenerationAdmission(
             maximumConcurrentRequests: maxConcurrent,
             telemetryObserver: self.telemetryObserver
@@ -225,6 +226,12 @@ public final class AFMDwarfStarModel:
 
     public func admitGeneration(timeout: Duration?) async throws -> AFMGenerationLease {
         try await generationAdmission.admitGeneration(timeout: timeout)
+    }
+
+    public func connectInferenceTelemetry(
+        to observer: any AFMInferenceTelemetryObserving
+    ) {
+        (telemetryObserver as? AFMInferenceTelemetryRelay)?.connect(to: observer)
     }
 
     public func load(
