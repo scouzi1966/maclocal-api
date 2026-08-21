@@ -96,8 +96,16 @@ public struct TerminalMarkdownRenderer: Sendable {
         hyperlinks: Bool = false
     ) -> MarkdownRenderResult {
         let safeSource = Self.sanitized(markdown).replacingOccurrences(of: "\r\n", with: "\n")
-        let document = Document(parsing: safeSource)
-        var context = RenderContext(owner: self, width: max(24, width), hyperlinks: hyperlinks)
+        // Match llama.cpp's WebUI pipeline: protect math before CommonMark can
+        // consume TeX backslashes, while leaving code spans/fences byte-for-byte inert.
+        let prepared = TerminalMath.prepareMarkdown(safeSource)
+        let document = Document(parsing: prepared.source)
+        var context = RenderContext(
+            owner: self,
+            width: max(24, width),
+            hyperlinks: hyperlinks,
+            mathPlaceholders: prepared.expressions
+        )
         let text = context.renderBlock(document).trimmingCharacters(in: .newlines)
         return MarkdownRenderResult(
             text: text,
@@ -204,6 +212,7 @@ public struct TerminalMarkdownRenderer: Sendable {
         let owner: TerminalMarkdownRenderer
         let width: Int
         let hyperlinks: Bool
+        let mathPlaceholders: [TerminalMath.Segment]
         var codeBlocks: [TUICodeBlock] = []
 
         mutating func renderBlock(_ markup: Markup) -> String {
@@ -256,7 +265,7 @@ public struct TerminalMarkdownRenderer: Sendable {
         }
 
         private mutating func renderInline(_ markup: Markup) -> String {
-            if let text = markup as? Text { return TerminalMath.renderInlineText(text.string, style: mathStyle) }
+            if let text = markup as? Text { return renderMathText(text.string) }
             if let code = markup as? InlineCode { return owner.style(" \(code.code) ", owner.palette.code) }
             if markup is Strong { return owner.style(renderInlineChildren(markup), "1") }
             if markup is Emphasis { return owner.style(renderInlineChildren(markup), "3") }
@@ -287,13 +296,48 @@ public struct TerminalMarkdownRenderer: Sendable {
 
         private var mathStyle: (String) -> String { { owner.style($0, owner.palette.accent) } }
 
+        private mutating func renderMathText(_ source: String) -> String {
+            var output = ""
+            for segment in TerminalMath.segments(in: source, restoring: mathPlaceholders) {
+                switch segment {
+                case .text(let value):
+                    output += value
+                case .inline(let value):
+                    output += mathStyle(TerminalMath.renderExpression(value))
+                case .display(let value):
+                    if !output.hasSuffix("\n") { output += "\n" }
+                    output += renderMathBlock(value)
+                    output += "\n"
+                }
+            }
+            return output
+        }
+
         private mutating func renderMathBlock(_ source: String) -> String {
             let math = TerminalMath.renderExpression(source)
             let label = owner.style(" math ", owner.palette.accent)
-            let lines = math.split(separator: "\n", omittingEmptySubsequences: false).map {
+            let lines = math.split(separator: "\n", omittingEmptySubsequences: false)
+                .flatMap { Self.wrappedMathLine(String($0), width: max(12, width - 4)) }
+                .map {
                 owner.style("│", owner.palette.accent) + " " + owner.style(String($0), owner.palette.accent)
             }.joined(separator: "\n")
             return owner.style("┌─", owner.palette.accent) + label + "\n" + lines + "\n" + owner.style("└─", owner.palette.accent)
+        }
+
+        private static func wrappedMathLine(_ line: String, width: Int) -> [String] {
+            guard line.count > width else { return [line] }
+            var remaining = line[...]
+            var result: [String] = []
+            while remaining.count > width {
+                let limit = remaining.index(remaining.startIndex, offsetBy: width)
+                let prefix = remaining[..<limit]
+                let split = prefix.lastIndex(where: \.isWhitespace) ?? limit
+                let chunk = remaining[..<split].trimmingCharacters(in: .whitespaces)
+                if !chunk.isEmpty { result.append(chunk) }
+                remaining = remaining[split...].drop(while: \.isWhitespace)
+            }
+            if !remaining.isEmpty { result.append(String(remaining)) }
+            return result
         }
 
         private mutating func renderList(_ children: MarkupChildren, start: Int, ordered: Bool) -> String {
@@ -318,9 +362,10 @@ public struct TerminalMarkdownRenderer: Sendable {
         }
 
         private mutating func renderTable(_ table: Table) -> String {
-            let header = Array(table.head.cells.map { Self.normalizedCell($0) })
+            let placeholders = mathPlaceholders
+            let header = Array(table.head.cells.map { Self.normalizedCell($0, restoring: placeholders) })
             let body = Array(table.body.rows.map { row in
-                Array(row.cells.map { Self.normalizedCell($0) })
+                Array(row.cells.map { Self.normalizedCell($0, restoring: placeholders) })
             })
             let columnCount = max(header.count, body.map(\.count).max() ?? 0)
             guard columnCount > 0 else { return "" }
@@ -341,8 +386,11 @@ public struct TerminalMarkdownRenderer: Sendable {
             return rows.joined(separator: "\n")
         }
 
-        private static func normalizedCell(_ cell: Table.Cell) -> String {
-            TerminalMarkdownRenderer.latexFallback(TerminalMarkdownRenderer.plainText(cell))
+        private static func normalizedCell(_ cell: Table.Cell, restoring expressions: [TerminalMath.Segment]) -> String {
+            TerminalMath.renderInlineText(
+                TerminalMarkdownRenderer.plainText(cell),
+                restoring: expressions
+            )
                 .replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
         }
 
@@ -481,21 +529,71 @@ public struct TerminalMarkdownRenderer: Sendable {
 }
 
 private enum TerminalMath {
+    enum Segment: Equatable {
+        case text(String)
+        case inline(String)
+        case display(String)
+    }
+
+    struct PreparedMarkdown {
+        let source: String
+        let expressions: [Segment]
+    }
+
+    private static let placeholderPrefix = "AFMZMATHTOKEN"
+    private static let placeholderSuffix = "Z"
+
     private static let commandSymbols: [String: String] = [
-        "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "theta": "θ",
-        "lambda": "λ", "mu": "μ", "pi": "π", "rho": "ρ", "sigma": "σ", "phi": "φ", "psi": "ψ",
-        "omega": "ω", "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Pi": "Π",
-        "Sigma": "Σ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω", "infty": "∞", "sum": "∑",
-        "prod": "∏", "int": "∫", "oint": "∮", "partial": "∂", "nabla": "∇", "neq": "≠",
-        "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "approx": "≈", "equiv": "≡",
-        "propto": "∝", "rightarrow": "→", "to": "→", "leftarrow": "←", "Rightarrow": "⇒",
-        "Leftarrow": "⇐", "leftrightarrow": "↔", "times": "×", "cdot": "·", "pm": "±", "mp": "∓",
-        "div": "÷", "forall": "∀", "exists": "∃", "in": "∈", "notin": "∉", "subset": "⊂",
-        "subseteq": "⊆", "supset": "⊃", "supseteq": "⊇", "cup": "∪", "cap": "∩", "land": "∧", "lor": "∨"
+        // Greek letters and common variants.
+        "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "varepsilon": "ε",
+        "zeta": "ζ", "eta": "η", "theta": "θ", "vartheta": "ϑ", "iota": "ι", "kappa": "κ",
+        "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "omicron": "ο", "pi": "π", "varpi": "ϖ",
+        "rho": "ρ", "varrho": "ϱ", "sigma": "σ", "varsigma": "ς", "tau": "τ", "upsilon": "υ",
+        "phi": "φ", "varphi": "ϕ", "chi": "χ", "psi": "ψ", "omega": "ω",
+        "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ", "Pi": "Π",
+        "Sigma": "Σ", "Upsilon": "Υ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+
+        // Calculus, algebra, and named operators.
+        "infty": "∞", "sum": "∑", "prod": "∏", "coprod": "∐", "int": "∫", "iint": "∬",
+        "iiint": "∭", "oint": "∮", "partial": "∂", "nabla": "∇", "ell": "ℓ", "hbar": "ℏ",
+        "lim": "lim", "limsup": "lim sup", "liminf": "lim inf", "sup": "sup", "inf": "inf",
+        "max": "max", "min": "min", "argmax": "arg max", "argmin": "arg min", "det": "det",
+        "dim": "dim", "ker": "ker", "gcd": "gcd", "log": "log", "ln": "ln", "exp": "exp",
+        "sin": "sin", "cos": "cos", "tan": "tan", "cot": "cot", "sec": "sec", "csc": "csc",
+        "arcsin": "arcsin", "arccos": "arccos", "arctan": "arctan", "sinh": "sinh", "cosh": "cosh",
+        "tanh": "tanh", "Re": "ℜ", "Im": "ℑ", "prime": "′", "degree": "°",
+
+        // Relations, logic, sets, and arrows.
+        "neq": "≠", "ne": "≠", "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "ll": "≪",
+        "gg": "≫", "approx": "≈", "sim": "∼", "simeq": "≃", "cong": "≅", "equiv": "≡",
+        "propto": "∝", "parallel": "∥", "perp": "⊥", "mid": "∣", "nmid": "∤",
+        "rightarrow": "→", "longrightarrow": "⟶", "to": "→", "mapsto": "↦", "leftarrow": "←",
+        "longleftarrow": "⟵", "Rightarrow": "⇒", "implies": "⇒", "Leftarrow": "⇐", "impliedby": "⇐",
+        "leftrightarrow": "↔", "Leftrightarrow": "⇔", "iff": "⇔", "uparrow": "↑", "downarrow": "↓",
+        "times": "×", "cdot": "·", "circ": "∘", "bullet": "•", "pm": "±", "mp": "∓", "div": "÷",
+        "forall": "∀", "exists": "∃", "nexists": "∄", "therefore": "∴", "because": "∵", "neg": "¬",
+        "in": "∈", "notin": "∉", "ni": "∋", "subset": "⊂", "subseteq": "⊆", "supset": "⊃",
+        "supseteq": "⊇", "cup": "∪", "cap": "∩", "setminus": "∖", "emptyset": "∅", "varnothing": "∅",
+        "land": "∧", "wedge": "∧", "lor": "∨", "vee": "∨", "oplus": "⊕", "otimes": "⊗",
+
+        // Delimiters and typography.
+        "langle": "⟨", "rangle": "⟩", "lceil": "⌈", "rceil": "⌉", "lfloor": "⌊", "rfloor": "⌋",
+        "lVert": "‖", "rVert": "‖", "Vert": "‖", "vert": "|", "dots": "…", "ldots": "…",
+        "cdots": "⋯", "vdots": "⋮", "ddots": "⋱", "colon": ":",
+
+        // Frequent malformed shorthand emitted by small/local models.
+        "mathbbC": "ℂ", "mathbbH": "ℍ", "mathbbN": "ℕ", "mathbbP": "ℙ", "mathbbQ": "ℚ",
+        "mathbbR": "ℝ", "mathbbZ": "ℤ"
+    ]
+    private static let blackboardSymbols: [Character: Character] = [
+        "C": "ℂ", "H": "ℍ", "N": "ℕ", "P": "ℙ", "Q": "ℚ", "R": "ℝ", "Z": "ℤ"
     ]
     private static let superscripts: [Character: Character] = [
         "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷",
-        "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "n": "ⁿ", "i": "ⁱ"
+        "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", "a": "ᵃ",
+        "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ", "h": "ʰ", "i": "ⁱ",
+        "j": "ʲ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ", "o": "ᵒ", "p": "ᵖ", "r": "ʳ",
+        "s": "ˢ", "t": "ᵗ", "u": "ᵘ", "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ"
     ]
     private static let subscripts: [Character: Character] = [
         "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇",
@@ -504,67 +602,384 @@ private enum TerminalMath {
         "o": "ₒ", "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "x": "ₓ"
     ]
 
-    static func renderInlineText(_ input: String, style: (String) -> String = { $0 }) -> String {
-        let characters = Array(input)
-        var result = ""
+    static func prepareMarkdown(_ input: String) -> PreparedMarkdown {
+        let normalized = normalizeDelimiters(in: input)
+        let characters = Array(normalized)
+        var expressions: [Segment] = []
+        var output = ""
+        var plain = ""
         var index = 0
+        var codeDelimiter: (character: Character, count: Int)?
+
+        func runLength(at start: Int, character: Character) -> Int {
+            var end = start
+            while end < characters.count, characters[end] == character { end += 1 }
+            return end - start
+        }
+
+        func flushPlain() {
+            guard !plain.isEmpty else { return }
+            for segment in segments(in: plain) {
+                switch segment {
+                case .text(let value):
+                    output += value
+                case .inline, .display:
+                    output += placeholder(for: expressions.count)
+                    expressions.append(segment)
+                }
+            }
+            plain = ""
+        }
+
         while index < characters.count {
-            if characters[index] == "\\", index + 1 < characters.count, characters[index + 1] == "$" {
-                result.append("$"); index += 2; continue
+            if let delimiter = codeDelimiter {
+                if characters[index] == delimiter.character {
+                    let count = runLength(at: index, character: delimiter.character)
+                    output += String(repeating: String(delimiter.character), count: count)
+                    index += count
+                    if count >= delimiter.count { codeDelimiter = nil }
+                } else {
+                    output.append(characters[index])
+                    index += 1
+                }
+                continue
             }
-            guard characters[index] == "$", index + 1 < characters.count,
-                  characters[index + 1] != "$", !characters[index + 1].isWhitespace else {
-                result.append(characters[index]); index += 1; continue
+
+            let character = characters[index]
+            if character == "`" || character == "~" {
+                let count = runLength(at: index, character: character)
+                if character == "`" || count >= 3 {
+                    flushPlain()
+                    codeDelimiter = (character, count)
+                    output += String(repeating: String(character), count: count)
+                    index += count
+                    continue
+                }
             }
-            var closing = index + 1
-            var found: Int?
-            while closing < characters.count {
-                if characters[closing] == "$", characters[closing - 1] != "\\" {
-                    let previousIsContent = !characters[closing - 1].isWhitespace
-                    let nextIsBoundary = closing + 1 == characters.count || characters[closing + 1].isWhitespace || ".,;:!?)]}".contains(characters[closing + 1])
-                    if previousIsContent && nextIsBoundary { found = closing }
+            plain.append(character)
+            index += 1
+        }
+        flushPlain()
+        return PreparedMarkdown(source: output, expressions: expressions)
+    }
+
+    private static func placeholder(for index: Int) -> String {
+        "\(placeholderPrefix)\(index)\(placeholderSuffix)"
+    }
+
+    /// Normalizes the same four delimiter families accepted by llama.cpp's WebUI.
+    /// CommonMark would otherwise consume `\(` and `\[` as ordinary escapes.
+    /// Backtick and tilde code spans/fences are copied byte-for-byte.
+    static func normalizeDelimiters(in input: String) -> String {
+        let characters = Array(input)
+        var output = ""
+        var index = 0
+        var codeDelimiter: (character: Character, count: Int)?
+
+        func runLength(at start: Int, character: Character) -> Int {
+            var end = start
+            while end < characters.count, characters[end] == character { end += 1 }
+            return end - start
+        }
+
+        func isEscaped(at position: Int) -> Bool {
+            guard position > 0 else { return false }
+            var cursor = position - 1
+            var slashes = 0
+            while cursor >= 0, characters[cursor] == "\\" {
+                slashes += 1
+                if cursor == 0 { break }
+                cursor -= 1
+            }
+            return slashes.isMultiple(of: 2) == false
+        }
+
+        while index < characters.count {
+            if let delimiter = codeDelimiter {
+                if characters[index] == delimiter.character {
+                    let count = runLength(at: index, character: delimiter.character)
+                    output += String(repeating: String(delimiter.character), count: count)
+                    index += count
+                    if count >= delimiter.count { codeDelimiter = nil }
+                } else {
+                    output.append(characters[index])
+                    index += 1
+                }
+                continue
+            }
+
+            if characters[index] == "`" {
+                let count = runLength(at: index, character: "`")
+                codeDelimiter = ("`", count)
+                output += String(repeating: "`", count: count)
+                index += count
+                continue
+            }
+
+            if characters[index] == "~" {
+                let count = runLength(at: index, character: "~")
+                if count >= 3 {
+                    codeDelimiter = ("~", count)
+                    output += String(repeating: "~", count: count)
+                    index += count
+                    continue
+                }
+            }
+
+            if characters[index] == "\\", !isEscaped(at: index), index + 1 < characters.count {
+                switch characters[index + 1] {
+                case "(":
+                    output.append("$"); index += 2; continue
+                case ")":
+                    output.append("$"); index += 2; continue
+                case "[":
+                    output += "$$"; index += 2; continue
+                case "]":
+                    output += "$$"; index += 2; continue
+                default:
                     break
                 }
-                closing += 1
             }
-            guard let end = found else { result.append("$"); index += 1; continue }
-            result += style(renderExpression(String(characters[(index + 1)..<end])))
+
+            output.append(characters[index])
+            index += 1
+        }
+        return output
+    }
+
+    static func segments(in input: String) -> [Segment] {
+        let characters = Array(input)
+        var result: [Segment] = []
+        var textBuffer = ""
+        var index = 0
+
+        func flushText() {
+            guard !textBuffer.isEmpty else { return }
+            if case .text(let previous)? = result.last {
+                result[result.count - 1] = .text(previous + textBuffer)
+            } else {
+                result.append(.text(textBuffer))
+            }
+            textBuffer = ""
+        }
+
+        func isEscaped(_ position: Int) -> Bool {
+            guard position > 0 else { return false }
+            var cursor = position - 1
+            var count = 0
+            while cursor >= 0, characters[cursor] == "\\" {
+                count += 1
+                if cursor == 0 { break }
+                cursor -= 1
+            }
+            return count.isMultiple(of: 2) == false
+        }
+
+        func closingDelimiter(_ delimiter: [Character], after start: Int) -> Int? {
+            guard !delimiter.isEmpty else { return nil }
+            var cursor = start
+            while cursor + delimiter.count <= characters.count {
+                if !isEscaped(cursor), Array(characters[cursor..<(cursor + delimiter.count)]) == delimiter {
+                    return cursor
+                }
+                cursor += 1
+            }
+            return nil
+        }
+
+        func isTokenCharacter(_ character: Character?) -> Bool {
+            guard let character else { return false }
+            return character.isLetter || character.isNumber || "_$".contains(character)
+        }
+
+        while index < characters.count {
+            if characters[index] == "\\", index + 1 < characters.count, characters[index + 1] == "$" {
+                textBuffer.append("$")
+                index += 2
+                continue
+            }
+
+            let pair = index + 1 < characters.count ? String(characters[index...index + 1]) : ""
+            if pair == "$$" {
+                if let end = closingDelimiter(["$", "$"], after: index + 2) {
+                    flushText()
+                    result.append(.display(String(characters[(index + 2)..<end])))
+                    index = end + 2
+                    continue
+                }
+                let remainder = String(characters.dropFirst(index + 2))
+                if plausiblyTruncatedMath(remainder) {
+                    flushText()
+                    result.append(.display(remainder))
+                    index = characters.count
+                    continue
+                }
+            }
+            if pair == "\\(" , let end = closingDelimiter(["\\", ")"], after: index + 2) {
+                flushText()
+                result.append(.inline(String(characters[(index + 2)..<end])))
+                index = end + 2
+                continue
+            }
+            if pair == "\\[", let end = closingDelimiter(["\\", "]"], after: index + 2) {
+                flushText()
+                result.append(.display(String(characters[(index + 2)..<end])))
+                index = end + 2
+                continue
+            }
+
+            if characters[index] == "$", !isEscaped(index), pair != "$$",
+               closingDelimiter(["$"], after: index + 1) == nil {
+                let beforeOpen = index > 0 ? characters[index - 1] : nil
+                let afterOpen = index + 1 < characters.count ? characters[index + 1] : nil
+                let remainder = String(characters.dropFirst(index + 1))
+                if !isTokenCharacter(beforeOpen), afterOpen?.isNumber != true,
+                   plausiblyTruncatedMath(remainder) {
+                    flushText()
+                    result.append(.inline(remainder))
+                    index = characters.count
+                    continue
+                }
+            }
+
+            guard characters[index] == "$", !isEscaped(index), pair != "$$",
+                  let end = closingDelimiter(["$"], after: index + 1),
+                  (end == 0 || characters[end - 1] != "$"),
+                  (end + 1 == characters.count || characters[end + 1] != "$") else {
+                textBuffer.append(characters[index])
+                index += 1
+                continue
+            }
+
+            let beforeOpen = index > 0 ? characters[index - 1] : nil
+            let afterOpen = index + 1 < characters.count ? characters[index + 1] : nil
+            let beforeClose = end > index + 1 ? characters[end - 1] : nil
+            let afterClose = end + 1 < characters.count ? characters[end + 1] : nil
+            let empty = end == index + 1
+            let looksLikeIdentifier = isTokenCharacter(beforeOpen)
+            let looksLikeMoney = afterOpen?.isNumber == true
+                && (isTokenCharacter(afterClose) || beforeClose?.isWhitespace == true)
+            if empty || looksLikeIdentifier || looksLikeMoney {
+                textBuffer.append("$")
+                index += 1
+                continue
+            }
+
+            flushText()
+            result.append(.inline(String(characters[(index + 1)..<end])))
             index = end + 1
         }
+        flushText()
         return result
     }
 
+    private static func plausiblyTruncatedMath(_ source: String) -> Bool {
+        let value = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        return value.contains("\\") || value.contains("_") || value.contains("^") || value.contains("=")
+    }
+
+    static func segments(in input: String, restoring expressions: [Segment]) -> [Segment] {
+        guard !expressions.isEmpty, input.contains(placeholderPrefix) else { return segments(in: input) }
+        guard let regex = try? NSRegularExpression(
+            pattern: "\(placeholderPrefix)([0-9]+)\(placeholderSuffix)"
+        ) else { return segments(in: input) }
+        let range = NSRange(input.startIndex..<input.endIndex, in: input)
+        let matches = regex.matches(in: input, range: range)
+        guard !matches.isEmpty else { return segments(in: input) }
+
+        var restored: [Segment] = []
+        var cursor = input.startIndex
+        for match in matches {
+            guard let wholeRange = Range(match.range(at: 0), in: input),
+                  let indexRange = Range(match.range(at: 1), in: input),
+                  let expressionIndex = Int(input[indexRange]),
+                  expressions.indices.contains(expressionIndex) else { continue }
+            if cursor < wholeRange.lowerBound {
+                restored.append(contentsOf: segments(in: String(input[cursor..<wholeRange.lowerBound])))
+            }
+            restored.append(expressions[expressionIndex])
+            cursor = wholeRange.upperBound
+        }
+        if cursor < input.endIndex {
+            restored.append(contentsOf: segments(in: String(input[cursor...])))
+        }
+        return restored
+    }
+
+    static func renderInlineText(_ input: String, style: (String) -> String = { $0 }) -> String {
+        segments(in: input).map { segment in
+            switch segment {
+            case .text(let value): return value
+            case .inline(let value), .display(let value): return style(renderExpression(value))
+            }
+        }.joined()
+    }
+
+    static func renderInlineText(
+        _ input: String,
+        restoring expressions: [Segment],
+        style: (String) -> String = { $0 }
+    ) -> String {
+        segments(in: input, restoring: expressions).map { segment in
+            switch segment {
+            case .text(let value): return value
+            case .inline(let value), .display(let value): return style(renderExpression(value))
+            }
+        }.joined()
+    }
+
     static func renderExpression(_ source: String) -> String {
-        if let matrix = renderMatrix(source) { return matrix }
+        if let environment = renderEnvironment(source) { return environment }
+        return renderLinear(source)
+    }
+
+    private static func renderLinear(_ source: String) -> String {
         var parser = Parser(Array(source))
-        return parser.parse(until: nil).replacingOccurrences(of: "  ", with: " ")
+        return parser.parse(until: nil)
+            .replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func renderMatrix(_ source: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"\\begin\{(bmatrix|pmatrix|matrix|cases)\}([\s\S]*?)\\end\{\1\}"#) else { return nil }
+    private static func renderEnvironment(_ source: String) -> String? {
+        let pattern = #"\\begin\{(bmatrix|pmatrix|matrix|cases|aligned|alignedat|align\*?|gathered|split|array)\}([\s\S]*?)\\end\{\1\}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
         guard let match = regex.firstMatch(in: source, range: range),
               let environmentRange = Range(match.range(at: 1), in: source),
-              let bodyRange = Range(match.range(at: 2), in: source) else { return nil }
+              let bodyRange = Range(match.range(at: 2), in: source),
+              let wholeRange = Range(match.range(at: 0), in: source) else { return nil }
         let environment = String(source[environmentRange])
-        let cells = String(source[bodyRange]).components(separatedBy: "\\\\").map { row in
-            row.split(separator: "&", omittingEmptySubsequences: false).map { renderExpression(String($0)) }
+        let body = String(source[bodyRange]).replacingOccurrences(
+            of: #"\\\\\s*\[[^\]]*\]"#,
+            with: "\\\\",
+            options: .regularExpression
+        )
+        let cells = body.components(separatedBy: "\\\\").compactMap { row -> [String]? in
+            let values = row.split(separator: "&", omittingEmptySubsequences: false)
+                .map { renderExpression(String($0)) }
+            return values.allSatisfy(\.isEmpty) ? nil : values
         }
         let columns = cells.map(\.count).max() ?? 0
         let widths = (0..<columns).map { column in cells.compactMap { $0.indices.contains(column) ? $0[column].count : nil }.max() ?? 0 }
-        return cells.enumerated().map { rowIndex, row in
+        let renderedBody = cells.enumerated().map { rowIndex, row in
             let body = widths.indices.map { column -> String in
                 let value = row.indices.contains(column) ? row[column] : ""
                 return value + String(repeating: " ", count: max(0, widths[column] - value.count))
-            }.joined(separator: "  ")
+            }.joined(separator: environment.hasPrefix("align") || ["gathered", "split"].contains(environment) ? " " : "  ")
+                .trimmingCharacters(in: .whitespaces)
             switch environment {
             case "bmatrix": return "[ \(body) ]"
             case "pmatrix": return "( \(body) )"
             case "cases": return (rowIndex == 0 ? "⎧ " : rowIndex == cells.count - 1 ? "⎩ " : "⎨ ") + body
-            default: return "│ \(body) │"
+            case "matrix", "array": return "│ \(body) │"
+            default: return body
             }
         }.joined(separator: "\n")
+
+        let prefix = renderLinear(String(source[..<wholeRange.lowerBound]))
+        let suffix = renderLinear(String(source[wholeRange.upperBound...]))
+        return [prefix, renderedBody, suffix].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     private struct Parser {
@@ -602,23 +1017,72 @@ private enum TerminalMath {
             if characters[index] == "\\" { index += 1; return "\n" }
             let start = index
             while index < characters.count && characters[index].isLetter { index += 1 }
-            if start == index { let value = characters[index]; index += 1; return String(value) }
+            if start == index {
+                let value = characters[index]
+                index += 1
+                switch value {
+                case "|": return "‖"
+                case ",", ";", ":", " ": return " "
+                case "!", "/": return ""
+                default: return String(value)
+                }
+            }
             let name = String(characters[start..<index])
             if let symbol = TerminalMath.commandSymbols[name] { return symbol }
-            if name == "frac" { return "(\(parseArgument()))/(\(parseArgument()))" }
+            if ["frac", "dfrac", "tfrac"].contains(name) {
+                return "(\(parseArgument()))/(\(parseArgument()))"
+            }
             if name == "sqrt" {
+                var root = ""
                 if index < characters.count, characters[index] == "[" {
+                    index += 1
+                    let start = index
                     while index < characters.count && characters[index] != "]" { index += 1 }
+                    root = String(characters[start..<index])
                     if index < characters.count { index += 1 }
                 }
-                return "√(\(parseArgument()))"
+                let radical = root == "3" ? "∛" : root == "4" ? "∜" : root.isEmpty ? "√" : "^(1/\(root))"
+                return "\(radical)(\(parseArgument()))"
             }
-            if ["text", "textrm", "textbf", "mathrm", "mathbf", "operatorname", "overline", "underline"].contains(name) {
+            if name == "mathbb" {
+                let value = parseArgument()
+                return String(value.map { TerminalMath.blackboardSymbols[$0] ?? $0 })
+            }
+            if ["text", "textrm", "textnormal", "textbf", "textit", "mathrm", "mathbf", "mathit", "mathsf",
+                "mathtt", "mathcal", "mathscr", "mathfrak", "boldsymbol", "operatorname", "phantom"].contains(name) {
+                return parseArgument()
+            }
+            if ["vec", "overrightarrow"].contains(name) { return accented(parseArgument(), mark: "⃗") }
+            if ["bar", "overline"].contains(name) { return accented(parseArgument(), mark: "̅") }
+            if name == "underline" { return accented(parseArgument(), mark: "̲") }
+            if name == "hat" { return accented(parseArgument(), mark: "̂") }
+            if name == "tilde" { return accented(parseArgument(), mark: "̃") }
+            if name == "dot" { return accented(parseArgument(), mark: "̇") }
+            if name == "ddot" { return accented(parseArgument(), mark: "̈") }
+            if name == "boxed" { return "⟦\(parseArgument())⟧" }
+            if name == "abs" { return "|\(parseArgument())|" }
+            if name == "norm" { return "‖\(parseArgument())‖" }
+            if name == "binom" { return "C(\(parseArgument()), \(parseArgument()))" }
+            if ["overset", "stackrel"].contains(name) {
+                let upper = parseArgument()
+                return "\(parseArgument())^(\(upper))"
+            }
+            if name == "underset" {
+                let lower = parseArgument()
+                return "\(parseArgument())_(\(lower))"
+            }
+            if ["color", "textcolor"].contains(name) {
+                _ = parseArgument()
                 return parseArgument()
             }
             if ["left", "right"].contains(name) { return "" }
-            if [",", ";", "quad", "qquad"].contains(name) { return " " }
+            if ["quad", "qquad", "enspace", "thinspace"].contains(name) { return " " }
+            if ["limits", "nolimits", "displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle"].contains(name) { return "" }
             return "\\\(name)"
+        }
+
+        private func accented(_ value: String, mark: Character) -> String {
+            value.map { "\($0)\(mark)" }.joined()
         }
 
         private mutating func parseArgument() -> String {

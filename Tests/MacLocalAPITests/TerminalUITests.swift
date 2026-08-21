@@ -100,6 +100,87 @@ final class TerminalMarkdownRendererTests: XCTestCase {
         XCTAssertTrue(text.contains("(4)/(5)"))
     }
 
+    func testRendersCalculusPromptNotationWithoutRawTeX() {
+        let source = #"""
+        #### 1.1 The $\epsilon-\delta$ Definition
+        Let $f: D \subseteq \mathbb{R} \to \mathbb{R}$ and suppose $\lim_{x \to c} f(x) = L$.
+
+        In $\epsilon$-$\delta$ terms, continuity means: $$ \forall \epsilon > 0, \exists \delta > 0 \text{ such that } |x-c| < \delta \implies |f(x)-f(c)| < \epsilon $$
+
+        The derivative is $$ f'(a) = \lim_{h \to 0} \frac{f(a+h)-f(a)}{h} $$ and
+        $$ S_n = \sum_{i=1}^{n} f(t_i) \Delta x_i. $$
+
+        For $f: \mathbb{R}^n \to \mathbb{R}$, $\|\mathbf{x}\| = \sqrt{x_1^2 + \dots + x_n^2}$ and
+        $\nabla f(\mathbf{a}) \cdot \mathbf{h}$ is the directional linearization.
+        """#
+        let text = TerminalMarkdownRenderer(color: false).render(source, width: 88).text
+
+        XCTAssertTrue(text.contains("ε-δ"))
+        XCTAssertTrue(text.contains("D ⊆ ℝ → ℝ"))
+        XCTAssertTrue(text.contains("lim_(x → c) f(x) = L"))
+        XCTAssertTrue(text.contains("∀ ε > 0, ∃ δ > 0 such that"))
+        XCTAssertTrue(text.contains("⇒"))
+        XCTAssertTrue(text.contains("(f(a+h)-f(a))/(h)"))
+        XCTAssertTrue(text.contains("∑ᵢ₌₁ⁿ"))
+        XCTAssertTrue(text.contains("ℝⁿ → ℝ"))
+        XCTAssertTrue(text.contains("‖x‖ = √(x₁² + … + xₙ²)"))
+        XCTAssertTrue(text.contains("∇ f(a) · h"))
+        for rawTeX in ["$$", "\\mathbb", "\\lim", "\\frac", "\\implies", "\\text", "\\mathbf", "\\dots"] {
+            XCTAssertFalse(text.contains(rawTeX), "left raw TeX in output: \(rawTeX)\n\(text)")
+        }
+    }
+
+    func testMatchesLlamaWebUIDelimitersWhileProtectingCodeAndCurrency() {
+        let source = #"""
+        Price $5 remains money; \(x^2 + 1\) is inline.
+
+        \[\int_0^1 x^2 \, dx = \frac{1}{3}\]
+
+        `literal \(not math\)`
+        ~~~text
+        literal \[still not math\]
+        ~~~
+        """#
+        let result = TerminalMarkdownRenderer(color: false).render(source)
+
+        XCTAssertTrue(result.text.contains("Price $5 remains money; x² + 1 is inline."))
+        XCTAssertTrue(result.text.contains("┌─ math"))
+        XCTAssertTrue(result.text.contains("∫₀¹ x² dx = (1)/(3)"))
+        XCTAssertTrue(result.text.contains(#"literal \(not math\)"#))
+        XCTAssertEqual(result.codeBlocks.last?.content, #"literal \[still not math\]"#)
+    }
+
+    func testRendersAlignedAndCasesEnvironments() {
+        let source = #"""
+        $$
+        \begin{aligned}
+        f'(x) &= 2x \\
+        f''(x) &= 2
+        \end{aligned}
+        $$
+
+        $$g(x)=\begin{cases}x^2 & x \ge 0 \\ -x & x < 0\end{cases}$$
+        """#
+        let text = TerminalMarkdownRenderer(color: false).render(source).text
+
+        XCTAssertTrue(text.contains("f'(x)  = 2x"))
+        XCTAssertTrue(text.contains("f''(x) = 2"))
+        XCTAssertTrue(text.contains("g(x)="))
+        XCTAssertTrue(text.contains("⎧ x²"))
+        XCTAssertTrue(text.contains("⎩ -x"))
+        XCTAssertFalse(text.contains("\\begin"))
+    }
+
+    func testRendersPlausibleTruncatedMathAtGenerationLimit() {
+        let source = #"In component form, $x_i = g_i(t_1, \dots"#
+        let text = TerminalMarkdownRenderer(color: false).render(source).text
+
+        XCTAssertEqual(text, "In component form, xᵢ = gᵢ(t₁, …")
+        XCTAssertFalse(text.contains("\\dots"))
+        XCTAssertEqual(TerminalMarkdownRenderer(color: false).render("Price is $5").text, "Price is $5")
+        XCTAssertEqual(TerminalMarkdownRenderer(color: false).render("Use $PATH/bin").text, "Use $PATH/bin")
+    }
+
     func testLanguageHighlightingDiffsAndThemesProduceDistinctANSI() {
         let source = #"""
         ```swift
