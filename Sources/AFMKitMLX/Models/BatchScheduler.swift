@@ -30,6 +30,94 @@ extension Gemma4VLM: FixedDecodeCohortModel {
     var requiresFixedDecodeCohorts: Bool { true }
 }
 
+/// Tracks scheduler reservations separately from submitted requests so a
+/// promotion-time submit can safely perform its own capacity admission.
+final class BatchSchedulerAdmissionState: @unchecked Sendable {
+    struct Snapshot: Equatable, Sendable {
+        let inFlightCount: Int
+        let reservedCount: Int
+    }
+
+    private struct State {
+        var inFlightCount = 0
+        var reservedCount = 0
+    }
+
+    let maxConcurrent: Int
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(maxConcurrent: Int) {
+        self.maxConcurrent = maxConcurrent
+    }
+
+    func tryReserve() -> Bool {
+        state.withLock { state in
+            guard state.inFlightCount < maxConcurrent else { return false }
+            state.inFlightCount += 1
+            state.reservedCount += 1
+            return true
+        }
+    }
+
+    func tryReserveMultiple(count: Int) -> Bool {
+        guard count > 0 else { return true }
+        return state.withLock { state in
+            guard state.inFlightCount + count <= maxConcurrent else { return false }
+            state.inFlightCount += count
+            state.reservedCount += count
+            return true
+        }
+    }
+
+    func releaseReservation(count: Int = 1) {
+        guard count > 0 else { return }
+        state.withLock { state in
+            let released = min(count, state.reservedCount)
+            state.reservedCount -= released
+            state.inFlightCount = max(0, state.inFlightCount - released)
+        }
+    }
+
+    /// Consume a controller reservation or reserve capacity at submit time.
+    ///
+    /// The submit-time fallback is required when admission raced scheduler
+    /// promotion: the earlier controller check may have observed serial mode,
+    /// while generation is routed to the scheduler after promotion completes.
+    func consumeReservationOrReserveForSubmission() -> Bool {
+        state.withLock { state in
+            if state.reservedCount > 0 {
+                state.reservedCount -= 1
+                return true
+            }
+            guard state.inFlightCount < maxConcurrent else { return false }
+            state.inFlightCount += 1
+            return true
+        }
+    }
+
+    func finish(count: Int = 1) {
+        guard count > 0 else { return }
+        state.withLock { state in
+            state.inFlightCount = max(0, state.inFlightCount - count)
+        }
+    }
+
+    func reset() {
+        state.withLock { state in
+            state.inFlightCount = 0
+            state.reservedCount = 0
+        }
+    }
+
+    var snapshot: Snapshot {
+        state.withLock {
+            Snapshot(
+                inFlightCount: $0.inFlightCount,
+                reservedCount: $0.reservedCount)
+        }
+    }
+}
+
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
 /// **Phase 2: Dense Batched Decoding**
@@ -423,9 +511,8 @@ actor BatchScheduler {
     private let _isShutdown = OSAllocatedUnfairLock(initialState: false)
     private let admissionLock = NSLock()
 
-    /// Thread-safe in-flight counter (pending + active). Incremented in submit(),
-    /// decremented in finishSlot() and error paths. Used for capacity checks.
-    private let _inFlightCount = OSAllocatedUnfairLock(initialState: 0)
+    /// Thread-safe capacity state for reservations plus pending/active requests.
+    private let admissionState: BatchSchedulerAdmissionState
 
     /// Cancellation must be observable from the synchronous GPU loop without
     /// waiting for an actor hop. The generation loop intentionally contains no
@@ -436,11 +523,7 @@ actor BatchScheduler {
     nonisolated func tryReserve() -> Bool {
         admissionLock.withLock {
             guard !_isShutdown.withLock({ $0 }) else { return false }
-            return _inFlightCount.withLock { count in
-                if count >= maxConcurrent { return false }
-                count += 1
-                return true
-            }
+            return admissionState.tryReserve()
         }
     }
 
@@ -469,7 +552,7 @@ actor BatchScheduler {
 
     /// Release a reserved slot (call if request fails before reaching submit).
     nonisolated func releaseReservation() {
-        _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+        admissionState.releaseReservation()
     }
 
     /// Atomically reserve N slots. Returns true if all N were reserved,
@@ -477,26 +560,18 @@ actor BatchScheduler {
     nonisolated func tryReserveMultiple(count: Int) -> Bool {
         admissionLock.withLock {
             guard !_isShutdown.withLock({ $0 }) else { return false }
-            return _inFlightCount.withLock { current in
-                if current + count <= maxConcurrent {
-                    current += count
-                    return true
-                }
-                return false
-            }
+            return admissionState.tryReserveMultiple(count: count)
         }
     }
 
     /// Release N slot reservations at once.
     nonisolated func releaseMultipleReservations(count: Int) {
-        _inFlightCount.withLock { current in
-            current = max(0, current - count)
-        }
+        admissionState.releaseReservation(count: count)
     }
 
     /// Current number of active + pending slots (for teardown decisions).
     nonisolated var activeSlotCount: Int {
-        _inFlightCount.withLock { $0 }
+        admissionState.snapshot.inFlightCount
     }
 
     /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
@@ -516,7 +591,7 @@ actor BatchScheduler {
         }
         guard !removed.isEmpty else { return }
 
-        _inFlightCount.withLock { $0 = max(0, $0 - removed.count) }
+        admissionState.finish(count: removed.count)
         for request in removed {
             clearCancellation(request.id)
             request.continuation.finish(throwing: CancellationError())
@@ -560,6 +635,8 @@ actor BatchScheduler {
         self.processor = processor
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
+        self.admissionState = BatchSchedulerAdmissionState(
+            maxConcurrent: maxConcurrent)
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
         self.requiresFixedDecodeCohorts = Self.requiresFixedDecodeCohorts(
@@ -584,7 +661,7 @@ actor BatchScheduler {
         self.eosTokenIds = eos
 
         // Wire gauge readers into the global stats aggregator. `num_running`
-        // is (inflight - waiting), since _inFlightCount covers both actively
+        // is (inflight - waiting), since admissionState covers both actively
         // decoding and still-pending requests. `num_waiting` reads the
         // pending queue directly. Both closures read nonisolated state
         // through existing unfair locks — no actor hop, no async.
@@ -593,10 +670,10 @@ actor BatchScheduler {
         // nonisolated lock pointers, so they do not extend scheduler
         // lifetime beyond MLXModelService's hold.
         let pending = self._pendingQueue
-        let inflight = self._inFlightCount
+        let admissionState = self.admissionState
         StatsAggregator.shared.registerGaugeReaders(
             running: {
-                let total = inflight.withLock { $0 }
+                let total = admissionState.snapshot.inFlightCount
                 let queued = pending.withLock { $0.count }
                 return max(0, total - queued)
             },
@@ -636,11 +713,23 @@ actor BatchScheduler {
             self?.cancelSlots(ids: [slotID])
         }
 
-        // Note: slot already reserved by tryReserve() in the controller layer.
-        // Serialize the shutdown check with enqueue so shutdown cannot drain the
-        // queue immediately before a late submit appends an unreachable request.
-        let accepted = admissionLock.withLock {
-            guard !_isShutdown.withLock({ $0 }) else { return false }
+        enum AdmissionResult {
+            case accepted
+            case atCapacity
+            case shuttingDown
+        }
+
+        // Serialize admission with enqueue so promotion-time requests that did
+        // not reserve against this scheduler still cannot exceed capacity, and
+        // shutdown cannot drain immediately before a late enqueue.
+        let admissionResult = admissionLock.withLock { () -> AdmissionResult in
+            guard !_isShutdown.withLock({ $0 }) else {
+                admissionState.releaseReservation()
+                return .shuttingDown
+            }
+            guard admissionState.consumeReservationOrReserveForSubmission() else {
+                return .atCapacity
+            }
             _pendingQueue.withLock {
                 $0.append(PendingRequest(
                     id: slotID,
@@ -657,15 +746,22 @@ actor BatchScheduler {
                     continuation: continuation
                 ))
             }
-            return true
+            return .accepted
         }
-        guard accepted else {
+
+        switch admissionResult {
+        case .accepted:
+            break
+        case .atCapacity:
+            continuation.finish(throwing: MLXServiceError.serverBusy(maxConcurrent))
+            return stream
+        case .shuttingDown:
             continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             return stream
         }
 
         StatsAggregator.shared.requestStarted()
-        DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Request enqueued req=\(requestId) (\(admissionState.snapshot.inFlightCount)/\(maxConcurrent))")
         Task { await self.ensureLoopRunning() }
 
         return stream
@@ -739,8 +835,7 @@ actor BatchScheduler {
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             slot.constraintRuntime?.matcherHandle?.release()
         }
-        // Reset in-flight counter
-        _inFlightCount.withLock { $0 = 0 }
+        admissionState.reset()
         slots.removeAll()
         batchCaches = []
         batchState = nil
@@ -799,7 +894,7 @@ actor BatchScheduler {
             }
             if Task.isCancelled || _isShutdown.withLock({ $0 }) {
                 for req in newRequests {
-                    _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                    admissionState.finish()
                     req.continuation.finish(
                         throwing: MLXServiceError.serviceShuttingDown)
                     StatsAggregator.shared.requestSucceeded(reason: "abort")
@@ -817,7 +912,7 @@ actor BatchScheduler {
                 for req in newRequests {
                     if isCancellationRequested(req.id) {
                         clearCancellation(req.id)
-                        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                        admissionState.finish()
                         req.continuation.finish(throwing: CancellationError())
                         StatsAggregator.shared.requestSucceeded(reason: "abort")
                         StatsAggregator.shared.requestCompleted()
@@ -1973,7 +2068,7 @@ actor BatchScheduler {
         print("[\(batchTs())] [ChunkStats] stage=final | stream=true | cached_tokens=\(slot.cachedTokens) | prompt_tokens=\(slot.promptTokenCount) | completion_tokens=\(slot.tokenCount) | prompt_time=\(String(format: "%.3f", slot.prefillTime))s | generate_time=\(String(format: "%.3f", generateTime))s")
         slot.continuation.finish()
         slot.constraintRuntime?.matcherHandle?.release()
-        _inFlightCount.withLock { $0 = max($0 - 1, 0) }
+        admissionState.finish()
 
         // ─── Per-request /metrics observations ────────────────────────────
         // Determine the OpenAI-style finished_reason from the slot's
@@ -2007,7 +2102,7 @@ actor BatchScheduler {
         StatsAggregator.shared.requestCompleted()
         clearCancellation(slot.id)
 
-        DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
+        DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(admissionState.snapshot.inFlightCount)/\(maxConcurrent))")
 
         // Remove from batch cache and state
         let keepIndices = (0..<slots.count).filter { $0 != index }

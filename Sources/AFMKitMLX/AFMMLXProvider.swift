@@ -156,7 +156,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 chatTemplateKwargs: request.chatTemplateKwargs(),
                 speculativeDecoding: request.speculativeDecodingOptions()
             )
-            let split = Self.splitReasoning(
+            let normalized = Self.normalizedGeneratedResponse(
                 result.content,
                 startTag: service.thinkStartTag,
                 endTag: service.thinkEndTag
@@ -188,8 +188,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 metadata[AFMMLXSpeculativeTelemetry.metadataKey] = telemetry.metadataValue
             }
             return AFMModelResponse(
-                text: split.text,
-                reasoning: split.reasoning,
+                text: normalized.text,
+                reasoning: normalized.reasoning,
                 toolCalls: toolCalls,
                 usage: AFMUsage(
                     inputTokens: result.promptTokens,
@@ -364,9 +364,28 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                 break
             }
         }
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmedText, trimmedReasoning.isEmpty ? nil : trimmedReasoning)
+        return (text, reasoning.isEmpty ? nil : reasoning)
+    }
+
+    static func normalizedGeneratedResponse(
+        _ value: String,
+        startTag: String?,
+        endTag: String?
+    ) -> (text: String, reasoning: String?) {
+        let split = splitReasoning(value, startTag: startTag, endTag: endTag)
+        return normalizeResponse(text: split.text, reasoning: split.reasoning)
+    }
+
+    static func normalizeResponse(
+        text: String,
+        reasoning: String?
+    ) -> (text: String, reasoning: String?) {
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedReasoning = reasoning?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            normalizedText,
+            normalizedReasoning?.isEmpty == false ? normalizedReasoning : nil)
     }
 
     static func sanitizedToolName(_ value: String) -> String {
@@ -453,9 +472,12 @@ struct AFMMLXResponseAccumulator {
     }
 
     var response: AFMModelResponse {
-        AFMModelResponse(
+        let normalized = AFMMLXModel.normalizeResponse(
             text: text,
-            reasoning: reasoning.isEmpty ? nil : reasoning,
+            reasoning: reasoning.isEmpty ? nil : reasoning)
+        return AFMModelResponse(
+            text: normalized.text,
+            reasoning: normalized.reasoning,
             toolCalls: toolOrder.compactMap { toolCalls[$0] },
             usage: usage,
             finishReason: finishReason,

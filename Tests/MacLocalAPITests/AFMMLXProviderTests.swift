@@ -25,6 +25,28 @@ final class AFMMLXProviderTests: XCTestCase {
         XCTAssertEqual(response.metadata["promptTime"], .number(0.25))
     }
 
+    func testSchedulerResponseNormalizationMatchesSerialReasoningPath() {
+        let raw = "  <think>\n  inspect state  \n</think>\n  final answer  \n"
+        let serial = AFMMLXModel.normalizedGeneratedResponse(
+            raw,
+            startTag: "<think>",
+            endTag: "</think>")
+        var translator = MLXStreamEventTranslator(
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            maximumResponseTokens: nil)
+        var accumulator = AFMMLXResponseAccumulator(modelID: "test/model")
+
+        for event in translator.consume(StreamChunk(text: raw)) + translator.finish() {
+            accumulator.consume(event)
+        }
+
+        XCTAssertEqual(accumulator.response.text, serial.text)
+        XCTAssertEqual(accumulator.response.reasoning, serial.reasoning)
+        XCTAssertEqual(accumulator.response.text, "final answer")
+        XCTAssertEqual(accumulator.response.reasoning, "inspect state")
+    }
+
     func testTranslatorCoercesCompleteVendorToolDeltaUsingSchema() throws {
         let tools = [
             RequestTool(

@@ -185,6 +185,28 @@ actor MLXModelExecutionCoordinator {
     }
 }
 
+final class MLXModelServiceOperationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finishHandler: (() -> Void)?
+
+    init(finishHandler: @escaping () -> Void) {
+        self.finishHandler = finishHandler
+    }
+
+    func finish() {
+        let handler = lock.withLock { () -> (() -> Void)? in
+            let handler = finishHandler
+            finishHandler = nil
+            return handler
+        }
+        handler?()
+    }
+
+    deinit {
+        finish()
+    }
+}
+
 /// Resolved log probability entry with token strings (ready for API response).
 public struct ResolvedLogprob: Sendable {
     public let token: String
@@ -1800,16 +1822,8 @@ public final class MLXModelService: @unchecked Sendable {
         stage: (@Sendable (MLXLoadStage) -> Void)? = nil,
         countOperation: Bool = true
     ) async throws -> String {
-        var didBeginOperation = false
-        if countOperation {
-            try beginOperation()
-            didBeginOperation = true
-        }
-        defer {
-            if didBeginOperation {
-                endOperation()
-            }
-        }
+        let operation = countOperation ? try beginOperation() : nil
+        defer { operation?.finish() }
 
         let modelID = normalizeModel(rawModel)
         let configuredDFlash2Drafter = dflash2Drafter
@@ -2482,8 +2496,8 @@ public final class MLXModelService: @unchecked Sendable {
         chatTemplateKwargs: [String: AnyCodable]? = nil,
         speculativeDecoding: SpeculativeDecodingOptions? = nil
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
-        try beginOperation()
-        defer { endOperation() }
+        let operation = try beginOperation()
+        defer { operation.finish() }
 
         // /metrics: serial-path timestamps. The serial generate() has no
         // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
@@ -3561,16 +3575,16 @@ public final class MLXModelService: @unchecked Sendable {
         requestId: String? = nil
     ) async throws -> (modelID: String, stream: AsyncThrowingStream<StreamChunk, Error>, promptTokens: Int, toolCallStartTag: String?, toolCallEndTag: String?, thinkStartTag: String?, thinkEndTag: String?) {
         let reqId = requestId ?? ""
-        try beginOperation()
-        var endOperationOnExit = true
+        let operation = try beginOperation()
+        var operationOwnedByStream = false
         defer {
-            if endOperationOnExit {
-                endOperation()
+            if !operationOwnedByStream {
+                operation.finish()
             }
         }
         // Streaming keeps the operation open until the background Task finishes.
         // The fallback defer above only handles setup failures before the Task
-        // is created; the Task itself owns the normal endOperation() call.
+        // or operation-owning stream is created.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
@@ -3794,8 +3808,11 @@ public final class MLXModelService: @unchecked Sendable {
             // Derive tool call tags (same logic as serial path, below)
             let toolTags = toolRuntimeConfig.map { ($0.startTag, $0.endTag) }
 
-            endOperationOnExit = false
-            return (modelID, effectiveStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
+            let operationStream = Self.ownOperation(
+                effectiveStream,
+                operation: operation)
+            operationOwnedByStream = true
+            return (modelID, operationStream, preparedPromptTokens, toolTags?.0, toolTags?.1, self.thinkStartTag, self.thinkEndTag)
         }
 
         // --- MTP / EAGLE3 speculative streaming fast path (serial, greedy, text-only) ---
@@ -3885,6 +3902,7 @@ public final class MLXModelService: @unchecked Sendable {
                     let task = Task {
                         defer {
                             self.cleanupTempFiles(mediaTempFiles)
+                            operation.finish()
                             Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
                         }
                         StatsAggregator.shared.requestStarted()
@@ -4006,13 +4024,12 @@ public final class MLXModelService: @unchecked Sendable {
                             StatsAggregator.shared.requestCompleted()
                             continuation.finish(throwing: error)
                         }
-                        self.endOperation()
                     }
                     // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
                     continuation.onTermination = { _ in task.cancel() }
                 }
                 streamOwnsTempFiles = true
-                endOperationOnExit = false
+                operationOwnedByStream = true
                 releaseSerialExecutionOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
             }
@@ -4042,7 +4059,7 @@ public final class MLXModelService: @unchecked Sendable {
             streamScratch.userInput = userInput
             let task = Task {
                 defer {
-                    self.endOperation()
+                    operation.finish()
                     Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
                 }
                 do {
@@ -4568,7 +4585,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         streamOwnsTempFiles = true
-        endOperationOnExit = false
+        operationOwnedByStream = true
         releaseSerialExecutionOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
@@ -5933,12 +5950,37 @@ public final class MLXModelService: @unchecked Sendable {
 
     // MARK: - Private helpers
 
-    private func beginOperation() throws {
+    func beginOperation() throws -> MLXModelServiceOperationToken {
         try withStateLock {
             if isShuttingDown {
                 throw MLXServiceError.serviceShuttingDown
             }
             activeOperations += 1
+        }
+        return MLXModelServiceOperationToken { self.endOperation() }
+    }
+
+    var activeOperationCount: Int {
+        withStateLock { activeOperations }
+    }
+
+    static func ownOperation(
+        _ upstream: AsyncThrowingStream<StreamChunk, Error>,
+        operation: MLXModelServiceOperationToken
+    ) -> AsyncThrowingStream<StreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                defer { operation.finish() }
+                do {
+                    for try await chunk in upstream {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
