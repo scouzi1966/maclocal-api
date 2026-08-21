@@ -44,6 +44,36 @@ extension Gemma4VLM: FixedDecodeCohortModel {
 /// are merged into `BatchKVCacheSimple` for batched decode. Dynamic slot
 /// add/remove uses `extend()` and `filter()` on the batch cache.
 actor BatchScheduler {
+    enum SerialGenerationDisposition: Equatable {
+        case cancel
+        case length
+        case stop
+        case emit
+    }
+
+    static func serialGenerationDisposition(
+        cancellationRequested: Bool,
+        tokenCount: Int,
+        maxTokens: Int,
+        tokenID: Int,
+        unknownTokenID: Int?,
+        ignoreEndOfSequence: Bool,
+        eosTokenIDs: Set<Int>
+    ) -> SerialGenerationDisposition {
+        if cancellationRequested { return .cancel }
+        if tokenCount >= maxTokens { return .length }
+        if unknownTokenID == tokenID
+            || (!ignoreEndOfSequence && eosTokenIDs.contains(tokenID))
+        {
+            return .stop
+        }
+        return .emit
+    }
+
+    static func shouldDispatchFirstToken(maxTokens: Int?) -> Bool {
+        maxTokens.map { $0 > 0 } ?? true
+    }
+
     struct ConstraintRuntimeConfiguration: @unchecked Sendable {
         let mode: String
         let matcherHandle: GrammarMatcherHandle?
@@ -1516,7 +1546,8 @@ actor BatchScheduler {
         // The generationLoop dispatch starts from the SECOND token, so without this
         // the first generated token would be lost (e.g., `{` in JSON output).
         // Guard: don't dispatch EOS or unknown tokens as text.
-        if (slot.ignoreEndOfSequence || !eosTokenIds.contains(firstToken))
+        if Self.shouldDispatchFirstToken(maxTokens: slot.maxTokens)
+            && (slot.ignoreEndOfSequence || !eosTokenIds.contains(firstToken))
             && firstToken != tokenizer.unknownTokenId
         {
             slot.tokenCount += 1
@@ -1572,6 +1603,11 @@ actor BatchScheduler {
         cacheTruncateTime: Double?,
         logitProcessor: LogitProcessor?, logitSampler: LogitSampler
     ) {
+        if isCancellationRequested(req.id) {
+            finishSerialCancellation(req)
+            return
+        }
+
         // Emit cached token count
         if cachedTokens > 0 {
             req.continuation.yield(StreamChunk(text: "", cachedTokens: cachedTokens))
@@ -1593,11 +1629,33 @@ actor BatchScheduler {
         var tokenCount = 0
         let maxTokens = req.parameters.maxTokens ?? 4096
         var detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+        var stopBuffer = MLXSerialStopSequenceBuffer(stopSequences: req.stopSequences)
+        var stoppedBySequence = false
+        var reachedLength = false
         let genStart = Date()
 
-        while tokenCount < maxTokens {
+        generation: while true {
             let tokenId = currentToken.item(Int.self)
-            if !req.ignoreEndOfSequence && eosTokenIds.contains(tokenId) { break }
+            switch Self.serialGenerationDisposition(
+                cancellationRequested: isCancellationRequested(req.id),
+                tokenCount: tokenCount,
+                maxTokens: maxTokens,
+                tokenID: tokenId,
+                unknownTokenID: tokenizer.unknownTokenId,
+                ignoreEndOfSequence: req.ignoreEndOfSequence,
+                eosTokenIDs: eosTokenIds
+            ) {
+            case .cancel:
+                finishSerialCancellation(req)
+                return
+            case .length:
+                reachedLength = true
+                break generation
+            case .stop:
+                break generation
+            case .emit:
+                break
+            }
 
             tokenCount += 1
             telemetryObserver.outputToken(
@@ -1606,7 +1664,19 @@ actor BatchScheduler {
             )
             detokenizer.append(token: tokenId)
             if let chunk = detokenizer.next() {
-                req.continuation.yield(StreamChunk(text: chunk))
+                let visible = stopBuffer.append(chunk)
+                if !visible.isEmpty {
+                    req.continuation.yield(StreamChunk(text: visible))
+                }
+                if stopBuffer.stopped {
+                    stoppedBySequence = true
+                    break generation
+                }
+            }
+
+            if tokenCount >= maxTokens {
+                reachedLength = true
+                break generation
             }
 
             // Next token — shape [1, 1] (batch=1, seqLen=1)
@@ -1622,6 +1692,15 @@ actor BatchScheduler {
             _ = currentToken.item(Int.self)
         }
 
+        if isCancellationRequested(req.id) {
+            finishSerialCancellation(req)
+            return
+        }
+        let trailingText = stopBuffer.finish()
+        if !trailingText.isEmpty {
+            req.continuation.yield(StreamChunk(text: trailingText))
+        }
+
         let generateTime = Date().timeIntervalSince(genStart)
         print("[\(batchTs())] [BatchScheduler] Serial cache generation done: \(tokenCount) tokens, \(String(format: "%.1f", Double(tokenCount) / generateTime)) tok/s")
 
@@ -1635,11 +1714,11 @@ actor BatchScheduler {
             cachedTokens: cachedTokens,
             promptTime: prefillTime,
             generateTime: generateTime,
-            stoppedBySequence: false
+            stoppedBySequence: stoppedBySequence
         ))
         req.continuation.finish()
 
-        let reason: AFMInferenceFinishReason = tokenCount >= maxTokens ? .length : .stop
+        let reason: AFMInferenceFinishReason = reachedLength ? .length : .stop
         _ = telemetryObserver.requestFinished(
             req.telemetryToken,
             observation: AFMInferenceRequestFinishObservation(
@@ -1651,11 +1730,25 @@ actor BatchScheduler {
                 maximumOutputTokens: maxTokens
             )
         )
+        clearCancellation(req.id)
         _inFlightCount.withLock { $0 = max(0, $0 - 1) }
         publishProviderState()
 
         // Prefix-cache persistence for model-specific hybrid caches requires a
         // dedicated snapshot contract. Do not reinterpret their state as KVCacheSimple.
+    }
+
+    private func finishSerialCancellation(_ req: PendingRequest) {
+        req.admissionLease?.transferReleaseToProvider()
+        req.continuation.finish(throwing: CancellationError())
+        _ = telemetryObserver.requestFailed(
+            req.telemetryToken,
+            reason: .cancelled,
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        clearCancellation(req.id)
+        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+        publishProviderState()
     }
 
     // MARK: - Batched Prefill
@@ -1877,7 +1970,8 @@ actor BatchScheduler {
             }
 
             // Dispatch prefill first token to detokenizer (same fix as prefillOne)
-            if (slot.ignoreEndOfSequence || !eosTokenIds.contains(firstToken))
+            if Self.shouldDispatchFirstToken(maxTokens: slot.maxTokens)
+                && (slot.ignoreEndOfSequence || !eosTokenIds.contains(firstToken))
                 && firstToken != tokenizer.unknownTokenId
             {
                 slot.tokenCount += 1
@@ -2368,8 +2462,10 @@ actor BatchScheduler {
                 stopBuffer += text
             }
 
-            if let match = activeStops.first(where: { stopBuffer.contains($0) }),
-               let range = stopBuffer.range(of: match) {
+            if let range = MLXStopSequenceMatcher.earliestRange(
+                in: stopBuffer,
+                stopSequences: activeStops
+            ) {
                 let before = String(stopBuffer[..<range.lowerBound])
                 chunks.append(StreamChunk(text: before, stoppedBySequence: true))
                 return (chunks, true)

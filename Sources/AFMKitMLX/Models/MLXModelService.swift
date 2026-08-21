@@ -213,6 +213,19 @@ private final class StreamingScratch: @unchecked Sendable {
     var streamStatStoppedBySequence = false
 }
 
+enum MLXStopSequenceMatcher {
+    static func earliestRange(
+        in text: String,
+        stopSequences: [String]
+    ) -> Range<String.Index>? {
+        stopSequences
+            .lazy
+            .filter { !$0.isEmpty }
+            .compactMap { text.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
+    }
+}
+
 struct MLXSerialStopSequenceBuffer: Sendable {
     private let stopSequences: [String]
     private let retainedSuffixLength: Int
@@ -229,9 +242,10 @@ struct MLXSerialStopSequenceBuffer: Sendable {
         guard !stopSequences.isEmpty else { return text }
         buffer += text
 
-        let firstMatch = stopSequences.compactMap { buffer.range(of: $0) }.min {
-            $0.lowerBound < $1.lowerBound
-        }
+        let firstMatch = MLXStopSequenceMatcher.earliestRange(
+            in: buffer,
+            stopSequences: stopSequences
+        )
         if let firstMatch {
             let visible = String(buffer[..<firstMatch.lowerBound])
             buffer = ""
@@ -2518,11 +2532,12 @@ public final class MLXModelService: @unchecked Sendable {
                         }
                         if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
                             let visibleContent = String(generated[vcStart...])
-                            if let match = activeStops.first(where: { visibleContent.contains($0) }) {
-                                if let range = visibleContent.range(of: match) {
-                                    let keepEnd = generated.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
-                                    generated = String(generated[..<keepEnd])
-                                }
+                            if let range = MLXStopSequenceMatcher.earliestRange(
+                                in: visibleContent,
+                                stopSequences: activeStops
+                            ) {
+                                let keepEnd = generated.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                generated = String(generated[..<keepEnd])
                                 stoppedBySequence = true
                                 break
                             }
@@ -2933,11 +2948,12 @@ public final class MLXModelService: @unchecked Sendable {
                         // Only check stop sequences against visible content (after </think>)
                         if !activeStops.isEmpty && !insideThink, let vcStart = visibleContentStart {
                             let visibleContent = String(out[vcStart...])
-                            if let match = activeStops.first(where: { visibleContent.contains($0) }) {
-                                if let range = visibleContent.range(of: match) {
-                                    let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
-                                    out = String(out[..<keepEnd])
-                                }
+                            if let range = MLXStopSequenceMatcher.earliestRange(
+                                in: visibleContent,
+                                stopSequences: activeStops
+                            ) {
+                                let keepEnd = out.index(vcStart, offsetBy: visibleContent.distance(from: visibleContent.startIndex, to: range.lowerBound))
+                                out = String(out[..<keepEnd])
                                 stoppedBySequence = true
                                 break
                             }

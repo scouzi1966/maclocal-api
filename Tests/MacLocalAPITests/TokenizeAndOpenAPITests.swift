@@ -134,6 +134,26 @@ struct TokenizeAndOpenAPITests {
         }
     }
 
+    @Test("T1.7 raw completions document runtime errors and capacity retry header")
+    func openAPIDocumentsRawCompletionErrorResponses() throws {
+        let paths = try Self.paths(
+            OpenAPIController.specJSON(rawCompletionsAvailable: true)
+        )
+        let completionPath = try #require(paths["/v1/completions"] as? [String: Any])
+        let post = try #require(completionPath["post"] as? [String: Any])
+        let responses = try #require(post["responses"] as? [String: Any])
+
+        for status in ["200", "400", "404", "500", "503"] {
+            #expect(responses[status] != nil, "missing raw completion response \(status)")
+        }
+        let unavailable = try #require(responses["503"] as? [String: Any])
+        let headers = try #require(unavailable["headers"] as? [String: Any])
+        let retryAfter = try #require(headers["Retry-After"] as? [String: Any])
+        let schema = try #require(retryAfter["schema"] as? [String: Any])
+        #expect(schema["type"] as? String == "integer")
+        #expect(retryAfter["example"] as? Int == 2)
+    }
+
     @Test("T1.7 docs page references /openapi.json on same origin")
     func docsHTMLReferencesSpec() {
         let html = OpenAPIController.docsHTML

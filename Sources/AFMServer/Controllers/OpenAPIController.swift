@@ -321,7 +321,20 @@ struct OpenAPIController: RouteCollection {
                   "text/event-stream": { "schema": { "type": "string" } }
                 }
               },
-              "400": { "description": "Invalid or unsupported request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+              "400": { "description": "Invalid or unsupported request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "404": { "description": "Requested model not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "500": { "description": "Generation failed or ended without a terminal event", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "503": {
+                "description": "Generation capacity is temporarily unavailable",
+                "headers": {
+                  "Retry-After": {
+                    "description": "Seconds to wait before retrying the request.",
+                    "schema": { "type": "integer", "minimum": 0 },
+                    "example": 2
+                  }
+                },
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } }
+              }
             }
           }
         },

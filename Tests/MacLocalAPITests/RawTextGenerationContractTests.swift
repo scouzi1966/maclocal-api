@@ -141,4 +141,13 @@ final class RawTextGenerationContractTests: XCTestCase {
         XCTAssertEqual(visible, "<think>reply with ")
         XCTAssertEqual(buffer.finish(), "")
     }
+
+    func testSerialStopBufferUsesEarliestOutputMatchNotRequestOrder() {
+        var buffer = MLXSerialStopSequenceBuffer(stopSequences: ["LATE", "EARLY"])
+        let visible = buffer.append("before EARLY middle LATE after")
+
+        XCTAssertTrue(buffer.stopped)
+        XCTAssertEqual(visible, "before ")
+        XCTAssertEqual(buffer.finish(), "")
+    }
 }
