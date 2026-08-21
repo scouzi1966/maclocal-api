@@ -143,6 +143,39 @@ final class AFMKitMLXReasoningPropagationTests: XCTestCase {
         XCTAssertEqual(snapshot.failureCounts.first { $0.name == "internal" }?.count, 1)
     }
 
+    func testFixedStreamingProducerDoesNotReleaseControllerOwnedReservation() async throws {
+        let adapter = makeAdapter(capture: RequestCapture(), defaults: [:])
+        XCTAssertTrue(adapter.tryReserveSlot())
+
+        let result = try await adapter.generateStreaming(
+            model: "capture",
+            messages: [Message(role: "user", content: "hello")],
+            temperature: nil,
+            maxTokens: 8,
+            topP: nil,
+            repetitionPenalty: nil,
+            topK: nil,
+            minP: nil,
+            presencePenalty: nil,
+            seed: nil,
+            logprobs: nil,
+            topLogprobs: nil,
+            tools: nil,
+            parallelToolCalls: nil,
+            stop: nil,
+            responseFormat: nil,
+            chatTemplateKwargs: nil,
+            preserveStructuralTags: false,
+            requestId: "ownership-test"
+        )
+        for try await _ in result.stream {}
+
+        XCTAssertFalse(adapter.tryReserveSlot())
+        adapter.releaseSlot()
+        XCTAssertTrue(adapter.tryReserveSlot())
+        adapter.releaseSlot()
+    }
+
     private func makeAdapter(
         capture: RequestCapture,
         defaults: [String: AnyCodable]
