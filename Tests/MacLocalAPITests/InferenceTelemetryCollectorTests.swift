@@ -360,6 +360,106 @@ final class InferenceTelemetryCollectorTests: XCTestCase {
         XCTAssertEqual(snapshot.prefixCacheFill, 1)
     }
 
+    func testResetDuringActiveRequestPreservesOwnershipAndCountsLaterCallbacks() {
+        let clock = Clock(100)
+        let collector = InferenceTelemetryCollector(
+            now: { clock.read() },
+            wallTime: { 1_000 }
+        )
+        collector.configure(
+            modelName: "active-model",
+            maximumConcurrentRequests: 4,
+            maximumContextTokens: 4_096
+        )
+        collector.updateProviderState(AFMInferenceProviderState(
+            runningRequests: 2,
+            waitingRequests: 1,
+            activeLogicalCachePositions: 50,
+            logicalCacheCapacity: 100,
+            memoryCacheUsage: 0.4,
+            prefixCacheFill: 0.3
+        ))
+        let token = collector.requestAccepted(at: 90)
+        collector.requestStarted(token, at: 91)
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 5,
+            computedPromptTokens: 4,
+            at: 92
+        )
+        collector.outputToken(token, at: 93)
+
+        collector.reset()
+
+        var snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.modelName, "active-model")
+        XCTAssertEqual(snapshot.maximumConcurrentRequests, 4)
+        XCTAssertEqual(snapshot.maximumContextTokens, 4_096)
+        XCTAssertEqual(snapshot.runningRequests, 2)
+        XCTAssertEqual(snapshot.waitingRequests, 1)
+        XCTAssertEqual(snapshot.peakRunningRequests, 2)
+        XCTAssertEqual(snapshot.logicalCacheUsage, 0.5)
+        XCTAssertEqual(snapshot.memoryCacheUsage, 0.4)
+        XCTAssertEqual(snapshot.prefixCacheFill, 0.3)
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 0)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 0)
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 0)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 0)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 0)
+        XCTAssertEqual(snapshot.endToEndLatency.count, 0)
+        XCTAssertEqual(snapshot.interTokenLatency.count, 0)
+
+        clock.set(101)
+        collector.promptTokensProcessed(
+            token,
+            fullPromptTokens: 7,
+            computedPromptTokens: 6,
+            at: 101
+        )
+        collector.outputToken(token, at: 102)
+        XCTAssertTrue(collector.requestFinished(
+            token,
+            observation: AFMInferenceRequestFinishObservation(
+                reason: .length,
+                completedAt: 103,
+                fullPromptTokens: 7,
+                computedPromptTokens: 6,
+                generatedTokens: 2,
+                maximumOutputTokens: 2
+            )
+        ))
+
+        snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.acceptedRequestsTotal, 0)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.fullPromptTokensTotal, 2)
+        XCTAssertEqual(snapshot.computedPromptTokensTotal, 2)
+        XCTAssertEqual(snapshot.generatedTokensTotal, 1)
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "length" }?.count, 1)
+        XCTAssertEqual(snapshot.endToEndLatency.count, 1)
+        XCTAssertEqual(snapshot.interTokenLatency.count, 1)
+        XCTAssertEqual(snapshot.maximumGeneratedTokens.sum, 2)
+    }
+
+    func testResetDuringActiveRequestPreservesTokenForLaterFailure() {
+        let collector = InferenceTelemetryCollector(now: { 20 }, wallTime: { 1_000 })
+        let token = collector.requestAccepted(at: 10)
+        collector.requestStarted(token, at: 11)
+        collector.outputToken(token, at: 12)
+
+        collector.reset()
+
+        collector.outputToken(token, at: 13)
+        XCTAssertTrue(collector.requestFailed(token, reason: .cancelled, at: 14))
+        XCTAssertFalse(collector.requestFailed(token, reason: .cancelled, at: 14))
+
+        let snapshot = collector.metricsSnapshot()
+        XCTAssertEqual(snapshot.generatedTokensTotal, 1)
+        XCTAssertEqual(snapshot.terminalRequestsTotal, 1)
+        XCTAssertEqual(snapshot.terminalCounts.first { $0.name == "abort" }?.count, 1)
+        XCTAssertEqual(snapshot.failureCounts.first { $0.name == "cancelled" }?.count, 1)
+    }
+
     private func rate(_ name: String, in snapshot: AFMInferenceMetricsSnapshot) -> Double? {
         snapshot.supplementalDoubleGauges.first { $0.name == name }?.value
     }

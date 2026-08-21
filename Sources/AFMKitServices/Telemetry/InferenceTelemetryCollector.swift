@@ -259,6 +259,12 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             let maximumContextTokens = current.maximumContextTokens
             let connections = current.activeConnections
             let connectionPeak = current.activeConnectionsPeak
+            let requests = current.requests
+            let runningRequests = current.runningRequests
+            let waitingRequests = current.waitingRequests
+            let logicalCacheUsage = current.logicalCacheUsage
+            let memoryCacheUsage = current.memoryCacheUsage
+            let prefixCacheFill = current.prefixCacheFill
             current = State(
                 processStartEpochSeconds: start,
                 maximumContextTokens: maximumContextTokens
@@ -267,6 +273,13 @@ public final class InferenceTelemetryCollector: @unchecked Sendable {
             current.maximumConcurrentRequests = capacity
             current.activeConnections = connections
             current.activeConnectionsPeak = connectionPeak
+            current.requests = requests
+            current.runningRequests = runningRequests
+            current.waitingRequests = waitingRequests
+            current.peakRunningRequests = runningRequests
+            current.logicalCacheUsage = logicalCacheUsage
+            current.memoryCacheUsage = memoryCacheUsage
+            current.prefixCacheFill = prefixCacheFill
         }
     }
 
