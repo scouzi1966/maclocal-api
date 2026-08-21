@@ -30,8 +30,14 @@ private extension Dictionary where Key == String, Value == AnyCodable {
     }
 }
 
-enum AFMMLXTaskCancellationGate {
-    static var shouldContinue: Bool { !Task.isCancelled }
+enum AFMMLXSpeculativeDecodeCancellation {
+    static func run<Output>(
+        _ decode: (_ onToken: (Int) -> Bool) -> Output
+    ) throws -> Output {
+        let output = decode { _ in !Task.isCancelled }
+        try Task.checkCancellation()
+        return output
+    }
 }
 
 /// Immutable request-scoped handle that keeps an MTP generator paired with
@@ -2288,12 +2294,16 @@ public final class MLXModelService: @unchecked Sendable {
                 let limit = ProcessInfo.processInfo.environment["AFM_DSPARK_DRAFT"]
                     .flatMap(Int.init)
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let ids = DeepseekV4DSparkGenerator(
-                    model: model, draftLimit: limit
-                ).generate(
-                    promptIds: promptIds,
-                    maxTokens: effectiveMaxTokens,
-                    eosIds: eos)
+                let ids = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    DeepseekV4DSparkGenerator(
+                        model: model, draftLimit: limit
+                    ).generate(
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        onToken: onToken
+                    )
+                }
                 let elapsed = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (ids.last.map { eos.contains($0) } ?? false)
                     ? Array(ids.dropLast()) : ids
@@ -2327,13 +2337,14 @@ public final class MLXModelService: @unchecked Sendable {
                 guard !promptIds.isEmpty else { return nil }
                 let eos = Set((context.tokenizer.eosTokenId).map { [$0] } ?? [])
                 let t0 = Date.timeIntervalSinceReferenceDate
-                let outIds = gen.generate(
-                    promptIds: promptIds,
-                    maxTokens: effectiveMaxTokens,
-                    eosIds: eos,
-                    onToken: { _ in AFMMLXTaskCancellationGate.shouldContinue }
-                )
-                try Task.checkCancellation()
+                let outIds = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    gen.generate(
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        onToken: onToken
+                    )
+                }
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 // strip a trailing EOS for the returned text
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
@@ -2374,9 +2385,16 @@ public final class MLXModelService: @unchecked Sendable {
                 // seed — zero in-block drafter forwards — so the 2-wide verify amortizes best;
                 // larger blocks add sequential drafter forwards that erase the savings). Overridable.
                 let block = ProcessInfo.processInfo.environment["AFM_EAGLE3_BLOCK"].flatMap { Int($0) } ?? 2
-                let outIds = gen.generateSpeculative(
-                    model: model, promptIds: promptIds, maxTokens: effectiveMaxTokens,
-                    eosIds: eos, blockSize: block)
+                let outIds = try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                    gen.generateSpeculative(
+                        model: model,
+                        promptIds: promptIds,
+                        maxTokens: effectiveMaxTokens,
+                        eosIds: eos,
+                        blockSize: block,
+                        onToken: onToken
+                    )
+                }
                 let gt = Date.timeIntervalSinceReferenceDate - t0
                 let textIds = (outIds.last.map { eos.contains($0) } ?? false) ? Array(outIds.dropLast()) : outIds
                 let text = context.tokenizer.decode(tokens: textIds)

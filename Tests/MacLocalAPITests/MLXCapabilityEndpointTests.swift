@@ -1,6 +1,7 @@
 import AFMKitCore
 @testable import AFMKitMLX
 @testable import AFMServer
+import Darwin
 import XCTest
 
 final class MLXCapabilityEndpointTests: XCTestCase {
@@ -97,15 +98,12 @@ final class MLXCapabilityEndpointTests: XCTestCase {
         )
     }
 
-    func testCancellationGateReflectsTaskCancellation() async {
-        XCTAssertTrue(AFMMLXTaskCancellationGate.shouldContinue)
+    func testDSpARKCancellationStopsDecodeAfterFirstToken() async throws {
+        try await assertSpeculativeDecodeCancellation(engine: "DSpARK")
+    }
 
-        let observedCancellation = await Task { () -> Bool in
-            withUnsafeCurrentTask { $0?.cancel() }
-            return !AFMMLXTaskCancellationGate.shouldContinue
-        }.value
-
-        XCTAssertTrue(observedCancellation)
+    func testEAGLE3CancellationStopsDecodeAfterFirstToken() async throws {
+        try await assertSpeculativeDecodeCancellation(engine: "EAGLE3")
     }
 
     private func makeDescriptor(
@@ -118,5 +116,39 @@ final class MLXCapabilityEndpointTests: XCTestCase {
             capabilities: capabilities,
             privacyBoundary: .device
         )
+    }
+
+    private func assertSpeculativeDecodeCancellation(
+        engine: String
+    ) async throws {
+        let (decodeStarted, decodeStartedContinuation) = AsyncStream<Void>.makeStream()
+        let task = Task.detached { () throws -> Int in
+            try AFMMLXSpeculativeDecodeCancellation.run { onToken in
+                var decodedTokens = 0
+                while onToken(decodedTokens) {
+                    decodedTokens += 1
+                    if decodedTokens == 1 {
+                        decodeStartedContinuation.yield()
+                        decodeStartedContinuation.finish()
+                    }
+                    usleep(1_000)
+                }
+                return decodedTokens
+            }
+        }
+
+        var decodeStartedIterator = decodeStarted.makeAsyncIterator()
+        XCTAssertNotNil(
+            await decodeStartedIterator.next(),
+            "\(engine) decode never emitted its first token"
+        )
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("\(engine) decode completed after cancellation")
+        } catch is CancellationError {
+            // Expected after cancellation is observed by the in-decode token callback.
+        }
     }
 }
