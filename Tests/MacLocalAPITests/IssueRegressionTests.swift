@@ -12,7 +12,8 @@ struct IssueRegressionTests {
     func mlxDefaultMaxTokensFallback() {
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 0, serverDefault: nil) == MLXChatCompletionsController.defaultMaxCompletionTokens)
-        #expect(MLXChatCompletionsController.defaultMaxCompletionTokens == 4096)
+        #expect(MLXChatCompletionsController.defaultMaxCompletionTokens == 8192)
+        #expect(MLXModelService.defaultMaximumResponseTokens == 8192)
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: nil, serverDefault: 1024) == 1024)
         #expect(MLXChatCompletionsController.resolveEffectiveMaxTokens(requested: 2048, serverDefault: 1024) == 2048)
     }

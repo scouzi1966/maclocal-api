@@ -427,7 +427,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Presence penalty: flat additive penalty for tokens already generated (0.0 = disabled)")
     var presencePenalty: Double?
     @Option(name: .long, help: "Maximum tokens to generate per response (default: 8192)")
-    var maxTokens: Int?
+    var maxTokens: Int = MLXModelService.defaultMaximumResponseTokens
     @Option(name: .long, help: "Random seed for reproducible sampling (nil = non-deterministic)")
     var seed: Int?
     @Option(name: .long, help: "Maximum number of top log probabilities returned per token (default: 20)")

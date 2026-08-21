@@ -994,6 +994,30 @@ final class TUIConversationPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.reasoningDuration, finishedReasoningDuration)
     }
 
+    func testReasoningOnlyTokenLimitIsIncompleteRatherThanCancelled() async {
+        let buffer = GenerationBuffer()
+        await buffer.accept(.reasoning("unfinished reasoning", tokenCount: 8))
+        await buffer.accept(.completed(.length))
+
+        let snapshot = await buffer.snapshot()
+        XCTAssertEqual(snapshot.finishReason, .length)
+        XCTAssertFalse(snapshot.cancelled)
+        XCTAssertEqual(
+            AFMTerminalChat.generationDisposition(for: snapshot),
+            .incomplete(.length)
+        )
+    }
+
+    func testExplicitCancellationRemainsCancellation() async {
+        let buffer = GenerationBuffer()
+        await buffer.accept(.reasoning("partial", tokenCount: 2))
+        await buffer.cancel()
+
+        let snapshot = await buffer.snapshot()
+        XCTAssertEqual(snapshot.finishReason, .cancelled)
+        XCTAssertEqual(AFMTerminalChat.generationDisposition(for: snapshot), .cancelled)
+    }
+
     func testFoundationTurnsAreIncrementalWhileStatelessTurnsRetainHistory() {
         let transcript = [
             Message(role: "user", content: "first"),

@@ -549,7 +549,7 @@ public class Server: @unchecked Sendable {
                             top_p: 0.95,
                             min_p: 0.05,
                             stream: self.streamingEnabled,
-                            max_tokens: 2000
+                            max_tokens: MLXModelService.defaultMaximumResponseTokens
                         )
                     ),
                     total_slots: 1,

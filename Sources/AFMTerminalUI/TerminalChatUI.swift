@@ -155,6 +155,12 @@ enum TUIGenerationPhase: Equatable, Sendable {
     case completed
 }
 
+enum TUIGenerationDisposition: Equatable, Sendable {
+    case accepted
+    case cancelled
+    case incomplete(AFMFinishReason?)
+}
+
 enum TUIActivityIndicator {
     private static let unicodeFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     private static let asciiFrames = ["|", "/", "-", "\\"]
@@ -180,6 +186,7 @@ struct GenerationSnapshot: Sendable {
     let cachedTokens: Int
     let phase: TUIGenerationPhase
     let reasoningDuration: TimeInterval?
+    let finishReason: AFMFinishReason?
     let completed: Bool
     let cancelled: Bool
     let error: String?
@@ -202,6 +209,7 @@ actor GenerationBuffer {
     private var currentPhase: TUIGenerationPhase = .preparing
     private var reasoningStartedAt: Date?
     private var reasoningFinishedAt: Date?
+    private var finishReason: AFMFinishReason?
     private var completed = false
     private var cancelled = false
     private var error: String?
@@ -244,8 +252,9 @@ actor GenerationBuffer {
             }
         case .usage(let prompt, let completion, let cached):
             promptTokens = prompt; completionTokens = completion; cachedTokens = cached
-        case .completed:
+        case .completed(let reason):
             finishReasoningIfNeeded()
+            finishReason = reason
             completed = true
         case .tokenLogprobs, .metadata, .custom: break
         }
@@ -267,6 +276,7 @@ actor GenerationBuffer {
         promptTokens = response.promptTokens
         completionTokens = response.completionTokens
         cachedTokens = response.cachedPromptTokens
+        finishReason = response.finishReason
         for call in response.toolCalls ?? [] {
             let safeCall = AFMToolCall(
                 id: TerminalOutputSanitizer.sanitize(call.id),
@@ -284,17 +294,19 @@ actor GenerationBuffer {
     func fail(_ value: Error) {
         guard !completed else { return }
         finishReasoningIfNeeded()
-        error = TerminalOutputSanitizer.sanitize(value.localizedDescription); completed = true; revision &+= 1
+        error = TerminalOutputSanitizer.sanitize(value.localizedDescription)
+        finishReason = .error
+        completed = true; revision &+= 1
     }
     func cancel() {
         guard !completed else { return }
         finishReasoningIfNeeded()
-        cancelled = true; completed = true; revision &+= 1
+        cancelled = true; finishReason = .cancelled; completed = true; revision &+= 1
     }
     func finish() {
         guard !completed else { return }
         finishReasoningIfNeeded()
-        completed = true; revision &+= 1
+        finishReason = .unknown; completed = true; revision &+= 1
     }
     func snapshot() -> GenerationSnapshot {
         makeSnapshot(includeFullContent: true)
@@ -320,7 +332,8 @@ actor GenerationBuffer {
             toolDisplayLines: toolDisplayLines,
             promptTokens: promptTokens, completionTokens: completionTokens,
             cachedTokens: cachedTokens, phase: phase,
-            reasoningDuration: reasoningDuration, completed: completed,
+            reasoningDuration: reasoningDuration, finishReason: finishReason,
+            completed: completed,
             cancelled: cancelled, error: error
         )
     }
@@ -595,6 +608,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
                 lastSnapshot = changed
                 forceRedraw = true
             }
+            if lastSnapshot.completed { break }
             let now = Date()
             if forceRedraw || now >= nextActivityRedraw {
                 if !forceRedraw { lastSnapshot = await buffer.renderSnapshot() }
@@ -639,15 +653,32 @@ public final class AFMTerminalChat: @unchecked Sendable {
             terminal.write("\(style("error", "1;31")): \(error)\n\n")
             return
         }
-        if lastSnapshot.cancelled || (lastSnapshot.text.isEmpty && lastSnapshot.tools.isEmpty) {
+        lastReasoning = lastSnapshot.reasoning
+        switch Self.generationDisposition(for: lastSnapshot) {
+        case .cancelled:
             session.removeMessage(at: pendingUserIndex)
             lastInputWasRolledBack = true
             try? await engine.resetConversation(with: session.messages)
             terminal.write("\(style("cancelled", "33")) — the partial response was not added.\n\n")
             return
+        case .incomplete(let reason):
+            session.removeMessage(at: pendingUserIndex)
+            lastInputWasRolledBack = true
+            try? await engine.resetConversation(with: session.messages)
+            let notice: String
+            if reason == .length {
+                notice = "token limit reached before the model produced an answer"
+            } else if reason == .contentFilter {
+                notice = "generation stopped by the content filter before producing an answer"
+            } else {
+                notice = "model stopped before producing an answer"
+            }
+            terminal.write("\(style("incomplete", "1;33")) — \(notice). The turn was not added; use /reasoning last, then /edit the prompt or restart with a higher --max-tokens value.\n\n")
+            return
+        case .accepted:
+            break
         }
 
-        lastReasoning = lastSnapshot.reasoning
         let messageToolCalls = lastSnapshot.tools.map {
             MessageToolCall(
                 id: $0.id,
@@ -680,6 +711,16 @@ public final class AFMTerminalChat: @unchecked Sendable {
         if !codeBlocks.isEmpty { terminal.write("\(style("\(codeBlocks.count) code block(s): /blocks, /copy, /save, /open", "2;36"))\n") }
         if !images.isEmpty { presentImages(images) }
         terminal.write("\n")
+    }
+
+    static func generationDisposition(for snapshot: GenerationSnapshot) -> TUIGenerationDisposition {
+        if snapshot.cancelled || snapshot.finishReason == .cancelled {
+            return .cancelled
+        }
+        if snapshot.text.isEmpty && snapshot.tools.isEmpty {
+            return .incomplete(snapshot.finishReason)
+        }
+        return .accepted
     }
 
     private func reportPersistenceResult(_ result: TUISessionPersistenceResult) {
@@ -741,12 +782,14 @@ public final class AFMTerminalChat: @unchecked Sendable {
         } else if !final && snapshot.phase == .usingTools {
             display += activityLine(label: "Using tools", frame: activityFrame, elapsed: elapsed) + "\n"
         }
-        display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(
-            full: snapshot.text,
-            tail: snapshot.textTail,
-            characterCount: snapshot.textCharacterCount,
-            final: final
-        )
+        if !final || snapshot.textCharacterCount > 0 || !snapshot.toolDisplayLines.isEmpty {
+            display += style("assistant", "1;32") + " › " + renderGenerationMarkdown(
+                full: snapshot.text,
+                tail: snapshot.textTail,
+                characterCount: snapshot.textCharacterCount,
+                final: final
+            )
+        }
         if !snapshot.toolDisplayLines.isEmpty {
             display += "\n" + style(snapshot.toolDisplayLines.joined(separator: "\n"), "36")
         }
@@ -762,9 +805,17 @@ public final class AFMTerminalChat: @unchecked Sendable {
         let isActive = !final && snapshot.phase == .reasoning
         let duration = Self.formattedDuration(snapshot.reasoningDuration ?? 0)
         let size = Self.compactCount(snapshot.reasoningCharacterCount)
+        let completedStatus: String
+        if snapshot.finishReason == .length && snapshot.textCharacterCount == 0 {
+            completedStatus = "◇ Reasoning — token limit"
+        } else if snapshot.cancelled || snapshot.finishReason == .cancelled {
+            completedStatus = "◇ Reasoning — interrupted"
+        } else {
+            completedStatus = "◇ Reasoning ✓"
+        }
         let status = isActive
             ? "◆ Reasoning \(activitySymbol(activityFrame))"
-            : "◇ Reasoning ✓"
+            : completedStatus
         let hint = isActive
             ? (reasoningDisplayMode == .expanded ? "Tab collapse" : "Tab expand")
             : "/reasoning last"
@@ -772,7 +823,10 @@ public final class AFMTerminalChat: @unchecked Sendable {
 
         switch reasoningDisplayMode {
         case .hidden:
-            return style("\(isActive ? "◆" : "◇") Reasoning \(isActive ? activitySymbol(activityFrame) : "✓") (hidden)", "2;35")
+            let hiddenStatus = isActive
+                ? "◆ Reasoning \(activitySymbol(activityFrame))"
+                : completedStatus
+            return style("\(hiddenStatus) (hidden)", "2;35")
         case .collapsed:
             return style(summary, isActive ? "35" : "2;35")
         case .expanded:
