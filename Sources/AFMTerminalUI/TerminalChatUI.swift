@@ -13,6 +13,7 @@ public struct TerminalChatConfiguration: Sendable {
     public let theme: TerminalMarkdownRenderer.Theme
     public let showReasoning: Bool
     public let streaming: Bool
+    public let useAlternateScreen: Bool
     public let initialAttachments: [URL]
 
     public init(
@@ -24,6 +25,7 @@ public struct TerminalChatConfiguration: Sendable {
         theme: TerminalMarkdownRenderer.Theme = .auto,
         showReasoning: Bool = false,
         streaming: Bool = true,
+        useAlternateScreen: Bool = true,
         initialAttachments: [URL] = []
     ) {
         self.backend = backend
@@ -34,6 +36,7 @@ public struct TerminalChatConfiguration: Sendable {
         self.theme = theme
         self.showReasoning = showReasoning
         self.streaming = streaming
+        self.useAlternateScreen = useAlternateScreen
         self.initialAttachments = initialAttachments
     }
 }
@@ -169,6 +172,47 @@ enum TUIActivityIndicator {
         let frames = unicode ? unicodeFrames : asciiFrames
         return frames[abs(frame) % frames.count]
     }
+}
+
+struct TUIViewport: Equatable, Sendable {
+    let totalLineCount: Int
+    let pageSize: Int
+    private(set) var offset: Int
+
+    init(totalLineCount: Int, pageSize: Int, startAtBottom: Bool = true) {
+        self.totalLineCount = max(0, totalLineCount)
+        self.pageSize = max(1, pageSize)
+        offset = startAtBottom ? max(0, totalLineCount - self.pageSize) : 0
+    }
+
+    var visibleRange: Range<Int> {
+        offset..<min(totalLineCount, offset + pageSize)
+    }
+
+    mutating func lineUp() { offset = max(0, offset - 1) }
+    mutating func lineDown() { offset = min(maximumOffset, offset + 1) }
+    mutating func pageUp() { offset = max(0, offset - pageSize) }
+    mutating func pageDown() { offset = min(maximumOffset, offset + pageSize) }
+    mutating func halfPageUp() { offset = max(0, offset - max(1, pageSize / 2)) }
+    mutating func halfPageDown() { offset = min(maximumOffset, offset + max(1, pageSize / 2)) }
+    mutating func moveToTop() { offset = 0 }
+    mutating func moveToBottom() { offset = maximumOffset }
+
+    private var maximumOffset: Int { max(0, totalLineCount - pageSize) }
+}
+
+struct TUISessionCodeBlock: Equatable, Sendable {
+    let messageIndex: Int
+    let blockIndex: Int
+    let suggestedName: String?
+    let block: TUICodeBlock
+}
+
+private enum TUIBlockAction: String, CaseIterable {
+    case copy = "Copy to clipboard"
+    case save = "Save to file"
+    case preview = "Open HTML/JavaScript preview"
+    case back = "Back to blocks"
 }
 
 struct GenerationSnapshot: Sendable {
@@ -469,7 +513,6 @@ public final class AFMTerminalChat: @unchecked Sendable {
             try TUIMediaAttachmentPolicy.validate(attachment)
         }
         try terminal.enter()
-        terminal.enterAlternateScreen()
         let signalMonitor = TUISignalMonitor()
         defer {
             signalMonitor.stop()
@@ -711,7 +754,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             elapsed: elapsed
         )
         terminal.write("\(style("↳ \(lastStatistics)", "2"))\n")
-        if !codeBlocks.isEmpty { terminal.write("\(style("\(codeBlocks.count) code block(s): /blocks, /copy, /save, /open", "2;36"))\n") }
+        if !codeBlocks.isEmpty { terminal.write("\(style("\(codeBlocks.count) new code block(s) · /blocks browses and saves the session", "2;36"))\n") }
         if !images.isEmpty { presentImages(images) }
         terminal.write("\n")
     }
@@ -914,13 +957,17 @@ public final class AFMTerminalChat: @unchecked Sendable {
         return style("… earlier streaming output omitted from redraw …", "2") + "\n" + renderedTail
     }
 
-    private func readInput(initial: String?, signalMonitor: TUISignalMonitor) -> String? {
+    private func readInput(
+        initial: String?,
+        signalMonitor: TUISignalMonitor,
+        promptLabel: String = "you"
+    ) -> String? {
         var characters = Array(initial ?? "")
         var cursor = characters.count
         var historyIndex = promptHistory.count
         var priorRows = 0
         while !signalMonitor.shouldTerminate {
-            priorRows = redrawInput(characters, cursor: cursor, priorRows: priorRows)
+            priorRows = redrawInput(characters, cursor: cursor, priorRows: priorRows, promptLabel: promptLabel)
             guard let key = terminal.readKey() else { continue }
             switch key {
             case .text(let value): characters.insert(contentsOf: value, at: cursor); cursor += value.count
@@ -934,6 +981,10 @@ public final class AFMTerminalChat: @unchecked Sendable {
             case .right where cursor < characters.count: cursor += 1
             case .home: cursor = 0
             case .end: cursor = characters.count
+            case .openTranscript:
+                eraseRows(priorRows)
+                browseTranscript(signalMonitor: signalMonitor)
+                priorRows = 0
             case .up where !promptHistory.isEmpty:
                 historyIndex = max(0, historyIndex - 1); characters = Array(promptHistory[historyIndex]); cursor = characters.count
             case .down where !promptHistory.isEmpty:
@@ -950,11 +1001,16 @@ public final class AFMTerminalChat: @unchecked Sendable {
         return nil
     }
 
-    private func redrawInput(_ characters: [Character], cursor: Int, priorRows: Int) -> Int {
+    private func redrawInput(
+        _ characters: [Character],
+        cursor: Int,
+        priorRows: Int,
+        promptLabel: String
+    ) -> Int {
         eraseRows(priorRows)
         let attachmentBadge = attachments.isEmpty ? "" : " [\(attachments.count) attachment(s)]"
         let content = String(characters).replacingOccurrences(of: "\n", with: "\n… ")
-        let display = style("you\(attachmentBadge)", "1;34") + " › " + content
+        let display = style("\(promptLabel)\(attachmentBadge)", "1;34") + " › " + content
         terminal.write(display)
         // Cursor positioning across wide Unicode is terminal-dependent. Keep navigation exact
         // in the buffer and show a visual cursor when editing away from the end.
@@ -1012,7 +1068,8 @@ public final class AFMTerminalChat: @unchecked Sendable {
             if reasoningDisplayMode == .expanded, !lastReasoning.isEmpty {
                 terminal.write("\(style("latest reasoning", "2;35")) ›\n\(renderMarkdown(lastReasoning).text)\n")
             }
-        case "/blocks": listBlocks()
+        case "/scroll": browseTranscript(signalMonitor: signalMonitor)
+        case "/blocks": try browseBlocks(signalMonitor: signalMonitor)
         case "/copy": try copyBlock(pieces)
         case "/save", "/save!": try saveBlock(pieces, overwrite: command == "/save!")
         case "/open": try openBlock(pieces)
@@ -1084,7 +1141,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
     private func drawWelcome() {
         let colorNote = capabilities.color ? "color" : "no-color"
         terminal.write("\(style("AFM Terminal Chat", "1;36"))  \(configuration.backendName) · \(configuration.modelName)\n")
-        terminal.write(style("Terminal: \(capabilities.terminalProgram) · \(colorNote) · Enter sends · Esc+Enter adds a line · Ctrl-C cancels", "2") + "\n")
+        terminal.write(style("Terminal: \(capabilities.terminalProgram) · \(colorNote) · Enter sends · Ctrl-T transcript · Ctrl-C cancels", "2") + "\n")
         terminal.write("Type \(style("/help", "36")) for commands. Model output is never executed automatically.\n\n")
     }
 
@@ -1097,7 +1154,9 @@ public final class AFMTerminalChat: @unchecked Sendable {
                                         control reasoning panels
         /status /history /search <text>   runtime and persisted-session search
         /resume <session-id>              resume a saved session
-        /blocks /copy <n>                 list/copy response code blocks
+        /scroll                            open the transcript overlay (same as Ctrl-T)
+        /blocks                            select blocks across the session
+        /copy <n>                          copy a session code block
         /save[!] <n> <path>               save block; ! explicitly permits overwrite
         /open <n>                         explicitly preview HTML/JS in the browser
         /attach <path>                    attach an image, video, or UTF-8 text file
@@ -1105,6 +1164,8 @@ public final class AFMTerminalChat: @unchecked Sendable {
         /export[!] <path>                 export this transcript as Markdown
         /theme <auto|dark|light|mono>     change terminal rendering
 
+        Ctrl-T opens/closes the transcript. Scroll with trackpad/mouse, arrows, or Page Up/Down.
+        In the transcript, Ctrl-U/Ctrl-D move half a page and Home/End jump top/bottom.
         Arrow keys edit/navigate prompt history. Esc+Enter inserts a newline.
         During generation Tab expands/collapses reasoning and Ctrl-C cancels only that response.
         Ctrl-C at an empty prompt exits.
@@ -1112,11 +1173,265 @@ public final class AFMTerminalChat: @unchecked Sendable {
         """)
     }
 
-    private func listBlocks() {
-        guard !codeBlocks.isEmpty else { terminal.write("No code blocks in the latest response.\n"); return }
-        for (index, block) in codeBlocks.enumerated() {
-            terminal.write("[\(index + 1)] \(block.language.isEmpty ? "code" : block.language) · \(block.content.split(separator: "\n", omittingEmptySubsequences: false).count) lines\n")
+    private func browseTranscript(signalMonitor: TUISignalMonitor) {
+        let lines = transcriptLines()
+        guard !lines.isEmpty else {
+            terminal.write("No transcript content yet.\n")
+            return
         }
+        let pageSize = max(4, terminal.height() - 4)
+        var viewport = TUIViewport(totalLineCount: lines.count, pageSize: pageSize)
+        if configuration.useAlternateScreen { terminal.enterAlternateScreen() }
+        defer {
+            if configuration.useAlternateScreen { terminal.leaveAlternateScreen() }
+        }
+        while !signalMonitor.shouldTerminate {
+            terminal.clearScreen()
+            terminal.write(style("Transcript", "1;36") + style(
+                "  lines \(viewport.visibleRange.lowerBound + 1)–\(viewport.visibleRange.upperBound) of \(lines.count)",
+                "2"
+            ) + "\n")
+            terminal.write(String(repeating: "─", count: max(1, min(terminal.width(), 120))) + "\n")
+            for index in viewport.visibleRange { terminal.write(lines[index] + "\n") }
+            terminal.write(style("↑/↓ or trackpad · PgUp/PgDn · Ctrl-U/Ctrl-D · Home/End · Ctrl-T close", "7") + "\n")
+
+            guard let key = terminal.readKey() else { continue }
+            switch key {
+            case .up, .text("k"): viewport.lineUp()
+            case .down, .text("j"): viewport.lineDown()
+            case .pageUp: viewport.pageUp()
+            case .pageDown, .text(" "): viewport.pageDown()
+            case .halfPageUp: viewport.halfPageUp()
+            case .eof: viewport.halfPageDown()
+            case .home: viewport.moveToTop()
+            case .end: viewport.moveToBottom()
+            case .openTranscript, .escape, .interrupt, .text("q"):
+                if !configuration.useAlternateScreen {
+                    terminal.clearScreen()
+                    drawWelcome()
+                }
+                return
+            default: break
+            }
+        }
+    }
+
+    private func transcriptLines() -> [String] {
+        var lines: [String] = []
+        for (index, message) in session.messages.enumerated() where message.role != "system" {
+            let role = message.role == "user" ? "you" : message.role
+            lines.append(style(role, message.role == "user" ? "1;34" : "1;32") + " ›")
+            lines.append(contentsOf: renderMarkdown(message.textContent).text.split(
+                separator: "\n",
+                omittingEmptySubsequences: false
+            ).map(String.init))
+            if let reasoning = session.reasoning(atMessageIndex: index), !reasoning.isEmpty {
+                lines.append(style("◇ reasoning available · /reasoning last", "2;35"))
+            }
+            lines.append("")
+        }
+        return lines
+    }
+
+    private func sessionCodeBlocks() -> [TUISessionCodeBlock] {
+        var values: [TUISessionCodeBlock] = []
+        for (messageIndex, message) in session.messages.enumerated() where message.role == "assistant" {
+            let suggestedNames = Self.artifactNames(in: message.textContent)
+            for (blockIndex, block) in renderMarkdown(message.textContent).codeBlocks.enumerated() {
+                values.append(TUISessionCodeBlock(
+                    messageIndex: messageIndex,
+                    blockIndex: blockIndex,
+                    suggestedName: suggestedNames.indices.contains(blockIndex) ? suggestedNames[blockIndex] : nil,
+                    block: block
+                ))
+            }
+        }
+        return values
+    }
+
+    static func artifactNames(in markdown: String) -> [String?] {
+        let pattern = #"\b([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.(?:swift|m|mm|h|c|cc|cpp|cs|css|go|html?|java|js|jsx|json|kt|kts|md|php|py|rb|rs|sh|sql|toml|ts|tsx|ya?ml))\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        var names: [String?] = []
+        var recentName: String?
+        var fenceMarker: String?
+
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let marker = fenceMarker {
+                if trimmed.hasPrefix(marker) { fenceMarker = nil }
+                continue
+            }
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                fenceMarker = String(trimmed.prefix(3))
+                names.append(recentName)
+                recentName = nil
+                continue
+            }
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            if let match = regex.matches(in: line, range: range).last,
+               let nameRange = Range(match.range(at: 1), in: line) {
+                recentName = String(line[nameRange])
+            } else if !trimmed.isEmpty, !trimmed.hasPrefix("#"), !trimmed.hasPrefix(">") {
+                // Keep a filename through a short explanatory heading, but do not let an
+                // unrelated paragraph label a much later block.
+                recentName = nil
+            }
+        }
+        return names
+    }
+
+    private func browseBlocks(signalMonitor: TUISignalMonitor) throws {
+        let blocks = sessionCodeBlocks()
+        guard !blocks.isEmpty else {
+            terminal.write("No code blocks in this session.\n")
+            return
+        }
+        var selection = blocks.count - 1
+        var notice = ""
+        if configuration.useAlternateScreen { terminal.enterAlternateScreen() }
+        defer {
+            if configuration.useAlternateScreen { terminal.leaveAlternateScreen() }
+        }
+
+        while !signalMonitor.shouldTerminate {
+            let pageSize = max(1, terminal.height() - 6)
+            let pageStart = min(
+                max(0, selection - pageSize / 2),
+                max(0, blocks.count - pageSize)
+            )
+            let pageEnd = min(blocks.count, pageStart + pageSize)
+            terminal.clearScreen()
+            terminal.write(style("Code blocks", "1;36") + style("  \(blocks.count) in this session", "2") + "\n")
+            terminal.write(String(repeating: "─", count: max(1, min(terminal.width(), 120))) + "\n")
+            for index in pageStart..<pageEnd {
+                let reference = blocks[index]
+                let block = reference.block
+                let language = block.language.isEmpty ? "code" : block.language
+                let lineCount = block.content.split(separator: "\n", omittingEmptySubsequences: false).count
+                let firstLine = block.content.split(separator: "\n", omittingEmptySubsequences: false).first
+                    .map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+                let preview = String(firstLine.prefix(max(12, terminal.width() - 38)))
+                let marker = index == selection ? "▶" : " "
+                let identity = reference.suggestedName.map { "\($0) · \(language)" } ?? language
+                let row = "\(marker) [\(index + 1)] \(identity) · \(lineCount) lines · \(preview)"
+                terminal.write(index == selection ? style(row, "7") + "\n" : row + "\n")
+            }
+            if !notice.isEmpty { terminal.write(style(notice, "2;36") + "\n") }
+            terminal.write(style("↑/↓ select · PgUp/PgDn · Home/End · Enter actions · Esc close", "7") + "\n")
+
+            guard let key = terminal.readKey() else { continue }
+            switch key {
+            case .up, .text("k"): selection = max(0, selection - 1)
+            case .down, .text("j"): selection = min(blocks.count - 1, selection + 1)
+            case .pageUp: selection = max(0, selection - pageSize)
+            case .pageDown: selection = min(blocks.count - 1, selection + pageSize)
+            case .home: selection = 0
+            case .end: selection = blocks.count - 1
+            case .enter:
+                notice = try performBlockAction(
+                    for: blocks[selection],
+                    number: selection + 1,
+                    signalMonitor: signalMonitor
+                ) ?? notice
+            case .escape, .interrupt, .eof:
+                if !configuration.useAlternateScreen {
+                    terminal.clearScreen()
+                    drawWelcome()
+                }
+                return
+            default: break
+            }
+        }
+    }
+
+    private func performBlockAction(
+        for reference: TUISessionCodeBlock,
+        number: Int,
+        signalMonitor: TUISignalMonitor
+    ) throws -> String? {
+        let language = reference.block.language.lowercased()
+        var actions: [TUIBlockAction] = [.copy, .save]
+        if ["html", "htm", "javascript", "js"].contains(language) { actions.append(.preview) }
+        actions.append(.back)
+        var selection = 0
+
+        while !signalMonitor.shouldTerminate {
+            terminal.clearScreen()
+            let name = reference.suggestedName ?? "block \(number)"
+            terminal.write(style(name, "1;36") + style("  \(language.isEmpty ? "code" : language)", "2") + "\n")
+            terminal.write(String(repeating: "─", count: max(1, min(terminal.width(), 120))) + "\n")
+            let previewLimit = max(3, terminal.height() - actions.count - 6)
+            for line in reference.block.content.split(separator: "\n", omittingEmptySubsequences: false).prefix(previewLimit) {
+                terminal.write(String(line) + "\n")
+            }
+            terminal.write("\n")
+            for (index, action) in actions.enumerated() {
+                let row = "\(index == selection ? "▶" : " ") \(action.rawValue)"
+                terminal.write(index == selection ? style(row, "7") + "\n" : row + "\n")
+            }
+            terminal.write(style("↑/↓ select · Enter confirm · Esc back", "7") + "\n")
+
+            guard let key = terminal.readKey() else { continue }
+            switch key {
+            case .up: selection = max(0, selection - 1)
+            case .down: selection = min(actions.count - 1, selection + 1)
+            case .home: selection = 0
+            case .end: selection = actions.count - 1
+            case .escape, .interrupt, .eof: return nil
+            case .enter:
+                switch actions[selection] {
+                case .copy:
+                    try TUIArtifactActions.copyToClipboard(reference.block.content)
+                    return "Copied block \(number) to the clipboard."
+                case .save:
+                    terminal.clearScreen()
+                    terminal.write("Save selected block. Edit the suggested path, then press Enter.\n")
+                    let suggestion = suggestedFilename(for: reference, number: number)
+                    guard let path = readInput(
+                        initial: suggestion,
+                        signalMonitor: signalMonitor,
+                        promptLabel: "save path"
+                    ), !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        return "Save cancelled."
+                    }
+                    do {
+                        let url = try TUIArtifactActions.resolvedURL(path)
+                        try TUIArtifactActions.save(Data(reference.block.content.utf8), to: url)
+                        return "Saved \(url.path)"
+                    } catch {
+                        return error.localizedDescription
+                    }
+                case .preview:
+                    do {
+                        let url = try TUIArtifactActions.openInBrowser(reference.block)
+                        return "Opened block \(number): \(url.path)"
+                    } catch {
+                        return error.localizedDescription
+                    }
+                case .back:
+                    return nil
+                }
+            default: break
+            }
+        }
+        return nil
+    }
+
+    private func suggestedFilename(for reference: TUISessionCodeBlock, number: Int) -> String {
+        if let name = reference.suggestedName {
+            return URL(fileURLWithPath: name).lastPathComponent
+        }
+        let extensions: [String: String] = [
+            "bash": "sh", "c": "c", "cpp": "cpp", "csharp": "cs", "css": "css",
+            "diff": "patch", "go": "go", "html": "html", "java": "java",
+            "javascript": "js", "json": "json", "kotlin": "kt", "markdown": "md",
+            "php": "php", "python": "py", "ruby": "rb", "rust": "rs", "sql": "sql",
+            "swift": "swift", "toml": "toml", "tsx": "tsx", "typescript": "ts", "yaml": "yaml"
+        ]
+        let suffix = extensions[reference.block.language.lowercased()] ?? "txt"
+        return "block-\(number).\(suffix)"
     }
 
     private func copyBlock(_ pieces: [String]) throws {
@@ -1139,10 +1454,11 @@ public final class AFMTerminalChat: @unchecked Sendable {
     }
 
     private func selectedBlock(_ pieces: [String]) throws -> TUICodeBlock {
-        guard pieces.count >= 2, let number = Int(pieces[1]), codeBlocks.indices.contains(number - 1) else {
+        let blocks = sessionCodeBlocks()
+        guard pieces.count >= 2, let number = Int(pieces[1]), blocks.indices.contains(number - 1) else {
             throw TUIArtifactError.invalidPath("Choose a block number from /blocks")
         }
-        return codeBlocks[number - 1]
+        return blocks[number - 1].block
     }
 
     private func listImages() {

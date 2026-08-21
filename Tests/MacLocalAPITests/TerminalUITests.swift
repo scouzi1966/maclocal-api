@@ -1387,13 +1387,65 @@ final class TerminalLifecycleAndInvocationTests: XCTestCase {
         XCTAssertEqual(pipe(&descriptors), 0)
         defer { close(descriptors[0]); close(descriptors[1]) }
         let terminal = TerminalIO(inputFD: descriptors[0], outputFD: descriptors[1])
-        let bytes = Array("é".utf8) + [9, 13, 10, 27, 91, 68]
+        let bytes = Array("é".utf8) + [9, 13, 10, 20, 21, 27, 91, 68, 27, 91, 53, 126, 27, 91, 54, 126]
         _ = bytes.withUnsafeBytes { write(descriptors[1], $0.baseAddress, bytes.count) }
         XCTAssertEqual(terminal.readKey(), .text("é"))
         XCTAssertEqual(terminal.readKey(), .tab)
         XCTAssertEqual(terminal.readKey(), .enter)
         XCTAssertEqual(terminal.readKey(), .newline)
+        XCTAssertEqual(terminal.readKey(), .openTranscript)
+        XCTAssertEqual(terminal.readKey(), .halfPageUp)
         XCTAssertEqual(terminal.readKey(), .left)
+        XCTAssertEqual(terminal.readKey(), .pageUp)
+        XCTAssertEqual(terminal.readKey(), .pageDown)
+    }
+
+    func testTranscriptViewportClampsLineAndPageNavigation() {
+        var viewport = TUIViewport(totalLineCount: 100, pageSize: 20)
+        XCTAssertEqual(viewport.visibleRange, 80..<100)
+        viewport.pageUp()
+        XCTAssertEqual(viewport.visibleRange, 60..<80)
+        viewport.lineUp()
+        XCTAssertEqual(viewport.visibleRange, 59..<79)
+        viewport.halfPageUp()
+        XCTAssertEqual(viewport.visibleRange, 49..<69)
+        viewport.halfPageDown()
+        XCTAssertEqual(viewport.visibleRange, 59..<79)
+        viewport.moveToTop()
+        viewport.lineUp()
+        XCTAssertEqual(viewport.visibleRange, 0..<20)
+        viewport.moveToBottom()
+        viewport.pageDown()
+        XCTAssertEqual(viewport.visibleRange, 80..<100)
+    }
+
+    func testTranscriptViewportHandlesShortContent() {
+        var viewport = TUIViewport(totalLineCount: 3, pageSize: 20, startAtBottom: false)
+        XCTAssertEqual(viewport.visibleRange, 0..<3)
+        viewport.pageDown()
+        XCTAssertEqual(viewport.visibleRange, 0..<3)
+    }
+
+    func testArtifactNamesFollowGeneratedFileHeadings() {
+        let markdown = """
+        ### Sources/CoolApp/App.swift
+        ```swift
+        @main struct App {}
+        ```
+
+        **ContentView.swift**
+        ```swift
+        struct ContentView {}
+        ```
+
+        ```json
+        {"plain": true}
+        ```
+        """
+        XCTAssertEqual(
+            AFMTerminalChat.artifactNames(in: markdown),
+            ["Sources/CoolApp/App.swift", "ContentView.swift", nil]
+        )
     }
 
     private func writeString(_ value: String, to descriptor: Int32) -> Int {

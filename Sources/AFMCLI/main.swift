@@ -241,6 +241,7 @@ struct MlxCommand: ParsableCommand {
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
           --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -413,6 +414,9 @@ struct MlxCommand: ParsableCommand {
 
     @Flag(name: .long, help: "Run the advanced native terminal chat UI")
     var tui: Bool = false
+
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
 
     @Flag(name: [.customShort("g"), .long], help: "Gateway mode is not supported in afm mlx")
     var gateway: Bool = false
@@ -831,6 +835,7 @@ struct MlxCommand: ParsableCommand {
                 engine: engineConfig,
                 generation: generation,
                 streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen,
                 initialAttachments: resolvedMediaURLs
             ))
             return
@@ -1823,6 +1828,7 @@ struct MacLocalAPI: ParsableCommand {
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
           --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -2011,6 +2017,9 @@ struct RootCommand: ParsableCommand {
     @Flag(name: .long, help: "Run the advanced native terminal chat UI")
     var tui: Bool = false
 
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -2108,7 +2117,8 @@ struct RootCommand: ParsableCommand {
                     stop: stop?.split(separator: ",").map(String.init),
                     responseFormat: responseFormat
                 ),
-                streaming: !noStreaming
+                streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen
             ))
             return
         }

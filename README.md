@@ -123,6 +123,14 @@ It supports multiline editing, prompt history, cancellation, persisted/searchabl
 under `~/.afm/sessions`, transcript export, attachments, terminal-width-aware tables, themes,
 and safe actions for response artifacts. Use `/help` for the command palette.
 
+The navigation follows Codex CLI conventions. Normal chat output remains in Terminal
+scrollback. Press `Ctrl+T` to open the full transcript overlay, then scroll with a Mac
+trackpad or mouse wheel, arrows, Page Up/Down, Ctrl-U/Ctrl-D, or Home/End; press `Ctrl+T`
+again to close it. Add `--no-alt-screen` to keep overlays inline too. `/blocks` opens a
+session-wide code-block list: navigate with arrows or paging keys, press Enter for
+Copy/Save/Preview actions, and Escape to return. Numbered `/save`, `/copy`, and `/open`
+commands remain available for direct use.
+
 Code is never executed automatically. `/save` refuses overwrites unless `/save!` is used,
 and only an explicit `/open` previews HTML or JavaScript in the browser. iTerm2 and Kitty
 can display local images inline; Terminal.app uses an explicit `/image` Quick Look fallback.

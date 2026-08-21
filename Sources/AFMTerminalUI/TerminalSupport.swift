@@ -48,7 +48,8 @@ public struct TerminalCapabilities: Equatable, Sendable {
 
 public enum TerminalKey: Equatable, Sendable {
     case text(String), enter, newline, tab, backspace, delete, left, right, up, down
-    case home, end, escape, interrupt, eof, clear, unknown
+    case home, end, pageUp, pageDown, escape, interrupt, eof, clear
+    case openTranscript, halfPageUp, unknown
 }
 
 public enum TerminalOutputSanitizer {
@@ -215,6 +216,9 @@ public final class TerminalIO: @unchecked Sendable {
     private let inputFD: Int32
     private let outputFD: Int32
     private var original = termios()
+    private let stateLock = NSLock()
+    private var alternateScreenActive = false
+    private var alternateScrollActive = false
     private lazy var mode = TerminalModeController(
         enter: { [weak self] in
             guard let self else { throw POSIXError(.ENOTTY) }
@@ -231,11 +235,51 @@ public final class TerminalIO: @unchecked Sendable {
     public func enter() throws { try mode.enter() }
 
     public func restore() {
+        stateLock.lock()
+        let leaveAlternateScreen = alternateScreenActive
+        let disableAlternateScroll = alternateScrollActive
+        alternateScreenActive = false
+        alternateScrollActive = false
+        stateLock.unlock()
         mode.restore()
-        write("\u{001B}[?25h\u{001B}[0m\u{001B}[?1049l")
+        if disableAlternateScroll { write("\u{001B}[?1007l") }
+        write("\u{001B}[?25h\u{001B}[0m")
+        if leaveAlternateScreen { write("\u{001B}[?1049l") }
     }
 
-    public func enterAlternateScreen() { write("\u{001B}[?1049h\u{001B}[2J\u{001B}[H") }
+    public func enterAlternateScreen() {
+        stateLock.lock()
+        alternateScreenActive = true
+        alternateScrollActive = true
+        stateLock.unlock()
+        write("\u{001B}[?1049h\u{001B}[?1007h\u{001B}[2J\u{001B}[H")
+    }
+
+    public func leaveAlternateScreen() {
+        stateLock.lock()
+        let wasActive = alternateScreenActive
+        alternateScreenActive = false
+        alternateScrollActive = false
+        stateLock.unlock()
+        if wasActive { write("\u{001B}[?1007l\u{001B}[?1049l") }
+    }
+
+    /// Makes a mouse wheel or two-finger trackpad gesture emit arrow keys while
+    /// the transcript overlay is active in the alternate screen.
+    public func enableAlternateScroll() {
+        stateLock.lock()
+        alternateScrollActive = true
+        stateLock.unlock()
+        write("\u{001B}[?1007h")
+    }
+
+    public func disableAlternateScroll() {
+        stateLock.lock()
+        let wasActive = alternateScrollActive
+        alternateScrollActive = false
+        stateLock.unlock()
+        if wasActive { write("\u{001B}[?1007l") }
+    }
     public func clearScreen() { write("\u{001B}[2J\u{001B}[H") }
     public func clearLine() { write("\r\u{001B}[2K") }
     public func hideCursor() { write("\u{001B}[?25l") }
@@ -259,6 +303,11 @@ public final class TerminalIO: @unchecked Sendable {
         return ioctl(outputFD, TIOCGWINSZ, &size) == 0 && size.ws_col > 0 ? Int(size.ws_col) : 80
     }
 
+    public func height() -> Int {
+        var size = winsize()
+        return ioctl(outputFD, TIOCGWINSZ, &size) == 0 && size.ws_row > 0 ? Int(size.ws_row) : 24
+    }
+
     public func readKey(timeoutMilliseconds: Int32 = 100) -> TerminalKey? {
         var readSet = fd_set()
         FD_ZERO(&readSet)
@@ -276,6 +325,8 @@ public final class TerminalIO: @unchecked Sendable {
         case 10: return .newline
         case 12: return .clear
         case 13: return .enter
+        case 20: return .openTranscript
+        case 21: return .halfPageUp
         case 27: return readEscapeSequence()
         default:
             if byte < 32 { return .unknown }
@@ -298,6 +349,10 @@ public final class TerminalIO: @unchecked Sendable {
         case 51:
             _ = readByte(20)
             return .delete
+        case 53:
+            return readByte(20) == 126 ? .pageUp : .unknown
+        case 54:
+            return readByte(20) == 126 ? .pageDown : .unknown
         default: return .unknown
         }
     }
