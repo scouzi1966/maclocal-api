@@ -590,7 +590,8 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
             AFMMLXModel(
                 modelID: AFMModelID(rawValue: model),
                 resolver: resolver,
-                attachedService: service!))
+                attachedService: service!,
+                schedulerAdmissionOwnership: .callerReserved))
     }
 
     private static func profile(

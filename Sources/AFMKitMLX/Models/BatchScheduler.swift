@@ -574,6 +574,10 @@ actor BatchScheduler {
         admissionState.snapshot.inFlightCount
     }
 
+    nonisolated var admissionSnapshot: BatchSchedulerAdmissionState.Snapshot {
+        admissionState.snapshot
+    }
+
     /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
     /// stream's termination handler can signal the synchronous GPU loop.
     nonisolated func cancelSlots(ids: Set<UUID>) {
@@ -628,7 +632,8 @@ actor BatchScheduler {
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
         enablePrefixCaching: Bool = false,
         cacheProfilePath: String? = nil,
-        admissionWindowNanoseconds: UInt64 = BatchScheduler.defaultAdmissionWindowNanoseconds
+        admissionWindowNanoseconds: UInt64 = BatchScheduler.defaultAdmissionWindowNanoseconds,
+        requiresFixedDecodeCohorts: Bool? = nil
     ) {
         self.model = model
         self.tokenizer = tokenizer
@@ -639,8 +644,8 @@ actor BatchScheduler {
             maxConcurrent: maxConcurrent)
         self.cacheProfilePath = cacheProfilePath
         self.admissionWindowNanoseconds = admissionWindowNanoseconds
-        self.requiresFixedDecodeCohorts = Self.requiresFixedDecodeCohorts(
-            for: type(of: model))
+        self.requiresFixedDecodeCohorts = requiresFixedDecodeCohorts
+            ?? Self.requiresFixedDecodeCohorts(for: type(of: model))
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -685,6 +690,10 @@ actor BatchScheduler {
 
     /// Number of requests currently generating.
     var activeCount: Int { slots.count }
+
+    nonisolated var pendingRequestCount: Int {
+        _pendingQueue.withLock { $0.count }
+    }
 
     /// Prepare UserInput into LMInput (tokenization + chat template).
     /// Actor-isolated — processor.prepare may not be thread-safe despite Sendable conformance.
@@ -811,20 +820,29 @@ actor BatchScheduler {
         return requests
     }
 
-    /// Gracefully shut down.
-    func shutdown() async {
-        admissionLock.withLock {
+    /// Gracefully shut down. Closing admission and draining the pending queue
+    /// are nonisolated so shutdown does not wait behind the synchronous decode
+    /// loop before making forward progress.
+    nonisolated func shutdown() async {
+        let pending = admissionLock.withLock { () -> [PendingRequest] in
             _isShutdown.withLock { $0 = true }
+            return _pendingQueue.withLock { q in
+                let result = q
+                q.removeAll()
+                return result
+            }
         }
-
-        // Drain and cancel any pending requests
-        let pending = _pendingQueue.withLock { q in
-            let result = q; q.removeAll(); return result
-        }
+        admissionState.finish(count: pending.count)
         for req in pending {
             req.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
+            StatsAggregator.shared.requestSucceeded(reason: "abort")
+            StatsAggregator.shared.requestCompleted()
         }
 
+        await finishShutdown()
+    }
+
+    private func finishShutdown() async {
         if let task = loopTask {
             task.cancel()
             await task.value
@@ -834,6 +852,8 @@ actor BatchScheduler {
         for slot in slots {
             slot.continuation.finish(throwing: MLXServiceError.serviceShuttingDown)
             slot.constraintRuntime?.matcherHandle?.release()
+            StatsAggregator.shared.requestSucceeded(reason: "abort")
+            StatsAggregator.shared.requestCompleted()
         }
         admissionState.reset()
         slots.removeAll()

@@ -1,5 +1,16 @@
 import Foundation
 
+/// Defines who admitted an attached MLX request to the scheduler.
+///
+/// Direct AFMKit model calls admit themselves. Server adapters use
+/// `callerReserved` after their controller has already reserved capacity; the
+/// attached model adopts that reservation and either transfers it to the
+/// scheduler or releases it if setup fails.
+public enum AFMMLXSchedulerAdmissionOwnership: Sendable {
+    case model
+    case callerReserved
+}
+
 /// Controls admission to an MLX runtime's concurrent request slots.
 ///
 /// Server and app consumers use this contract without depending on the

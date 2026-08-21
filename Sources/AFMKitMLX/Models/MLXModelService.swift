@@ -711,18 +711,50 @@ public final class MLXModelService: @unchecked Sendable {
     private var teardownWorkItem: DispatchWorkItem?
 
     /// Atomically reserve a concurrent slot. Returns true if reserved (or serial mode).
-    public func tryReserveSlot() -> Bool { scheduler?.tryReserve() ?? true }
+    public func tryReserveSlot() -> Bool {
+        withStateLock({ scheduler })?.tryReserve() ?? true
+    }
     /// Wait for a concurrent slot with timeout. Returns true if reserved (or serial mode).
     public func waitForSlot(timeout: TimeInterval = 30) async -> Bool {
-        guard let sched = scheduler else { return true }
+        guard let sched = withStateLock({ scheduler }) else { return true }
         return await sched.waitForSlot(timeout: timeout)
     }
     /// Release a reserved slot (call if request fails before generation starts).
-    public func releaseSlot() { scheduler?.releaseReservation() }
+    public func releaseSlot() {
+        withStateLock({ scheduler })?.releaseReservation()
+    }
+
+    var schedulerAdmissionSnapshot: BatchSchedulerAdmissionState.Snapshot? {
+        withStateLock({ scheduler })?.admissionSnapshot
+    }
+
+    var installedScheduler: BatchScheduler? {
+        withStateLock { scheduler }
+    }
     public init(resolver: MLXCacheResolver) {
         _ = Self.registerModelFactoriesOnce
         self.resolver = resolver
         self.resolver.applyEnvironment()
+    }
+
+    convenience init(
+        resolver: MLXCacheResolver,
+        testingModelID: String,
+        container: ModelContainer,
+        architecture: AFMMLXModelArchitecturePreflight
+    ) {
+        self.init(resolver: resolver)
+        withStateLock {
+            currentModelID = testingModelID
+            currentModelArchitecture = architecture
+            currentContainer = container
+            currentDFlash2State = DFlash2ModelRuntimeState(
+                ownerID: dflash2RuntimeScopeID,
+                modelID: testingModelID,
+                configuredDrafter: nil,
+                runtime: nil,
+                fallbackReason: nil)
+        }
     }
 
     /// Configure MLX GPU settings once, before first model load.
@@ -2405,6 +2437,12 @@ public final class MLXModelService: @unchecked Sendable {
     /// Initialize the concurrent BatchScheduler by extracting model/tokenizer/processor
     /// from the container. Must be called after ensureLoaded() and only when maxConcurrent >= 2.
     public func initScheduler() async throws {
+        try await initScheduler(requiresFixedDecodeCohorts: nil)
+    }
+
+    func initScheduler(
+        requiresFixedDecodeCohorts: Bool?
+    ) async throws {
         guard maxConcurrent >= 2 else { return }
         if forceSerialGeneration {
             print("[\(ts())] Concurrent mode requested but model requires serial generation — running serially (correct output, requests serialized through model lock)")
@@ -2427,7 +2465,8 @@ public final class MLXModelService: @unchecked Sendable {
                 configuration: context.configuration,
                 maxConcurrent: limit,
                 enablePrefixCaching: prefixCaching,
-                cacheProfilePath: self.cacheProfilePath
+                cacheProfilePath: self.cacheProfilePath,
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts
             )
         }
         withStateLock { self.scheduler = sched }
@@ -2564,26 +2603,6 @@ public final class MLXModelService: @unchecked Sendable {
     ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
         let operation = try beginOperation()
         defer { operation.finish() }
-
-        // /metrics: serial-path timestamps. The serial generate() has no
-        // explicit queue, so queuedAt == startedAt (queue_time observes ~0).
-        // Token counters (prompt_tokens_total / generation_tokens_total) and
-        // the per-request histograms are recorded at the bottom of this
-        // function, after `completionInfo` is available.
-        let serialQueuedAt = Date()
-        StatsAggregator.shared.requestStarted()
-        // Balance the requests_started_total counter on every exit, including
-        // throws between here and the success path below. Without this, an
-        // error during model load or input prep increments started_total
-        // without a matching completed_total, breaking dashboards and alerts.
-        var serialRequestRecorded = false
-        defer {
-            if !serialRequestRecorded {
-                StatsAggregator.shared.requestSucceeded(
-                    reason: Task.isCancelled ? "abort" : "error")
-                StatsAggregator.shared.requestCompleted()
-            }
-        }
         let modelID = try await ensureLoaded(model: model, countOperation: false)
         let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
         let container = runtime.container
@@ -2592,11 +2611,42 @@ public final class MLXModelService: @unchecked Sendable {
         let executionLease = await modelExecutionCoordinator.acquireGeneration()
         if case .scheduler = executionLease {
             await modelExecutionCoordinator.releaseSchedulerGeneration()
-            throw MLXServiceError.loadFailed(
-                "Direct generation is unavailable while the batch scheduler owns the model")
+            operation.finish()
+            return try await collectStreamingGeneration(
+                model: model,
+                messages: messages,
+                temperature: temperature,
+                maxTokens: maxTokens,
+                topP: topP,
+                repetitionPenalty: repetitionPenalty,
+                topK: topK,
+                minP: minP,
+                presencePenalty: presencePenalty,
+                seed: seed,
+                logprobs: logprobs,
+                topLogprobs: topLogprobs,
+                tools: tools,
+                parallelToolCalls: parallelToolCalls,
+                stop: stop,
+                responseFormat: responseFormat,
+                chatTemplateKwargs: chatTemplateKwargs,
+                speculativeDecoding: speculativeDecoding)
         }
         defer {
             Task { await self.modelExecutionCoordinator.releaseSerialGeneration() }
+        }
+
+        // /metrics: serial-path timestamps. Scheduler-backed direct generation
+        // is collected above and leaves admission and metrics to BatchScheduler.
+        let serialQueuedAt = Date()
+        StatsAggregator.shared.requestStarted()
+        var serialRequestRecorded = false
+        defer {
+            if !serialRequestRecorded {
+                StatsAggregator.shared.requestSucceeded(
+                    reason: Task.isCancelled ? "abort" : "error")
+                StatsAggregator.shared.requestCompleted()
+            }
         }
 
         let promptText = buildPrompt(from: messages)
@@ -3608,6 +3658,90 @@ public final class MLXModelService: @unchecked Sendable {
 
             return (modelID, finalContent, promptTokens, completionTokens, resolvedLogprobs, responseToolCalls, cachedTokenCount, promptTime, generateTime, stoppedBySequence, dflash2FallbackTelemetry)
         }
+
+    private func collectStreamingGeneration(
+        model: String,
+        messages: [AFMOpenAICompat.Message],
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        repetitionPenalty: Double?,
+        topK: Int?,
+        minP: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        logprobs: Bool?,
+        topLogprobs: Int?,
+        tools: [RequestTool]?,
+        parallelToolCalls: Bool?,
+        stop: [String]?,
+        responseFormat: ResponseFormat?,
+        chatTemplateKwargs: [String: AnyCodable]?,
+        speculativeDecoding: SpeculativeDecodingOptions?
+    ) async throws -> (modelID: String, content: String, promptTokens: Int, completionTokens: Int, tokenLogprobs: [ResolvedLogprob]?, toolCalls: [ResponseToolCall]?, cachedTokens: Int, promptTime: Double, generateTime: Double, stoppedBySequence: Bool, speculativeTelemetry: AFMMLXSpeculativeTelemetry?) {
+        let result = try await generateStreaming(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            repetitionPenalty: repetitionPenalty,
+            topK: topK,
+            minP: minP,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            tools: tools,
+            parallelToolCalls: parallelToolCalls,
+            stop: stop,
+            responseFormat: responseFormat,
+            chatTemplateKwargs: chatTemplateKwargs,
+            speculativeDecoding: speculativeDecoding,
+            preserveStructuralTags: false,
+            requestId: nil)
+
+        var content = ""
+        var promptTokens = result.promptTokens
+        var completionTokens = 0
+        var tokenLogprobs: [ResolvedLogprob] = []
+        var toolCalls: [ResponseToolCall]?
+        var cachedTokens = 0
+        var promptTime = 0.0
+        var generateTime = 0.0
+        var stoppedBySequence = false
+        var speculativeTelemetry: AFMMLXSpeculativeTelemetry?
+
+        for try await chunk in result.stream {
+            content += chunk.text
+            if let values = chunk.logprobs {
+                tokenLogprobs.append(contentsOf: values)
+            }
+            if let values = chunk.toolCalls {
+                toolCalls = values
+            }
+            promptTokens = chunk.promptTokens ?? promptTokens
+            completionTokens = chunk.completionTokens ?? completionTokens
+            cachedTokens = chunk.cachedTokens ?? cachedTokens
+            promptTime = chunk.promptTime ?? promptTime
+            generateTime = chunk.generateTime ?? generateTime
+            stoppedBySequence = chunk.stoppedBySequence ?? stoppedBySequence
+            speculativeTelemetry = chunk.speculativeTelemetry ?? speculativeTelemetry
+        }
+
+        return (
+            modelID: result.modelID,
+            content: content,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            tokenLogprobs: tokenLogprobs.isEmpty ? nil : tokenLogprobs,
+            toolCalls: toolCalls,
+            cachedTokens: cachedTokens,
+            promptTime: promptTime,
+            generateTime: generateTime,
+            stoppedBySequence: stoppedBySequence,
+            speculativeTelemetry: speculativeTelemetry)
+    }
 
     public func generateStreaming(
         model: String,
@@ -4657,8 +4791,10 @@ public final class MLXModelService: @unchecked Sendable {
     }
 
     public func shutdownAndReleaseResources(verbose: Bool = false, timeoutSeconds: TimeInterval = 30) async {
+        let scheduler = beginShutdown()
+
         // Shut down concurrent scheduler first (cancels pending + active)
-        if let scheduler = self.scheduler {
+        if let scheduler {
             if await modelExecutionCoordinator.beginSchedulerRemoval() {
                 await scheduler.shutdown()
                 withStateLock {
@@ -4671,7 +4807,6 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         let start = Date()
-        withStateLock { isShuttingDown = true }
 
         while Date().timeIntervalSince(start) < timeoutSeconds {
             if withStateLock({ activeOperations == 0 }) {
@@ -4713,6 +4848,13 @@ public final class MLXModelService: @unchecked Sendable {
             } else {
                 print("MLX memory after shutdown - GPU was not initialized")
             }
+        }
+    }
+
+    func beginShutdown() -> BatchScheduler? {
+        withStateLock {
+            isShuttingDown = true
+            return scheduler
         }
     }
 
@@ -6028,6 +6170,10 @@ public final class MLXModelService: @unchecked Sendable {
 
     var activeOperationCount: Int {
         withStateLock { activeOperations }
+    }
+
+    var shuttingDown: Bool {
+        withStateLock { isShuttingDown }
     }
 
     static func ownOperation(

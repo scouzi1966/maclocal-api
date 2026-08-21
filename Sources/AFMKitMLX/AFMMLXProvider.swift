@@ -68,6 +68,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     private let runtime: AFMMLXRuntime
     private let service: MLXModelService
     private let modelID: String
+    private let schedulerAdmissionOwnership: AFMMLXSchedulerAdmissionOwnership
 
     public init(
         modelID: AFMModelID,
@@ -85,6 +86,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = runtime.service
         self.modelID = runtime.modelID
+        self.schedulerAdmissionOwnership = .model
         self.descriptor = runtime.descriptor
     }
 
@@ -92,7 +94,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
     public init(
         modelID: AFMModelID,
         resolver: MLXCacheResolver = .init(),
-        attachedService service: MLXModelService
+        attachedService service: MLXModelService,
+        schedulerAdmissionOwnership: AFMMLXSchedulerAdmissionOwnership = .model
     ) {
         let runtime = AFMMLXRuntime(
             modelID: modelID.rawValue,
@@ -103,6 +106,7 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
         self.runtime = runtime
         self.service = service
         self.modelID = runtime.modelID
+        self.schedulerAdmissionOwnership = schedulerAdmissionOwnership
         self.descriptor = runtime.descriptor
     }
 
@@ -229,10 +233,13 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
             let task = Task {
                 do {
                     _ = try await load(progress: nil)
-                    guard await service.waitForSlot(timeout: 30) else {
-                        throw AFMError.unavailable("MLX scheduler is at capacity")
+                    var ownsReservation = schedulerAdmissionOwnership == .callerReserved
+                    if schedulerAdmissionOwnership == .model {
+                        guard await service.waitForSlot(timeout: 30) else {
+                            throw AFMError.unavailable("MLX scheduler is at capacity")
+                        }
+                        ownsReservation = true
                     }
-                    var ownsReservation = true
                     defer {
                         if ownsReservation { service.releaseSlot() }
                     }
