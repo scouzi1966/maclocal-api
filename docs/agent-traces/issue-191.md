@@ -836,15 +836,84 @@ Comprehensive-suite note:
   directory. This is recorded as a toolchain-level comprehensive-run blocker,
   not represented as a passing full suite.
 
+### Checkpoint 6: independent-review remediation
+
+Security and runtime corrections on 2026-08-20:
+
+- Public OpenAI `image_url` input now accepts bounded, strict image/video data
+  URLs and HTTPS URLs only. HTTPS retrieval rejects credentials, non-default
+  ports, local hostnames, private/reserved or mixed DNS answers, unsafe redirect
+  destinations, unsupported response MIME types, and bodies over 20 MiB.
+  Redirects are followed explicitly for at most three hops, with DNS and policy
+  validation repeated for every destination and response metadata checked
+  before and during streaming download.
+- Host-selected local files use the separate
+  `trustedLocalMediaDataURL(contentsOf:)` conversion path in the CLI, Telegram,
+  and AFMKit reference adapters. Arbitrary API `file://` URLs and plain HTTP
+  URLs are rejected. The bundled WebUI continues to use browser
+  `FileReader.readAsDataURL`, so upload semantics do not grant filesystem or
+  network access to remote API callers.
+- Media failures are reported before SSE commitment as stable OpenAI
+  `invalid_request_error` responses with `invalid_media_input`,
+  `unsupported_media_input`, or `vision_assets_unavailable` codes.
+- Qwen vision qualification now decodes the required Qwen vision configuration
+  and validates safetensor headers, tensor dtypes/shapes/offset bounds, every
+  indexed shard, every index-to-shard mapping, and complete configured vision
+  tower coverage. Missing, stale, malformed, or truncated indexed checkpoints
+  fail vision closed while preserving text startup.
+- Automatic startup with `--mtp` now selects the MTP runtime from the actual
+  Qwen model factory: `Qwen3_5MoEMTPGenerator` for text and `MTPGenerator` for
+  `Qwen3_5MoEVL`. The AFM-owned Qwen patch accepts the MTP head quantization
+  metadata through the existing patch-system workflow.
+- `AFMMLXRuntime`, `AFMMLXModel`, and `AnyAFMModel` expose the current
+  runtime-qualified descriptor instead of snapshotting a declared catalog
+  descriptor. The fixed-model server adapter therefore cannot retain stale
+  vision capability after qualification.
+
+Focused Release verification:
+
+- The security, qualification, startup, descriptor, provider, and controller
+  cohort executed 53 tests with 0 failures.
+- The MTP policy, media preflight/input, and capability endpoint cohort executed
+  19 tests with 0 failures.
+- The security, trusted Telegram/local path, runtime descriptor, and startup
+  cohort executed 36 tests with 0 failures.
+- The architecture/path/provider/capability cohort executed 81 tests with 0
+  failures, including repository-name-independent Qwen 3.8 detection.
+- The final production MTP startup-policy cohort executed 11 tests with 0
+  failures after relinking the Release `afm` executable.
+- `Scripts/apply-mlx-patches.sh --check`, `Scripts/verify-webui.sh`, the WebUI
+  `readAsDataURL` assertion, patch-source/vendor comparison, and
+  `git diff --check` all passed.
+
+Serialized MTP plus VLM live qualification:
+
+- Under the shared agent lock, commit `0ab033e` launched
+  `mlx-community/Qwen3.8-27B-mxfp8` without `--vlm` and with `--mtp --mtp-depth
+  2 --temperature 0 --no-think`. Startup selected `factory=VLM`, loaded the
+  Qwen vision MTP head, and logged MTP-generated text tokens.
+- Text-only non-streaming chat returned exact `TEXT_ONLY_OK`. Non-streaming PNG
+  chat returned exact `Qwen3's Gated DeltaNet Explained`. Streaming JPEG chat
+  produced `AFM`, a normal stop chunk, usage, and `[DONE]`. Every request
+  returned HTTP 200; `/v1/models` advertised runtime-qualified vision and both
+  media requests used the multimodal path.
+- Durable ignored evidence is under
+  `test-reports/issue-191-review-20260820-mtp-vlm/`, including the request and
+  response hashes, exact assertions, server log, run metadata, and cleanup
+  record. The trap stopped PID 93756 and removed this task's lock at
+  `2026-08-21T02:46:02Z`; a different task acquired a new lock afterward.
+
 ### Completion state
 
 The approved implementation scope is complete in commits `78fe3b8`, `c307728`,
-`4973c6b`, `b3940d3`, and `886a4e6`. The runtime uses one static startup
-container, complete Qwen conditional-generation snapshots select VLM,
-incomplete optional vision assets preserve LLM text startup, and request
-admission plus capability surfaces reflect actual runtime state. Both 4-bit and
-MXFP8 Qwen 3.8 snapshots passed grounded vision qualification without changes to
-the existing AFM-owned compatibility patch set.
+`4973c6b`, `b3940d3`, `886a4e6`, `e80c1d7`, and `0ab033e`. The runtime uses one
+static startup container, complete Qwen conditional-generation snapshots select
+VLM, incomplete optional vision assets preserve LLM text startup, and request
+admission plus capability surfaces reflect actual runtime state. Public media
+loading is bounded and SSRF-resistant, trusted local media has an explicit host
+path, indexed vision qualification fails closed, and automatic VLM startup is
+compatible with MTP. Both 4-bit and MXFP8 Qwen 3.8 snapshots passed grounded
+vision qualification through the existing AFM-owned patch workflow.
 
 No recorded pre-change LLM throughput baseline was available in this worktree,
 and there is no dedicated vision-tower invocation counter. The text fast path is
