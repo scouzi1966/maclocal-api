@@ -127,11 +127,21 @@ stage_xctest_metallib() {
     architecture="$(uname -m)"
     local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/MacLocalAPIPackageTests.xctest/Contents/MacOS"
     mkdir -p "$predicted_dir"
-    cp "$source" "$predicted_dir/mlx.metallib"
+
+    stage_metallib() {
+        local destination="$1/mlx.metallib"
+        if [[ -e "$destination" ]]; then
+            chmod u+w "$destination" || return $?
+        fi
+        cp "$source" "$destination" || return $?
+    }
+
+    stage_metallib "$predicted_dir" || return $?
 
     local executable_dir
     while IFS= read -r executable_dir; do
-        cp "$source" "$executable_dir/mlx.metallib"
+        [[ "$executable_dir" == "$predicted_dir" ]] && continue
+        stage_metallib "$executable_dir" || return $?
     done < <(find "$scratch_path" -type d -path '*.xctest/Contents/MacOS' -print 2>/dev/null)
 
     echo "[swiftpm-reliable] Staged MLX metallib for XCTest: $predicted_dir/mlx.metallib" >&2

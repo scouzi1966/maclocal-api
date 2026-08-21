@@ -1,71 +1,57 @@
-# Consuming AFMKit by URL (no submodules)
+# Consuming AFMKit by URL
 
-AFMKit is designed to be embedded by other Swift packages/apps (e.g.
-[vesta-mac](./vesta-integration.md), and macOS 27's pluggable SPM AI packages) with a plain:
+AFMKit is now a standalone Swift package. maclocal-api consumes it from:
 
 ```swift
-.package(url: "https://github.com/scouzi1966/maclocal-api.git", branch: "feature/afmlib")
+.package(
+    url: "https://github.com/scouzi1966/AFMKit.git",
+    revision: "dfeab23e95ea1979432958e3f9b002beb5685191"
+)
 ```
 
-and **no `git submodule` step**. A `git clone` (without `--recursive`) followed by `swift build`
-resolves and compiles AFMKit. This document explains how that works and what maintainers must do.
+The revision is an immutable pre-tag checkpoint shared with Vesta. Replace it
+with an exact AFMKit version after the first package tag is published. Do not use
+a branch requirement for release builds.
 
-## How the vendored dependencies resolve
+## Published Graph
 
-afm has two C/Swift dependencies that were historically git submodules — which broke URL
-consumption, because a consumer who clones without `--recursive` gets empty submodule
-directories and the build fails. Both are now resolved without submodules:
+The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
-| Dependency | Before | Now (URL-consumable) |
-|------------|--------|----------------------|
-| **mlx-swift-lm** (patched Swift inference lib) | `.package(path: "vendor/mlx-swift-lm")` — a submodule patched at build time | `.package(url: "github.com/scouzi1966/mlx-swift-lm", revision: …)` — a **pre-patched fork** with the patch set already applied and `mlx-swift` pinned to 0.30.3 |
-| **xgrammar** (C++ grammar engine) | `Sources/CXGrammar/xgrammar` symlink → `vendor/xgrammar` submodule | the xgrammar source is **vendored in-repo** under `Sources/CXGrammar/xgrammar`, trimmed to the compile set (cpp/, include/, dlpack/include, header-only picojson) |
+| Dependency | Requirement | Purpose |
+| --- | --- | --- |
+| `AFMKit` | revision `dfeab23e...` | Core, OpenAI, Apple, MLX, and DwarfStar provider products |
+| `mlx-swift-afm` | exact `0.31.6-afm.1` | AFM-compatible MLX Swift/C++/Metal runtime |
+| `mlx-swift-lm` | exact `0.31.6-afm.3` | AFM model architectures and generation behavior |
 
-The lower-level MLX **C++/Metal kernel** patches (`Scripts/apply-mlx-cpp-patches.sh`,
-`apply-mlx-sdpa-backport.sh`) do **not** travel through the fork — but they only affect the
-generated `default.metallib`, which is committed (`Sources/MacLocalAPI/Resources/default.metallib`)
-and copied into the build. So a URL consumer gets the correct, already-compiled kernels. Only a
-maintainer *regenerating* the metallib needs those C++ patch scripts and a forked `mlx-swift`.
+AFMKit owns `Sources/AFMKitMLX/Resources/default.metallib` and DwarfStar's Metal
+sources. SwiftPM emits those as `AFMKit_AFMKitMLX.bundle` and
+`AFMKit_AFMKitDwarfStar.bundle`. maclocal-api packages the bundles unchanged
+beside `afm`; it does not rebuild or rename them.
 
-## Verifying URL consumption
+## Local Development Overrides
+
+Normal builds leave all overrides unset. AFMKit development may opt into a
+writable checkout with `MACLOCAL_AFMKIT_PATH`. Compatibility-package maintenance
+may additionally set `MACLOCAL_MLX_SWIFT_LM_PATH`,
+`AFMKIT_MLX_SWIFT_PATH`, and `MACLOCAL_USE_LEGACY_MLX_PATCH_STACK=1`.
+These variables are build-only maintenance controls and are not supported
+release inputs.
+
+## Verification
+
+Run the boundary and graph checks before building:
 
 ```bash
-# Simulate a plain consumer: clone WITHOUT --recursive, then build AFMKit.
-git clone --branch feature/afmlib --single-branch https://github.com/scouzi1966/maclocal-api /tmp/afmkit-url
-cd /tmp/afmkit-url
-swift build --target AFMKit          # resolves the fork from GitHub, compiles vendored xgrammar
+Scripts/check-afmkit-consumer-boundary.sh
+swift package show-dependencies --format json
+Scripts/swiftpm-reliable.sh build -c release --product afm
 ```
 
-This is exactly the check run when the fork dependency was introduced: all `vendor/*` submodules
-stay empty and AFMKit still builds. `Examples/AFMKitConsumer` is the equivalent proof from a
-*separate* package importing `AFMKit`.
+The boundary check rejects restored shadow targets, mutable dependency drift,
+normal Make targets that invoke the legacy patch stack, server access to known
+provider implementation types, and stale maclocal-api-owned resource names in
+release packaging.
 
-## Maintainer workflow — IMPORTANT
-
-The build depends on the **fork**, not on `vendor/mlx-swift-lm`. The submodule + `Scripts/patches/`
-are retained only to *regenerate* the fork.
-
-> ⚠️ Applying patches to `vendor/mlx-swift-lm` (as `Scripts/build-from-scratch.sh` does) has **no
-> effect on the build** until you regenerate the fork and bump the pinned revision. Editing the
-> patch set without regenerating the fork means the build silently keeps the old code.
-
-When you change anything under `Scripts/patches/` (or bump the upstream mlx-swift-lm submodule):
-
-```bash
-./Scripts/build-mlx-swift-lm-fork.sh          # applies patches, pushes a new fork revision
-# then update the revision it prints in the root Package.swift:
-#   .package(url: "https://github.com/scouzi1966/mlx-swift-lm.git", revision: "<new-sha>"),
-swift build                                    # verify green against the new revision
-```
-
-`vendor/xgrammar` (still a submodule) is for bumping the pinned xgrammar version; after updating it,
-re-sync the in-repo copy under `Sources/CXGrammar/xgrammar` (same trim) and rebuild.
-
-## Why a fork for mlx-swift-lm but in-repo for xgrammar?
-
-- **mlx-swift-lm** is patched at build time via a 27-file overwrite set; keeping it a fork
-  preserves the "never edit vendor/ directly, patches are the source of truth" model and keeps the
-  main repo lean (the fork carries the 2.9 MB Swift tree).
-- **xgrammar** has no build-time patch step (one small `grammar_functor.cc` tweak, captured in the
-  vendored copy) and its compile subset is ~1.1 MB, so committing it in-repo is simpler than
-  maintaining a second fork and needs no extra remote.
+The source package targets macOS 26. AFMKit's Apple provider APIs that require
+the macOS 27 SDK remain availability-gated and additive, so MLX and core
+consumers retain the macOS 26 deployment boundary.

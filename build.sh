@@ -96,6 +96,10 @@ for arg in "$@"; do
   esac
 done
 
+# Fail before dependency resolution or compilation if the consumer graph or
+# release resource ownership has drifted back across the AFMKit boundary.
+"$SCRIPTS_DIR/check-afmkit-consumer-boundary.sh"
+
 # Prompt the user for a yes/no decision. Honors --yes (always yes) and
 # non-interactive stdin (defaults to no so we never hang a CI pipeline).
 confirm() {

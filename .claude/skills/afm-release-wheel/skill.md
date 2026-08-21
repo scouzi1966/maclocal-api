@@ -67,7 +67,7 @@ ls -lh "$BIN"
 Also locate required assets:
 ```bash
 # Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/default.metallib"
 test -f "$METALLIB" && echo "Metallib: OK ($(ls -lh "$METALLIB" | awk '{print $5}'))" || echo "WARNING: No metallib found"
 
 # WebUI (MANDATORY)

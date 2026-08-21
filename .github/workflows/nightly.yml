@@ -18,7 +18,9 @@ jobs:
         node-version: '20'
 
     - name: Build from scratch
-      run: ./Scripts/build-from-scratch.sh
+      run: |
+        Scripts/check-afmkit-consumer-boundary.sh
+        ./Scripts/build-from-scratch.sh
 
     - name: Build required WebUI artifact
       run: |
@@ -46,7 +48,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
 
         # Copy required runtime resource bundles beside the executable.
-        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

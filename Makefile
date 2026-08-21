@@ -1,27 +1,30 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check
+.PHONY: build clean install uninstall portable dist test help submodules submodule-status webui verify-webui build-with-webui patch patch-check patch-revert verify-afmkit-consumer-boundary
 
 PATCH_SH := Scripts/apply-mlx-patches.sh
-PATCH_STAMP := vendor/mlx-swift-lm/.patches-applied
 
 # Default target
 all: build
 
-# Apply vendor patches (idempotent — stamp file tracks state)
-$(PATCH_STAMP): $(PATCH_SH) $(wildcard Scripts/patches/*)
-	@echo "🩹 Applying vendor patches..."
+# Legacy dependency maintenance only. Normal builds consume immutable AFMKit
+# and AFM-compatible MLX packages and must not mutate vendor submodules.
+patch:
+	@echo "Applying the legacy mlx-swift-lm patch stack..."
 	@bash $(PATCH_SH)
-	@touch $(PATCH_STAMP)
-
-patch: $(PATCH_STAMP)
 
 patch-check:
 	@bash $(PATCH_SH) --check
 
+patch-revert:
+	@bash $(PATCH_SH) --revert
+
+verify-afmkit-consumer-boundary:
+	@Scripts/check-afmkit-consumer-boundary.sh
+
 # Build the release binary (portable by default)
-build: $(PATCH_STAMP)
+build: verify-afmkit-consumer-boundary
 	@echo "🔨 Building AFM..."
 	@Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
@@ -68,21 +71,18 @@ verify-webui:
 build-with-webui: webui build
 	@echo "✅ Build with webui complete"
 
-# Clean build artifacts and revert vendor patches
+# Clean build artifacts without modifying dependency worktrees.
 clean:
 	@echo "🧹 Cleaning build artifacts..."
-	@if [ -f $(PATCH_STAMP) ]; then bash $(PATCH_SH) --revert; rm -f $(PATCH_STAMP); fi
 	@swift package clean
 	@rm -rf .build
 	@rm -f dist/*.tar.gz
 	@echo "✅ Clean complete"
 
 # Install to system (requires sudo)
-install: build
-	@echo "📦 Installing AFM to /usr/local/bin..."
-	@sudo cp "$$(Scripts/find-afm-binary.sh release)" /usr/local/bin/afm
-	@sudo chmod +x /usr/local/bin/afm
-	@echo "✅ AFM installed to /usr/local/bin/afm"
+install: verify-afmkit-consumer-boundary
+	@INSTALL_PREFIX="$(or $(INSTALL_PREFIX),/usr/local)" \
+		./build.sh --stable --yes --no-clean --skip-webui --install
 
 # Uninstall from system
 uninstall:
@@ -106,7 +106,7 @@ test: build
 		rm -f "$$TEST_BIN"
 
 # Development build (debug)
-debug: $(PATCH_STAMP)
+debug: verify-afmkit-consumer-boundary
 	@echo "🐛 Building debug version..."
 	@Scripts/swiftpm-reliable.sh build
 	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
@@ -122,11 +122,13 @@ help:
 	@echo "=================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  build           - Build release binary (default, patches+portable)"
+	@echo "  build           - Build release binary from immutable dependencies"
 	@echo "  portable        - Build with enhanced portability"
-	@echo "  clean           - Clean build artifacts and revert patches"
-	@echo "  patch           - Apply vendor patches only"
+	@echo "  clean           - Clean build artifacts without changing vendor worktrees"
+	@echo "  patch           - Apply legacy vendor patches explicitly"
 	@echo "  patch-check     - Verify vendor patch status"
+	@echo "  patch-revert    - Revert explicitly applied vendor patches"
+	@echo "  verify-afmkit-consumer-boundary - Check immutable dependency and packaging ownership"
 	@echo "  install         - Install to /usr/local/bin (requires sudo)"
 	@echo "  uninstall       - Remove from /usr/local/bin"
 	@echo "  dist            - Create distribution package"

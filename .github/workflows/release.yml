@@ -32,6 +32,7 @@ jobs:
         sw_vers
         xcodebuild -version
         swift --version
+        Scripts/check-afmkit-consumer-boundary.sh
         ./build.sh --stable --yes
 
     - name: Build and verify required WebUI artifact
@@ -53,7 +54,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
         Scripts/verify-webui.sh release-package/Resources/webui/index.html.gz
 
-        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

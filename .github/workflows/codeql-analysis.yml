@@ -21,6 +21,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Check Swift version
       run: |
@@ -48,7 +50,9 @@ jobs:
     - name: Manual Build
       run: |
         # Build without Foundation Models for CI compatibility
-        swift build --configuration release -Xswiftc -DDISABLE_FOUNDATION_MODELS
+        Scripts/check-afmkit-consumer-boundary.sh
+        Scripts/swiftpm-reliable.sh build --configuration release \
+          --product afm -Xswiftc -DDISABLE_FOUNDATION_MODELS
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
