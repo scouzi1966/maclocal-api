@@ -255,6 +255,13 @@ public final class TUISessionStore: @unchecked Sendable {
         )
     }
 
+    public func loadBestAvailable(id: UUID) throws -> TUISession {
+        if let recovery = try? loadRecovery(id: id) {
+            return recovery
+        }
+        return try load(id: id)
+    }
+
     public func persistRecoveringSession(_ session: TUISession) -> TUISessionPersistenceResult {
         do {
             let savedURL = try save(session)

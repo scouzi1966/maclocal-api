@@ -457,8 +457,15 @@ final class TUISessionStoreTests: XCTestCase {
             try canonicalSessionData(store.loadRecovery(id: session.id)),
             try canonicalSessionData(session)
         )
+        XCTAssertEqual(
+            try canonicalSessionData(store.loadBestAvailable(id: session.id)),
+            try canonicalSessionData(session)
+        )
         let permissions = try FileManager.default.attributesOfItem(atPath: recoveryURL.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o600)
+
+        try Data("corrupt recovery".utf8).write(to: recoveryURL)
+        XCTAssertEqual(try store.loadBestAvailable(id: session.id).title, "saved version")
     }
 
     func testRepeatedRecoveryAtomicallyReplacesThePreviousVersion() throws {

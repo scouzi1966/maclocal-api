@@ -936,7 +936,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
 
     private func resumeSession(_ pieces: [String]) async throws {
         guard pieces.count == 2, let id = UUID(uuidString: pieces[1]) else { throw TUIArtifactError.invalidPath("usage: /resume <session-id>") }
-        var restored = try store.load(id: id)
+        var restored = try store.loadBestAvailable(id: id)
         try Self.validateRestoredSession(
             restored,
             backendName: configuration.backendName,
