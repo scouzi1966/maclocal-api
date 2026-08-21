@@ -107,6 +107,7 @@ struct OpenAPIController: RouteCollection {
               "min_p": { "type": "number" },
               "max_tokens": { "type": "integer" },
               "max_completion_tokens": { "type": "integer" },
+              "ignore_eos": { "type": "boolean", "description": "Suppress model EOS until an explicit stop, context bound, maximum-token bound, cancellation, or failure." },
               "presence_penalty": { "type": "number" },
               "repetition_penalty": { "type": "number" },
               "seed": { "type": "integer" },

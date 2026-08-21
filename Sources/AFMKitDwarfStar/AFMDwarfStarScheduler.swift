@@ -462,7 +462,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                let acceptedAt = Date().timeIntervalSince1970
+                let acceptedAt = ProcessInfo.processInfo.systemUptime
                 let telemetryToken = telemetryObserver.requestAccepted(at: acceptedAt)
                 pendingJobs.append(
                     GenerationJob(
@@ -571,7 +571,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             }
             job.cachedInputTokens = cachedTokens
             slots[slotIndex].job = job
-            let now = Date().timeIntervalSince1970
+            let now = ProcessInfo.processInfo.systemUptime
             job.telemetryObserver.requestStarted(job.telemetryToken, at: now)
             job.telemetryObserver.promptTokensProcessed(
                 job.telemetryToken,
@@ -845,7 +845,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         job.outputTokens += 1
         job.telemetryObserver.outputToken(
             job.telemetryToken,
-            at: Date().timeIntervalSince1970
+            at: ProcessInfo.processInfo.systemUptime
         )
 
         if let piece = String(data: job.pendingUTF8, encoding: .utf8) {
@@ -922,7 +922,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
             job.telemetryToken,
             observation: AFMInferenceRequestFinishObservation(
                 reason: Self.telemetryFinishReason(reason),
-                completedAt: Date().timeIntervalSince1970,
+                completedAt: ProcessInfo.processInfo.systemUptime,
                 fullPromptTokens: Int(job.prompt.len),
                 computedPromptTokens: max(0, Int(job.prompt.len) - job.cachedInputTokens),
                 generatedTokens: job.outputTokens,
@@ -940,7 +940,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         _ = job.telemetryObserver.requestFailed(
             job.telemetryToken,
             reason: error is CancellationError ? .cancelled : .inference,
-            at: Date().timeIntervalSince1970
+            at: ProcessInfo.processInfo.systemUptime
         )
         publishProviderState(additionalObservers: [job.telemetryObserver])
         job.releasePrompt()
@@ -951,7 +951,7 @@ public actor AFMDwarfStarRuntimeCoordinator {
         _ = job.telemetryObserver.requestFailed(
             job.telemetryToken,
             reason: error is CancellationError ? .cancelled : .inference,
-            at: Date().timeIntervalSince1970
+            at: ProcessInfo.processInfo.systemUptime
         )
         publishProviderState(additionalObservers: [job.telemetryObserver])
         job.releasePrompt()

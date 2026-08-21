@@ -102,6 +102,22 @@ application may construct a concrete Apple `LanguageModel` directly and use
 
 ## Additive API Changes
 
+### Issue 192 telemetry and raw generation
+
+The provider-neutral telemetry snapshot, observer, admission, raw-text
+generation, and `ignoreEndOfSequence` declarations are additive source API.
+They do not preserve binary ABI for an already-built AFMKit framework or
+client. Consumers must rebuild AFMKit, provider packages, and applications
+from source together. Existing source continues to compile because added
+initializer arguments have defaults and compatibility adapters retain the
+legacy callback gauges.
+
+`AFMKitCore` contains only immutable metric snapshots and provider-neutral
+events. HTTP routing and Prometheus text exposition remain in `AFMServer`.
+Legacy callback gauges are sampled into one compatibility overlay and must not
+be used to claim atomic provider state; native provider gauges in the process
+collector are the qualified source.
+
 ### Provider-routed log probabilities
 
 The provider-contract migration adds optional `logprobs` and `topLogprobs`

@@ -87,6 +87,7 @@ struct TokenizeAndOpenAPITests {
         let paths = parsed?["paths"] as? [String: Any] ?? [:]
         let expected = [
             "/v1/chat/completions",
+            "/v1/completions",
             "/v1/chat/completions/{id}/cancel",
             "/v1/tokenize",
             "/v1/count_tokens",
@@ -103,6 +104,14 @@ struct TokenizeAndOpenAPITests {
         for path in expected {
             #expect(paths[path] != nil, "missing path in OpenAPI spec: \(path)")
         }
+    }
+
+    @Test("T1.7 OpenAPI documents GuideLLM compatibility controls")
+    func openAPIDocumentsGuideLLMControls() {
+        let spec = OpenAPIController.specJSON
+        #expect(spec.contains(#""ignore_eos""#))
+        #expect(spec.contains(#""continuous_usage_stats""#))
+        #expect(spec.contains("only one final exact usage event"))
     }
 
     @Test("T1.7 docs page references /openapi.json on same origin")

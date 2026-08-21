@@ -194,7 +194,7 @@ struct MlxCommand: ParsableCommand {
         name: afm-mlx
         description: Run MLX-format LLM/VLM models from Hugging Face on Apple Silicon with OpenAI-compatible API. Supports streaming, tool calling, logprobs, thinking/reasoning extraction, prompt caching, quantized KV cache, and all OpenAI sampling parameters.
         tags: [mlx, huggingface, llm, vlm, inference, streaming, tool-calling, logprobs, thinking, sampling, quantization, kv-cache, prompt-caching]
-        api_endpoints: [/v1/chat/completions, /v1/models]
+        api_endpoints: [/v1/chat/completions, /v1/completions, /v1/models, /metrics]
         env_vars:
           MACAFM_MLX_MODEL_CACHE: Override model download/cache directory (avoids re-downloading)
           MACAFM_MLX_METALLIB: Override Metal library path

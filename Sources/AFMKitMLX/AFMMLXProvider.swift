@@ -390,7 +390,7 @@ public final class AFMMLXModel:
                             continuation.yield(.textDelta(
                                 text: chunk.text,
                                 tokenID: nil,
-                                timestamp: Date().timeIntervalSince1970
+                                timestamp: ProcessInfo.processInfo.systemUptime
                             ))
                         }
                         promptTokens = chunk.promptTokens ?? promptTokens

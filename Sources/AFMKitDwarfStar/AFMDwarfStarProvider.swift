@@ -299,7 +299,7 @@ public final class AFMDwarfStarModel: AFMModel, AFMRawTextGenerating, @unchecked
                         continuation.yield(.textDelta(
                             text: text,
                             tokenID: nil,
-                            timestamp: Date().timeIntervalSince1970
+                            timestamp: ProcessInfo.processInfo.systemUptime
                         ))
                     }
                     continuation.yield(.completed(AFMRawTextGenerationResult(

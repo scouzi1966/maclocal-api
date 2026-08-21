@@ -151,6 +151,7 @@ afm mlx -m Qwen3-Coder-Next-4bit --openclaw-config
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `POST` | `/v1/chat/completions` | Chat, SSE streaming, tools, reasoning, structured output, logprobs |
+| `POST` | `/v1/completions` | Capability-gated raw-prompt completions for MLX and DwarfStar, including SSE and exact usage |
 | `GET` | `/v1/models` | Active model and gateway model discovery |
 | `POST` | `/v1/embeddings` | Apple NaturalLanguage embeddings for RAG and semantic search |
 | `POST` | `/v1/vision/ocr` | OCR, tables, barcodes, classification, saliency, and PDFs |
@@ -160,7 +161,7 @@ afm mlx -m Qwen3-Coder-Next-4bit --openclaw-config
 | `POST` | `/v1/count_tokens` | Anthropic-style input token count |
 | `POST` | `/v1/batch/completions` | Multiplex up to 64 completions over SSE |
 | `POST` | `/v1/chat/completions/{id}/cancel` | Cancel an in-flight generation |
-| `GET` | `/metrics` | Prometheus queue, token, throughput, and timing metrics |
+| `GET` | `/metrics` | Prometheus `afm:*` and vLLM-compatible queue, token, throughput, and timing metrics |
 | `GET` | `/openapi.json` | OpenAPI description |
 | `GET` | `/docs` | Interactive API reference served by AFM |
 
@@ -294,6 +295,7 @@ Small 0.6B–4B quantized models are the easiest way to confirm a setup. Large 3
 - [Apple-native endpoints](docs/apple-native-endpoints.md)
 - [Model path resolution](docs/model-path-resolution.md)
 - [Decode optimizations](docs/decode-optimizations.md)
+- [vLLM observability and GuideLLM](docs/guidellm.md)
 - [AFMKit public API](docs/afmkit-public-api.md)
 - [Parameter combinations and use cases](https://maclocal.ai/docs/configuration-recipes)
 - [Supported model architecture catalog](https://maclocal.ai/docs/model-architectures)
