@@ -1,5 +1,5 @@
 import AFMKitCore
-import AFMKitMLX
+@testable import AFMKitMLX
 @testable import AFMServer
 import XCTest
 

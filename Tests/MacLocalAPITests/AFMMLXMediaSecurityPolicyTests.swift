@@ -28,10 +28,10 @@ final class AFMMLXMediaSecurityPolicyTests: XCTestCase {
             _ = try await MLXModelService.resolvedMediaRequest(for: messages)
             XCTFail("Expected direct service media resolution to reject file URLs")
         } catch {
-            XCTAssertEqual(
-                error as? AFMMLXMediaInputError,
-                .unsupportedScheme("file")
-            )
+            guard case .invalidMediaInput(let reason) = error as? MLXServiceError else {
+                return XCTFail("Unexpected direct service error: \(error)")
+            }
+            XCTAssertEqual(reason, "image_url scheme 'file' is not allowed")
         }
     }
 
