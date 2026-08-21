@@ -402,29 +402,148 @@ final class TUISessionStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(id: session.id).title, "original")
     }
 
-    func testOversizedPersistenceExportsRecoveryTranscriptAndRetainsLastSavedSession() throws {
+    func testOversizedPersistenceWritesFullFidelityJSONAndRetainsLastSavedSession() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = TUISessionStore(directory: root, maximumSessionBytes: 1_024)
+        let store = TUISessionStore(
+            directory: root,
+            maximumSessionBytes: 1_024,
+            maximumRecoveryBytes: 16_000
+        )
         var session = TUISession(title: "saved version", backend: "MLX", model: "test/model")
         try store.save(session)
 
         session.title = "unsaved version"
         session.messages = [
-            .init(role: "user", content: "latest turn " + String(repeating: "x", count: 2_000))
+            Message(role: "user", content: .parts([
+                ContentPart(type: "text", text: "latest turn " + String(repeating: "x", count: 1_100)),
+                ContentPart(
+                    type: "image_url",
+                    image_url: ImageURL(url: "data:image/png;base64,AQIDBA==", detail: "high")
+                ),
+                ContentPart(
+                    type: "input_audio",
+                    input_audio: InputAudio(data: "BQYHCA==", format: "wav", language: "en-CA")
+                )
+            ])),
+            Message(
+                role: "assistant",
+                content: nil,
+                toolCalls: [MessageToolCall(
+                    id: "call-1",
+                    type: "function",
+                    function: MessageToolCallFunction(
+                        name: "lookup",
+                        arguments: #"{"query":"swift"}"#
+                    )
+                )]
+            ),
+            Message(
+                role: "tool",
+                content: .text("result"),
+                toolCallId: "call-1",
+                name: "lookup"
+            )
         ]
-        let result = store.persistRecoveringTranscript(session)
-        guard case .recovered(let saveError, let transcriptURL) = result else {
-            return XCTFail("Expected an oversized save to produce a recovery transcript")
+        let result = store.persistRecoveringSession(session)
+        guard case .recovered(let saveError, let recoveryURL) = result else {
+            return XCTFail("Expected an oversized save to produce a recovery session")
         }
 
         XCTAssertTrue(saveError.contains("save/load limit"))
         XCTAssertEqual(try store.load(id: session.id).title, "saved version")
-        let recovery = try String(contentsOf: transcriptURL, encoding: .utf8)
-        XCTAssertTrue(recovery.contains("unsaved version"))
-        XCTAssertTrue(recovery.contains("latest turn"))
-        let permissions = try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(recoveryURL.pathExtension, "json")
+        XCTAssertEqual(
+            try canonicalSessionData(store.loadRecovery(id: session.id)),
+            try canonicalSessionData(session)
+        )
+        let permissions = try FileManager.default.attributesOfItem(atPath: recoveryURL.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o600)
+    }
+
+    func testRepeatedRecoveryAtomicallyReplacesThePreviousVersion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(
+            directory: root,
+            maximumSessionBytes: 128,
+            maximumRecoveryBytes: 8_192
+        )
+        var session = TUISession(
+            title: "first " + String(repeating: "a", count: 256),
+            backend: "MLX",
+            model: "test/model"
+        )
+        guard case .recovered = store.persistRecoveringSession(session) else {
+            return XCTFail("Expected first recovery")
+        }
+
+        session.title = "second " + String(repeating: "b", count: 256)
+        session.messages = [.init(role: "assistant", content: "newest complete state")]
+        guard case .recovered = store.persistRecoveringSession(session) else {
+            return XCTFail("Expected replacement recovery")
+        }
+
+        XCTAssertEqual(try store.loadRecovery(id: session.id).title, session.title)
+        let recoveryFiles = try FileManager.default.contentsOfDirectory(
+            at: root.appendingPathComponent("recovery"),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(recoveryFiles.filter { $0.pathExtension == "json" }.count, 1)
+        XCTAssertFalse(recoveryFiles.contains { $0.pathExtension == "tmp" })
+    }
+
+    func testFailedRecoveryReplacementPreservesThePriorGoodRecovery() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(
+            directory: root,
+            maximumSessionBytes: 64,
+            maximumRecoveryBytes: 2_048
+        )
+        var session = TUISession(
+            title: "recoverable " + String(repeating: "a", count: 256),
+            backend: "MLX",
+            model: "test/model"
+        )
+        guard case .recovered = store.persistRecoveringSession(session) else {
+            return XCTFail("Expected initial recovery")
+        }
+        let prior = try canonicalSessionData(store.loadRecovery(id: session.id))
+
+        session.title = "too large " + String(repeating: "z", count: 4_096)
+        guard case .failed(_, let recoveryError) = store.persistRecoveringSession(session) else {
+            return XCTFail("Expected bounded recovery failure")
+        }
+
+        XCTAssertTrue(recoveryError.contains("recovery limit"))
+        XCTAssertEqual(try canonicalSessionData(store.loadRecovery(id: session.id)), prior)
+    }
+
+    func testInterruptedTemporaryRecoveryDoesNotReplaceLastGoodJSON() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TUISessionStore(
+            directory: root,
+            maximumSessionBytes: 64,
+            maximumRecoveryBytes: 4_096
+        )
+        let session = TUISession(
+            title: "recoverable " + String(repeating: "a", count: 256),
+            backend: "MLX",
+            model: "test/model"
+        )
+        guard case .recovered(_, let recoveryURL) = store.persistRecoveringSession(session) else {
+            return XCTFail("Expected initial recovery")
+        }
+        let interrupted = recoveryURL.deletingLastPathComponent()
+            .appendingPathComponent(".interrupted.tmp")
+        try Data(#"{"title":"partial""#.utf8).write(to: interrupted)
+
+        XCTAssertEqual(
+            try canonicalSessionData(store.loadRecovery(id: session.id)),
+            try canonicalSessionData(session)
+        )
     }
 
     func testRecentHistoryUsesBoundedMetadataDecoding() throws {
@@ -518,6 +637,13 @@ final class TUISessionStoreTests: XCTestCase {
         let loaded = try stores[0].load(id: id)
         XCTAssertTrue(validTitles.contains(loaded.title))
         XCTAssertEqual(loaded.messages.count, 1)
+    }
+
+    private func canonicalSessionData(_ session: TUISession) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(session)
     }
 }
 
@@ -796,10 +922,10 @@ final class TUIConversationPolicyTests: XCTestCase {
     }
 
     func testPersistenceFailureNoticeIncludesRecoveryAndManualExportPaths() throws {
-        let recoveryURL = URL(fileURLWithPath: "/safe/recovery/session.md")
+        let recoveryURL = URL(fileURLWithPath: "/safe/recovery/session.json")
         let notice = try XCTUnwrap(AFMTerminalChat.persistenceNotice(for: .recovered(
             saveError: "Session exceeds limit",
-            transcriptURL: recoveryURL
+            recoveryURL: recoveryURL
         )))
 
         XCTAssertTrue(notice.contains("Session save failed: Session exceeds limit"))

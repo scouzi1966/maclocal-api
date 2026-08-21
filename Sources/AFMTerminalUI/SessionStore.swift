@@ -92,26 +92,31 @@ public struct TUISessionSummary: Equatable, Sendable {
 
 public enum TUISessionStoreError: Error, LocalizedError, Equatable {
     case sessionTooLarge(maximumBytes: Int)
+    case recoveryTooLarge(maximumBytes: Int)
 
     public var errorDescription: String? {
         switch self {
         case .sessionTooLarge(let maximumBytes):
             return "Session exceeds the \(maximumBytes)-byte save/load limit."
+        case .recoveryTooLarge(let maximumBytes):
+            return "Session exceeds the \(maximumBytes)-byte recovery limit."
         }
     }
 }
 
 public enum TUISessionPersistenceResult: Equatable, Sendable {
     case saved(URL)
-    case recovered(saveError: String, transcriptURL: URL)
+    case recovered(saveError: String, recoveryURL: URL)
     case failed(saveError: String, recoveryError: String)
 }
 
 public final class TUISessionStore: @unchecked Sendable {
     public static let defaultMaximumSessionBytes = 32_000_000
+    public static let defaultMaximumRecoveryBytes = 128_000_000
     public let directory: URL
     private let fileManager: FileManager
     private let maximumSessionBytes: Int
+    private let maximumRecoveryBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let lock = NSLock()
@@ -119,10 +124,12 @@ public final class TUISessionStore: @unchecked Sendable {
     public init(
         directory: URL? = nil,
         fileManager: FileManager = .default,
-        maximumSessionBytes: Int = TUISessionStore.defaultMaximumSessionBytes
+        maximumSessionBytes: Int = TUISessionStore.defaultMaximumSessionBytes,
+        maximumRecoveryBytes: Int = TUISessionStore.defaultMaximumRecoveryBytes
     ) {
         self.fileManager = fileManager
         self.maximumSessionBytes = max(0, maximumSessionBytes)
+        self.maximumRecoveryBytes = max(0, maximumRecoveryBytes)
         if let directory {
             self.directory = directory
         } else {
@@ -142,22 +149,12 @@ public final class TUISessionStore: @unchecked Sendable {
         defer { lock.unlock() }
         try ensureDirectory()
         let target = url(for: session.id)
-        let temporary = directory.appendingPathComponent(
-            ".\(session.id.uuidString).\(UUID().uuidString).tmp"
-        )
-        defer { try? fileManager.removeItem(at: temporary) }
         let data = try encoder.encode(session)
         guard data.count <= maximumSessionBytes else {
             throw TUISessionStoreError.sessionTooLarge(maximumBytes: maximumSessionBytes)
         }
-        try TUIArtifactActions.save(data, to: temporary)
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600, .modificationDate: session.updatedAt],
-            ofItemAtPath: temporary.path
-        )
-        guard Darwin.rename(temporary.path, target.path) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
+        try TUIArtifactActions.save(data, to: target, overwrite: true)
+        try? fileManager.setAttributes([.modificationDate: session.updatedAt], ofItemAtPath: target.path)
         return target
     }
 
@@ -246,22 +243,40 @@ public final class TUISessionStore: @unchecked Sendable {
         try TUIArtifactActions.save(Data(markdown.utf8), to: url, overwrite: overwrite)
     }
 
-    public func persistRecoveringTranscript(_ session: TUISession) -> TUISessionPersistenceResult {
+    public func loadRecovery(id: UUID) throws -> TUISession {
+        lock.lock()
+        defer { lock.unlock() }
+        return try decoder.decode(
+            TUISession.self,
+            from: TUIArtifactActions.readRegularFile(
+                at: recoveryURL(for: id),
+                maximumBytes: maximumRecoveryBytes
+            )
+        )
+    }
+
+    public func persistRecoveringSession(_ session: TUISession) -> TUISessionPersistenceResult {
         do {
-            return .saved(try save(session))
+            let savedURL = try save(session)
+            try? fileManager.removeItem(at: recoveryURL(for: session.id))
+            return .saved(savedURL)
         } catch {
             let saveError = error.localizedDescription
             do {
-                let recoveryDirectory = directory.appendingPathComponent("recovery", isDirectory: true)
-                try fileManager.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
-                try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryDirectory.path)
-                let transcriptURL = recoveryDirectory.appendingPathComponent("\(session.id.uuidString).md")
-                try exportMarkdown(session, to: transcriptURL, overwrite: true)
+                lock.lock()
+                defer { lock.unlock() }
+                try ensureRecoveryDirectory()
+                let data = try encoder.encode(session)
+                guard data.count <= maximumRecoveryBytes else {
+                    throw TUISessionStoreError.recoveryTooLarge(maximumBytes: maximumRecoveryBytes)
+                }
+                let recoveryURL = recoveryURL(for: session.id)
+                try TUIArtifactActions.save(data, to: recoveryURL, overwrite: true)
                 try? fileManager.setAttributes(
-                    [.posixPermissions: 0o600, .modificationDate: session.updatedAt],
-                    ofItemAtPath: transcriptURL.path
+                    [.modificationDate: session.updatedAt],
+                    ofItemAtPath: recoveryURL.path
                 )
-                return .recovered(saveError: saveError, transcriptURL: transcriptURL)
+                return .recovered(saveError: saveError, recoveryURL: recoveryURL)
             } catch {
                 return .failed(saveError: saveError, recoveryError: error.localizedDescription)
             }
@@ -302,5 +317,18 @@ public final class TUISessionStore: @unchecked Sendable {
         try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     }
 
+    private func ensureRecoveryDirectory() throws {
+        try ensureDirectory()
+        let recoveryDirectory = directory.appendingPathComponent("recovery", isDirectory: true)
+        try fileManager.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryDirectory.path)
+    }
+
     private func url(for id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json") }
+
+    private func recoveryURL(for id: UUID) -> URL {
+        directory
+            .appendingPathComponent("recovery", isDirectory: true)
+            .appendingPathComponent("\(id.uuidString).json")
+    }
 }

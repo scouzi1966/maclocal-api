@@ -562,7 +562,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             session.reasoningByMessage[String(assistantIndex)] = lastSnapshot.reasoning
         }
         session.updatedAt = Date()
-        reportPersistenceResult(store.persistRecoveringTranscript(session))
+        reportPersistenceResult(store.persistRecoveringSession(session))
         let rendered = renderMarkdown(lastSnapshot.text)
         codeBlocks = rendered.codeBlocks
         images = rendered.images
@@ -588,11 +588,11 @@ public final class AFMTerminalChat: @unchecked Sendable {
         switch result {
         case .saved:
             return nil
-        case .recovered(let saveError, let transcriptURL):
+        case .recovered(let saveError, let recoveryURL):
             return """
             warning: Session save failed: \(saveError)
-            Recovery transcript: \(transcriptURL.path)
-            Inline image data is omitted from Markdown. This chat remains in memory; use /export <path> for another text copy before quitting.
+            Full recovery session: \(recoveryURL.path)
+            This bounded JSON recovery preserves multimodal content and tool calls. Use /export <path> for a separate text copy.
 
             """
         case .failed(let saveError, let recoveryError):
