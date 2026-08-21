@@ -105,11 +105,17 @@ afm --tui
 afm mlx -m Qwen3-0.6B-4bit --tui
 ```
 
-The terminal UI streams responses, separates optional reasoning, renders Markdown,
-syntax-highlighted code, unified diffs, and readable LaTeX fallbacks, and reports token
-and throughput statistics. It supports multiline editing, prompt history, cancellation,
-persisted/searchable sessions under `~/.afm/sessions`, transcript export, attachments,
-themes, and safe actions for response artifacts. Use `/help` for the command palette.
+The terminal UI streams responses, separates optional reasoning, and renders both answers
+and visible reasoning through a native CommonMark/GFM renderer. Headings, nested/task lists,
+quotes, tables, links, inline formatting, fenced code, and raw HTML are presented as inert
+terminal output. Code has language-aware token highlighting and line numbers; unified diffs
+have distinct file, hunk, addition, and deletion styling. Inline and display LaTeX are rendered
+as readable Unicode math, including fractions, roots, super/subscripts, operators, Greek
+symbols, matrices, and cases. The UI also reports token and throughput statistics.
+
+It supports multiline editing, prompt history, cancellation, persisted/searchable sessions
+under `~/.afm/sessions`, transcript export, attachments, terminal-width-aware tables, themes,
+and safe actions for response artifacts. Use `/help` for the command palette.
 
 Code is never executed automatically. `/save` refuses overwrites unless `/save!` is used,
 and only an explicit `/open` previews HTML or JavaScript in the browser. iTerm2 and Kitty

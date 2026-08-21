@@ -45,6 +45,97 @@ final class TerminalMarkdownRendererTests: XCTestCase {
             [TUIImageReference(alt: "chart.webp", path: "/tmp/afm-output/chart.webp")]
         )
     }
+
+    func testRendersCommonMarkAndGFMStructures() {
+        let source = #"""
+        # Heading
+
+        **bold**, *emphasis*, ~~removed~~, `inline`, and [AFM](https://example.com/afm).
+
+        > Quoted **answer**
+
+        - [x] parsed
+        - [ ] rendered
+          1. nested one
+          2. nested two
+
+        | Feature | State |
+        |:--------|------:|
+        | Tables  | ready |
+        """#
+        let text = TerminalMarkdownRenderer(color: false).render(source, width: 60).text
+
+        XCTAssertTrue(text.contains("▌ Heading"))
+        XCTAssertTrue(text.contains("bold, emphasis, ~~removed~~,  inline "))
+        XCTAssertTrue(text.contains("AFM (https://example.com/afm)"))
+        XCTAssertTrue(text.contains("│ Quoted answer"))
+        XCTAssertTrue(text.contains("☑ parsed"))
+        XCTAssertTrue(text.contains("☐ rendered"))
+        XCTAssertTrue(text.contains("1. nested one"))
+        XCTAssertTrue(text.contains("┌"))
+        XCTAssertTrue(text.contains("Feature"))
+        XCTAssertTrue(text.contains("ready"))
+    }
+
+    func testRendersInlineAndDisplayMathWithoutCorruptingCurrency() {
+        let source = #"""
+        It costs $5, while $x^2 + y_1 \leq \sqrt{9}$ is math.
+
+        $$
+        \begin{bmatrix} 1 & 2 \\ 3 & \frac{4}{5} \end{bmatrix}
+        $$
+        """#
+        let text = TerminalMarkdownRenderer(color: false).render(source).text
+
+        XCTAssertTrue(text.contains("costs $5"))
+        XCTAssertTrue(text.contains("x² + y₁ ≤ √(9)"))
+        XCTAssertTrue(text.contains("┌─ math"))
+        XCTAssertTrue(text.contains("[ 1  2"))
+        XCTAssertTrue(text.contains("(4)/(5)"))
+    }
+
+    func testLanguageHighlightingDiffsAndThemesProduceDistinctANSI() {
+        let source = #"""
+        ```swift
+        let value = Widget(name: "AFM", count: 42) // comment
+        ```
+        ```diff
+        @@ -1 +1 @@
+        -old
+        +new
+        ```
+        """#
+        let dark = TerminalMarkdownRenderer(color: true, theme: .dark).render(source).text
+        let light = TerminalMarkdownRenderer(color: true, theme: .light).render(source).text
+
+        XCTAssertNotEqual(dark, light)
+        XCTAssertTrue(dark.contains("\u{001B}[95mlet"))
+        XCTAssertTrue(dark.contains("\u{001B}[94mWidget"))
+        XCTAssertTrue(dark.contains("\u{001B}[92m\"AFM\""))
+        XCTAssertTrue(dark.contains("\u{001B}[91m42"))
+        XCTAssertTrue(dark.contains("\u{001B}[2;37m// comment"))
+        XCTAssertTrue(dark.contains("\u{001B}[92m+new"))
+        XCTAssertTrue(dark.contains("\u{001B}[91m-old"))
+    }
+
+    func testHyperlinksAreCapabilityGatedAndControlCharactersAreInert() {
+        let source = "[safe](https://example.com)\u{001B}]2;owned\u{0007}"
+        let plain = TerminalMarkdownRenderer(color: true).render(source, hyperlinks: false).text
+        let linked = TerminalMarkdownRenderer(color: true).render(source, hyperlinks: true).text
+
+        XCTAssertFalse(plain.contains("\u{001B}]8;;"))
+        XCTAssertTrue(linked.contains("\u{001B}]8;;https://example.com"))
+        XCTAssertFalse(plain.contains("\u{001B}]2;owned"))
+        XCTAssertTrue(plain.contains("�]2;owned�"))
+    }
+
+    func testOnlyLocalImagesBecomeArtifactActions() {
+        let source = "![local](./plot.png) ![remote](https://example.com/plot.png)"
+        XCTAssertEqual(
+            TerminalMarkdownRenderer(color: false).render(source).images,
+            [TUIImageReference(alt: "local", path: "./plot.png")]
+        )
+    }
 }
 
 final class TUIArtifactActionsTests: XCTestCase {

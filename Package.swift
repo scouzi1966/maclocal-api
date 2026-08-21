@@ -77,6 +77,10 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        // Parse CommonMark/GFM into a real syntax tree for the native terminal UI.
+        // Rendering remains AFM-owned so ANSI output, math, diffs, and artifact
+        // actions behave consistently in Terminal.app and richer terminals.
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.8.0"),
         // Development checkouts compile the patched vendor directly so local source edits
         // cannot be mistaken for successful stale builds. A plain downstream clone without
         // initialized submodules falls back to the pre-patched URL fork and remains portable.
@@ -275,7 +279,8 @@ let package = Package(
             name: "AFMTerminalUI",
             dependencies: [
                 "AFMKit",
-                "AFMOpenAICompat"
+                "AFMOpenAICompat",
+                .product(name: "Markdown", package: "swift-markdown")
             ]
         ),
         // Thin CLI executable over AFMKit + AFMServer.

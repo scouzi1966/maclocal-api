@@ -297,7 +297,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         ))
         session.updatedAt = Date()
         _ = try? store.save(session)
-        let rendered = renderer.render(lastSnapshot.text)
+        let rendered = renderMarkdown(lastSnapshot.text)
         codeBlocks = rendered.codeBlocks
         images = rendered.images
         let elapsed = max(0.001, Date().timeIntervalSince(start))
@@ -324,12 +324,12 @@ public final class AFMTerminalChat: @unchecked Sendable {
         var display = ""
         if !snapshot.reasoning.isEmpty {
             if showReasoning {
-                display += style("reasoning", "2;35") + " ›\n" + style(snapshot.reasoning, "2") + "\n\n"
+                display += style("reasoning", "2;35") + " ›\n" + renderMarkdown(snapshot.reasoning).text + "\n\n"
             } else {
                 display += style("… reasoning hidden (\(snapshot.reasoning.count) chars; /reasoning show)", "2") + "\n"
             }
         }
-        display += style("assistant", "1;32") + " › " + renderer.render(snapshot.text).text
+        display += style("assistant", "1;32") + " › " + renderMarkdown(snapshot.text).text
         if snapshot.text.isEmpty && snapshot.reasoning.isEmpty { display += style("thinking…", "2") }
         if !snapshot.tools.isEmpty {
             let lines = zip(snapshot.tools, snapshot.toolStages).map { call, stage in
@@ -419,7 +419,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
             showReasoning = value == "show" || value == "on" ? true : value == "hide" || value == "off" ? false : !showReasoning
             terminal.write("Reasoning is now \(showReasoning ? "visible" : "hidden").\n")
             if showReasoning, !lastReasoning.isEmpty {
-                terminal.write("\(style("latest reasoning", "2;35")) ›\n\(style(lastReasoning, "2"))\n")
+                terminal.write("\(style("latest reasoning", "2;35")) ›\n\(renderMarkdown(lastReasoning).text)\n")
             }
         case "/blocks": listBlocks()
         case "/copy": try copyBlock(pieces)
@@ -600,7 +600,7 @@ public final class AFMTerminalChat: @unchecked Sendable {
         images = []
         terminal.clearScreen(); drawWelcome()
         for message in session.messages where message.role != "system" {
-            terminal.write("\(style(message.role, message.role == "user" ? "1;34" : "1;32")) › \(renderer.render(message.textContent).text)\n\n")
+            terminal.write("\(style(message.role, message.role == "user" ? "1;34" : "1;32")) › \(renderMarkdown(message.textContent).text)\n\n")
         }
     }
 
@@ -618,7 +618,16 @@ public final class AFMTerminalChat: @unchecked Sendable {
     }
 
     private func displayRows(_ input: String, width: Int) -> Int {
-        let plain = input.replacingOccurrences(of: #"\u001B\[[0-9;]*m"#, with: "", options: .regularExpression)
+        let withoutLinks = input.replacingOccurrences(
+            of: #"\u001B\][^\u0007]*(?:\u0007|\u001B\\)"#,
+            with: "",
+            options: .regularExpression
+        )
+        let plain = withoutLinks.replacingOccurrences(
+            of: #"\u001B\[[0-?]*[ -/]*[@-~]"#,
+            with: "",
+            options: .regularExpression
+        )
         let columns = max(1, width)
         return max(1, plain.split(separator: "\n", omittingEmptySubsequences: false).reduce(0) {
             let cells = String($1).unicodeScalars.reduce(0) { total, scalar in
@@ -626,6 +635,14 @@ public final class AFMTerminalChat: @unchecked Sendable {
             }
             return $0 + max(1, (cells + columns - 1) / columns)
         })
+    }
+
+    private func renderMarkdown(_ source: String) -> MarkdownRenderResult {
+        renderer.render(
+            source,
+            width: max(24, terminal.width() - 4),
+            hyperlinks: capabilities.hyperlinks
+        )
     }
 
     private static func initialMessages(for configuration: TerminalChatConfiguration) -> [Message] {
