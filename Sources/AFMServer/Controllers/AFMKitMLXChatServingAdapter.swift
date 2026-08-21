@@ -64,6 +64,32 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         service?.effectiveResponseFormat(requestFormat: requestFormat) ?? requestFormat
     }
 
+    func validateMediaRequestCapabilities(
+        model: String,
+        messages: [Message]
+    ) throws {
+        if let service {
+            try service.validateMediaRequestCapabilities(model: model, messages: messages)
+            return
+        }
+        guard let descriptor = loadedModelDescriptor(model: model) else { return }
+        for kind in AFMMLXMediaSecurityPolicy.declaredMediaKinds(in: messages) {
+            let supported: Bool
+            switch kind {
+            case .image, .video:
+                supported = descriptor.capabilities.contains(.vision)
+            case .audio:
+                supported = descriptor.capabilities.contains(.audioInput)
+            }
+            guard supported else {
+                throw MLXServiceError.unsupportedMediaInput(
+                    model: fixedModelID ?? model,
+                    kind: kind.label
+                )
+            }
+        }
+    }
+
     func preflightMediaRequest(
         model: String,
         messages: [Message]

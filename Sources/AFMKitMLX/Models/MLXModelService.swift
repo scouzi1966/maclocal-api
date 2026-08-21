@@ -6159,6 +6159,37 @@ public final class MLXModelService: @unchecked Sendable {
         }
     }
 
+    public func validateMediaRequestCapabilities(
+        model rawModel: String,
+        messages: [AFMOpenAICompat.Message]
+    ) throws {
+        let mediaKinds = AFMMLXMediaSecurityPolicy.declaredMediaKinds(in: messages)
+        guard !mediaKinds.isEmpty else { return }
+
+        let modelID = normalizeModel(rawModel)
+        let state = withStateLock {
+            (
+                matches: currentModelID == modelID && currentContainer != nil,
+                architecture: currentModelArchitecture,
+                qualification: currentVisionQualification,
+                factory: currentModelFactory
+            )
+        }
+        guard state.matches else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.architecture,
+              let qualification = state.qualification,
+              let factory = state.factory else {
+            throw MLXServiceError.loadFailed("\(modelID): loaded runtime capability state is unavailable")
+        }
+        try Self.validateMediaKinds(
+            mediaKinds,
+            modelID: modelID,
+            architecture: architecture,
+            qualification: qualification,
+            factory: factory
+        )
+    }
+
     public func preflightMediaRequest(
         model rawModel: String,
         messages: [AFMOpenAICompat.Message]

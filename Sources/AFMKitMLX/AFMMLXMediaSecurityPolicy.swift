@@ -158,6 +158,24 @@ public enum AFMMLXMediaSecurityPolicy {
         ".internal", ".lan", ".local", ".localhost", ".home",
     ]
 
+    /// Returns media kinds that can be identified without decoding data URLs,
+    /// resolving hosts, downloading payloads, or inspecting media bytes.
+    public static func declaredMediaKinds(
+        in messages: [AFMOpenAICompat.Message]
+    ) -> [AFMMLXRequestMediaKind] {
+        messages.flatMap { message -> [AFMMLXRequestMediaKind] in
+            guard let content = message.content, case .parts(let parts) = content else {
+                return []
+            }
+            return parts.compactMap { part in
+                AFMMLXRequestMediaPolicy.kind(
+                    contentPartType: part.type,
+                    mediaURL: part.image_url?.url
+                )
+            }
+        }
+    }
+
     public static func validateReferences(
         in messages: [AFMOpenAICompat.Message]
     ) throws {

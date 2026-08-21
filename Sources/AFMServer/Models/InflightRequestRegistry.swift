@@ -58,16 +58,18 @@ actor InflightRequestRegistry {
 /// body Task — a cancel arriving in that window would 404 silently.
 final class CancellableTaskHandle: @unchecked Sendable {
     private let lock = NSLock()
-    private var task: Task<Void, Never>?
+    private var cancelAssignedTask: (@Sendable () -> Void)?
     private var cancelledEarly: Bool = false
 
-    /// Called from the asyncStream closure once the body Task is created.
-    func assign(_ t: Task<Void, Never>) {
+    /// Assigns the current phase of request work. A later phase may replace it.
+    func assign<Success: Sendable, Failure: Error>(
+        _ task: Task<Success, Failure>
+    ) {
         lock.lock(); defer { lock.unlock() }
         if cancelledEarly {
-            t.cancel()
+            task.cancel()
         }
-        task = t
+        cancelAssignedTask = { task.cancel() }
     }
 
     /// Called from the registry's cancel closure (typically from another HTTP
@@ -75,7 +77,7 @@ final class CancellableTaskHandle: @unchecked Sendable {
     func cancel() {
         lock.lock(); defer { lock.unlock() }
         cancelledEarly = true
-        task?.cancel()
+        cancelAssignedTask?()
     }
 }
 

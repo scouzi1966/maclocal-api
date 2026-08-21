@@ -109,6 +109,13 @@ public protocol AFMMLXOpenAIChatServing:
     /// Resolve effective response format: per-request format wins, falls back to server default.
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
 
+    /// Reject media kinds that the loaded runtime cannot consume without
+    /// decoding or fetching any media payloads.
+    func validateMediaRequestCapabilities(
+        model: String,
+        messages: [Message]
+    ) throws
+
     /// Resolve and validate media against the immutable capability state of the
     /// active container. Remote media is returned as a bounded canonical data URL
     /// so generation never performs a second network fetch.
@@ -141,6 +148,28 @@ public extension AFMMLXOpenAIChatServing {
             requestFormat: requestFormat,
             serverDefault: defaultGuidedJsonSchema
         )
+    }
+
+    func validateMediaRequestCapabilities(
+        model: String,
+        messages: [Message]
+    ) throws {
+        guard let descriptor = loadedModelDescriptor(model: model) else { return }
+        for kind in AFMMLXMediaSecurityPolicy.declaredMediaKinds(in: messages) {
+            let supported: Bool
+            switch kind {
+            case .image, .video:
+                supported = descriptor.capabilities.contains(.vision)
+            case .audio:
+                supported = descriptor.capabilities.contains(.audioInput)
+            }
+            guard supported else {
+                throw MLXServiceError.unsupportedMediaInput(
+                    model: descriptor.modelID.rawValue,
+                    kind: kind.label
+                )
+            }
+        }
     }
 
     func preflightMediaRequest(
