@@ -84,7 +84,8 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
             && integer(config["vision_end_token_id"]) != nil
         let processorClass = selectedProcessorClass(
             modelDirectory: modelDirectory,
-            canonicalModelType: architecture.canonicalModelType
+            canonicalModelType: architecture.canonicalModelType,
+            config: config
         )
         let visionTensorNames = visionTensorNames(
             in: modelDirectory,
@@ -153,13 +154,18 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
               let visionHeads = positiveInteger(vision["num_heads"])
         else { return false }
 
-        return outHidden == textHidden
-            && visionHidden.isMultiple(of: visionHeads)
+        guard outHidden == textHidden,
+              visionHidden.isMultiple(of: visionHeads)
+        else { return false }
+
+        let headWidth = visionHidden / visionHeads
+        return headWidth.isMultiple(of: 4)
     }
 
     private static func selectedProcessorClass(
         modelDirectory: URL,
-        canonicalModelType: String
+        canonicalModelType: String,
+        config: [String: Any]
     ) -> String? {
         let preprocessor = modelDirectory.appendingPathComponent(
             "preprocessor_config.json"
@@ -177,13 +183,38 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
         else { return nil }
 
         if canonicalModelType == "qwen3_5" || canonicalModelType == "qwen3_5_moe" {
-            guard (try? JSONDecoder().decode(
+            guard let qwenProcessor = try? JSONDecoder().decode(
                 Qwen3VLProcessorConfiguration.self,
                 from: data
-            )) != nil else { return nil }
+            ), isRuntimeCompatibleQwenProcessor(qwenProcessor, config: config)
+            else { return nil }
             return "Qwen3VLProcessor"
         }
         return baseConfig.processorClass
+    }
+
+    private static func isRuntimeCompatibleQwenProcessor(
+        _ processor: Qwen3VLProcessorConfiguration,
+        config: [String: Any]
+    ) -> Bool {
+        guard let vision = config["vision_config"] as? [String: Any],
+              let inChannels = positiveInteger(vision["in_channels"] ?? 3),
+              let patchSize = positiveInteger(vision["patch_size"]),
+              let temporalPatchSize = positiveInteger(vision["temporal_patch_size"]),
+              let spatialMergeSize = positiveInteger(vision["spatial_merge_size"]),
+              inChannels == 3,
+              processor.imageMean.count == inChannels,
+              processor.imageStd.count == inChannels,
+              processor.imageMean.allSatisfy(\.isFinite),
+              processor.imageStd.allSatisfy({ $0.isFinite && $0 > 0 }),
+              processor.patchSize == patchSize,
+              processor.temporalPatchSize == temporalPatchSize,
+              processor.mergeSize == spatialMergeSize,
+              processor.minPixels > 0,
+              processor.maxPixels >= processor.minPixels,
+              multiplied(processor.patchSize, by: processor.mergeSize) != nil
+        else { return false }
+        return true
     }
 
     private static func visionTensorNames(
@@ -400,12 +431,14 @@ public final class AFMMLXVisionAssetValidator: @unchecked Sendable {
               logicalShape.count == 5
         else { return false }
 
-        // The runtime sanitizer converts raw Conv3D [out, in, t, h, w]
-        // checkpoints to MLX's [out, t, h, w, in] layout.
-        return shape == [
-            logicalShape[0], logicalShape[4], logicalShape[1],
-            logicalShape[2], logicalShape[3],
-        ]
+        guard logicalShape[2] == logicalShape[3] else { return false }
+        return Qwen3_5VisionPatchEmbeddingLayout.classify(
+            shape: shape,
+            outputChannels: logicalShape[0],
+            inputChannels: logicalShape[4],
+            temporalPatchSize: logicalShape[1],
+            patchSize: logicalShape[2]
+        ) != nil
     }
 
     private static func expectedQwenVisionTensorShapes(

@@ -1,4 +1,6 @@
 import Foundation
+import MLX
+import MLXVLM
 import XCTest
 @testable import AFMKitMLX
 
@@ -209,6 +211,67 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
         XCTAssertFalse(qualification.isAssetUsable)
     }
 
+    func testQwenVisionPerHeadWidthMustBeDivisibleByFour() throws {
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision["hidden_size"] = 24
+        vision["num_heads"] = 4
+        config["vision_config"] = vision
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+
+        let qualification = try qualify(directory)
+
+        XCTAssertTrue(qualification.missingAssets.contains(.visionConfiguration))
+        XCTAssertFalse(qualification.isAssetUsable)
+    }
+
+    func testQwenProcessorRequiresRuntimeChannelCardinality() throws {
+        let invalidChannels: [(String, Any)] = [
+            ("image_mean", [0.5, 0.5]),
+            ("image_std", [0.5, 0.5, 0.5, 0.5]),
+            ("image_std", [0.5, 0.0, 0.5]),
+        ]
+
+        for (key, value) in invalidChannels {
+            let directory = try makeModelDirectory()
+            try mutateProcessor(in: directory) { processor in
+                processor[key] = value
+            }
+
+            let qualification = try qualify(directory)
+
+            XCTAssertTrue(
+                qualification.missingAssets.contains(.processorConfiguration),
+                "Expected invalid \(key)=\(value) to fail processor qualification"
+            )
+            XCTAssertFalse(qualification.isAssetUsable)
+        }
+    }
+
+    func testQwenProcessorGeometryMustMatchVisionConfiguration() throws {
+        let mismatches = [
+            ("patch_size", 3),
+            ("temporal_patch_size", 3),
+            ("merge_size", 1),
+        ]
+
+        for (key, value) in mismatches {
+            let directory = try makeModelDirectory()
+            try mutateProcessor(in: directory) { processor in
+                processor[key] = value
+            }
+
+            let qualification = try qualify(directory)
+
+            XCTAssertTrue(
+                qualification.missingAssets.contains(.processorConfiguration),
+                "Expected mismatched \(key)=\(value) to fail processor qualification"
+            )
+            XCTAssertFalse(qualification.isAssetUsable)
+        }
+    }
+
     func testQwenPatchEmbeddingAcceptsRuntimeAndRawConv3DLayouts() throws {
         let layouts = [
             [32, 2, 2, 2, 3],
@@ -229,6 +292,54 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
                 "Expected Conv3D layout \(layout) to qualify"
             )
         }
+    }
+
+    func testQwenPatchEmbeddingDisambiguatesRawLayoutWhenPatchMatchesChannels() throws {
+        let runtimeShape = [32, 2, 3, 3, 3]
+        let rawShape = [32, 3, 2, 3, 3]
+        XCTAssertEqual(
+            Qwen3_5VisionPatchEmbeddingLayout.classify(
+                shape: runtimeShape,
+                outputChannels: 32,
+                inputChannels: 3,
+                temporalPatchSize: 2,
+                patchSize: 3
+            ),
+            .mlx
+        )
+        let rawLayout = try XCTUnwrap(
+            Qwen3_5VisionPatchEmbeddingLayout.classify(
+                shape: rawShape,
+                outputChannels: 32,
+                inputChannels: 3,
+                temporalPatchSize: 2,
+                patchSize: 3
+            )
+        )
+        XCTAssertEqual(rawLayout, .rawConv3D)
+        let rawWeight = MLXArray(
+            (0..<rawShape.reduce(1, *)).map(Float.init)
+        ).reshaped(rawShape)
+        let sanitized = rawLayout.sanitize(rawWeight)
+        XCTAssertEqual(sanitized.shape, runtimeShape)
+
+        let directory = try makeModelDirectory()
+        var config = Self.fixtureConfiguration()
+        var vision = try XCTUnwrap(config["vision_config"] as? [String: Any])
+        vision["patch_size"] = 3
+        config["vision_config"] = vision
+        try Self.writeJSON(config, to: directory.appendingPathComponent("config.json"))
+        try mutateProcessor(in: directory) { processor in
+            processor["patch_size"] = 3
+        }
+        try rewriteVisionShard(
+            in: directory,
+            metadata: [
+                "vision_tower.patch_embed.proj.weight": ("F16", rawShape)
+            ]
+        )
+
+        XCTAssertTrue(try qualify(directory).isAssetUsable)
     }
 
     func testMXFPPackedVisionWeightRequiresScaleTensor() throws {
@@ -459,7 +570,7 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
                 "image_mean": [0.5, 0.5, 0.5],
                 "image_std": [0.5, 0.5, 0.5],
                 "merge_size": 2,
-                "patch_size": 16,
+                "patch_size": 2,
                 "temporal_patch_size": 2,
             ],
             to: directory.appendingPathComponent("preprocessor_config.json")
@@ -481,6 +592,19 @@ final class AFMMLXVisionAssetQualificationTests: XCTestCase {
             )
         }
         return directory
+    }
+
+    private func mutateProcessor(
+        in directory: URL,
+        _ mutate: (inout [String: Any]) -> Void
+    ) throws {
+        let url = directory.appendingPathComponent("preprocessor_config.json")
+        let data = try Data(contentsOf: url)
+        var processor = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        mutate(&processor)
+        try Self.writeJSON(processor, to: url)
     }
 
     private func rewriteVisionShard(

@@ -51,6 +51,40 @@ public struct Qwen3_5MoEVLConfiguration: Codable, Sendable {
     }
 }
 
+public enum Qwen3_5VisionPatchEmbeddingLayout: Equatable, Sendable {
+    case mlx
+    case rawConv3D
+
+    public static func classify(
+        shape: [Int],
+        outputChannels: Int,
+        inputChannels: Int,
+        temporalPatchSize: Int,
+        patchSize: Int
+    ) -> Self? {
+        let mlxShape = [
+            outputChannels, temporalPatchSize, patchSize, patchSize, inputChannels,
+        ]
+        if shape == mlxShape {
+            return .mlx
+        }
+
+        let rawShape = [
+            outputChannels, inputChannels, temporalPatchSize, patchSize, patchSize,
+        ]
+        return shape == rawShape ? .rawConv3D : nil
+    }
+
+    public func sanitize(_ weight: MLXArray) -> MLXArray {
+        switch self {
+        case .mlx:
+            return weight
+        case .rawConv3D:
+            return weight.transposed(0, 2, 3, 4, 1)
+        }
+    }
+}
+
 public struct Qwen3_5MoEVLTextConfiguration: Codable, Sendable {
     var modelType: String = "qwen3_5_moe_text"
     var hiddenSize: Int
@@ -1708,8 +1742,15 @@ public final class Qwen3_5MoEVL: Module, VLMModel, KVCacheDimensionProvider {
         // 4. Vision patch_embed transpose
         for (key, value) in sanitizedWeights {
             if key.contains("patch_embed.proj.weight") && key.contains("vision_tower") {
-                if value.ndim == 5 && value.dim(-1) != config.visionConfig.inChannels {
-                    sanitizedWeights[key] = value.transposed(0, 2, 3, 4, 1)
+                let vision = config.visionConfig
+                if let layout = Qwen3_5VisionPatchEmbeddingLayout.classify(
+                    shape: value.shape,
+                    outputChannels: vision.hiddenSize,
+                    inputChannels: vision.inChannels,
+                    temporalPatchSize: vision.temporalPatchSize,
+                    patchSize: vision.patchSize
+                ) {
+                    sanitizedWeights[key] = layout.sanitize(value)
                 }
             }
         }
