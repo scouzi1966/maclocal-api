@@ -48,6 +48,25 @@ let package = Package(
         .macOS("26.0")
     ],
     products: [
+        // Transitional product forwarding. Existing consumers that selected
+        // these products from maclocal-api keep resolving while the modules
+        // themselves are supplied by the standalone AFMKit package.
+        .library(
+            name: "AFMKitCore",
+            targets: ["AFMKitCoreCompatibility"]
+        ),
+        .library(
+            name: "AFMOpenAICompat",
+            targets: ["AFMOpenAICompatCompatibility"]
+        ),
+        .library(
+            name: "AFMKitMLX",
+            targets: ["AFMKitMLXCompatibility"]
+        ),
+        .library(
+            name: "AFMKitDwarfStar",
+            targets: ["AFMKitDwarfStarCompatibility"]
+        ),
         .library(
             name: "AFMKitFoundationModels",
             targets: ["AFMKitFoundationModels"]
@@ -107,6 +126,30 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0")
     ],
     targets: [
+        .target(
+            name: "AFMKitCoreCompatibility",
+            dependencies: [
+                .product(name: "AFMKitCore", package: "AFMKit")
+            ]
+        ),
+        .target(
+            name: "AFMOpenAICompatCompatibility",
+            dependencies: [
+                .product(name: "AFMOpenAICompat", package: "AFMKit")
+            ]
+        ),
+        .target(
+            name: "AFMKitMLXCompatibility",
+            dependencies: [
+                .product(name: "AFMKitMLX", package: "AFMKit")
+            ]
+        ),
+        .target(
+            name: "AFMKitDwarfStarCompatibility",
+            dependencies: [
+                .product(name: "AFMKitDwarfStar", package: "AFMKit")
+            ]
+        ),
         .target(
             name: "AFMKitFoundationModels",
             dependencies: [
