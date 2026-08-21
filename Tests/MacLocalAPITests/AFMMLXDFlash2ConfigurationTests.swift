@@ -345,7 +345,7 @@ final class AFMMLXDFlash2ConfigurationTests: XCTestCase {
         XCTAssertEqual(config.checkpointBlockSize, 16)
         XCTAssertEqual(config.convolutionKernelSize, 0)
         XCTAssertEqual(config.selectorRank, 0)
-        XCTAssertEqual(config.expectedTensorShapes().count, 53)
+        XCTAssertEqual(config.expectedTensorShapes().count, 58)
         XCTAssertNotNil(config.expectedTensorShapes()["encoder.fc.weight"])
         XCTAssertNil(config.expectedTensorShapes()["candidate_selector.hidden_projection.weight"])
         try config.validateTarget(metadata: target)
