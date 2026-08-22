@@ -1,6 +1,7 @@
 import AFMKit
 import AFMKitDwarfStar
 import AFMServer
+import AFMTerminalUI
 import ArgumentParser
 import Foundation
 import Darwin
@@ -16,6 +17,36 @@ extension TelegramReplyFormat: ExpressibleByArgument {}
 // single-threaded with respect to the run loop, so the unsafety is contained.
 nonisolated(unsafe) private var globalServer: Server?
 nonisolated(unsafe) private var shouldKeepRunning = true
+
+private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws {
+    let outputIsolation = try TerminalOutputIsolation()
+    defer { outputIsolation.restore() }
+    let terminal = TerminalIO(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
+    let capabilities = TerminalCapabilities.detect(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
+    let group = DispatchGroup()
+    let errorBox = SendableBox<Error?>(nil)
+    group.enter()
+    Task.detached {
+        do {
+            try await AFMTerminalChat(
+                configuration: configuration,
+                terminal: terminal,
+                capabilities: capabilities
+            ).run()
+        } catch {
+            errorBox.value = error
+        }
+        group.leave()
+    }
+    group.wait()
+    if let error = errorBox.value { throw error }
+}
 
 // Signal handler function
 func handleShutdown(_ signal: Int32) {
@@ -209,6 +240,8 @@ struct MlxCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -254,6 +287,13 @@ struct MlxCommand: ParsableCommand {
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --gpu-profile-bw: Also sample DRAM bandwidth with mactop
           --openclaw-config: Print OpenClaw provider config JSON and exit
+          --eval: Run the bundled comprehensive local evaluation and open its HTML report
+          --bench: Alias for --eval
+          --eval-suite: Select a bundled/custom suite (repeatable; implies --eval)
+          --eval-list: List bundled and ~/.afm/evals custom suites
+          --eval-init: Scaffold a custom JSON suite under ~/.afm/evals
+          --eval-validate: Validate a suite name or JSON file without loading a model
+          --no-open: Do not open the evaluation report in a browser
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
         features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, huggingface-gguf-resolution, openclaw-integration]
@@ -379,6 +419,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
+
     @Flag(name: [.customShort("g"), .long], help: "Gateway mode is not supported in afm mlx")
     var gateway: Bool = false
 
@@ -392,7 +438,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Presence penalty: flat additive penalty for tokens already generated (0.0 = disabled)")
     var presencePenalty: Double?
     @Option(name: .long, help: "Maximum tokens to generate per response (default: 8192)")
-    var maxTokens: Int?
+    var maxTokens: Int = MLXModelService.defaultMaximumResponseTokens
     @Option(name: .long, help: "Random seed for reproducible sampling (nil = non-deterministic)")
     var seed: Int?
     @Option(name: .long, help: "Maximum number of top log probabilities returned per token (default: 20)")
@@ -438,7 +484,7 @@ struct MlxCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -518,6 +564,27 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
+    @Flag(name: .long, help: "Run the bundled comprehensive local model evaluation and open its HTML report")
+    var eval: Bool = false
+
+    @Flag(name: .long, help: "Alias for --eval")
+    var bench: Bool = false
+
+    @Option(name: .customLong("eval-suite"), help: "Bundled/custom evaluation suite name; repeat to run multiple suites (implies --eval)")
+    var evalSuites: [String] = []
+
+    @Flag(name: .customLong("eval-list"), help: "List bundled and ~/.afm/evals custom suites, then exit")
+    var evalList: Bool = false
+
+    @Option(name: .customLong("eval-init"), help: "Create a safe example suite at ~/.afm/evals/<name>.json, then exit")
+    var evalInit: String?
+
+    @Option(name: .customLong("eval-validate"), help: "Validate a suite name or JSON file, then exit")
+    var evalValidate: String?
+
+    @Flag(name: .customLong("no-open"), help: "Do not open the generated evaluation HTML report")
+    var noOpen: Bool = false
+
     @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
     var helpJson: Bool = false
 
@@ -527,9 +594,43 @@ struct MlxCommand: ParsableCommand {
             return
         }
 
+        let evaluationAction = try AFMEvaluationCLIPlan.resolve(
+            evaluate: eval,
+            bench: bench,
+            suites: evalSuites,
+            list: evalList,
+            scaffold: evalInit,
+            validate: evalValidate,
+            noOpen: noOpen)
+        if try handleEvaluationManagement(evaluationAction) {
+            return
+        }
+
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
             throw ExitCode.failure
+        }
+
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        if tui && (raw || json || openclawConfig) {
+            throw ValidationError("--tui cannot be combined with --raw, --json, or --openclaw-config")
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
@@ -551,10 +652,23 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             print("Error: --telegram requires server mode and cannot be used with -s or piped single-prompt input")
             throw ExitCode.failure
         }
+
+        let shellCWD = URL(
+            fileURLWithPath: ProcessInfo.processInfo.environment["PWD"]
+                ?? FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
+        let resolvedMediaURLs: [URL]
+        do {
+            resolvedMediaURLs = try TUIMediaAttachmentPolicy.resolveAndValidate(media, cwd: shellCWD)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        let resolvedMedia = resolvedMediaURLs.map(\.path)
 
         emitCompatibilityWarnings()
 
@@ -654,10 +768,38 @@ struct MlxCommand: ParsableCommand {
 
         let resolvedModel = try resolveRemoteDwarfStarModelIfNeeded(rawModel)
         let runtimeBackend = try resolveRuntimeBackend(model: resolvedModel)
+        if case .run(let suites, let openReport) = evaluationAction {
+            guard runtimeBackend == .mlx else {
+                throw ValidationError("--eval currently supports MLX directory checkpoints; DwarfStar GGUF evaluation is not yet available")
+            }
+            guard singlePrompt == nil, media.isEmpty, !webui, !openclawConfig,
+                  telegramBotToken == nil, telegramAllow == nil,
+                  toolsJson == nil, !raw, !json, concurrent == nil,
+                  !tui, !noAltScreen, maxKVSize == nil else {
+                throw ValidationError(
+                    "--eval cannot be combined with -s, --media, --webui, Telegram, " +
+                    "--openclaw-config, --tools-json, --raw, --json, --concurrent, " +
+                    "--tui, --no-alt-screen, or --max-kv-size")
+            }
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            let evaluationChatTemplateKwargs = parsedKwargs.isEmpty
+                ? nil
+                : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+            try runEvaluation(
+                modelID: resolvedModel,
+                suites: suites,
+                openReport: openReport,
+                chatTemplateKwargs: evaluationChatTemplateKwargs,
+                defaultResponseFormat: defaultGuidedJsonSchema)
+            return
+        }
         if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
             throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
         }
         if runtimeBackend == .dwarfstar {
+            if tui {
+                throw ValidationError("--tui currently supports MLX directory checkpoints; DwarfStar GGUF terminal chat is not yet available")
+            }
             try runDwarfStar(
                 checkpointPath: localModelPath(resolvedModel),
                 modelStore: modelStore,
@@ -703,6 +845,67 @@ struct MlxCommand: ParsableCommand {
         let service = runtime.service
         service.kernelEngine = kernelEngine
 
+        if tui {
+            var metadata: [String: AFMJSONValue] = [:]
+            if !parsedKwargs.isEmpty {
+                metadata["chatTemplateKwargs"] = .object(
+                    try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+                )
+            }
+            let tuiLogprobs = TUILogprobConfiguration(maximum: maxLogprobs)
+            let engineConfig = EngineConfig(
+                instructions: instructions,
+                kvBits: kvBits,
+                enablePrefixCaching: enablePrefixCaching,
+                mlxKernels: kernelEngine.rawValue,
+                mtpEnabled: mtp,
+                mtpDepth: mtpDepth,
+                mtpModelID: mtpModel,
+                eagle3DrafterPath: eagle3,
+                enableGrammarConstraints: enableGrammarConstraints,
+                toolCallParser: toolCallParser,
+                maxConcurrent: concurrent ?? 0,
+                prefillStepSize: prefillStepSize,
+                kvEvictionPolicy: kvEviction ?? "none",
+                fixToolArguments: fixToolArgs,
+                forceVLM: vlm || !media.isEmpty,
+                cacheProfilePath: cacheProfilePath,
+                trace: vv,
+                gpuCapturePath: gpuCapture,
+                gpuTraceDuration: gpuTrace,
+                gpuProfile: gpuProfile || gpuProfileBw,
+                gpuProfileBandwidth: gpuProfileBw
+            )
+            let generation = GenerationConfig(
+                temperature: temperature,
+                maxTokens: maxTokens,
+                topP: topP,
+                topK: topK,
+                minP: minP,
+                repetitionPenalty: repetitionPenalty,
+                presencePenalty: presencePenalty,
+                seed: seed,
+                logprobs: tuiLogprobs.enabled,
+                topLogprobs: tuiLogprobs.maximum,
+                stop: stop?.split(separator: ",").map(String.init),
+                tools: try Self.parseToolsJSON(toolsJson),
+                responseFormat: defaultGuidedJsonSchema,
+                metadata: metadata
+            )
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .mlx(modelID: selectedModel),
+                backendName: "MLX",
+                modelName: selectedModel,
+                engine: engineConfig,
+                generation: generation,
+                streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen,
+                initialAttachments: resolvedMediaURLs
+            ))
+            return
+        }
+
         if openclawConfig {
             let chosenPort = port ?? 9999
             printOpenClawConfig(model: selectedModel, hostname: hostname, port: chosenPort, modelStore: modelStore)
@@ -717,20 +920,6 @@ struct MlxCommand: ParsableCommand {
         let contextWindow = modelStore.descriptor(for: selectedModel).contextWindow
 
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
-
-        // Resolve and validate --media paths early (before model load)
-        var resolvedMedia: [String] = []
-        let shellCWD = ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
-        for path in media {
-            let expanded = NSString(string: path).expandingTildeInPath
-            let absPath = expanded.hasPrefix("/") ? expanded : shellCWD + "/" + expanded
-            let resolved = URL(fileURLWithPath: absPath).standardized.path
-            guard FileManager.default.fileExists(atPath: resolved) else {
-                print("Error: Media file not found: \(path)")
-                throw ExitCode.failure
-            }
-            resolvedMedia.append(resolved)
-        }
 
         // An explicit prompt must win over redirected stdin. Profilers and
         // automation runners commonly attach a pipe that remains open.
@@ -778,7 +967,7 @@ struct MlxCommand: ParsableCommand {
             modelID: selectedModel,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix
         )
 
@@ -1062,7 +1251,7 @@ struct MlxCommand: ParsableCommand {
             modelID: modelID,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix)
 
         let model = AnyAFMModel(AFMDwarfStarModel(
@@ -1703,6 +1892,8 @@ struct MacLocalAPI: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -1888,6 +2079,12 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -1895,7 +2092,7 @@ struct RootCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -1939,8 +2136,56 @@ struct RootCommand: ParsableCommand {
             }
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             throw ValidationError("--telegram requires server mode and cannot be used with -s or piped single-prompt input")
+        }
+
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+
+        if tui {
+            if gateway { throw ValidationError("--tui cannot be combined with --gateway") }
+            let responseFormat: ResponseFormat?
+            if let guidedJson {
+                responseFormat = ResponseFormat(type: "json_schema", jsonSchema: try parseGuidedJsonSchema(guidedJson))
+            } else {
+                responseFormat = nil
+            }
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .foundationModels,
+                backendName: "Foundation Models",
+                modelName: "apple-foundation-model",
+                engine: EngineConfig(
+                    instructions: instructions,
+                    adapter: adapter,
+                    permissiveGuardrails: permissiveGuardrails,
+                    foundationRandomness: randomness
+                ),
+                generation: GenerationConfig(
+                    temperature: temperature,
+                    stop: stop?.split(separator: ",").map(String.init),
+                    responseFormat: responseFormat
+                ),
+                streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen
+            ))
+            return
         }
 
         // Handle single-prompt mode for backward compatibility
@@ -1966,7 +2211,7 @@ struct RootCommand: ParsableCommand {
         if gateway { args.append("--gateway") }
         if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
         if let telegramAllow { args += ["--telegram-allow", telegramAllow] }
-        args += ["--telegram-format", telegramFormat.rawValue]
+        if let telegramFormat { args += ["--telegram-format", telegramFormat.rawValue] }
         if let telegramRequirePrefix { args += ["--telegram-require-prefix", telegramRequirePrefix] }
         if let adapter { args += ["--adapter", adapter] }
         if let temperature { args += ["--temperature", "\(temperature)"] }
@@ -1980,7 +2225,21 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
+    if CommandLine.arguments.count != 3 {
+        fputs("Invalid TUI preview invocation.\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+    do {
+        let artifactURL = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
+        try MainActor.assumeIsolated {
+            try TUIBrowserPreview.run(artifactURL: artifactURL)
+        }
+    } catch {
+        fputs("Unable to open TUI preview: \(error.localizedDescription)\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
         var cmd = try DwarfStarBenchmarkCommand.parse(args)
@@ -2112,7 +2371,7 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
-private final class MLXLoadReporter: @unchecked Sendable {
+final class MLXLoadReporter: @unchecked Sendable {
     private static let reporterLock = NSLock()
     nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
 

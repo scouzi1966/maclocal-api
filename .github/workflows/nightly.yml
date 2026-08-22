@@ -46,7 +46,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
 
         # Copy required runtime resource bundles beside the executable.
-        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

@@ -15,6 +15,26 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Nightly wheel metadata is temporary build input, not a source change. Keep
+# exact copies outside the checkout and restore them on every exit path so a
+# failed build cannot leave the release branch dirty.
+METADATA_BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/afm-nightly-wheel.XXXXXX")"
+cp pyproject.toml "$METADATA_BACKUP_DIR/pyproject.toml"
+cp pyproject-next.toml "$METADATA_BACKUP_DIR/pyproject-next.toml"
+cp macafm_next/__init__.py "$METADATA_BACKUP_DIR/macafm-next-init.py"
+mkdir "$METADATA_BACKUP_DIR/egg-info"
+cp macafm_next.egg-info/* "$METADATA_BACKUP_DIR/egg-info/"
+
+cleanup() {
+    cp "$METADATA_BACKUP_DIR/pyproject.toml" pyproject.toml
+    cp "$METADATA_BACKUP_DIR/pyproject-next.toml" pyproject-next.toml
+    cp "$METADATA_BACKUP_DIR/macafm-next-init.py" macafm_next/__init__.py
+    cp "$METADATA_BACKUP_DIR/egg-info/"* macafm_next.egg-info/
+    rm -rf "$REPO_ROOT/macafm_next/bin" "$REPO_ROOT/macafm_next/share"
+    rm -rf "$METADATA_BACKUP_DIR"
+}
+trap cleanup EXIT
+
 # ---------- parse args ----------
 BASE_VERSION=""
 BUILD_VERSION=""
@@ -98,7 +118,7 @@ sed -i '' "s/^version = .*/version = \"${PYTHON_VERSION}\"/" pyproject-next.toml
 echo "[INFO] Staging assets into macafm_next/"
 mkdir -p macafm_next/bin
 cp "$BIN" macafm_next/bin/
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
     BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
     if [ ! -d "$BUNDLE_DIR" ]; then
         echo "[ERROR] Required runtime bundle missing: $BUNDLE_DIR"
@@ -117,7 +137,8 @@ cp Resources/webui/index.html.gz macafm_next/share/webui/
 echo "[INFO] Included webui"
 
 # ---------- build wheel ----------
-# Use pyproject-next.toml by temporarily swapping it in.
+# Use pyproject-next.toml by temporarily swapping it in. The EXIT trap restores
+# the original even when uv or a later verification command fails.
 cp pyproject-next.toml pyproject.toml
 
 # The package embeds a macOS arm64 executable and Metal resources. Setuptools
@@ -205,5 +226,11 @@ fi
 rm -rf "$WHEEL_SMOKE"
 echo "[INFO] Verified wheel metadata version: $ACTUAL_PYTHON_VERSION"
 echo "[INFO] Verified wheel runtime version: $ACTUAL_VERSION"
+if ! unzip -Z1 "$WHL" | grep -E \
+    '^macafm_next/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
+    >/dev/null; then
+    echo "[ERROR] Wheel is missing the bundled comprehensive evaluation suite"
+    exit 1
+fi
 
 echo "[INFO] Done. Wheel ready: $WHL"

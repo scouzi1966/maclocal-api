@@ -4,7 +4,7 @@
 import Foundation
 
 public struct BuildInfo {
-    public static let version: String? = "v0.9.17"
+    public static let version: String? = "v0.9.18"
     static let commit: String? = nil
 
     public static var fullVersion: String {

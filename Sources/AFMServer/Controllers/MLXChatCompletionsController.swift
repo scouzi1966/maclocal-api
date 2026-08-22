@@ -1599,7 +1599,7 @@ struct MLXChatCompletionsController: RouteCollection {
     /// Deliberately larger than mlx_lm.server's 512 so interactive clients that
     /// omit max_tokens don't get truncated thinking/code output; parity
     /// benchmarks should pass an explicit max_tokens on both servers.
-    static let defaultMaxCompletionTokens = 4096
+    static let defaultMaxCompletionTokens = MLXModelService.defaultMaximumResponseTokens
 
     static func resolveEffectiveMaxTokens(requested: Int?, serverDefault: Int?) -> Int {
         if let requested, requested > 0 { return requested }

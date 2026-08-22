@@ -1,0 +1,58 @@
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m swift <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mlet<ESC>[0m answer<ESC>[93m: Int<ESC>[0m <ESC>[96m=<ESC>[0m <ESC>[91m42<ESC>[0m
+<ESC>[2;37m└─────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m python <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mdef<ESC>[0m greet(name):
+<ESC>[2;37m│ 2 │<ESC>[0m     <ESC>[95mreturn<ESC>[0m <ESC>[92mf"Hello {name}"<ESC>[0m
+<ESC>[2;37m└──────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m javascript <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mconst<ESC>[0m greet <ESC>[96m=<ESC>[0m (name) <ESC>[96m=><ESC>[0m <ESC>[92m`Hello ${name}`<ESC>[0m;
+<ESC>[2;37m└──────────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m typescript <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95minterface<ESC>[0m <ESC>[94mUser<ESC>[0m { <ESC>[93mid<ESC>[0m<ESC>[93m: number<ESC>[0m }
+<ESC>[2;37m└──────────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m rust <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mfn<ESC>[0m main() { <ESC>[96mprintln<ESC>[0m<ESC>[96m!<ESC>[0m(<ESC>[92m"hello"<ESC>[0m); }
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m go <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mpackage<ESC>[0m main
+<ESC>[2;37m│ 2 │<ESC>[0m <ESC>[95mfunc<ESC>[0m main() { <ESC>[96mprintln<ESC>[0m(<ESC>[92m"hello"<ESC>[0m) }
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m cpp <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m std<ESC>[96m::<ESC>[0m<ESC>[94mvector<ESC>[0m<ESC>[96m<<ESC>[0m<ESC>[94mint<ESC>[0m<ESC>[96m><ESC>[0m values{<ESC>[91m1<ESC>[0m, <ESC>[91m2<ESC>[0m, <ESC>[91m3<ESC>[0m};
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m java <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mrecord<ESC>[0m User(<ESC>[95mlong<ESC>[0m id, <ESC>[94mString<ESC>[0m name) {}
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m sql <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mSELECT<ESC>[0m id <ESC>[95mFROM<ESC>[0m users <ESC>[95mWHERE<ESC>[0m active <ESC>[96m=<ESC>[0m <ESC>[95mtrue<ESC>[0m;
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m json <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m {<ESC>[92m"name"<ESC>[0m: <ESC>[92m"afm"<ESC>[0m, <ESC>[92m"ready"<ESC>[0m: <ESC>[95mtrue<ESC>[0m}
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m yaml <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[92mname<ESC>[0m: <ESC>[92mafm<ESC>[0m
+<ESC>[2;37m│ 2 │<ESC>[0m <ESC>[92mready<ESC>[0m: <ESC>[92mtrue<ESC>[0m
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m html <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[96m<<ESC>[0m<ESC>[95mmain<ESC>[0m <ESC>[93mclass="app"<ESC>[0m<ESC>[96m><ESC>[0mHello</<ESC>[95mmain<ESC>[0m<ESC>[96m><ESC>[0m
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m css <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m .app { <ESC>[93mcolor<ESC>[0m: rebeccapurple; }
+<ESC>[2;37m└────────<ESC>[0m
+
+<ESC>[2;37m┌─<ESC>[0m<ESC>[96m bash <ESC>[0m
+<ESC>[2;37m│ 1 │<ESC>[0m <ESC>[95mif<ESC>[0m <ESC>[95mtrue<ESC>[0m; <ESC>[95mthen<ESC>[0m echo <ESC>[92m"ready"<ESC>[0m; <ESC>[95mfi<ESC>[0m
+<ESC>[2;37m└────────<ESC>[0m

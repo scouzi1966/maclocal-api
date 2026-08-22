@@ -158,9 +158,9 @@ fi
 
 cp "$BIN" "$STAGING/"
 
-# Runtime resource bundles. Both must remain beside the relocated executable:
-# MLX supplies its compiled Metal library and DwarfStar supplies Metal sources.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+# Runtime resource bundles must remain beside the relocated executable: AFMKit
+# supplies evaluation suites, MLX supplies its metallib, and DwarfStar supplies Metal sources.
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -317,6 +317,15 @@ sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 
 if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
   log_error "Homebrew nightly formula does not install the required WebUI"
+  exit 1
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm-next.rb; then
+  sed -i '' '/libexec.install "afm"/a\
+    libexec.install "MacLocalAPI_AFMKit.bundle"
+' afm-next.rb
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm-next.rb; then
+  log_error "Homebrew nightly formula does not install the bundled evaluation suites"
   exit 1
 fi
 
