@@ -227,7 +227,7 @@ rm -rf "$WHEEL_SMOKE"
 echo "[INFO] Verified wheel metadata version: $ACTUAL_PYTHON_VERSION"
 echo "[INFO] Verified wheel runtime version: $ACTUAL_VERSION"
 if ! unzip -Z1 "$WHL" | grep -E \
-    '^macafm_next/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
+    '(^|/)macafm_next/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
     >/dev/null; then
     echo "[ERROR] Wheel is missing the bundled comprehensive evaluation suite"
     exit 1
