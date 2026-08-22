@@ -1636,7 +1636,11 @@ public final class MLXModelService: @unchecked Sendable {
                 if let sidecar = resolvedMTPSidecar {
                     do {
                         let quantization = mtpQuantization(for: sidecar)
-                        loadedMTPBinding = try await loaded.perform { context in
+                        // Select the ModelContext overload explicitly. The dependency also
+                        // exposes a deprecated (model, tokenizer) overload, and Swift can
+                        // otherwise choose it while type-checking this Sendable binding.
+                        loadedMTPBinding = try await loaded.perform {
+                            (context: ModelContext) async throws -> MTPGeneratorBinding in
                             if let qwen = context.model as? Qwen3_5MoEModel {
                                 let head = try qwen.loadMTPHead(
                                     sidecarPath: sidecar,

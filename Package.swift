@@ -276,6 +276,9 @@ let package = Package(
                 "AFMKitFoundationModels",
                 "AFMKitServices"
             ],
+            resources: [
+                .copy("Resources/Evals")
+            ],
             swiftSettings: [
                 // Enable optimizations for release builds
                 .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
