@@ -2471,7 +2471,7 @@ final class MLXLoadReporter: @unchecked Sendable {
         lock.unlock()
     }
 
-    func updateStage(_ stage: MLXLoadReporterStage) {
+    private func updateStage(_ stage: MLXLoadReporterStage) {
         lock.lock()
         self.stage = stage
         if stage == .loadingModel || stage == .ready {
