@@ -774,10 +774,12 @@ struct MlxCommand: ParsableCommand {
             }
             guard singlePrompt == nil, media.isEmpty, !webui, !openclawConfig,
                   telegramBotToken == nil, telegramAllow == nil,
-                  toolsJson == nil, !raw, !json, concurrent == nil else {
+                  toolsJson == nil, !raw, !json, concurrent == nil,
+                  !tui, !noAltScreen, maxKVSize == nil else {
                 throw ValidationError(
                     "--eval cannot be combined with -s, --media, --webui, Telegram, " +
-                    "--openclaw-config, --tools-json, --raw, --json, or --concurrent")
+                    "--openclaw-config, --tools-json, --raw, --json, --concurrent, " +
+                    "--tui, --no-alt-screen, or --max-kv-size")
             }
             try ensureMLXMetalLibraryAvailable(verbose: verbose)
             let evaluationChatTemplateKwargs = parsedKwargs.isEmpty

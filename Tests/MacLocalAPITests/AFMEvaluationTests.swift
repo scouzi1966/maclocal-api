@@ -54,6 +54,67 @@ final class AFMEvaluationTests: XCTestCase {
         }
     }
 
+    func testContradictoryCharacterBoundsAreRejected() throws {
+        let root = temporaryDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("bad-bounds.json")
+        try Data("""
+        {
+          "schemaVersion": 1,
+          "name": "bad-bounds",
+          "description": "Contradictory deterministic expectations.",
+          "cases": [{
+            "id": "one",
+            "prompt": "Say one",
+            "expectations": {"minimumCharacters": 10, "maximumCharacters": 5}
+          }]
+        }
+        """.utf8).write(to: url)
+
+        let store = AFMEvaluationSuiteStore(rootDirectory: root)
+        XCTAssertThrowsError(try store.decode(url: url)) { error in
+            XCTAssertTrue(error.localizedDescription.contains(
+                "minimumCharacters must be <= maximumCharacters"))
+        }
+    }
+
+    func testInvalidRuntimeParametersAreRejectedBeforeExecution() throws {
+        let root = temporaryDirectory()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("invalid-parameters.json")
+        let invalidValues = [
+            ("\"seed\": -1", "seed must be >= 0"),
+            ("\"repetitionPenalty\": 0", "repetitionPenalty must be finite"),
+            ("\"repetitionPenalty\": 1e308", "repetitionPenalty must be finite"),
+            ("\"presencePenalty\": 3", "presencePenalty must be finite")
+        ]
+
+        let store = AFMEvaluationSuiteStore(rootDirectory: root)
+        for (parameter, expectedMessage) in invalidValues {
+            try Data("""
+            {
+              "schemaVersion": 1,
+              "name": "invalid-parameters",
+              "description": "Invalid runtime parameter.",
+              "cases": [{
+                "id": "one",
+                "prompt": "Say one",
+                "parameters": {\(parameter)}
+              }]
+            }
+            """.utf8).write(to: url, options: .atomic)
+            XCTAssertThrowsError(try store.decode(url: url)) { error in
+                XCTAssertTrue(error.localizedDescription.contains(expectedMessage))
+            }
+        }
+
+        XCTAssertThrowsError(try AFMEvaluationSuiteStore.validateParameters(
+            .init(seed: -1),
+            context: "CLI")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("CLI seed must be >= 0"))
+        }
+    }
+
     func testMalformedCustomSuiteDoesNotBlockValidDiscoveryOrNamedLoad() throws {
         let root = temporaryDirectory()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

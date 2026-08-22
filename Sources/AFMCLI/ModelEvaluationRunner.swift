@@ -132,6 +132,7 @@ extension MlxCommand {
             stop: stop.map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } },
             responseFormat: defaultResponseFormat
         )
+        try AFMEvaluationSuiteStore.validateParameters(baseParameters, context: "CLI")
         try AFMEvaluationRunPolicy.validatePlannedOutput(
             suites: suites,
             baseParameters: baseParameters)
@@ -163,7 +164,7 @@ extension MlxCommand {
                 prefillStepSize: prefillStepSize,
                 kvEvictionPolicy: kvEviction ?? "none",
                 fixToolArguments: fixToolArgs,
-                forceVLM: false,
+                forceVLM: vlm,
                 cacheProfilePath: cacheProfilePath,
                 trace: vv,
                 gpuCapturePath: gpuCapture,
@@ -426,6 +427,7 @@ extension MlxCommand {
             for suite in suites { args += ["--eval-suite", shellQuote(suite)] }
         }
         if !openReport { args.append("--no-open") }
+        if vlm { args.append("--vlm") }
         if let kvBits { args += ["--kv-bits", String(kvBits)] }
         if enablePrefixCaching { args.append("--enable-prefix-caching") }
         if mlxKernels != "native" { args += ["--mlx-kernels", shellQuote(mlxKernels)] }

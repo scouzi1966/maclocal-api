@@ -692,7 +692,7 @@ public struct AFMEvaluationSuiteStore {
             throw AFMEvaluationError.invalidSuite("cases must contain 1...1000 entries")
         }
         var identifiers = Set<String>()
-        try validate(suite.defaults, context: "defaults")
+        try validateParameters(suite.defaults, context: "defaults")
         for testCase in suite.cases {
             try validateSafeName(testCase.id, field: "case id")
             guard !identifiers.contains(testCase.id) else {
@@ -706,13 +706,19 @@ public struct AFMEvaluationSuiteStore {
                   (testCase.developer?.utf8.count ?? 0) <= 65_536 else {
                 throw AFMEvaluationError.invalidSuite("Case '\(testCase.id)' prompt/system/developer text exceeds 64 KB")
             }
-            try validate(testCase.parameters, context: "case '\(testCase.id)'")
+            try validateParameters(testCase.parameters, context: "case '\(testCase.id)'")
             if let expectations = testCase.expectations {
                 if let minimum = expectations.minimumCharacters, minimum < 0 {
                     throw AFMEvaluationError.invalidSuite("Case '\(testCase.id)' minimumCharacters must be >= 0")
                 }
                 if let maximum = expectations.maximumCharacters, maximum < 0 {
                     throw AFMEvaluationError.invalidSuite("Case '\(testCase.id)' maximumCharacters must be >= 0")
+                }
+                if let minimum = expectations.minimumCharacters,
+                   let maximum = expectations.maximumCharacters,
+                   minimum > maximum {
+                    throw AFMEvaluationError.invalidSuite(
+                        "Case '\(testCase.id)' minimumCharacters must be <= maximumCharacters")
                 }
                 if let match = expectations.matchesCase {
                     guard origin == .bundled else {
@@ -729,7 +735,10 @@ public struct AFMEvaluationSuiteStore {
         }
     }
 
-    private static func validate(_ value: AFMEvaluationParameters?, context: String) throws {
+    package static func validateParameters(
+        _ value: AFMEvaluationParameters?,
+        context: String
+    ) throws {
         guard let value else { return }
         if let temperature = value.temperature, !(0...2).contains(temperature) {
             throw AFMEvaluationError.invalidSuite("\(context) temperature must be 0...2")
@@ -745,6 +754,18 @@ public struct AFMEvaluationSuiteStore {
         }
         if let minP = value.minP, !(0...1).contains(minP) {
             throw AFMEvaluationError.invalidSuite("\(context) minP must be 0...1")
+        }
+        if let repetitionPenalty = value.repetitionPenalty,
+           !repetitionPenalty.isFinite || repetitionPenalty <= 0 || repetitionPenalty > 100 {
+            throw AFMEvaluationError.invalidSuite(
+                "\(context) repetitionPenalty must be finite and in the range (0, 100]")
+        }
+        if let presencePenalty = value.presencePenalty,
+           !presencePenalty.isFinite || !(-2...2).contains(presencePenalty) {
+            throw AFMEvaluationError.invalidSuite("\(context) presencePenalty must be finite and -2...2")
+        }
+        if let seed = value.seed, seed < 0 {
+            throw AFMEvaluationError.invalidSuite("\(context) seed must be >= 0")
         }
         if let topLogprobs = value.topLogprobs, !(0...20).contains(topLogprobs) {
             throw AFMEvaluationError.invalidSuite("\(context) topLogprobs must be 0...20")

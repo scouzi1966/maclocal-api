@@ -314,6 +314,12 @@ WHEEL_WEBUI="$ROOT_DIR/.build/afm-stable-wheel-webui.html.gz"
 unzip -p "$STABLE_WHEEL" macafm/share/webui/index.html.gz > "$WHEEL_WEBUI"
 "$SCRIPT_DIR/verify-webui.sh" "$WHEEL_WEBUI"
 rm -f "$WHEEL_WEBUI"
+if ! unzip -Z1 "$STABLE_WHEEL" | grep -E \
+  '^macafm/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
+  >/dev/null; then
+  log_error "Stable wheel is missing the bundled comprehensive evaluation suite"
+  exit 1
+fi
 
 # Cleanup staged assets (don't commit binaries to git)
 rm -rf "$ROOT_DIR/macafm/bin" "$ROOT_DIR/macafm/share"
