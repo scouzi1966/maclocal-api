@@ -253,6 +253,29 @@ final class AFMEvaluationTests: XCTestCase {
         }
     }
 
+    func testThroughputFallsBackWhenEngineGenerationTimeIsInvalid() {
+        XCTAssertEqual(
+            AFMEvaluationRunPolicy.tokensPerSecond(
+                completionTokens: 50,
+                generationTime: 2,
+                duration: 5),
+            25)
+        XCTAssertEqual(
+            AFMEvaluationRunPolicy.tokensPerSecond(
+                completionTokens: 50,
+                generationTime: 0,
+                duration: 5),
+            10)
+        XCTAssertNil(AFMEvaluationRunPolicy.tokensPerSecond(
+            completionTokens: 0,
+            generationTime: 1,
+            duration: 1))
+        XCTAssertNil(AFMEvaluationRunPolicy.tokensPerSecond(
+            completionTokens: 1,
+            generationTime: .nan,
+            duration: 0))
+    }
+
     func testSnapshotPolicyIsBoundedByCaseCountAndElapsedTime() {
         let now = Date(timeIntervalSince1970: 1_000)
         XCTAssertTrue(AFMEvaluationRunPolicy.shouldWriteSnapshot(

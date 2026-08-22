@@ -120,7 +120,7 @@ extension MlxCommand {
         let suites = try suiteNames.map { try store.load(named: $0) }
         let baseParameters = AFMEvaluationParameters(
             temperature: temperature ?? 0,
-            maxTokens: maxTokens ?? 256,
+            maxTokens: maxTokens,
             topP: topP,
             topK: topK,
             minP: minP,
@@ -262,9 +262,10 @@ extension MlxCommand {
                                 scoring.1.append(check)
                                 scoring.0 = scoring.1.allSatisfy(\.passed) ? .passed : .missed
                             }
-                            let tokensPerSecond = generated.completionTokens > 0
-                                ? Double(generated.completionTokens) / max(generated.generationTime ?? duration, 0.000_001)
-                                : nil
+                            let tokensPerSecond = AFMEvaluationRunPolicy.tokensPerSecond(
+                                completionTokens: generated.completionTokens,
+                                generationTime: generated.generationTime,
+                                duration: duration)
                             let result = AFMEvaluationCaseResult(
                                 suite: suite.name,
                                 caseID: testCase.id,
@@ -429,7 +430,7 @@ extension MlxCommand {
         if enablePrefixCaching { args.append("--enable-prefix-caching") }
         if mlxKernels != "native" { args += ["--mlx-kernels", shellQuote(mlxKernels)] }
         if let temperature { args += ["--temperature", String(temperature)] }
-        if let maxTokens { args += ["--max-tokens", String(maxTokens)] }
+        if maxTokens != 8_192 { args += ["--max-tokens", String(maxTokens)] }
         if let topP { args += ["--top-p", String(topP)] }
         if let topK { args += ["--top-k", String(topK)] }
         if let minP { args += ["--min-p", String(minP)] }

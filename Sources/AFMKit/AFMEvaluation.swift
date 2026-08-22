@@ -336,11 +336,25 @@ public enum AFMEvaluationError: LocalizedError {
 }
 
 package enum AFMEvaluationRunPolicy {
+    package static func tokensPerSecond(
+        completionTokens: Int,
+        generationTime: Double?,
+        duration: Double
+    ) -> Double? {
+        guard completionTokens > 0 else { return nil }
+        let measuredGenerationTime = generationTime.flatMap {
+            $0.isFinite && $0 > 0.001 ? $0 : nil
+        }
+        let denominator = measuredGenerationTime ?? duration
+        guard denominator.isFinite, denominator > 0.001 else { return nil }
+        return Double(completionTokens) / denominator
+    }
+
     static let maximumPlannedOutputTokens = 1_000_000
     static let snapshotCaseInterval = 25
     static let snapshotTimeInterval: TimeInterval = 30
 
-    static func validatePlannedOutput(
+    package static func validatePlannedOutput(
         suites: [AFMEvaluationSuite],
         baseParameters: AFMEvaluationParameters
     ) throws {
@@ -367,7 +381,7 @@ package enum AFMEvaluationRunPolicy {
         }
     }
 
-    static func shouldWriteSnapshot(
+    package static func shouldWriteSnapshot(
         completedCases: Int,
         lastSnapshotAt: Date?,
         now: Date
