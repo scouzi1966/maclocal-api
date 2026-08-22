@@ -6,14 +6,13 @@ import Foundation
 import Testing
 
 @testable import AFMKit
-@testable import AFMKitMLX
 @testable import AFMServer
 
 // MARK: - Fake Service for Batch Tests
 
-/// A fake AFMMLXOpenAIChatServing that supports batch-mode protocol methods.
+/// A fake AFMChatServing that supports batch-mode protocol methods.
 /// Configurable per-test: control slot reservation, streaming results, errors, and concurrency tracking.
-private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendable {
+private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
     let maxConcurrent: Int
     let toolCallParser: String? = nil
     var supportsStrictToolGrammar: Bool = false
@@ -21,9 +20,9 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
     let thinkEndTag: String? = nil
     let fixToolArgs: Bool = false
     let enableGrammarConstraints: Bool = false
-    var responseChannelFormat: AFMMLXResponseChannelFormat = .none
-    var servingConfiguration: AFMMLXServingConfiguration {
-        AFMMLXServingConfiguration(
+    var responseChannelFormat: AFMResponseChannelFormat = .none
+    var servingConfiguration: AFMChatServingConfiguration {
+        AFMChatServingConfiguration(
             toolCallParser: toolCallParser,
             supportsStrictToolGrammar: supportsStrictToolGrammar,
             thinkStartTag: thinkStartTag,
@@ -45,14 +44,14 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
     // Configuration
     var shouldFailEnsureBatchMode = false
     var shouldFailReserveSlot = false
-    var streamingResultFactory: (([Message]) -> AFMMLXChatStreamingResult)?
-    private let defaultStreamingResult: AFMMLXChatStreamingResult
+    var streamingResultFactory: (([Message]) -> AFMChatStreamingResult)?
+    private let defaultStreamingResult: AFMChatStreamingResult
 
     init(maxConcurrent: Int = 8) {
         self.maxConcurrent = maxConcurrent
         self.defaultStreamingResult = FakeBatchService.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hello from batch"),
-            StreamChunk(text: "", promptTokens: 10, completionTokens: 5, cachedTokens: 0, promptTime: 0.01, generateTime: 0.02),
+            AFMServerStreamChunk(text: "Hello from batch"),
+            AFMServerStreamChunk(text: "", promptTokens: 10, completionTokens: 5, cachedTokens: 0, promptTime: 0.01, generateTime: 0.02),
         ])
     }
 
@@ -112,7 +111,7 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatGenerationResult {
+    ) async throws -> AFMChatGenerationResult {
         (modelID: model, content: "Hello", promptTokens: 10, completionTokens: 5,
          tokenLogprobs: nil, toolCalls: nil, cachedTokens: 0, promptTime: 0.01,
          generateTime: 0.02, stoppedBySequence: false)
@@ -124,7 +123,7 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
         presencePenalty: Double?, seed: Int?, logprobs: Bool?, topLogprobs: Int?,
         tools: [RequestTool]?, parallelToolCalls: Bool?, stop: [String]?, responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         _lock.withLock {
             generateStreamingCallCount += 1
         }
@@ -151,7 +150,7 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
         chatTemplateKwargs: [String: AnyCodable]?,
         preserveStructuralTags: Bool,
         requestId: String?
-    ) async throws -> AFMMLXChatStreamingResult {
+    ) async throws -> AFMChatStreamingResult {
         try await generateStreaming(
             model: model,
             messages: messages,
@@ -173,8 +172,8 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
         )
     }
 
-    static func makeStreamingResult(chunks: [StreamChunk]) -> AFMMLXChatStreamingResult {
-        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+    static func makeStreamingResult(chunks: [AFMServerStreamChunk]) -> AFMChatStreamingResult {
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)
             }
@@ -191,8 +190,8 @@ private final class FakeBatchService: AFMMLXOpenAIChatServing, @unchecked Sendab
         )
     }
 
-    static func makeErrorStreamingResult(error: Error) -> AFMMLXChatStreamingResult {
-        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+    static func makeErrorStreamingResult(error: Error) -> AFMChatStreamingResult {
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             continuation.finish(throwing: error)
         }
         return (
@@ -451,6 +450,88 @@ struct BatchStoreTests {
         let cancelled = await store.getBatch(batchId)
         #expect(cancelled?.status == "cancelled")
         #expect(cancelled?.completedAt != nil)
+    }
+
+    @Test("BatchStore retains and cancels the server dispatch task")
+    func batchDispatchTaskCancellation() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+
+        let task = Task<Void, Never> {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                // Expected when the batch is cancelled.
+            }
+        }
+        await store.registerDispatchTask(task, for: batchId)
+        #expect(await store.hasDispatchTask(for: batchId))
+
+        #expect(await store.cancelDispatchTask(for: batchId))
+        let hasTaskAfterCancel = await store.hasDispatchTask(for: batchId)
+        #expect(!hasTaskAfterCancel)
+        await task.value
+        #expect(task.isCancelled)
+    }
+
+    @Test("BatchStore rejects a dispatch task after cancellation begins")
+    func batchDispatchTaskLateRegistration() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+        await store.markBatchCancelling(batchId)
+
+        let task = Task<Void, Never> {}
+        await store.registerDispatchTask(task, for: batchId)
+
+        let hasTaskAfterLateRegistration = await store.hasDispatchTask(for: batchId)
+        #expect(!hasTaskAfterLateRegistration)
+        #expect(task.isCancelled)
+    }
+
+    @Test("BatchStore releases the dispatch task when the final result arrives")
+    func batchDispatchTaskCompletion() async {
+        let store = BatchStore()
+        let batchId = await store.createBatch(
+            inputFileId: "file-1",
+            endpoint: "/v1/chat/completions",
+            totalRequests: 1
+        )
+        await store.markBatchInProgress(batchId)
+
+        let task = Task<Void, Never> {}
+        await store.registerDispatchTask(task, for: batchId)
+        await store.recordResult(
+            batchId,
+            result: BatchResultLine(
+                id: "result-1",
+                customId: "custom-1",
+                response: BatchResultResponse(
+                    statusCode: 200,
+                    requestId: "request-1",
+                    body: ChatCompletionResponse(
+                        model: "test",
+                        content: "ok",
+                        promptTokens: 1,
+                        completionTokens: 1
+                    )
+                ),
+                error: nil
+            )
+        )
+
+        let hasTaskAfterCompletion = await store.hasDispatchTask(for: batchId)
+        #expect(!hasTaskAfterCompletion)
+        #expect(await store.getBatch(batchId)?.status == "completed")
     }
 
     @Test("listBatches returns all batches")
@@ -1199,9 +1280,9 @@ final class BatchCompletionsControllerTests: XCTestCase {
         service.responseChannelFormat = .muse
         service.streamingResultFactory = { _ in
             FakeBatchService.makeStreamingResult(chunks: [
-                StreamChunk(text: "to=self<|message|>private reasoning<|eom|>"),
-                StreamChunk(text: "to=user<|message|>visible answer<|return|>"),
-                StreamChunk(text: "", promptTokens: 10, completionTokens: 8, cachedTokens: 0, promptTime: 0.01, generateTime: 0.02),
+                AFMServerStreamChunk(text: "to=self<|message|>private reasoning<|eom|>"),
+                AFMServerStreamChunk(text: "to=user<|message|>visible answer<|return|>"),
+                AFMServerStreamChunk(text: "", promptTokens: 10, completionTokens: 8, cachedTokens: 0, promptTime: 0.01, generateTime: 0.02),
             ])
         }
 
@@ -1330,11 +1411,8 @@ final class BatchCompletionsControllerTests: XCTestCase {
     }
 }
 
-// NOTE: BatchScheduler extension tests (tryReserveMultiple, releaseMultipleReservations,
-// activeSlotCount) require model+tokenizer to instantiate. Those methods are exercised
-// through the existing ConcurrentBatchTests which test the scheduler with a real model,
-// and indirectly through the BatchAPIController and BatchCompletionsController integration
-// tests above which verify slot reservation/release via the FakeBatchService mock.
+// Provider scheduler behavior is covered in AFMKit. These tests retain the HTTP
+// reservation/release contract through the server-owned fake service.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MARK: - JSONL Parsing Edge Cases (Swift Testing)
@@ -1418,14 +1496,14 @@ struct BatchJSONLParsingTests {
 @Suite("StreamCollector")
 struct StreamCollectorTests {
 
-    /// Helper to create an AFMMLXChatStreamingResult from chunks with configurable think tags
+    /// Helper to create an AFMChatStreamingResult from chunks with configurable think tags
     static func makeStreamingResult(
-        chunks: [StreamChunk],
+        chunks: [AFMServerStreamChunk],
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         promptTokens: Int = 10
-    ) -> AFMMLXChatStreamingResult {
-        let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
+    ) -> AFMChatStreamingResult {
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
             for chunk in chunks {
                 continuation.yield(chunk)
             }
@@ -1448,8 +1526,8 @@ struct StreamCollectorTests {
     func thinkExtraction() async throws {
         let result = Self.makeStreamingResult(
             chunks: [
-                StreamChunk(text: "<think>I need to think about this</think>The answer is 42"),
-                StreamChunk(text: "", completionTokens: 12),
+                AFMServerStreamChunk(text: "<think>I need to think about this</think>The answer is 42"),
+                AFMServerStreamChunk(text: "", completionTokens: 12),
             ],
             thinkStartTag: "<think>",
             thinkEndTag: "</think>"
@@ -1471,10 +1549,10 @@ struct StreamCollectorTests {
     func thinkExtractionMultiChunk() async throws {
         let result = Self.makeStreamingResult(
             chunks: [
-                StreamChunk(text: "<think>Step 1: "),
-                StreamChunk(text: "analyze"),
-                StreamChunk(text: "</think>Result"),
-                StreamChunk(text: "", completionTokens: 8),
+                AFMServerStreamChunk(text: "<think>Step 1: "),
+                AFMServerStreamChunk(text: "analyze"),
+                AFMServerStreamChunk(text: "</think>Result"),
+                AFMServerStreamChunk(text: "", completionTokens: 8),
             ],
             thinkStartTag: "<think>",
             thinkEndTag: "</think>"
@@ -1492,8 +1570,8 @@ struct StreamCollectorTests {
     @Test("no think extraction when disabled")
     func thinkExtractionDisabled() async throws {
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "<think>reasoning</think>content"),
-            StreamChunk(text: "", completionTokens: 5),
+            AFMServerStreamChunk(text: "<think>reasoning</think>content"),
+            AFMServerStreamChunk(text: "", completionTokens: 5),
         ])
 
         let collected = try await StreamCollector.collect(
@@ -1512,8 +1590,8 @@ struct StreamCollectorTests {
             function: ResponseToolCallFunction(name: "get_weather", arguments: "{\"location\":\"Paris\"}")
         )
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "<think>Should I call weather?</think>"),
-            StreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
+            AFMServerStreamChunk(text: "<think>Should I call weather?</think>"),
+            AFMServerStreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
         ], thinkStartTag: "<think>", thinkEndTag: "</think>")
 
         let collected = try await StreamCollector.collect(
@@ -1538,18 +1616,21 @@ struct StreamCollectorTests {
                 arguments: #"{"location":"Berlin"}"#
             )
         )
-        let chunks = BatchScheduler.streamChunksToEmit(from: [
-            .delta(StreamDeltaToolCall(
-                index: 0,
-                id: "call_weather",
-                type: "function",
-                function: StreamDeltaFunction(
-                    name: "get_weather",
-                    arguments: #"{"location":"Berlin"}"#
-                )
-            )),
-            .replaceCollected(index: 0, toolCall: completed),
-        ])
+        let chunks = [
+            AFMServerStreamChunk(
+                text: "",
+                toolCallDeltas: [StreamDeltaToolCall(
+                    index: 0,
+                    id: "call_weather",
+                    type: "function",
+                    function: StreamDeltaFunction(
+                        name: "get_weather",
+                        arguments: #"{"location":"Berlin"}"#
+                    )
+                )]
+            ),
+            AFMServerStreamChunk(text: "", toolCalls: [completed]),
+        ]
         let result = Self.makeStreamingResult(chunks: chunks)
 
         let collected = try await StreamCollector.collect(
@@ -1568,9 +1649,9 @@ struct StreamCollectorTests {
     func museResponseChannelCollection() async throws {
         let result = Self.makeStreamingResult(
             chunks: [
-                StreamChunk(text: "to=self<|message|>Need exact output.<|eom|>"),
-                StreamChunk(text: "to=user<|message|>request batch ok<|return|>"),
-                StreamChunk(text: "", completionTokens: 12),
+                AFMServerStreamChunk(text: "to=self<|message|>Need exact output.<|eom|>"),
+                AFMServerStreamChunk(text: "to=user<|message|>request batch ok<|return|>"),
+                AFMServerStreamChunk(text: "", completionTokens: 12),
             ]
         )
 
@@ -1590,9 +1671,9 @@ struct StreamCollectorTests {
     func harmonyResponseChannelCollection() async throws {
         let result = Self.makeStreamingResult(
             chunks: [
-                StreamChunk(text: "<|channel|>analysis<|message|>Reason it out.<|end|>"),
-                StreamChunk(text: "<|channel|>final<|message|>Done.<|return|>"),
-                StreamChunk(text: "", completionTokens: 9),
+                AFMServerStreamChunk(text: "<|channel|>analysis<|message|>Reason it out.<|end|>"),
+                AFMServerStreamChunk(text: "<|channel|>final<|message|>Done.<|return|>"),
+                AFMServerStreamChunk(text: "", completionTokens: 9),
             ]
         )
 
@@ -1611,18 +1692,18 @@ struct StreamCollectorTests {
 
     @Test("collects logprobs from stream chunks")
     func logprobsCollection() async throws {
-        let lp1 = ResolvedLogprob(token: "Hello", tokenId: 1, logprob: -0.5, topTokens: [
+        let lp1 = AFMServerResolvedLogprob(token: "Hello", tokenId: 1, logprob: -0.5, topTokens: [
             (token: "Hello", tokenId: 1, logprob: -0.5),
             (token: "Hi", tokenId: 2, logprob: -1.2),
         ])
-        let lp2 = ResolvedLogprob(token: " world", tokenId: 3, logprob: -0.3, topTokens: [
+        let lp2 = AFMServerResolvedLogprob(token: " world", tokenId: 3, logprob: -0.3, topTokens: [
             (token: " world", tokenId: 3, logprob: -0.3),
         ])
 
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hello", logprobs: [lp1]),
-            StreamChunk(text: " world", logprobs: [lp2]),
-            StreamChunk(text: "", completionTokens: 2),
+            AFMServerStreamChunk(text: "Hello", logprobs: [lp1]),
+            AFMServerStreamChunk(text: " world", logprobs: [lp2]),
+            AFMServerStreamChunk(text: "", completionTokens: 2),
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
@@ -1632,10 +1713,10 @@ struct StreamCollectorTests {
         #expect(collected.logprobs[1].token == " world")
     }
 
-    @Test("buildChoiceLogprobs converts ResolvedLogprob to ChoiceLogprobs")
+    @Test("buildChoiceLogprobs converts AFMServerResolvedLogprob to ChoiceLogprobs")
     func buildChoiceLogprobs() {
         let resolved = [
-            ResolvedLogprob(token: "A", tokenId: 1, logprob: -0.1, topTokens: [
+            AFMServerResolvedLogprob(token: "A", tokenId: 1, logprob: -0.1, topTokens: [
                 (token: "A", tokenId: 1, logprob: -0.1),
                 (token: "B", tokenId: 2, logprob: -2.0),
             ]),
@@ -1669,7 +1750,7 @@ struct StreamCollectorTests {
             function: ResponseToolCallFunction(name: "calc", arguments: "{}")
         )
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
+            AFMServerStreamChunk(text: "", toolCalls: [tc], completionTokens: 5),
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
@@ -1679,8 +1760,8 @@ struct StreamCollectorTests {
     @Test("finishReason is stop when stopped by sequence")
     func finishReasonStopSequence() async throws {
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hi", stoppedBySequence: true),
-            StreamChunk(text: "", completionTokens: 1),
+            AFMServerStreamChunk(text: "Hi", stoppedBySequence: true),
+            AFMServerStreamChunk(text: "", completionTokens: 1),
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
@@ -1690,7 +1771,7 @@ struct StreamCollectorTests {
     @Test("finishReason is length when max tokens reached")
     func finishReasonLength() async throws {
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hello world", completionTokens: 10),
+            AFMServerStreamChunk(text: "Hello world", completionTokens: 10),
         ])
 
         let collected = try await StreamCollector.collect(
@@ -1704,8 +1785,8 @@ struct StreamCollectorTests {
     @Test("finishReason is stop by default")
     func finishReasonDefault() async throws {
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hello"),
-            StreamChunk(text: "", completionTokens: 1),
+            AFMServerStreamChunk(text: "Hello"),
+            AFMServerStreamChunk(text: "", completionTokens: 1),
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
@@ -1717,8 +1798,8 @@ struct StreamCollectorTests {
     @Test("collects timing and token stats from final chunk")
     func timingStats() async throws {
         let result = Self.makeStreamingResult(chunks: [
-            StreamChunk(text: "Hi"),
-            StreamChunk(text: "", promptTokens: 20, completionTokens: 15, cachedTokens: 5, promptTime: 0.1, generateTime: 0.5),
+            AFMServerStreamChunk(text: "Hi"),
+            AFMServerStreamChunk(text: "", promptTokens: 20, completionTokens: 15, cachedTokens: 5, promptTime: 0.1, generateTime: 0.5),
         ], promptTokens: 10)
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
@@ -1744,8 +1825,8 @@ struct StreamCollectorTests {
     func onlyThinkContent() async throws {
         let result = Self.makeStreamingResult(
             chunks: [
-                StreamChunk(text: "<think>all reasoning no content</think>"),
-                StreamChunk(text: "", completionTokens: 5),
+                AFMServerStreamChunk(text: "<think>all reasoning no content</think>"),
+                AFMServerStreamChunk(text: "", completionTokens: 5),
             ],
             thinkStartTag: "<think>",
             thinkEndTag: "</think>"
@@ -1777,9 +1858,9 @@ struct BatchPostProcessingParityTests {
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
-            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
-                continuation.yield(StreamChunk(text: "<think>reasoning here</think>visible content"))
-                continuation.yield(StreamChunk(text: "", completionTokens: 8, promptTime: 0.01, generateTime: 0.02))
+            let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+                continuation.yield(AFMServerStreamChunk(text: "<think>reasoning here</think>visible content"))
+                continuation.yield(AFMServerStreamChunk(text: "", completionTokens: 8, promptTime: 0.01, generateTime: 0.02))
                 continuation.finish()
             }
             return (
@@ -1842,12 +1923,12 @@ struct BatchPostProcessingParityTests {
 
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
-            let lp = ResolvedLogprob(token: "Hi", tokenId: 1, logprob: -0.5, topTokens: [
+            let lp = AFMServerResolvedLogprob(token: "Hi", tokenId: 1, logprob: -0.5, topTokens: [
                 (token: "Hi", tokenId: 1, logprob: -0.5)
             ])
-            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
-                continuation.yield(StreamChunk(text: "Hi", logprobs: [lp]))
-                continuation.yield(StreamChunk(text: "", completionTokens: 1, promptTime: 0.01, generateTime: 0.01))
+            let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+                continuation.yield(AFMServerStreamChunk(text: "Hi", logprobs: [lp]))
+                continuation.yield(AFMServerStreamChunk(text: "", completionTokens: 1, promptTime: 0.01, generateTime: 0.01))
                 continuation.finish()
             }
             return (
@@ -1908,9 +1989,9 @@ struct BatchPostProcessingParityTests {
         )
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
-            let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
-                continuation.yield(StreamChunk(text: "", toolCalls: [tc]))
-                continuation.yield(StreamChunk(text: "", completionTokens: 5, promptTime: 0.01, generateTime: 0.02))
+            let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+                continuation.yield(AFMServerStreamChunk(text: "", toolCalls: [tc]))
+                continuation.yield(AFMServerStreamChunk(text: "", completionTokens: 5, promptTime: 0.01, generateTime: 0.02))
                 continuation.finish()
             }
             return (
@@ -2018,10 +2099,10 @@ struct BatchPostProcessingParityTests {
         let svc = FakeBatchService(maxConcurrent: 8)
         svc.streamingResultFactory = { _ in
             FakeBatchService.makeStreamingResult(chunks: [
-                StreamChunk(text: "```json\n"),
-                StreamChunk(text: "{\"ok\":true}\n"),
-                StreamChunk(text: "```"),
-                StreamChunk(text: "", promptTokens: 6, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
+                AFMServerStreamChunk(text: "```json\n"),
+                AFMServerStreamChunk(text: "{\"ok\":true}\n"),
+                AFMServerStreamChunk(text: "```"),
+                AFMServerStreamChunk(text: "", promptTokens: 6, completionTokens: 4, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01),
             ])
         }
         let controller = BatchCompletionsController(service: svc, modelID: "test-model")

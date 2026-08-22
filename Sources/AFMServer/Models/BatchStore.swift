@@ -83,6 +83,7 @@ actor BatchStore {
     }
 
     private var batches: [String: BatchState] = [:]
+    private var dispatchTasks: [String: Task<Void, Never>] = [:]
 
     /// Create a new batch in `validating` state.
     func createBatch(inputFileId: String, endpoint: String, totalRequests: Int) -> String {
@@ -135,6 +136,9 @@ actor BatchStore {
         }
 
         batches[batchId] = batch
+        if batch.status == "completed" {
+            dispatchTasks.removeValue(forKey: batchId)
+        }
     }
 
     /// Mark batch as failed with an error.
@@ -142,6 +146,7 @@ actor BatchStore {
         batches[id]?.status = "failed"
         batches[id]?.error = error
         batches[id]?.completedAt = Date()
+        dispatchTasks.removeValue(forKey: id)?.cancel()
     }
 
     /// Mark batch as cancelling.
@@ -153,6 +158,32 @@ actor BatchStore {
     func markBatchCancelled(_ id: String) {
         batches[id]?.status = "cancelled"
         batches[id]?.completedAt = Date()
+        dispatchTasks.removeValue(forKey: id)
+    }
+
+    /// Retain the server-owned dispatch task so cancellation does not depend on
+    /// provider-specific scheduler identifiers.
+    func registerDispatchTask(_ task: Task<Void, Never>, for batchId: String) {
+        guard batches[batchId]?.status == "in_progress" else {
+            task.cancel()
+            return
+        }
+        dispatchTasks[batchId] = task
+    }
+
+    /// Cancel the HTTP batch orchestration task. Provider stream cancellation
+    /// then propagates through the normal AFM generation contract.
+    @discardableResult
+    func cancelDispatchTask(for batchId: String) -> Bool {
+        guard let task = dispatchTasks.removeValue(forKey: batchId) else {
+            return false
+        }
+        task.cancel()
+        return true
+    }
+
+    func hasDispatchTask(for batchId: String) -> Bool {
+        dispatchTasks[batchId] != nil
     }
 
     /// Get batch state as API object.

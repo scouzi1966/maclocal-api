@@ -4,21 +4,23 @@
 provider packages. It must remain free of MLX, XGrammar, Vapor, Foundation
 Models, CoreAI, and vendor SDK dependencies.
 
-The package exposes dependency-scoped products:
+The coordinated `AFMKit`, `AFMKitMLX`, and `AFMKitDwarfStar` packages expose
+these dependency-scoped products at one exact release version:
 
 - `AFMKitCore`: provider contracts, registry, events, and concurrency helpers.
 - `AFMOpenAICompat`: OpenAI transport DTOs without a model runtime.
 - `AFMKitMLX`: MLX loading, generation, scheduling, caching, and grammar support.
-- `AFMKitFoundationModels`: Apple's Foundation Models service and schema bridge.
-- `AFMKitFoundationModels27`: macOS 27 adapters that expose AFMKit models through
-  Apple's `LanguageModel` and `LanguageModelExecutor` protocols.
-- `AFMKitFoundationModels27DwarfStar`: opt-in macOS 27 DwarfStar adapter. Keeping
-  it separate prevents MLX-only consumers from linking the DS4 runtime and resources.
-- `AFMKitServices`: Apple Vision, Speech, synthesis, and NaturalLanguage embeddings.
+- `AFMKitApple`: Apple's Foundation Models service and schema bridge.
+- `AFMKitFoundationModelsMLX`: macOS 27 MLX adapters for Apple's
+  `LanguageModelExecutor` contract.
+- `AFMKitDwarfStar`: DwarfStar runtime integration.
 
-`AFMKit` remains the compatibility umbrella during migration. It re-exports
-these products so existing consumers do not need immediate import changes.
-New libraries should import only the products they use.
+maclocal-api's `AFMKit`, `AFMKitServices`, `AFMKitFoundationModels`,
+`AFMKitFoundationModels27`, and `AFMKitFoundationModels27DwarfStar` products are
+consumer/application adapters; they are not products exported by the independent
+AFMKit package. New provider libraries should depend directly on the AFMKit
+product they use. `Examples/AFMKitCoreOnlyConsumer` is the checked-in standalone
+contract test.
 
 ## macOS 27 Provider Contract
 
@@ -113,16 +115,12 @@ leave the controls and response field unset.
 
 ## API Baseline
 
-Run:
+Run the independent package graph check from this consumer repository:
 
 ```bash
-./Scripts/check-afmkit-core-api.sh
+./Scripts/check-afmkit-core-graph.sh
 ```
 
-The script builds only `AFMKitCore`, extracts its public symbol graph with the
-selected Xcode toolchain, and compares it byte-for-byte with
-`docs/api-baselines/AFMKitCore.symbols.json`.
-
-When an API change is intentional, review the generated graph at
-`.build/api-current/AFMKitCore.symbols.json`, replace the baseline, and explain
-the compatibility impact in the commit or pull request.
+The script builds `AFMKitCore` from the resolved AFMKit package, then builds the
+standalone example against that package and rejects optional implementation
+modules in either build graph.

@@ -3,12 +3,12 @@ import AFMKit
 import AFMKitCore
 import AFMKitMLX
 
-/// Result of collecting a `AFMMLXChatStreamingResult` stream with post-processing applied.
+/// Result of collecting a `AFMChatStreamingResult` stream with post-processing applied.
 struct CollectedResult: Sendable {
     let content: String?
     let reasoningContent: String?
     let toolCalls: [ResponseToolCall]?
-    let logprobs: [ResolvedLogprob]
+    let logprobs: [AFMServerResolvedLogprob]
     let promptTokens: Int
     let completionTokens: Int
     let cachedTokens: Int
@@ -18,13 +18,13 @@ struct CollectedResult: Sendable {
     let finishReason: String
 }
 
-/// Utility that collects an AFMMLXChatStreamingResult stream into a finalized result
+/// Utility that collects an AFMChatStreamingResult stream into a finalized result
 /// with think extraction, logprobs, and tool call handling applied.
 ///
 /// Used by BatchAPIController and BatchCompletionsController to avoid
 /// duplicating the post-processing logic from MLXChatCompletionsController.
 enum StreamCollector {
-    static func buildChoiceLogprobs(_ resolved: [ResolvedLogprob]) -> ChoiceLogprobs? {
+    static func buildChoiceLogprobs(_ resolved: [AFMServerResolvedLogprob]) -> ChoiceLogprobs? {
         guard !resolved.isEmpty else { return nil }
         let content = resolved.map { entry in
             let topEntries = entry.topTokens.map { top in
@@ -66,15 +66,15 @@ enum StreamCollector {
     ///   - maxTokens: Maximum tokens for finish_reason determination
     /// - Returns: A `CollectedResult` with all post-processing applied
     static func collect(
-        from streamResult: AFMMLXChatStreamingResult,
+        from streamResult: AFMChatStreamingResult,
         extractThinking: Bool,
         thinkStartTag: String = "<think>",
         thinkEndTag: String = "</think>",
         maxTokens: Int = Int.max,
-        responseChannelFormat: AFMMLXResponseChannelFormat = .none
+        responseChannelFormat: AFMResponseChannelFormat = .none
     ) async throws -> CollectedResult {
         var fullText = ""
-        var allLogprobs: [ResolvedLogprob] = []
+        var allLogprobs: [AFMServerResolvedLogprob] = []
         var toolCalls: [ResponseToolCall]? = nil
         var promptTokens = streamResult.promptTokens
         var completionTokens = 0
@@ -144,7 +144,7 @@ enum StreamCollector {
 
     static func extractResponseChannels(
         from fullText: String,
-        responseChannelFormat: AFMMLXResponseChannelFormat,
+        responseChannelFormat: AFMResponseChannelFormat,
         extractThinking: Bool,
         thinkStartTag: String = "<think>",
         thinkEndTag: String = "</think>"

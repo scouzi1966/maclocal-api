@@ -4,13 +4,55 @@ import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let vendoredMLXSwiftLMPath = "\(packageDir)/vendor/mlx-swift-lm"
-let mlxSwiftLMDependency: Package.Dependency = FileManager.default.fileExists(
-    atPath: "\(vendoredMLXSwiftLMPath)/Package.swift"
-) ? .package(path: vendoredMLXSwiftLMPath) : .package(
-    url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-    revision: "6bab4f5ac55e81903dd74090244c25feb3233338"
-)
+let mlxSwiftDependency: Package.Dependency
+let mlxSwiftPackageIdentity: String
+if let localMLXSwiftPath = ProcessInfo.processInfo.environment["AFMKIT_MLX_SWIFT_PATH"],
+   !localMLXSwiftPath.isEmpty {
+    mlxSwiftDependency = .package(path: localMLXSwiftPath)
+    mlxSwiftPackageIdentity = URL(fileURLWithPath: localMLXSwiftPath).lastPathComponent.lowercased()
+} else {
+    mlxSwiftDependency = .package(
+        url: "https://github.com/scouzi1966/mlx-swift-afm",
+        exact: "0.31.6-afm.1"
+    )
+    mlxSwiftPackageIdentity = "mlx-swift-afm"
+}
+let mlxSwiftLMDependency: Package.Dependency
+if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_SWIFT_LM_PATH"],
+   !localMLXSwiftLMPath.isEmpty {
+    mlxSwiftLMDependency = .package(path: localMLXSwiftLMPath)
+} else {
+    mlxSwiftLMDependency = .package(
+        url: "https://github.com/scouzi1966/mlx-swift-lm.git",
+        exact: "0.31.6-afm.3"
+    )
+}
+let afmKitDependency: Package.Dependency
+let afmKitMLXDependency: Package.Dependency
+let afmKitDwarfStarDependency: Package.Dependency
+if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"],
+   !localAFMKitPath.isEmpty {
+    // Paired development consumes all provider packages from one AFMKit
+    // checkout. The tracked release manifest remains exact-versioned.
+    afmKitDependency = .package(name: "AFMKit", path: localAFMKitPath)
+    afmKitMLXDependency = .package(name: "AFMKitMLX", path: "\(localAFMKitPath)/Packages/AFMKitMLX")
+    afmKitDwarfStarDependency = .package(name: "AFMKitDwarfStar", path: "\(localAFMKitPath)/Packages/AFMKitDwarfStar")
+} else {
+    // Release builds lock all three published provider packages together.
+    // Bumping AFMKit is therefore an explicit, reviewable AFM change.
+    afmKitDependency = .package(
+        url: "https://github.com/scouzi1966/AFMKit.git",
+        exact: "0.1.0"
+    )
+    afmKitMLXDependency = .package(
+        url: "https://github.com/scouzi1966/AFMKitMLX.git",
+        exact: "0.1.0"
+    )
+    afmKitDwarfStarDependency = .package(
+        url: "https://github.com/scouzi1966/AFMKitDwarfStar.git",
+        exact: "0.1.0"
+    )
+}
 
 let package = Package(
     name: "MacLocalAPI",
@@ -18,22 +60,24 @@ let package = Package(
         .macOS("26.0")
     ],
     products: [
-        // Dependency-free provider contracts for apps, CLIs, and provider packages.
+        // Transitional product forwarding. Existing consumers that selected
+        // these products from maclocal-api keep resolving while the modules
+        // themselves are supplied by the standalone AFMKit package.
         .library(
             name: "AFMKitCore",
-            targets: ["AFMKitCore"]
+            targets: ["AFMKitCoreCompatibility"]
         ),
         .library(
             name: "AFMOpenAICompat",
-            targets: ["AFMOpenAICompat"]
+            targets: ["AFMOpenAICompatCompatibility"]
         ),
         .library(
             name: "AFMKitMLX",
-            targets: ["AFMKitMLX"]
+            targets: ["AFMKitMLXCompatibility"]
         ),
         .library(
             name: "AFMKitDwarfStar",
-            targets: ["AFMKitDwarfStar"]
+            targets: ["AFMKitDwarfStarCompatibility"]
         ),
         .library(
             name: "AFMKitFoundationModels",
@@ -75,6 +119,12 @@ let package = Package(
         )
     ],
     dependencies: [
+        // Normal builds consume the immutable AFMKit checkpoint above. The
+        // local-development wrapper stages a disposable manifest before using
+        // the internal workspace-only path override.
+        afmKitDependency,
+        afmKitMLXDependency,
+        afmKitDwarfStarDependency,
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         // Parse CommonMark/GFM into a real syntax tree for the native terminal UI.
@@ -108,9 +158,8 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-toml.git", revision: "64b56832c2cffe41758f28e05c756a3a98d16f41"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-yaml.git", revision: "a1c4812a73ec5e089de8e441fdea3a921e8d5079"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown.git", revision: "a0a00f817d02412bd92c54d316f164d827b57b5c"),
-        // Development checkouts compile the patched vendor directly so local source edits
-        // cannot be mistaken for successful stale builds. A plain downstream clone without
-        // initialized submodules falls back to the pre-patched URL fork and remains portable.
+        // Normal builds consume the immutable AFM compatibility tag. Developers
+        // can opt into a local checkout with MACLOCAL_MLX_SWIFT_LM_PATH.
         mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(
@@ -118,20 +167,9 @@ let package = Package(
             from: "0.8.1",
             traits: ["Xet"]
         ),
-        // AFMKitDwarfStar uses the public byte-range API directly so very large
-        // GGUF downloads can resume without discarding completed Xet ranges.
-        .package(url: "https://github.com/huggingface/swift-xet.git", exact: "0.2.3"),
-        // Share the official XGrammar product with host applications such as Vesta.
-        // Compiling the vendored implementation here as well as in coreai-models
-        // produces duplicate native symbols when both libraries are linked.
-        .package(
-            url: "https://github.com/mlc-ai/xgrammar",
-            revision: "c1570cdb4f8c867a4dbd07b7ff90581f4a2a432b"
-        ),
-        // DeepSeek V4 uses both MXFP4 and MXFP8 weights. Native MXFP8 kernels
-        // require mlx-swift 0.31.x; older releases treated the floating-point
-        // quantized path as four-bit-only and forced a BF16 expansion fallback.
-        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.6"),
+        // All AFMKit consumers share one tagged MLX fork identity. This avoids
+        // duplicate MLX modules while preserving the kernels required by AFM.
+        mlxSwiftDependency,
         // Jinja (transitive via swift-transformers) — exposed for test target.
         // 2.4.0 broke swift-transformers ≤1.3.3 (ObjectKey change in Hub/Config.swift);
         // 2.4.1 restored source compatibility upstream, so no cap is needed.
@@ -139,140 +177,63 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "AFMKitCore",
-            dependencies: []
+            name: "AFMKitCoreCompatibility",
+            dependencies: [
+                .product(name: "AFMKitCore", package: "AFMKit")
+            ]
         ),
         .target(
-            name: "AFMOpenAICompat",
-            dependencies: []
+            name: "AFMOpenAICompatCompatibility",
+            dependencies: [
+                .product(name: "AFMOpenAICompat", package: "AFMKit")
+            ]
+        ),
+        .target(
+            name: "AFMKitMLXCompatibility",
+            dependencies: [
+                .product(name: "AFMKitMLX", package: "AFMKitMLX")
+            ]
+        ),
+        .target(
+            name: "AFMKitDwarfStarCompatibility",
+            dependencies: [
+                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar")
+            ]
         ),
         .target(
             name: "AFMKitFoundationModels",
             dependencies: [
-                "AFMOpenAICompat"
+                .product(name: "AFMKitApple", package: "AFMKit")
             ]
         ),
         .target(
             name: "AFMKitFoundationModels27",
             dependencies: [
-                "AFMKit"
+                .product(name: "AFMKitApple", package: "AFMKit"),
+                .product(name: "AFMKitFoundationModelsMLX", package: "AFMKitMLX")
             ]
         ),
         .target(
             name: "AFMKitFoundationModels27DwarfStar",
             dependencies: [
                 "AFMKit",
-                "AFMKitDwarfStar",
+                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar"),
                 "AFMKitFoundationModels27"
             ]
         ),
         .target(
             name: "AFMKitServices",
             dependencies: [
-                "AFMKitCore"
-            ]
-        ),
-        .target(
-            name: "CDwarfStar",
-            path: "Sources/CDwarfStar",
-            sources: [
-                "AFMDwarfStarBridge.c",
-                "CDwarfStarKVStore.c",
-                "CDwarfStarEngine.c",
-                "CDwarfStarDistributed.c",
-                "CDwarfStarTensorParallel.c",
-                "CDwarfStarSSD.c",
-                "CDwarfStarMetal.m",
-                "CDwarfStarLayerPack.c"
-            ],
-            publicHeadersPath: "include",
-            cSettings: [
-                // Canonical DS4 uses -O3 for every configuration. Besides
-                // performance, this removes compile-time-impossible CUDA/TP
-                // branches before a macOS Metal link.
-                // Keep release artifacts portable across supported Apple Silicon hosts.
-                // DwarfStar's performance-critical work runs in Metal kernels.
-                .unsafeFlags(["-O3", "-ffast-math"])
-            ],
-            linkerSettings: [
-                .linkedFramework("Foundation"),
-                .linkedFramework("Metal")
-            ]
-        ),
-        .target(
-            name: "AFMKitDwarfStar",
-            dependencies: [
-                "AFMKitCore",
-                "CDwarfStar",
-                .product(name: "HuggingFace", package: "swift-huggingface"),
-                .product(name: "Xet", package: "swift-xet")
-            ],
-            resources: [
-                // DS4 compiles these include-style fragments at runtime. Keep the
-                // directory opaque so SwiftPM does not compile each file alone.
-                .copy("../../vendor/ds4/metal")
-            ],
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .release)),
-                .unsafeFlags(
-                    ["-file-prefix-map", "\(packageDir)/="],
-                    .when(configuration: .release)
-                )
-            ]
-        ),
-        .target(
-            name: "AFMKitMLX",
-            dependencies: [
-                "AFMKitCore",
-                "AFMOpenAICompat",
-                "AFMXGrammar",
-                .product(name: "MLX", package: "mlx-swift"),
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
-                .product(name: "Tokenizers", package: "swift-transformers"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "HuggingFace", package: "swift-huggingface")
-            ],
-            resources: [
-                .copy("Resources/default.metallib")
-            ],
-            swiftSettings: [
-                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-O"], .when(configuration: .release)),
-                .unsafeFlags(["-file-prefix-map", "\(packageDir)/="], .when(configuration: .release))
-            ],
-            linkerSettings: [
-                .linkedFramework("Security"),
-                .linkedFramework("IOKit"),
-                .linkedLibrary("IOReport"),
-                .linkedLibrary("sqlite3")
-            ]
-        ),
-        .target(
-            name: "AFMXGrammar",
-            dependencies: [
-                .product(name: "XGrammar", package: "xgrammar")
-            ],
-            path: "Sources/CXGrammar",
-            exclude: [
-                // Retained temporarily for standalone source compatibility, but the
-                // implementation is supplied by the shared XGrammar package product.
-                "xgrammar"
-            ],
-            cxxSettings: [
-                // XGrammar's public matcher header imports DLPack, but its package
-                // does not propagate that private include path to bridge targets.
-                .headerSearchPath("xgrammar/3rdparty/dlpack/include")
+                .product(name: "AFMKitCore", package: "AFMKit")
             ]
         ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
             name: "AFMKit",
             dependencies: [
-                "AFMKitCore",
-                "AFMOpenAICompat",
-                "AFMKitMLX",
+                .product(name: "AFMKitCore", package: "AFMKit"),
+                .product(name: "AFMOpenAICompat", package: "AFMKit"),
+                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
                 "AFMKitFoundationModels",
                 "AFMKitServices"
             ],
@@ -294,6 +255,7 @@ let package = Package(
             name: "AFMServer",
             dependencies: [
                 "AFMKit",
+                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
@@ -324,7 +286,7 @@ let package = Package(
             name: "AFMTerminalUI",
             dependencies: [
                 "AFMKit",
-                "AFMOpenAICompat",
+                .product(name: "AFMOpenAICompat", package: "AFMKit"),
                 "AFMTreeSitterScanners",
                 .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "TreeSitter", package: "tree-sitter"),
@@ -358,9 +320,10 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMKit",
-                "AFMKitDwarfStar",
-                "AFMKitMLX",
                 "AFMTerminalUI",
+                .product(name: "AFMKitCore", package: "AFMKit"),
+                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar"),
+                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -403,8 +366,6 @@ let package = Package(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
-                "AFMKitDwarfStar",
-                "AFMKitMLX",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitFoundationModels27DwarfStar",
@@ -413,28 +374,12 @@ let package = Package(
                 "AFMTerminalUI",
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
-                .product(name: "VaporTesting", package: "vapor"),
-                // MTP P0 validation needs the patched Qwen3.6 VLM model (Qwen3_5MTPHead).
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                // EAGLE3 P0 validation needs the Gemma4 drafter (MLXLLM module).
-                .product(name: "MLXLLM", package: "mlx-swift-lm")
+                .product(name: "VaporTesting", package: "vapor")
             ],
             swiftSettings: [
                 // Xcode 27 Beta 3 reports a false circular reference while
                 // optimizing the combined release test module. Product targets
                 // remain fully optimized.
-                .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
-                .unsafeFlags(["-Onone"], .when(configuration: .release))
-            ]
-        ),
-        .testTarget(
-            name: "AFMKitDwarfStarTests",
-            dependencies: [
-                "AFMKitCore",
-                "AFMKitDwarfStar",
-            ],
-            swiftSettings: [
-                // Match the Xcode 27 Beta 3 workaround used by the main test target.
                 .unsafeFlags(["-no-whole-module-optimization"], .when(configuration: .release)),
                 .unsafeFlags(["-Onone"], .when(configuration: .release))
             ]

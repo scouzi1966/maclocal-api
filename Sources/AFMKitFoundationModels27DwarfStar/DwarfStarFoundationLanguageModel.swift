@@ -119,15 +119,17 @@ public final class DwarfStarLanguageModelExecutor:
                             .deletingPathExtension().lastPathComponent
                     ),
                     modelPath: configuration.modelPath,
-                    contextWindow: configuration.contextWindow,
-                    prefillChunk: configuration.prefillChunk,
-                    powerPercent: configuration.powerPercent,
-                    dsparkSupportPath: configuration.dsparkSupportPath,
-                    dsparkDraftTokens: configuration.dsparkDraftTokens,
-                    dsparkConfidenceThreshold: configuration.dsparkConfidenceThreshold,
-                    dsparkStrict: configuration.dsparkStrict,
-                    enablePrefixCaching: configuration.enablePrefixCaching,
-                    maxConcurrent: configuration.maxConcurrent
+                    configuration: AFMDwarfStarRuntimeConfiguration(
+                        contextWindow: configuration.contextWindow,
+                        prefillChunk: configuration.prefillChunk,
+                        powerPercent: configuration.powerPercent,
+                        dsparkSupportPath: configuration.dsparkSupportPath,
+                        dsparkDraftTokens: configuration.dsparkDraftTokens,
+                        dsparkConfidenceThreshold: configuration.dsparkConfidenceThreshold,
+                        dsparkStrict: configuration.dsparkStrict,
+                        enablePrefixCaching: configuration.enablePrefixCaching,
+                        maxConcurrent: configuration.maxConcurrent
+                    )
                 )
             )
         )
@@ -157,10 +159,11 @@ public final class DwarfStarLanguageModelExecutor:
             )
         }
 
-        let messages = try AFMFoundationModelsRequestAdapter.messages(
-            from: request.transcript
+        let afmRequest = try AFMFoundationModelsRequestAdapter.request(
+            from: request,
+            model: model
         )
-        guard !messages.isEmpty else {
+        guard !afmRequest.messages.isEmpty else {
             throw LanguageModelError.unsupportedTranscriptContent(
                 .init(
                     unsupportedContent: Array(request.transcript),
@@ -168,14 +171,6 @@ public final class DwarfStarLanguageModelExecutor:
                 )
             )
         }
-        let options = try AFMFoundationModelsRequestAdapter.generationConfig(
-            from: request,
-            model: model
-        )
-        let afmRequest = try AFMRequest(
-            openAIMessages: messages,
-            generationConfig: options
-        )
         let providerModel = try await runtime.preparedModel()
         try await AFMFoundationModelsExecutorBridge.respond(
             events: AFMFoundationModelsExecutorBridge.events(

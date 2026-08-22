@@ -50,7 +50,10 @@ def parse_args() -> argparse.Namespace:
         default=root / ".build/arm64-apple-macosx/release/afm",
     )
     parser.add_argument(
-        "--ds4-binary", type=Path, default=root / "vendor/ds4/ds4-server"
+        "--ds4-binary",
+        type=Path,
+        required=True,
+        help="Path to a separately built canonical DwarfStar server.",
     )
     parser.add_argument("--afm-kernels", default="native")
     parser.add_argument(

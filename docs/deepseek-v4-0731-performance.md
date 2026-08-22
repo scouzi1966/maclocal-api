@@ -331,9 +331,9 @@ remain on the native implementation.
 The ds4 option currently fuses selected-expert MXFP4 gate/up projection,
 limited SwiGLU, and route scoring for the 0731 decode geometry. The canonical
 reference implementation is pinned from `antirez/ds4` `main` as the
-`vendor/ds4` submodule. `kernelpool/ds4` `tp-fast-release` is retained only as
-a secondary comparison remote. AFM's Metal kernel remains checked into the
-reproducible MLX patch set and is compiled by MLX at runtime.
+AFMKit-owned DwarfStar submodule. `kernelpool/ds4` `tp-fast-release` is retained
+only as a secondary comparison remote. AFM's Metal kernel remains checked into
+the reproducible MLX patch set and is compiled by MLX at runtime.
 
 Release validation on the exact Vontra 0731 checkpoint confirmed the
 `ds4_gate_up_scored_swiglu` stage executed and produced correct text. It is not

@@ -1,5 +1,6 @@
 import Vapor
 import AFMKit
+import AFMKitMLX
 import Foundation
 
 struct ChatCompletionsController: RouteCollection {
@@ -364,8 +365,8 @@ struct ChatCompletionsController: RouteCollection {
             // PR #122: Streaming routes account for their own
             // afm:num_active_connections. See MLXChatCompletionsController
             // for the rationale.
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            ActiveConnectionTracker.shared.connectionStarted()
+            defer { ActiveConnectionTracker.shared.connectionEnded() }
             let encoder = JSONEncoder()
             var fullStreamedContent = ""
 
@@ -589,8 +590,8 @@ struct ChatCompletionsController: RouteCollection {
         httpResponse.body = .init(asyncStream: { writer in
             // Bypass streaming (vision OCR / speech) — same active-connections
             // bracket as the regular chat path. (PR #122 review fix)
-            StatsAggregator.shared.connectionStarted()
-            defer { StatsAggregator.shared.connectionEnded() }
+            ActiveConnectionTracker.shared.connectionStarted()
+            defer { ActiveConnectionTracker.shared.connectionEnded() }
             let encoder = JSONEncoder()
 
             do {

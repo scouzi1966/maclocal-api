@@ -315,7 +315,7 @@ echo "PASS: No Bundle.module calls in source"
 # 2. Runtime simulation — copy binary + loose metallib to temp dir (NO SPM bundle)
 TMPDIR=$(mktemp -d)
 cp "$BIN" "$TMPDIR/"
-cp "$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib" "$TMPDIR/"
+cp "$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/default.metallib" "$TMPDIR/"
 
 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
   "$TMPDIR/afm" mlx -m mlx-community/Qwen3.5-35B-A3B-4bit -s "hello" --max-tokens 5 2>&1 | head -3
@@ -401,11 +401,12 @@ mkdir -p "$STAGING"
 
 cp "$BIN" "$STAGING/"
 
-# Metallib resource bundle
-BUNDLE_DIR="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle"
-if [ -d "$BUNDLE_DIR" ]; then
+# Provider resource bundles
+for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
+  test -d "$BUNDLE_DIR"
   cp -r "$BUNDLE_DIR" "$STAGING/"
-fi
+done
 
 # WebUI (MANDATORY — verified in Step 5d)
 mkdir -p "$STAGING/Resources/webui"
@@ -532,10 +533,10 @@ class Afm < Formula
   def install
     bin.install "afm"
 
-    bundle_dir = "MacLocalAPI_AFMKit.bundle"
-    if Dir.exist?(bundle_dir)
+    ["AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_dir|
       (libexec/bundle_dir).mkpath
       (libexec/bundle_dir).install Dir["#{bundle_dir}/*"]
+      bin.install_symlink libexec/bundle_dir
     end
 
     if Dir.exist?("Resources/webui")
@@ -673,7 +674,7 @@ mkdir -p macafm/bin macafm/share/webui
 cp "$BIN" macafm/bin/
 
 # Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKit.bundle/default.metallib"
+METALLIB="$(dirname "$BIN")/AFMKit_AFMKitMLX.bundle/default.metallib"
 if [ -f "$METALLIB" ]; then
   cp "$METALLIB" macafm/bin/
 fi
