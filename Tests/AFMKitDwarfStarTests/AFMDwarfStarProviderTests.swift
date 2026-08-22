@@ -1,4 +1,6 @@
 import XCTest
+import AFMKitCore
+import CDwarfStar
 @testable import AFMKitDwarfStar
 
 final class AFMDwarfStarProviderTests: XCTestCase {
@@ -50,8 +52,9 @@ final class AFMDwarfStarProviderTests: XCTestCase {
         let availability = await model.availability()
         XCTAssertFalse(availability.isAvailable)
         XCTAssertEqual(model.descriptor.providerID, "dwarfstar")
-        XCTAssertFalse(model.descriptor.capabilities.contains(.reasoning))
+        XCTAssertTrue(model.descriptor.capabilities.contains(.reasoning))
         XCTAssertTrue(model.descriptor.capabilities.contains(.streaming))
+        XCTAssertTrue(model.descriptor.capabilities.contains(.toolCalling))
     }
 
     func testModelDescriptorPublishesResidentSessionConfiguration() {
@@ -107,6 +110,13 @@ final class AFMDwarfStarProviderTests: XCTestCase {
             .chat)
     }
 
+    func testReasoningModesMapToNativeDwarfStarModes() {
+        XCTAssertEqual(AFMDwarfStarReasoningMode.chat.thinkMode, DS4_THINK_NONE)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.low.thinkMode, DS4_THINK_HIGH)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.high.thinkMode, DS4_THINK_HIGH)
+        XCTAssertEqual(AFMDwarfStarReasoningMode.max.thinkMode, DS4_THINK_MAX)
+    }
+
     func testSlotPolicyUsesFirstAvailableSlotWithoutPrefixCaching() {
         XCTAssertEqual(
             AFMDwarfStarSlotPolicy.bestSlot(
@@ -121,6 +131,228 @@ final class AFMDwarfStarProviderTests: XCTestCase {
                 commonPrefixes: [12, nil, 30, 30],
                 prefixCachingEnabled: true),
             2)
+    }
+
+    func testSchedulerUsesLargePrefillQuantumWhenNoDecodeIsActive() {
+        XCTAssertEqual(
+            AFMDwarfStarSchedulingPolicy.prefillQuantum(activeDecodeCount: 0),
+            2_048)
+    }
+
+    func testSchedulerUsesBoundedPrefillQuantumDuringContinuousDecode() {
+        XCTAssertEqual(
+            AFMDwarfStarSchedulingPolicy.prefillQuantum(activeDecodeCount: 3),
+            128)
+    }
+
+    func testSchedulerEstablishesCheckpointBeforeMixedPrefill() {
+        XCTAssertFalse(
+            AFMDwarfStarSchedulingPolicy.canMixPrefill(
+                currentPosition: 0, activeDecodeCount: 3))
+        XCTAssertTrue(
+            AFMDwarfStarSchedulingPolicy.canMixPrefill(
+                currentPosition: 128, activeDecodeCount: 3))
+        XCTAssertFalse(
+            AFMDwarfStarSchedulingPolicy.canMixPrefill(
+                currentPosition: 128, activeDecodeCount: 0))
+    }
+
+    func testDSparkAvailabilityUsesGeneralizedDraftDepth() {
+        XCTAssertFalse(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: false,
+                draftTokenCount: 5))
+        XCTAssertFalse(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: true,
+                draftTokenCount: 0))
+        XCTAssertTrue(
+            AFMDwarfStarSpeculativePolicy.isAvailable(
+                requested: true,
+                draftTokenCount: 5))
+    }
+
+    func testSchedulerRotatesAcrossWaitingPrefills() {
+        XCTAssertEqual(
+            AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
+                lastSlot: 0,
+                waiting: [true, true, false, true]),
+            1)
+        XCTAssertEqual(
+            AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
+                lastSlot: 1,
+                waiting: [true, true, false, true]),
+            3)
+        XCTAssertEqual(
+            AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
+                lastSlot: 3,
+                waiting: [true, true, false, true]),
+            0)
+    }
+
+    func testSchedulerReturnsNilWhenNoPromptNeedsPrefill() {
+        XCTAssertNil(
+            AFMDwarfStarSchedulingPolicy.nextPrefillSlot(
+                lastSlot: 2,
+                waiting: [false, false, false]))
+    }
+
+    func testPrefixCacheCheckpointIdentitySeparatesModelRevisions() {
+        let original = AFMDwarfStarPrefixCachePolicy.checkpointKey(
+            path: "/models/deepseek.gguf", size: 100, modified: 10)
+        XCTAssertEqual(
+            original,
+            AFMDwarfStarPrefixCachePolicy.checkpointKey(
+                path: "/models/deepseek.gguf", size: 100, modified: 10))
+        XCTAssertNotEqual(
+            original,
+            AFMDwarfStarPrefixCachePolicy.checkpointKey(
+                path: "/models/deepseek.gguf", size: 101, modified: 10))
+        XCTAssertNotEqual(
+            original,
+            AFMDwarfStarPrefixCachePolicy.checkpointKey(
+                path: "/models/deepseek.gguf", size: 100, modified: 11))
+    }
+
+    func testPrefixCacheBudgetUsesSafeDefaultAndEnvironmentOverride() {
+        XCTAssertEqual(AFMDwarfStarPrefixCachePolicy.budgetMB(environment: [:]), 4_096)
+        XCTAssertEqual(
+            AFMDwarfStarPrefixCachePolicy.budgetMB(
+                environment: ["AFM_DWARFSTAR_PREFIX_CACHE_MB": "8192"]),
+            8_192)
+        XCTAssertEqual(
+            AFMDwarfStarPrefixCachePolicy.budgetMB(
+                environment: ["AFM_DWARFSTAR_PREFIX_CACHE_MB": "0"]),
+            4_096)
+    }
+
+    func testToolPromptPublishesSchemasInDeepSeekDSMLFormat() throws {
+        let prompt = try AFMDwarfStarToolCodec.systemPrompt(for: [
+            AFMToolDefinition(
+                name: "weather",
+                description: "Look up weather.",
+                inputSchema: .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "city": .object(["type": .string("string")])
+                    ])
+                ])
+            )
+        ])
+
+        XCTAssertTrue(prompt.contains("<｜DSML｜tool_calls>"))
+        XCTAssertTrue(prompt.contains("\"name\":\"weather\""))
+        XCTAssertTrue(prompt.contains("\"city\""))
+    }
+
+    func testToolParserHandlesSplitMarkersAndParallelCalls() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser()
+        XCTAssertEqual(try parser.consume("I will check. <｜DSML｜tool_"), [.text("I will check. ")])
+        XCTAssertEqual(try parser.consume("calls>\n<｜DSML｜invoke name=\"weather\">\n"), [])
+        XCTAssertEqual(
+            try parser.consume(
+                "<｜DSML｜parameter name=\"city\" string=\"true\">Paris</｜DSML｜parameter>\n"
+                    + "</｜DSML｜invoke>\n<｜DSML｜invoke name=\"clock\">\n"
+                    + "<｜DSML｜parameter name=\"offset\" string=\"false\">-4</｜DSML｜parameter>\n"
+                    + "</｜DSML｜invoke>\n</｜DSML｜tool_calls>"
+            ),
+            [
+                .toolCalls([
+                    AFMToolCall(
+                        id: "call_1",
+                        name: "weather",
+                        arguments: "{\"city\":\"Paris\"}"
+                    ),
+                    AFMToolCall(
+                        id: "call_2",
+                        name: "clock",
+                        arguments: "{\"offset\":-4}"
+                    )
+                ])
+            ]
+        )
+    }
+
+    func testToolMarkupInsideReasoningIsNotExecuted() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser(startsInReasoning: true)
+        let fakeCall = "<｜DSML｜tool_calls><｜DSML｜invoke name=\"unsafe\"></｜DSML｜invoke></｜DSML｜tool_calls>"
+
+        XCTAssertEqual(
+            try parser.consume("consider \(fakeCall)</think>answer"),
+            [.reasoning("consider \(fakeCall)"), .text("answer")]
+        )
+    }
+
+    func testCompletedToolCallTerminatesParserAndDiscardsTrailingOutput() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser()
+        let call = "<｜DSML｜tool_calls><｜DSML｜invoke name=\"weather\"></｜DSML｜invoke></｜DSML｜tool_calls>"
+
+        let outputs = try parser.consume(call + "must not become response text")
+        guard case .toolCalls(let calls) = try XCTUnwrap(outputs.first) else {
+            return XCTFail("Expected a completed tool call")
+        }
+        XCTAssertEqual(calls.map(\.name), ["weather"])
+        XCTAssertEqual(outputs.count, 1)
+        XCTAssertEqual(try parser.consume("also ignored"), [])
+        XCTAssertEqual(parser.finish(), [])
+    }
+
+    func testReasoningMarkersCanSpanChunks() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser(startsInReasoning: true)
+
+        XCTAssertEqual(try parser.consume("analysis</thi"), [.reasoning("analysis")])
+        XCTAssertEqual(try parser.consume("nk>final"), [.text("final")])
+    }
+
+    func testResponseCanEnterAndLeaveExplicitReasoning() throws {
+        var parser = AFMDwarfStarToolCodec.StreamParser()
+
+        XCTAssertEqual(
+            try parser.consume("before<think>private</think>after"),
+            [.text("before"), .reasoning("private"), .text("after")]
+        )
+    }
+
+    func testAssistantToolCallsRoundTripThroughDSML() throws {
+        let message = AFMMessage(
+            role: .assistant,
+            content: [.text("Checking")],
+            toolCalls: [
+                AFMToolCall(
+                    id: "original",
+                    name: "weather",
+                    arguments: "{\"city\":\"Montréal\",\"days\":2}"
+                )
+            ]
+        )
+        let rendered = try AFMDwarfStarToolCodec.assistantContent(for: message)
+
+        XCTAssertTrue(rendered.hasPrefix("Checking\n\n<｜DSML｜tool_calls>"))
+        XCTAssertTrue(rendered.contains("name=\"weather\""))
+        XCTAssertTrue(rendered.contains("name=\"city\" string=\"true\">Montréal"))
+        XCTAssertTrue(rendered.contains("name=\"days\" string=\"false\">2"))
+    }
+
+    func testAssistantToolReplayUsesCanonicalSeparatorAndBoundary() throws {
+        let message = AFMMessage(
+            role: .assistant,
+            content: [.text("Checking")],
+            toolCalls: [
+                AFMToolCall(id: "call", name: "weather", arguments: "{\"city\":\"Paris\"}")
+            ]
+        )
+
+        let suffix = try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message)
+        XCTAssertTrue(suffix.hasPrefix("\n\n<｜DSML｜tool_calls>"))
+        XCTAssertTrue(suffix.hasSuffix("<｜end▁of▁sentence｜>"))
+    }
+
+    func testAssistantTextReplayEndsWithConversationBoundary() throws {
+        let message = AFMMessage(role: .assistant, content: [.text("Done")])
+        XCTAssertEqual(
+            try AFMDwarfStarToolCodec.assistantReplaySuffix(for: message),
+            "<｜end▁of▁sentence｜>"
+        )
     }
 
 }

@@ -21,6 +21,7 @@ public struct AFMMLXProviderFactory: AFMProviderFactory {
                 "enablePrefixCaching",
                 "mtpEnabled",
                 "mtpDepth",
+                "mtpModelID",
                 "eagle3DrafterPath",
                 "maxConcurrent",
                 "toolCallParser",
@@ -235,7 +236,8 @@ public final class AFMMLXModel: AFMModel, AFMTextTokenizing, @unchecked Sendable
                     var translator = MLXStreamEventTranslator(
                         thinkStartTag: result.thinkStartTag,
                         thinkEndTag: result.thinkEndTag,
-                        maximumResponseTokens: request.options.maximumResponseTokens
+                        maximumResponseTokens: request.options.maximumResponseTokens,
+                        tools: tools
                     )
                     let streamService = service
                     var rawToolFallback = AFMMLXRawToolStreamFallback(

@@ -77,10 +77,8 @@ private class NemotronHRMSNormGated: Module {
         let unflattened = states.reshaped(newShape)
 
         // Python: x = mx.fast.rms_norm(x, weight=None, eps=self.eps)
-        // Apply RMS norm per group WITHOUT scaling (pass ones as weight)
-        // Swift rmsNorm doesn't accept nil, so we use identity weight
-        let identityWeight = MLXArray.ones([groupSize])
-        let normed = MLXFast.rmsNorm(unflattened, weight: identityWeight, eps: eps)
+        // MLXArray.mlxNone maps to the optional weight path without an identity multiply.
+        let normed = MLXFast.rmsNorm(unflattened, weight: .mlxNone, eps: eps)
 
         // Python: return self.weight * x.flatten(-2)
         // Flatten back to [..., hidden] and apply learned weight
@@ -772,6 +770,7 @@ public class NemotronHModel: Module, LLMModel, KVCacheDimensionProvider, LoRAMod
         var sanitized = [String: MLXArray]()
 
         for (key, value) in weights {
+            guard !key.hasPrefix("mtp.") else { continue }
             var finalValue = value
 
             // Handle conv1d weight axis swap
@@ -883,18 +882,21 @@ public struct NemotronHConfiguration: Codable, Sendable {
         case timeStepLimitMax = "time_step_limit_max"
     }
 
-    /// Separate key for time_step_limit array field (not a stored property)
+    /// Decoder-only aliases used by newer Transformers configurations.
     private enum ExtraCodingKeys: String, CodingKey {
         case timeStepLimit = "time_step_limit"
+        case timeStepMin = "time_step_min"
+        case layersBlockType = "layers_block_type"
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let extra = try decoder.container(keyedBy: ExtraCodingKeys.self)
 
         modelType = try container.decodeIfPresent(String.self, forKey: .modelType) ?? "nemotron_h"
         vocabSize = try container.decode(Int.self, forKey: .vocabSize)
         hiddenSize = try container.decode(Int.self, forKey: .hiddenSize)
-        numHiddenLayers = try container.decode(Int.self, forKey: .numHiddenLayers)
+        numHiddenLayers = try container.decodeIfPresent(Int.self, forKey: .numHiddenLayers) ?? 0
         numAttentionHeads = try container.decode(Int.self, forKey: .numAttentionHeads)
         numKeyValueHeads = try container.decode(Int.self, forKey: .numKeyValueHeads)
         attentionBias = try container.decodeIfPresent(Bool.self, forKey: .attentionBias) ?? false
@@ -927,23 +929,34 @@ public struct NemotronHConfiguration: Codable, Sendable {
         routedScalingFactor =
             try container.decodeIfPresent(Float.self, forKey: .routedScalingFactor) ?? 1.0
 
-        // Handle hybrid_override_pattern - can be string or array of strings
+        // New Nemotron-H configs use descriptive layers_block_type values while
+        // older checkpoints use the compact hybrid_override_pattern alphabet.
         if let patternString = try? container.decode(String.self, forKey: .hybridOverridePattern) {
-            hybridOverridePattern = patternString
+            hybridOverridePattern = try Self.normalizeBlockPattern(
+                Array(patternString).map(String.init),
+                forKey: .hybridOverridePattern,
+                in: container)
         } else if let patternArray = try? container.decode(
             [String].self, forKey: .hybridOverridePattern)
         {
-            hybridOverridePattern = patternArray.joined()
+            hybridOverridePattern = try Self.normalizeBlockPattern(
+                patternArray, forKey: .hybridOverridePattern, in: container)
+        } else if let blockTypes = try? extra.decode([String].self, forKey: .layersBlockType) {
+            hybridOverridePattern = try Self.normalizeBlockPattern(
+                blockTypes, forKey: .hybridOverridePattern, in: container)
         } else {
             throw DecodingError.dataCorruptedError(
                 forKey: .hybridOverridePattern, in: container,
-                debugDescription: "hybrid_override_pattern must be string or array of strings")
+                debugDescription:
+                    "Expected hybrid_override_pattern or layers_block_type to describe the decoder blocks")
         }
+        numHiddenLayers = hybridOverridePattern.count
 
         // Handle time-step limits as an array [min, max] under either the
         // canonical combined key or the legacy `time_step_limit_min` key.
-        // Otherwise, decode the separate scalar min/max fields.
-        let extra = try decoder.container(keyedBy: ExtraCodingKeys.self)
+        // Otherwise, decode the separate runtime limits. New Transformers
+        // configs use time_step_min for the lower runtime bound and reserve
+        // time_step_max for dt initialization; inference has no upper bound.
         let legacyLimits = try? container.decode([Float].self, forKey: .timeStepLimitMin)
         let combinedLimits = try? extra.decode([Float].self, forKey: .timeStepLimit)
         if let limits = legacyLimits ?? combinedLimits, let minimum = limits.first {
@@ -951,11 +964,44 @@ public struct NemotronHConfiguration: Codable, Sendable {
             timeStepLimitMax = limits.count > 1 ? limits[1] : limits[0]
         } else {
             timeStepLimitMin =
-                try container.decodeIfPresent(Float.self, forKey: .timeStepLimitMin) ?? 0.0
+                try container.decodeIfPresent(Float.self, forKey: .timeStepLimitMin)
+                ?? (try extra.decodeIfPresent(Float.self, forKey: .timeStepMin))
+                ?? 0.0
             timeStepLimitMax =
                 try container.decodeIfPresent(Float.self, forKey: .timeStepLimitMax)
                 ?? Float.infinity
         }
+    }
+
+    private static func normalizeBlockPattern(
+        _ blockTypes: [String],
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let mapping = [
+            "m": "M",
+            "mamba": "M",
+            "linear_attention": "M",
+            "*": "*",
+            "attention": "*",
+            "full_attention": "*",
+            "e": "E",
+            "moe": "E",
+            "-": "-",
+            "mlp": "-",
+        ]
+
+        var pattern = ""
+        for blockType in blockTypes {
+            guard let compact = mapping[blockType.lowercased()] else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "Unsupported Nemotron-H block type: \(blockType)")
+            }
+            pattern += compact
+        }
+        return pattern
     }
 
     /// Memberwise initializer for testing

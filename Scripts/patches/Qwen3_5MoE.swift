@@ -904,7 +904,7 @@ public final class Qwen3_5MoEMTPHead: Module {
     /// Load from a `mtp.safetensors` sidecar (keys `mtp.` / `mtp.layers.0.` -> flattened).
     public static func load(
         sidecarPath: String, config: Qwen3_5MoETextConfiguration,
-        groupSize: Int = 32, bits: Int = 4
+        groupSize: Int = 64, bits: Int = 4, mode: QuantizationMode = .affine
     ) throws -> Qwen3_5MoEMTPHead {
         let head = Qwen3_5MoEMTPHead(config)
         let raw = try MLX.loadArrays(url: URL(fileURLWithPath: sidecarPath))
@@ -915,7 +915,9 @@ public final class Qwen3_5MoEMTPHead: Module {
             weights[key] = v
         }
         quantize(model: head, filter: { path, _ in
-            weights["\(path).scales"] != nil ? (groupSize: groupSize, bits: bits) : nil
+            weights["\(path).scales"] != nil
+                ? (groupSize: groupSize, bits: bits, mode: mode)
+                : nil
         })
         try head.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
         eval(head)
@@ -1121,8 +1123,19 @@ public class Qwen3_5MoEModel: Module, LLMModel, KVCacheDimensionProvider {
     }
     public func embedTokens(_ ids: MLXArray) -> MLXArray { languageModel.embed(ids) }
     public func projectLMHead(_ hidden: MLXArray) -> MLXArray { languageModel.projectLMHead(hidden) }
-    public func loadMTPHead(sidecarPath: String) throws -> Qwen3_5MoEMTPHead {
-        try Qwen3_5MoEMTPHead.load(sidecarPath: sidecarPath, config: configuration.textConfig)
+    public func loadMTPHead(
+        sidecarPath: String,
+        groupSize: Int = 64,
+        bits: Int = 4,
+        mode: QuantizationMode = .affine
+    ) throws -> Qwen3_5MoEMTPHead {
+        try Qwen3_5MoEMTPHead.load(
+            sidecarPath: sidecarPath,
+            config: configuration.textConfig,
+            groupSize: groupSize,
+            bits: bits,
+            mode: mode
+        )
     }
 
     public func newCache(parameters: GenerateParameters?) -> [any KVCache] {

@@ -1,0 +1,248 @@
+Resolving remote DwarfStar model: mlx-community/Qwen3.8-27B-4bit
+[/] checking cache | mem 0.02 GB | 0.0s[done] ready | mem 0.03 GB | 0.1s
+Loading MLX model: mlx-community/Qwen3.8-27B-4bit
+[/] checking cache | mem 0.03 GB | 0.0s[-] loading model | mem 0.15 GB | 0.2s[\] loading model | mem 4.76 GB | 0.4s[|] loading model | mem 10.82 GB | 0.6s[/] loading model | mem 14.31 GB | 0.8s[-] loading model | mem 14.32 GB | 1.0s[done] ready | mem 14.55 GB | 1.0s
+Model path: /Users/syl/.cache/huggingface/hub/models--mlx-community--Qwen3.8-27B-4bit/snapshots/3e6447f082e89cc7f0bc6e5441afd38dfce760ff
+[2026-08-16 09:06:34.408] MLX GPU: cache=1024MB wired=427622MB (system 512GB)
+[2026-08-16 09:06:34.408] MLX kernels: native
+[2026-08-16 09:06:34.408] [MTP] resolved head mlx-community/Qwen3.8-27B-MTP-4bit -> /Users/syl/.cache/huggingface/hub/models--mlx-community--Qwen3.8-27B-MTP-4bit/snapshots/b643c01b6d3b094e325edb6ebd832e16c486c575/model.safetensors
+[2026-08-16 09:06:34.408] [ToolCallParser] Auto-detected format: xmlFunction (from model_type)
+[2026-08-16 09:06:34.409] [ModelArchitecture] declared=qwen3_5 canonical=qwen3_5 vision=true factory=LLM
+[2026-08-16 09:06:35.288] [MTP] head loaded — self-speculative decoding enabled (depth 1)
+[2026-08-16 09:06:35.291] [PrefixCache] Prefix caching disabled
+[2026-08-16 09:06:35.292] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+
+  [96m╔════════════════════════════════════════════════════════════════════╗[0m
+  [96m║[0m                                                                    [96m║[0m
+  [96m║[0m                    [95m█████╗[0m [94m███████╗[0m[96m███╗   ███╗[0m                      [96m║[0m
+  [96m║[0m                   [95m██╔══██╗[0m[94m██╔════╝[0m[96m████╗ ████║[0m                      [96m║[0m
+  [96m║[0m                   [95m███████║[0m[94m█████╗[0m  [96m██╔████╔██║[0m                      [96m║[0m
+  [96m║[0m                   [95m██╔══██║[0m[94m██╔══╝[0m  [96m██║╚██╔╝██║[0m                      [96m║[0m
+  [96m║[0m                   [95m██║  ██║[0m[94m██║[0m     [96m██║ ╚═╝ ██║[0m                      [96m║[0m
+  [96m║[0m                   [90m╚═╝  ╚═╝╚═╝     ╚═╝     ╚═╝[0m                      [96m║[0m
+  [96m║[0m                                                                    [96m║[0m
+  [96m║[0m           [97mApple Foundation Models - OpenAI Compatible API[0m          [96m║[0m
+  [96m║[0m                              [1m[94mv0.9.17[0m                               [96m║[0m
+  [96m║[0m                                                                    [96m║[0m
+  [96m╚════════════════════════════════════════════════════════════════════╝[0m
+
+  [90m🚀 Server: http://127.0.0.1:54068[0m
+  [90m📦 ]8;;https://github.com/scouzi1966/maclocal-api\https://github.com/scouzi1966/maclocal-api]8;;\[0m
+
+  📡 Endpoints:
+     • POST   /v1/chat/completions    - Chat completion (streaming supported)
+     • GET    /v1/models              - List available models
+     • GET    /health                 - Health check
+
+  ⚙️  Configuration:
+     • Streaming:          ✓ enabled
+     • Prewarm:            ✗ disabled
+     • Temperature:        0.0
+
+  ℹ️  Requires macOS 26+ with Apple Intelligence
+  💡 Press Ctrl+C to stop the server
+  💡 OpenClaw:  afm mlx -m mlx-community/Qwen3.8-27B-4bit --openclaw-config
+
+  ─────────────────────────────────────────────────────────────────────────
+
+[2026-08-16 09:06:35.307] [NOTICE] Server started on http://127.0.0.1:54068
+[2026-08-16 09:06:36.185] [INFO] GET /health [request-id: 4FAF1E66-5443-4EA6-B980-20028960F7F6]
+[2026-08-16 09:06:37.889] [INFO] POST /v1/chat/completions [request-id: 2492A5A7-EB0E-4C20-9F3C-890E8FC9BFC2]
+[2026-08-16 09:06:37.892] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:06:37.892] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:06:38.018] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=407 | cached_tokens=0 | suffix_tokens=407 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:06:41.544] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=407 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.326s | overhead_share=0.000000
+[2026-08-16 09:06:41.544] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=407 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.326s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:06:41.544] [STATS] pp: 407 tok, 1.33s (306.9 tok/s) | tg: 84 tok, 2.19s (38.3 tok/s) | cache: MISS suffix=407 stream=false[0m
+[2026-08-16 09:06:41.551] [INFO] POST /v1/chat/completions [request-id: 43A6F5CC-F2F3-449B-A152-9FF268E905DA]
+[2026-08-16 09:06:41.554] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:06:41.554] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:06:41.558] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=395 | cached_tokens=0 | suffix_tokens=395 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:06:54.713] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=395 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.046s | overhead_share=0.000000
+[2026-08-16 09:06:54.713] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=395 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.046s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:06:54.713] [STATS] pp: 395 tok, 1.05s (377.6 tok/s) | tg: 461 tok, 12.10s (38.1 tok/s) | cache: MISS suffix=395 stream=false[0m
+[2026-08-16 09:06:54.716] [INFO] POST /v1/chat/completions [request-id: 20D94CE3-C9B1-4D1D-8C51-E4CDBD5AD5AB]
+[2026-08-16 09:06:54.720] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:06:54.720] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:06:54.725] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=413 | cached_tokens=0 | suffix_tokens=413 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:09.174] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=413 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.054s | overhead_share=0.000000
+[2026-08-16 09:07:09.174] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=413 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.054s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:09.174] [STATS] pp: 413 tok, 1.05s (391.8 tok/s) | tg: 510 tok, 13.39s (38.1 tok/s) | cache: MISS suffix=413 stream=false[0m
+[2026-08-16 09:07:09.177] [INFO] POST /v1/chat/completions [request-id: A90FA345-A61B-4B5D-A2D4-CBB04B887291]
+[2026-08-16 09:07:09.181] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:09.181] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:09.185] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=442 | cached_tokens=0 | suffix_tokens=442 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:15.638] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=442 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.130s | overhead_share=0.000000
+[2026-08-16 09:07:15.638] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=442 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.130s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:15.639] [STATS] pp: 442 tok, 1.13s (391.1 tok/s) | tg: 203 tok, 5.32s (38.2 tok/s) | cache: MISS suffix=442 stream=false[0m
+[2026-08-16 09:07:15.641] [INFO] POST /v1/chat/completions [request-id: 379DD927-D8E6-44DE-AC5A-4144F21F7D15]
+[2026-08-16 09:07:15.644] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:15.644] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:15.647] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=453 | cached_tokens=0 | suffix_tokens=453 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:30.270] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=453 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.196s | overhead_share=0.000000
+[2026-08-16 09:07:30.270] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=453 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.196s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:30.270] [STATS] pp: 453 tok, 1.20s (378.8 tok/s) | tg: 512 tok, 13.42s (38.2 tok/s) | cache: MISS suffix=453 stream=false[0m
+[2026-08-16 09:07:30.273] [INFO] POST /v1/chat/completions [request-id: EA3F7C5B-E902-4746-82D1-0CDB69FBB8A9]
+[2026-08-16 09:07:30.277] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:30.277] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:30.285] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=875 | cached_tokens=0 | suffix_tokens=875 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:36.915] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=875 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=2.189s | overhead_share=0.000000
+[2026-08-16 09:07:36.915] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=875 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=2.189s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:36.915] [STATS] pp: 875 tok, 2.19s (399.7 tok/s) | tg: 168 tok, 4.44s (37.9 tok/s) | cache: MISS suffix=875 stream=false[0m
+[38;5;178m[2026-08-16 09:07:36.915] [TOOL_CALLS] 1 call(s): triangle_properties_get(get_angles, get_area, get_perimeter, side1, side2, side3)[0m
+[2026-08-16 09:07:36.919] [INFO] POST /v1/chat/completions [request-id: 3E07B895-ECD5-4001-B463-5B52DF8B3839]
+[2026-08-16 09:07:36.923] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:36.923] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:36.930] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=738 | cached_tokens=0 | suffix_tokens=738 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:42.153] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=738 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.882s | overhead_share=0.000000
+[2026-08-16 09:07:42.153] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=738 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.882s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:42.153] [STATS] pp: 738 tok, 1.88s (392.1 tok/s) | tg: 127 tok, 3.33s (38.1 tok/s) | cache: MISS suffix=738 stream=false[0m
+[38;5;178m[2026-08-16 09:07:42.153] [TOOL_CALLS] 1 call(s): math_triangle_area_heron(side1, side2, side3)[0m
+[2026-08-16 09:07:42.156] [INFO] POST /v1/chat/completions [request-id: 852DFA5D-A788-40F7-9497-65F5B2F3A956]
+[2026-08-16 09:07:42.160] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:42.160] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:42.165] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=517 | cached_tokens=0 | suffix_tokens=517 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:45.373] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=517 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.344s | overhead_share=0.000000
+[2026-08-16 09:07:45.373] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=517 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.344s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:45.373] [STATS] pp: 517 tok, 1.34s (384.6 tok/s) | tg: 71 tok, 1.86s (38.2 tok/s) | cache: MISS suffix=517 stream=false[0m
+[38;5;178m[2026-08-16 09:07:45.373] [TOOL_CALLS] 1 call(s): country_info_capital(country)[0m
+[2026-08-16 09:07:45.376] [INFO] POST /v1/chat/completions [request-id: A5768FB8-3A99-4E4E-BAA5-5456AA6C52C8]
+[2026-08-16 09:07:45.379] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:45.379] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:45.383] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=661 | cached_tokens=0 | suffix_tokens=661 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:49.790] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=661 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.715s | overhead_share=0.000000
+[2026-08-16 09:07:49.790] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=661 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.715s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:49.790] [STATS] pp: 661 tok, 1.71s (385.5 tok/s) | tg: 99 tok, 2.69s (36.9 tok/s) | cache: MISS suffix=661 stream=false[0m
+[38;5;178m[2026-08-16 09:07:49.790] [TOOL_CALLS] 1 call(s): EuclideanDistance_calculate(pointA, pointB)[0m
+[2026-08-16 09:07:49.793] [INFO] POST /v1/chat/completions [request-id: 61C3BBDF-95C1-4BF1-8B49-3BAAF9261347]
+[2026-08-16 09:07:49.796] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:49.796] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:49.802] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=822 | cached_tokens=0 | suffix_tokens=822 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:07:55.193] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=822 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=2.173s | overhead_share=0.000000
+[2026-08-16 09:07:55.193] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=822 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=2.173s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:07:55.193] [STATS] pp: 822 tok, 2.17s (378.3 tok/s) | tg: 118 tok, 3.21s (36.7 tok/s) | cache: MISS suffix=822 stream=false[0m
+[38;5;178m[2026-08-16 09:07:55.193] [TOOL_CALLS] 1 call(s): kinematics_calculate_displacement(acceleration, initial_speed, time)[0m
+[2026-08-16 09:07:55.195] [INFO] POST /v1/chat/completions [request-id: 694D9ABD-A7C7-4933-AF04-7B3BE4FEC1AD]
+[2026-08-16 09:07:55.198] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:07:55.198] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:07:55.201] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=396 | cached_tokens=0 | suffix_tokens=396 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:00.140] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=396 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.060s | overhead_share=0.000000
+[2026-08-16 09:08:00.140] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=396 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.060s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:00.141] [STATS] pp: 396 tok, 1.06s (373.8 tok/s) | tg: 146 tok, 3.87s (37.7 tok/s) | cache: MISS suffix=396 stream=false[0m
+[38;5;178m[2026-08-16 09:08:00.141] [TOOL_CALLS] 2 call(s): spotify_play(artist, duration), spotify_play(artist, duration)[0m
+[2026-08-16 09:08:00.143] [INFO] POST /v1/chat/completions [request-id: EDCC3B95-F5A6-492F-9F68-127E55295900]
+[2026-08-16 09:08:00.146] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:00.146] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:00.151] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=474 | cached_tokens=0 | suffix_tokens=474 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:06.164] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=474 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.217s | overhead_share=0.000000
+[2026-08-16 09:08:06.164] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=474 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.217s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:06.164] [STATS] pp: 474 tok, 1.22s (389.4 tok/s) | tg: 180 tok, 4.79s (37.6 tok/s) | cache: MISS suffix=474 stream=false[0m
+[38;5;178m[2026-08-16 09:08:06.164] [TOOL_CALLS] 2 call(s): calculate_em_force(area, b_field, d_time), calculate_em_force(area, b_field, d_time)[0m
+[2026-08-16 09:08:06.167] [INFO] POST /v1/chat/completions [request-id: 61957DF7-58CF-49B4-AC22-A91A39EEFF78]
+[2026-08-16 09:08:06.170] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:06.170] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:06.173] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=468 | cached_tokens=0 | suffix_tokens=468 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:10.875] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=468 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.223s | overhead_share=0.000000
+[2026-08-16 09:08:10.875] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=468 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.223s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:10.875] [STATS] pp: 468 tok, 1.22s (382.6 tok/s) | tg: 132 tok, 3.47s (38.0 tok/s) | cache: MISS suffix=468 stream=false[0m
+[38;5;178m[2026-08-16 09:08:10.876] [TOOL_CALLS] 2 call(s): calculate_resistance(area, length, resistivity), calculate_resistance(area, length, resistivity)[0m
+[2026-08-16 09:08:10.878] [INFO] POST /v1/chat/completions [request-id: AB8DD3D6-E499-489C-8ACF-C4B2102A590A]
+[2026-08-16 09:08:10.882] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:10.882] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:10.886] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=402 | cached_tokens=0 | suffix_tokens=402 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:21.626] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=402 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.052s | overhead_share=0.000000
+[2026-08-16 09:08:21.627] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=402 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.052s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:21.627] [STATS] pp: 402 tok, 1.05s (382.0 tok/s) | tg: 369 tok, 9.68s (38.1 tok/s) | cache: MISS suffix=402 stream=false[0m
+[38;5;178m[2026-08-16 09:08:21.627] [TOOL_CALLS] 3 call(s): protein_info_get_sequence_and_3D(model_3d, protein_name), protein_info_get_sequence_and_3D(model_3d, protein_name), protein_info_get_sequence_and_3D(model_3d, protein_name)[0m
+[2026-08-16 09:08:21.629] [INFO] POST /v1/chat/completions [request-id: F628BA8F-1A1D-4BFB-85E3-B78725B7B352]
+[2026-08-16 09:08:21.632] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:21.632] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:21.635] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=414 | cached_tokens=0 | suffix_tokens=414 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:26.526] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=414 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.056s | overhead_share=0.000000
+[2026-08-16 09:08:26.526] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=414 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.056s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:26.526] [STATS] pp: 414 tok, 1.06s (391.9 tok/s) | tg: 146 tok, 3.83s (38.1 tok/s) | cache: MISS suffix=414 stream=false[0m
+[38;5;178m[2026-08-16 09:08:26.526] [TOOL_CALLS] 2 call(s): calculate_bmi(height, weight), calculate_bmi(height, weight)[0m
+[2026-08-16 09:08:26.529] [INFO] POST /v1/chat/completions [request-id: 1D688673-0143-4697-9A2E-325C3713227D]
+[2026-08-16 09:08:26.532] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:26.532] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:26.537] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=559 | cached_tokens=0 | suffix_tokens=559 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:33.149] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=559 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.425s | overhead_share=0.000000
+[2026-08-16 09:08:33.149] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=559 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.425s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:33.149] [STATS] pp: 559 tok, 1.43s (392.3 tok/s) | tg: 197 tok, 5.18s (38.0 tok/s) | cache: MISS suffix=559 stream=false[0m
+[38;5;178m[2026-08-16 09:08:33.149] [TOOL_CALLS] 2 call(s): math_toolkit_sum_of_multiples(lower_limit, multiples, upper_limit), math_toolkit_product_of_primes(count)[0m
+[2026-08-16 09:08:33.152] [INFO] POST /v1/chat/completions [request-id: 83925F5F-C04B-4CFD-BFC4-B44E9B49685E]
+[2026-08-16 09:08:33.156] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:33.156] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:33.162] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=701 | cached_tokens=0 | suffix_tokens=701 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:38.124] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=701 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.742s | overhead_share=0.000000
+[2026-08-16 09:08:38.124] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=701 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.742s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:38.124] [STATS] pp: 701 tok, 1.74s (402.3 tok/s) | tg: 122 tok, 3.21s (38.0 tok/s) | cache: MISS suffix=701 stream=false[0m
+[38;5;178m[2026-08-16 09:08:38.124] [TOOL_CALLS] 2 call(s): area_rectangle_calculate(breadth, length), area_circle_calculate(radius)[0m
+[2026-08-16 09:08:38.127] [INFO] POST /v1/chat/completions [request-id: 0136F290-D622-4332-BF53-73CA6AB4FB6B]
+[2026-08-16 09:08:38.130] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:38.130] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:38.135] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=594 | cached_tokens=0 | suffix_tokens=594 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:49.754] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=594 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.509s | overhead_share=0.000000
+[2026-08-16 09:08:49.754] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=594 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.509s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:49.755] [STATS] pp: 594 tok, 1.51s (393.7 tok/s) | tg: 384 tok, 10.10s (38.0 tok/s) | cache: MISS suffix=594 stream=false[0m
+[38;5;178m[2026-08-16 09:08:49.755] [TOOL_CALLS] 2 call(s): circle_calculate_area(radius), circle_calculate_circumference(diameter)[0m
+[2026-08-16 09:08:49.757] [INFO] POST /v1/chat/completions [request-id: 26CBBA0C-8914-4BFB-BA30-92BD735CA054]
+[2026-08-16 09:08:49.761] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:49.761] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:49.767] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=698 | cached_tokens=0 | suffix_tokens=698 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:08:54.444] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=698 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.741s | overhead_share=0.000000
+[2026-08-16 09:08:54.444] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=698 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.741s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:08:54.444] [STATS] pp: 698 tok, 1.74s (400.9 tok/s) | tg: 111 tok, 2.93s (37.9 tok/s) | cache: MISS suffix=698 stream=false[0m
+[38;5;178m[2026-08-16 09:08:54.444] [TOOL_CALLS] 2 call(s): get_rectangle_property(area, perimeter, property), get_rectangle_property(area, perimeter, property)[0m
+[2026-08-16 09:08:54.446] [INFO] POST /v1/chat/completions [request-id: CCAC0B72-E80D-4A80-B132-30639A51CD87]
+[2026-08-16 09:08:54.450] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:08:54.450] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:08:54.456] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=605 | cached_tokens=0 | suffix_tokens=605 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:00.053] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=605 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.523s | overhead_share=0.000000
+[2026-08-16 09:09:00.053] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=605 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.523s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:00.053] [STATS] pp: 605 tok, 1.52s (397.3 tok/s) | tg: 154 tok, 4.07s (37.9 tok/s) | cache: MISS suffix=605 stream=false[0m
+[38;5;178m[2026-08-16 09:09:00.053] [TOOL_CALLS] 2 call(s): integral(a, b, function), derivative(function, x)[0m
+[2026-08-16 09:09:00.056] [INFO] POST /v1/chat/completions [request-id: 5B38CBE3-DC01-4446-9546-A3B1683046F2]
+[2026-08-16 09:09:00.059] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:09:00.059] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:09:00.063] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=418 | cached_tokens=0 | suffix_tokens=418 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:03.951] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=418 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.125s | overhead_share=0.000000
+[2026-08-16 09:09:03.951] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=418 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.125s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:03.951] [STATS] pp: 418 tok, 1.12s (371.6 tok/s) | tg: 105 tok, 2.76s (38.1 tok/s) | cache: MISS suffix=418 stream=false[0m
+[38;5;178m[2026-08-16 09:09:03.951] [TOOL_CALLS] 1 call(s): calculate_triangle_area(base, height, unit)[0m
+[2026-08-16 09:09:03.953] [INFO] POST /v1/chat/completions [request-id: B11D6E20-D966-4952-95C5-B8CF3ED845FF]
+[2026-08-16 09:09:03.957] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:09:03.957] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:09:03.961] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=327 | cached_tokens=0 | suffix_tokens=327 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:06.695] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=327 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.895s | overhead_share=0.000000
+[2026-08-16 09:09:06.695] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=327 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=0.895s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:06.695] [STATS] pp: 327 tok, 0.90s (365.2 tok/s) | tg: 70 tok, 1.83s (38.2 tok/s) | cache: MISS suffix=327 stream=false[0m
+[38;5;178m[2026-08-16 09:09:06.695] [TOOL_CALLS] 1 call(s): math_factorial(number)[0m
+[2026-08-16 09:09:06.697] [INFO] POST /v1/chat/completions [request-id: AB31810F-9C98-4A93-A466-5044B6414161]
+[2026-08-16 09:09:06.701] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:09:06.701] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:09:06.705] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=442 | cached_tokens=0 | suffix_tokens=442 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:11.122] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=442 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.132s | overhead_share=0.000000
+[2026-08-16 09:09:11.122] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=442 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.132s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:11.122] [STATS] pp: 442 tok, 1.13s (390.4 tok/s) | tg: 125 tok, 3.28s (38.1 tok/s) | cache: MISS suffix=442 stream=false[0m
+[38;5;178m[2026-08-16 09:09:11.122] [TOOL_CALLS] 1 call(s): math_hypot(x, y)[0m
+[2026-08-16 09:09:11.125] [INFO] POST /v1/chat/completions [request-id: F56E2014-68BD-4D4A-AA54-FA7DB3D0C502]
+[2026-08-16 09:09:11.128] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:09:11.128] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:09:11.133] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=418 | cached_tokens=0 | suffix_tokens=418 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:13.732] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=418 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.124s | overhead_share=0.000000
+[2026-08-16 09:09:13.732] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=418 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.124s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:13.732] [STATS] pp: 418 tok, 1.12s (372.0 tok/s) | tg: 56 tok, 1.47s (38.1 tok/s) | cache: MISS suffix=418 stream=false[0m
+[38;5;178m[2026-08-16 09:09:13.732] [TOOL_CALLS] 1 call(s): algebra_quadratic_roots(a, b, c)[0m
+[2026-08-16 09:09:13.734] [INFO] POST /v1/chat/completions [request-id: 62738629-F7B0-457F-ADA5-E8B7E127E1E2]
+[2026-08-16 09:09:13.738] [ChatTemplate] architecture=qwen3_5 encoder=model-template
+[2026-08-16 09:09:13.738] [XGrammar] strict: true on tools but --enable-grammar-constraints not set; best-effort
+[2026-08-16 09:09:13.742] [PrefixCache] Prefill: mode=non-streaming | outcome=disabled | input_tokens=409 | cached_tokens=0 | suffix_tokens=409 | layers=64 active_layers=0 max_offset=0 sample=[0:MambaCache@0, 1:MambaCache@0, 2:MambaCache@0, 3:KVCacheSimple@0]
+[2026-08-16 09:09:17.753] [CacheProfile] phase=restore | mode=non-streaming | outcome=disabled | input_tokens=409 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.059s | overhead_share=0.000000
+[2026-08-16 09:09:17.753] [CacheProfile] phase=save | mode=non-streaming | outcome=skip | input_tokens=409 | cached_tokens=0 | reuse_ratio=0.000 | lookup=0.000000s | restore=0.000000s | trim=0.000000s | truncate=0.000000s | insert=0.000000s | cache_overhead=0.000000s | prompt_time=1.059s | overhead_share=0.000000
+[38;5;208m[2026-08-16 09:09:17.754] [STATS] pp: 409 tok, 1.06s (386.3 tok/s) | tg: 112 tok, 2.95s (38.0 tok/s) | cache: MISS suffix=409 stream=false[0m
+[38;5;178m[2026-08-16 09:09:17.754] [TOOL_CALLS] 1 call(s): solve_quadratic_equation(a, b, c)[0m
+
+🛑 Received shutdown signal, shutting down...
+🛑 Shutting down server...
+Server shutdown complete.

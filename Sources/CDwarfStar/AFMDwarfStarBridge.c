@@ -1,4 +1,5 @@
 #include "include/CDwarfStar.h"
+#include "../../vendor/ds4/ds4_kvstore.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -106,4 +107,117 @@ void afm_ds4_tokens_init(ds4_tokens *tokens) {
 
 void afm_ds4_free(void *pointer) {
     free(pointer);
+}
+
+struct afm_ds4_prefix_cache {
+    ds4_kvstore store;
+};
+
+static void afm_ds4_prefix_cache_log(
+        void *unused,
+        ds4_kvstore_log_type type,
+        const char *message) {
+    (void)unused;
+    const char *level = type == DS4_KVSTORE_LOG_WARNING ? "warning" : "info";
+    fprintf(stderr, "[DwarfStarPrefixCache] %s: %s\n", level, message);
+}
+
+int afm_ds4_prefix_cache_open(
+        afm_ds4_prefix_cache **out,
+        const char *directory,
+        uint64_t budget_mb,
+        char *error,
+        size_t error_capacity) {
+    if (!out || !directory || !directory[0]) {
+        snprintf(error, error_capacity, "DwarfStar prefix-cache directory is missing");
+        return -1;
+    }
+    afm_ds4_prefix_cache *cache = calloc(1, sizeof(*cache));
+    if (!cache) {
+        snprintf(error, error_capacity, "Unable to allocate DwarfStar prefix cache");
+        return -1;
+    }
+    ds4_kvstore_options options = ds4_kvstore_default_options();
+    if (!ds4_kvstore_open(
+            &cache->store,
+            directory,
+            budget_mb,
+            true,
+            options,
+            "AFM",
+            afm_ds4_prefix_cache_log,
+            NULL)) {
+        free(cache);
+        snprintf(error, error_capacity, "Unable to open DwarfStar prefix cache at %s", directory);
+        return -1;
+    }
+    *out = cache;
+    return 0;
+}
+
+void afm_ds4_prefix_cache_close(afm_ds4_prefix_cache *cache) {
+    if (!cache) return;
+    ds4_kvstore_close(&cache->store);
+    free(cache);
+}
+
+int afm_ds4_prefix_cache_restore(
+        afm_ds4_prefix_cache *cache,
+        ds4_engine *engine,
+        ds4_session *session,
+        ds4_tokens *prompt,
+        char *error,
+        size_t error_capacity) {
+    if (!cache || !engine || !session || !prompt) return 0;
+    size_t text_length = 0;
+    char *text = ds4_kvstore_render_tokens_text(engine, prompt, &text_length);
+    if (!text) return 0;
+
+    ds4_tokens effective = {0};
+    ds4_kvstore_load_result result = {0};
+    int loaded = ds4_kvstore_try_load_text(
+        &cache->store,
+        engine,
+        session,
+        text,
+        &effective,
+        &result,
+        NULL,
+        false);
+    free(text);
+    ds4_kvstore_load_result_free(&result);
+
+    if (loaded > 0) {
+        ds4_tokens_free(prompt);
+        *prompt = effective;
+        return loaded;
+    }
+    ds4_tokens_free(&effective);
+    if (loaded < 0) {
+        snprintf(error, error_capacity, "DwarfStar prefix-cache restore failed");
+        return -1;
+    }
+    return 0;
+}
+
+int afm_ds4_prefix_cache_store_session(
+        afm_ds4_prefix_cache *cache,
+        ds4_engine *engine,
+        ds4_session *session,
+        const char *reason,
+        char *error,
+        size_t error_capacity) {
+    if (!cache || !engine || !session) return 0;
+    const ds4_tokens *tokens = ds4_session_tokens(session);
+    if (!tokens || tokens->len <= 0) return 0;
+    return ds4_kvstore_store_live_prefix(
+        &cache->store,
+        engine,
+        session,
+        tokens,
+        tokens->len,
+        reason ? reason : "continued",
+        NULL,
+        error,
+        error_capacity) ? tokens->len : 0;
 }

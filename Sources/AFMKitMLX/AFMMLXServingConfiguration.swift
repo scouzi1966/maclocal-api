@@ -2,12 +2,19 @@ import Foundation
 import AFMOpenAICompat
 import MLXLMCommon
 
+public enum AFMMLXResponseChannelFormat: String, Sendable, Equatable {
+    case none
+    case harmony
+    case muse
+}
+
 public struct AFMMLXServingConfiguration: Sendable, Equatable {
     public var toolCallParser: String?
     public var supportsStrictToolGrammar: Bool
     public var thinkStartTag: String?
     public var thinkEndTag: String?
     public var harmonyChannels: Bool
+    public var responseChannelFormat: AFMMLXResponseChannelFormat
     public var structuralStripTags: [String]
     public var fixToolArguments: Bool
     public var grammarConstraintsEnabled: Bool
@@ -18,6 +25,7 @@ public struct AFMMLXServingConfiguration: Sendable, Equatable {
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
         harmonyChannels: Bool = false,
+        responseChannelFormat: AFMMLXResponseChannelFormat = .none,
         structuralStripTags: [String] = [],
         fixToolArguments: Bool = false,
         grammarConstraintsEnabled: Bool = false
@@ -27,6 +35,7 @@ public struct AFMMLXServingConfiguration: Sendable, Equatable {
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
         self.harmonyChannels = harmonyChannels
+        self.responseChannelFormat = harmonyChannels ? .harmony : responseChannelFormat
         self.structuralStripTags = structuralStripTags
         self.fixToolArguments = fixToolArguments
         self.grammarConstraintsEnabled = grammarConstraintsEnabled
@@ -46,6 +55,7 @@ public extension AFMMLXServingConfigurationProviding {
     var thinkStartTag: String? { servingConfiguration.thinkStartTag }
     var thinkEndTag: String? { servingConfiguration.thinkEndTag }
     var harmonyChannels: Bool { servingConfiguration.harmonyChannels }
+    var responseChannelFormat: AFMMLXResponseChannelFormat { servingConfiguration.responseChannelFormat }
     var structuralStripTags: [String] { servingConfiguration.structuralStripTags }
     var fixToolArgs: Bool { servingConfiguration.fixToolArguments }
     var enableGrammarConstraints: Bool { servingConfiguration.grammarConstraintsEnabled }

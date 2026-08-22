@@ -216,13 +216,15 @@ public enum AFMMLXModelArchitecture {
         "qwen3_6_moe",
         "idefics3",
         "gemma3",
+        "gemma4",
         "smolvlm",
         "fastvlm",
         "llava_qwen2",
         "pixtral",
         "mistral3",
         "lfm2_vl",
-        "lfm2-vl"
+        "lfm2-vl",
+        "muse_glimmer"
     ]
 
     public static let metalCrashModelTypes: Set<String> = [
@@ -301,12 +303,17 @@ public enum AFMMLXModelArchitecture {
             )
         }
 
+        let canonicalModelType = canonicalModelType(modelType)
+        let isVisionOnly = visionModelTypes.contains(canonicalModelType)
+            && !languageModelTypes.contains(canonicalModelType)
+
         return AFMMLXModelArchitecturePreflight(
             modelID: modelID,
             modelType: modelType,
-            canonicalModelType: canonicalModelType(modelType),
+            canonicalModelType: canonicalModelType,
             isVisionConfiguration: AFMMLXModelDescriptor.isVisionModelConfiguration(config),
-            requiresVisionModelFactory: AFMMLXModelDescriptor.requiresVisionModelFactory(config)
+            requiresVisionModelFactory: isVisionOnly
+                || AFMMLXModelDescriptor.requiresVisionModelFactory(config)
         )
     }
 
@@ -364,7 +371,9 @@ public enum AFMMLXModelArchitecture {
         "qwen3.5-",
         "qwen3.5_",
         "qwen3.6-",
-        "qwen3.6_"
+        "qwen3.6_",
+        "qwen3.8-",
+        "qwen3.8_"
     ]
 
     public static let visionNamePatterns: [String] = [

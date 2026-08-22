@@ -9,6 +9,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
     private let resolver: MLXCacheResolver
     private let fixedModel: AnyAFMModel?
     private let fixedModelID: String?
+    private let fixedServingConfiguration: AFMMLXServingConfiguration
     private let defaultChatTemplateKwargs: [String: AnyCodable]?
     private let forceDisableThinking: Bool
     private let slotLock = NSLock()
@@ -25,6 +26,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         self.resolver = resolver
         fixedModel = nil
         fixedModelID = nil
+        fixedServingConfiguration = .init()
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = 1
@@ -40,6 +42,9 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
         resolver = .init()
         fixedModel = model
         fixedModelID = modelID
+        fixedServingConfiguration = model.descriptor.capabilities.contains(.reasoning)
+            ? .init(thinkStartTag: "<think>", thinkEndTag: "</think>")
+            : .init()
         self.defaultChatTemplateKwargs = defaultChatTemplateKwargs
         self.forceDisableThinking = forceDisableThinking
         if case .integer(let value) = model.descriptor.metadata["maxConcurrent"] {
@@ -51,7 +56,7 @@ final class AFMKitMLXChatServingAdapter: AFMMLXOpenAIChatServing, AFMTextTokeniz
 
     var maxConcurrent: Int { service?.maxConcurrent ?? fixedMaxConcurrent }
     var servingConfiguration: AFMMLXServingConfiguration {
-        service?.servingConfiguration ?? .init()
+        service?.servingConfiguration ?? fixedServingConfiguration
     }
     var defaultGuidedJsonSchema: ResponseFormat? { service?.defaultGuidedJsonSchema }
 

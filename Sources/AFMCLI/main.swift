@@ -1,6 +1,7 @@
 import AFMKit
 import AFMKitDwarfStar
 import AFMServer
+import AFMTerminalUI
 import ArgumentParser
 import Foundation
 import Darwin
@@ -16,6 +17,36 @@ extension TelegramReplyFormat: ExpressibleByArgument {}
 // single-threaded with respect to the run loop, so the unsafety is contained.
 nonisolated(unsafe) private var globalServer: Server?
 nonisolated(unsafe) private var shouldKeepRunning = true
+
+private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws {
+    let outputIsolation = try TerminalOutputIsolation()
+    defer { outputIsolation.restore() }
+    let terminal = TerminalIO(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
+    let capabilities = TerminalCapabilities.detect(
+        inputFD: STDIN_FILENO,
+        outputFD: outputIsolation.terminalOutputFD
+    )
+    let group = DispatchGroup()
+    let errorBox = SendableBox<Error?>(nil)
+    group.enter()
+    Task.detached {
+        do {
+            try await AFMTerminalChat(
+                configuration: configuration,
+                terminal: terminal,
+                capabilities: capabilities
+            ).run()
+        } catch {
+            errorBox.value = error
+        }
+        group.leave()
+    }
+    group.wait()
+    if let error = errorBox.value { throw error }
+}
 
 // Signal handler function
 func handleShutdown(_ signal: Int32) {
@@ -209,6 +240,8 @@ struct MlxCommand: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses and all parameters
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -231,9 +264,11 @@ struct MlxCommand: ParsableCommand {
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
           --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
+          --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
-          --mtp: Enable MTP self-speculative decoding for compatible Qwen3.6 models
+          --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
           --mtp-depth: MTP draft depth compatibility setting
+          --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
           --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
           --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
@@ -242,8 +277,8 @@ struct MlxCommand: ParsableCommand {
           --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
-          --no-think: Disable thinking/reasoning (sets enable_thinking=false)
-          --reasoning-effort: Default DeepSeek reasoning effort: low, high, or max
+          --no-think: Disable thinking/reasoning when supported; for Muse, requests the lowest reasoning strength
+          --reasoning-effort: Default reasoning effort for compatible models: low, high, or max
           --concurrent: Maximum concurrent requests; values greater than one enable batch mode
           --default-chat-template-kwargs: JSON object merged into chat template context
           --cache-profile-path: Write cache timing profile records as JSONL
@@ -252,15 +287,22 @@ struct MlxCommand: ParsableCommand {
           --gpu-profile: Print per-request GPU profiling stats (device info, memory, bandwidth estimates)
           --gpu-profile-bw: Also sample DRAM bandwidth with mactop
           --openclaw-config: Print OpenClaw provider config JSON and exit
+          --eval: Run the bundled comprehensive local evaluation and open its HTML report
+          --bench: Alias for --eval
+          --eval-suite: Select a bundled/custom suite (repeatable; implies --eval)
+          --eval-list: List bundled and ~/.afm/evals custom suites
+          --eval-init: Scaffold a custom JSON suite under ~/.afm/evals
+          --eval-validate: Validate a suite name or JSON file without loading a model
+          --no-open: Do not open the evaluation report in a browser
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         sampling_parameters: [temperature, top_p, top_k, min_p, presence_penalty, repetition_penalty, seed, max_tokens, logprobs, top_logprobs]
-        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, openclaw-integration]
+        features: [streaming-sse, tool-calling, think-reasoning-extraction, stop-sequences, json-mode, json-schema, prompt-caching, vlm-image-input, kv-cache-quantization, grammar-constrained-decoding, huggingface-gguf-resolution, openclaw-integration]
         api_compatibility: OpenAI Chat Completions API (https://platform.openai.com/docs/api-reference/chat/create)
         extra_request_fields:
           top_k: int (not in OpenAI spec)
           min_p: float (not in OpenAI spec)
           repetition_penalty: float (also accepts repeat_penalty, not in OpenAI spec)
-          reasoning_effort: DeepSeek reasoning level: low, high, or max
+          reasoning_effort: Reasoning effort for compatible models: low, high, or max
           chat_template_kwargs: object e.g. {"enable_thinking": false} (AFM-specific)
         extra_response_fields:
           choices[].message.reasoning_content: Extracted <think> reasoning (AFM-specific)
@@ -377,6 +419,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
+
     @Flag(name: [.customShort("g"), .long], help: "Gateway mode is not supported in afm mlx")
     var gateway: Bool = false
 
@@ -390,7 +438,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Presence penalty: flat additive penalty for tokens already generated (0.0 = disabled)")
     var presencePenalty: Double?
     @Option(name: .long, help: "Maximum tokens to generate per response (default: 8192)")
-    var maxTokens: Int?
+    var maxTokens: Int = MLXModelService.defaultMaximumResponseTokens
     @Option(name: .long, help: "Random seed for reproducible sampling (nil = non-deterministic)")
     var seed: Int?
     @Option(name: .long, help: "Maximum number of top log probabilities returned per token (default: 20)")
@@ -407,6 +455,8 @@ struct MlxCommand: ParsableCommand {
     var mlxKernels: String = "native"
     @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects vanilla DwarfStar for compatible DeepSeek V4 GGUF metadata; directory checkpoints use MLX.")
     var mlxRuntime: String = "auto"
+    @Option(name: .customLong("gguf-file"), help: "Exact GGUF path inside a Hugging Face repository. By default AFM selects the largest model GGUF that fits memory and excludes speculative support files.")
+    var ggufFile: String?
     @Option(name: .long, help: "Pre-warm MLX kernels on startup for faster first response/TTFT (y/n, default: y)")
     var prewarm: String = "y"
     @Flag(name: .long, help: "Trust remote code (compatibility)")
@@ -434,7 +484,7 @@ struct MlxCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -457,11 +507,14 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
 
-    @Flag(name: .long, help: "Enable MTP self-speculative decoding (Qwen3.6 models with an mtp.safetensors sidecar). Faster decode, quality-preserving (bit-exact greedy on short generations; near-greedy on long ones). No-op if the model has no MTP head.")
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
     var mtp: Bool = false
 
     @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
     var mtpDepth: Int = 1
+
+    @Option(name: .customLong("mtp-model"), help: "Override the automatically selected MTP head with a Hugging Face repo, local directory, or .safetensors file.")
+    var mtpModel: String?
 
     @Option(name: .customLong("dspark-support"), help: "DwarfStar DSpark support GGUF. Supplying it enables greedy speculative decoding.")
     var dsparkSupportPath: String?
@@ -484,12 +537,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.")
     var enableGrammarConstraints: Bool = false
 
-    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning. Overrides --reasoning-effort and chat-template kwargs.")
+    @Flag(name: [.customLong("no-think"), .customLong("no-thinking")], help: "Disable thinking/reasoning when supported. Overrides --reasoning-effort and chat-template kwargs; for Muse, requests the lowest reasoning strength.")
     var noThink: Bool = false
 
     @Option(
         name: .customLong("reasoning-effort"),
-        help: "DeepSeek thinking effort: low, high, or max."
+        help: "Reasoning effort for compatible models: low, high, or max."
     )
     var reasoningEffort: String?
 
@@ -511,6 +564,27 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Print OpenClaw provider config JSON and exit")
     var openclawConfig: Bool = false
 
+    @Flag(name: .long, help: "Run the bundled comprehensive local model evaluation and open its HTML report")
+    var eval: Bool = false
+
+    @Flag(name: .long, help: "Alias for --eval")
+    var bench: Bool = false
+
+    @Option(name: .customLong("eval-suite"), help: "Bundled/custom evaluation suite name; repeat to run multiple suites (implies --eval)")
+    var evalSuites: [String] = []
+
+    @Flag(name: .customLong("eval-list"), help: "List bundled and ~/.afm/evals custom suites, then exit")
+    var evalList: Bool = false
+
+    @Option(name: .customLong("eval-init"), help: "Create a safe example suite at ~/.afm/evals/<name>.json, then exit")
+    var evalInit: String?
+
+    @Option(name: .customLong("eval-validate"), help: "Validate a suite name or JSON file, then exit")
+    var evalValidate: String?
+
+    @Flag(name: .customLong("no-open"), help: "Do not open the generated evaluation HTML report")
+    var noOpen: Bool = false
+
     @Flag(name: .long, help: "Print machine-readable JSON capability card for AI agents and exit")
     var helpJson: Bool = false
 
@@ -520,9 +594,43 @@ struct MlxCommand: ParsableCommand {
             return
         }
 
+        let evaluationAction = try AFMEvaluationCLIPlan.resolve(
+            evaluate: eval,
+            bench: bench,
+            suites: evalSuites,
+            list: evalList,
+            scaffold: evalInit,
+            validate: evalValidate,
+            noOpen: noOpen)
+        if try handleEvaluationManagement(evaluationAction) {
+            return
+        }
+
         if gateway {
             print("Error: -g/--gateway is not supported in 'afm mlx' mode.")
             throw ExitCode.failure
+        }
+
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        if tui && (raw || json || openclawConfig) {
+            throw ValidationError("--tui cannot be combined with --raw, --json, or --openclaw-config")
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
@@ -544,10 +652,23 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             print("Error: --telegram requires server mode and cannot be used with -s or piped single-prompt input")
             throw ExitCode.failure
         }
+
+        let shellCWD = URL(
+            fileURLWithPath: ProcessInfo.processInfo.environment["PWD"]
+                ?? FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
+        let resolvedMediaURLs: [URL]
+        do {
+            resolvedMediaURLs = try TUIMediaAttachmentPolicy.resolveAndValidate(media, cwd: shellCWD)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        let resolvedMedia = resolvedMediaURLs.map(\.path)
 
         emitCompatibilityWarnings()
 
@@ -606,7 +727,7 @@ struct MlxCommand: ParsableCommand {
                 || parsedKwargs["reasoning_effort"] != nil
                 || (parsedKwargs["enable_thinking"] as? Bool) == true
             if configuredEffort {
-                fputs("Note: --no-thinking overrides the configured DeepSeek reasoning effort.\n", stderr)
+                fputs("Note: --no-thinking overrides the configured reasoning effort.\n", stderr)
             }
             parsedKwargs["enable_thinking"] = false
             parsedKwargs.removeValue(forKey: "reasoning_effort")
@@ -645,13 +766,42 @@ struct MlxCommand: ParsableCommand {
             throw ExitCode.failure
         }
 
-        let runtimeBackend = try resolveRuntimeBackend(model: rawModel)
+        let resolvedModel = try resolveRemoteDwarfStarModelIfNeeded(rawModel)
+        let runtimeBackend = try resolveRuntimeBackend(model: resolvedModel)
+        if case .run(let suites, let openReport) = evaluationAction {
+            guard runtimeBackend == .mlx else {
+                throw ValidationError("--eval currently supports MLX directory checkpoints; DwarfStar GGUF evaluation is not yet available")
+            }
+            guard singlePrompt == nil, media.isEmpty, !webui, !openclawConfig,
+                  telegramBotToken == nil, telegramAllow == nil,
+                  toolsJson == nil, !raw, !json, concurrent == nil,
+                  !tui, !noAltScreen, maxKVSize == nil else {
+                throw ValidationError(
+                    "--eval cannot be combined with -s, --media, --webui, Telegram, " +
+                    "--openclaw-config, --tools-json, --raw, --json, --concurrent, " +
+                    "--tui, --no-alt-screen, or --max-kv-size")
+            }
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            let evaluationChatTemplateKwargs = parsedKwargs.isEmpty
+                ? nil
+                : try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+            try runEvaluation(
+                modelID: resolvedModel,
+                suites: suites,
+                openReport: openReport,
+                chatTemplateKwargs: evaluationChatTemplateKwargs,
+                defaultResponseFormat: defaultGuidedJsonSchema)
+            return
+        }
         if runtimeBackend != .dwarfstar, dsparkSupportPath != nil {
             throw ValidationError("--dspark-support requires --mlx-runtime dwarfstar or a DwarfStar executor checkpoint")
         }
         if runtimeBackend == .dwarfstar {
+            if tui {
+                throw ValidationError("--tui currently supports MLX directory checkpoints; DwarfStar GGUF terminal chat is not yet available")
+            }
             try runDwarfStar(
-                checkpointPath: localModelPath(rawModel),
+                checkpointPath: localModelPath(resolvedModel),
                 modelStore: modelStore,
                 chatTemplateKwargs: parsedKwargs,
                 forceDisableThinking: noThink,
@@ -665,6 +815,7 @@ struct MlxCommand: ParsableCommand {
             kernelEngine: kernelEngine,
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
+            mtpModelID: mtpModel,
             eagle3DrafterPath: eagle3,
             maxConcurrent: concurrent ?? 0,
             toolCallParser: toolCallParser,
@@ -686,13 +837,74 @@ struct MlxCommand: ParsableCommand {
             defaultGuidedJsonSchema: defaultGuidedJsonSchema
         )
         let runtime = AFMMLXRuntime(
-            modelID: rawModel,
+            modelID: resolvedModel,
             configuration: runtimeConfiguration,
             resolver: resolver
         )
         let selectedModel = runtime.modelID
         let service = runtime.service
         service.kernelEngine = kernelEngine
+
+        if tui {
+            var metadata: [String: AFMJSONValue] = [:]
+            if !parsedKwargs.isEmpty {
+                metadata["chatTemplateKwargs"] = .object(
+                    try parsedKwargs.mapValues { try Self.afmJSONValue(from: $0) }
+                )
+            }
+            let tuiLogprobs = TUILogprobConfiguration(maximum: maxLogprobs)
+            let engineConfig = EngineConfig(
+                instructions: instructions,
+                kvBits: kvBits,
+                enablePrefixCaching: enablePrefixCaching,
+                mlxKernels: kernelEngine.rawValue,
+                mtpEnabled: mtp,
+                mtpDepth: mtpDepth,
+                mtpModelID: mtpModel,
+                eagle3DrafterPath: eagle3,
+                enableGrammarConstraints: enableGrammarConstraints,
+                toolCallParser: toolCallParser,
+                maxConcurrent: concurrent ?? 0,
+                prefillStepSize: prefillStepSize,
+                kvEvictionPolicy: kvEviction ?? "none",
+                fixToolArguments: fixToolArgs,
+                forceVLM: vlm || !media.isEmpty,
+                cacheProfilePath: cacheProfilePath,
+                trace: vv,
+                gpuCapturePath: gpuCapture,
+                gpuTraceDuration: gpuTrace,
+                gpuProfile: gpuProfile || gpuProfileBw,
+                gpuProfileBandwidth: gpuProfileBw
+            )
+            let generation = GenerationConfig(
+                temperature: temperature,
+                maxTokens: maxTokens,
+                topP: topP,
+                topK: topK,
+                minP: minP,
+                repetitionPenalty: repetitionPenalty,
+                presencePenalty: presencePenalty,
+                seed: seed,
+                logprobs: tuiLogprobs.enabled,
+                topLogprobs: tuiLogprobs.maximum,
+                stop: stop?.split(separator: ",").map(String.init),
+                tools: try Self.parseToolsJSON(toolsJson),
+                responseFormat: defaultGuidedJsonSchema,
+                metadata: metadata
+            )
+            try ensureMLXMetalLibraryAvailable(verbose: verbose)
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .mlx(modelID: selectedModel),
+                backendName: "MLX",
+                modelName: selectedModel,
+                engine: engineConfig,
+                generation: generation,
+                streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen,
+                initialAttachments: resolvedMediaURLs
+            ))
+            return
+        }
 
         if openclawConfig {
             let chosenPort = port ?? 9999
@@ -708,20 +920,6 @@ struct MlxCommand: ParsableCommand {
         let contextWindow = modelStore.descriptor(for: selectedModel).contextWindow
 
         try ensureMLXMetalLibraryAvailable(verbose: verbose)
-
-        // Resolve and validate --media paths early (before model load)
-        var resolvedMedia: [String] = []
-        let shellCWD = ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
-        for path in media {
-            let expanded = NSString(string: path).expandingTildeInPath
-            let absPath = expanded.hasPrefix("/") ? expanded : shellCWD + "/" + expanded
-            let resolved = URL(fileURLWithPath: absPath).standardized.path
-            guard FileManager.default.fileExists(atPath: resolved) else {
-                print("Error: Media file not found: \(path)")
-                throw ExitCode.failure
-            }
-            resolvedMedia.append(resolved)
-        }
 
         // An explicit prompt must win over redirected stdin. Profilers and
         // automation runners commonly attach a pipe that remains open.
@@ -769,7 +967,7 @@ struct MlxCommand: ParsableCommand {
             modelID: selectedModel,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix
         )
 
@@ -860,7 +1058,9 @@ struct MlxCommand: ParsableCommand {
         guard requested != .mlx else { return .mlx }
 
         let path = localModelPath(model)
-        let modelURL = URL(fileURLWithPath: path)
+        // Hugging Face snapshots expose model files as symlinks into blobs.
+        // Classify the resolved target so a cached GGUF is not mistaken for MLX.
+        let modelURL = URL(fileURLWithPath: path).resolvingSymlinksInPath()
         let resourceValues = try? modelURL.resourceValues(
             forKeys: [.isDirectoryKey, .isRegularFileKey])
         guard resourceValues?.isDirectory != true else {
@@ -895,6 +1095,67 @@ struct MlxCommand: ParsableCommand {
             print("[Runtime] Selected DwarfStar for compatible raw GGUF.")
         }
         return .dwarfstar
+    }
+
+    private func resolveRemoteDwarfStarModelIfNeeded(_ model: String) throws -> String {
+        let requested = mlxRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard requested != MLXRuntimeBackend.mlx.rawValue else { return model }
+        let localPath = localModelPath(model)
+        let obviousLocalPrefixes = ["/", "~/", "./", "../"]
+        let looksLocal = obviousLocalPrefixes.contains { model.hasPrefix($0) }
+        let repositoryComponents = model.split(separator: "/", omittingEmptySubsequences: false)
+        let looksLikeRepositoryID = !looksLocal
+            && repositoryComponents.count == 2
+            && repositoryComponents.allSatisfy { !$0.isEmpty }
+        guard !FileManager.default.fileExists(atPath: localPath), looksLikeRepositoryID else {
+            if ggufFile != nil {
+                throw ValidationError("--gguf-file requires a Hugging Face repository ID")
+            }
+            return model
+        }
+
+        let group = DispatchGroup()
+        let result = SendableBox<Result<URL, Error>?>(nil)
+        let loadReporter = MLXLoadReporter(
+            modelID: model,
+            loadingLabel: "Resolving remote DwarfStar model")
+        loadReporter.start()
+        group.enter()
+        Task.detached {
+            do {
+                let resolver = AFMDwarfStarHubResolver()
+                result.value = .success(try await resolver.resolve(
+                    repositoryID: model,
+                    requestedPath: ggufFile,
+                    progress: { loadReporter.updateDownload($0) }))
+            } catch {
+                result.value = .failure(error)
+            }
+            group.leave()
+        }
+        group.wait()
+
+        switch result.value {
+        case .success(let url):
+            loadReporter.finish(success: true)
+            print("[Runtime] Hugging Face GGUF resolved: \(model) -> \(url.lastPathComponent)")
+            return url.path
+        case .failure(let error as AFMDwarfStarHubSelectionError):
+            if requested == MLXRuntimeBackend.auto.rawValue,
+               case .noModelGGUF = error,
+               ggufFile == nil {
+                loadReporter.finish(success: true)
+                return model
+            }
+            loadReporter.finish(success: false, errorMessage: error.localizedDescription)
+            throw error
+        case .failure(let error):
+            loadReporter.finish(success: false, errorMessage: error.localizedDescription)
+            throw error
+        case .none:
+            loadReporter.finish(success: false, errorMessage: "resolver returned no result")
+            throw ValidationError("Hugging Face GGUF resolution ended without a result")
+        }
     }
 
     private func localModelPath(_ model: String) -> String {
@@ -990,7 +1251,7 @@ struct MlxCommand: ParsableCommand {
             modelID: modelID,
             instructions: instructions,
             verbose: verbose || veryVerbose || vv,
-            replyFormat: telegramFormat,
+            replyFormat: telegramFormat ?? .markdown,
             requirePrefix: telegramRequirePrefix)
 
         let model = AnyAFMModel(AFMDwarfStarModel(
@@ -1118,6 +1379,7 @@ struct MlxCommand: ParsableCommand {
                     mlxKernels: self.mlxKernels,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
+                    mtpModelID: self.mtpModel,
                     eagle3DrafterPath: self.eagle3,
                     enableGrammarConstraints: self.enableGrammarConstraints,
                     toolCallParser: self.toolCallParser,
@@ -1630,6 +1892,8 @@ struct MacLocalAPI: ParsableCommand {
           -v, --verbose: Enable verbose logging
           -V, --very-verbose: Log full requests/responses
           -w, --webui: Enable WebUI and open in browser
+          --tui: Run the native interactive terminal chat UI
+          --no-alt-screen: Disable alternate-screen overlays and keep the TUI inline
           --telegram-bot-token: Telegram bot token for remote AFM access
           --telegram-allow: Comma-separated allowlist of Telegram numeric user IDs
           --telegram-format: Telegram reply format: markdown, plain, or html
@@ -1815,6 +2079,12 @@ struct RootCommand: ParsableCommand {
     @Flag(name: [.customShort("w"), .long], help: "Enable webui and open in default browser")
     var webui: Bool = false
 
+    @Flag(name: .long, help: "Run the advanced native terminal chat UI")
+    var tui: Bool = false
+
+    @Flag(name: .long, help: "Disable alternate-screen overlays and keep the TUI inline")
+    var noAltScreen: Bool = false
+
     @Option(name: .long, help: "Telegram bot token for remote AFM access")
     var telegramBotToken: String?
 
@@ -1822,7 +2092,7 @@ struct RootCommand: ParsableCommand {
     var telegramAllow: String?
 
     @Option(name: .long, help: "Telegram reply format: markdown, plain, or html (default: markdown)")
-    var telegramFormat: TelegramReplyFormat = .markdown
+    var telegramFormat: TelegramReplyFormat?
 
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
@@ -1866,8 +2136,56 @@ struct RootCommand: ParsableCommand {
             }
         }
 
-        if (telegramBotToken != nil || telegramAllow != nil) && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
+        let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
+            botToken: telegramBotToken,
+            allowlist: telegramAllow,
+            replyFormat: telegramFormat?.rawValue,
+            requirePrefix: telegramRequirePrefix
+        )
+        if hasTelegramOptions && (singlePrompt != nil || isatty(STDIN_FILENO) == 0) {
             throw ValidationError("--telegram requires server mode and cannot be used with -s or piped single-prompt input")
+        }
+
+        do {
+            try TUIInvocationPolicy.validate(
+                tui: tui,
+                webUI: webui,
+                singlePrompt: singlePrompt != nil,
+                telegramOptions: hasTelegramOptions,
+                inputIsTTY: isatty(STDIN_FILENO) != 0,
+                outputIsTTY: isatty(STDOUT_FILENO) != 0
+            )
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+
+        if tui {
+            if gateway { throw ValidationError("--tui cannot be combined with --gateway") }
+            let responseFormat: ResponseFormat?
+            if let guidedJson {
+                responseFormat = ResponseFormat(type: "json_schema", jsonSchema: try parseGuidedJsonSchema(guidedJson))
+            } else {
+                responseFormat = nil
+            }
+            try runTerminalChat(TerminalChatConfiguration(
+                backend: .foundationModels,
+                backendName: "Foundation Models",
+                modelName: "apple-foundation-model",
+                engine: EngineConfig(
+                    instructions: instructions,
+                    adapter: adapter,
+                    permissiveGuardrails: permissiveGuardrails,
+                    foundationRandomness: randomness
+                ),
+                generation: GenerationConfig(
+                    temperature: temperature,
+                    stop: stop?.split(separator: ",").map(String.init),
+                    responseFormat: responseFormat
+                ),
+                streaming: !noStreaming,
+                useAlternateScreen: !noAltScreen
+            ))
+            return
         }
 
         // Handle single-prompt mode for backward compatibility
@@ -1893,7 +2211,7 @@ struct RootCommand: ParsableCommand {
         if gateway { args.append("--gateway") }
         if let telegramBotToken { args += ["--telegram-bot-token", telegramBotToken] }
         if let telegramAllow { args += ["--telegram-allow", telegramAllow] }
-        args += ["--telegram-format", telegramFormat.rawValue]
+        if let telegramFormat { args += ["--telegram-format", telegramFormat.rawValue] }
         if let telegramRequirePrefix { args += ["--telegram-require-prefix", telegramRequirePrefix] }
         if let adapter { args += ["--adapter", adapter] }
         if let temperature { args += ["--temperature", "\(temperature)"] }
@@ -1907,7 +2225,21 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
+    if CommandLine.arguments.count != 3 {
+        fputs("Invalid TUI preview invocation.\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+    do {
+        let artifactURL = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
+        try MainActor.assumeIsolated {
+            try TUIBrowserPreview.run(artifactURL: artifactURL)
+        }
+    } catch {
+        fputs("Unable to open TUI preview: \(error.localizedDescription)\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "dwarfstar-bench" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
         var cmd = try DwarfStarBenchmarkCommand.parse(args)
@@ -2039,14 +2371,24 @@ private func ensureMLXMetalLibraryAvailable(verbose: Bool) throws {
     try MLXMetalLibrary.ensureAvailable(verbose: verbose)
 }
 
-private final class MLXLoadReporter: @unchecked Sendable {
+final class MLXLoadReporter: @unchecked Sendable {
     private static let reporterLock = NSLock()
     nonisolated(unsafe) private static weak var activeReporter: MLXLoadReporter?
 
     private let modelID: String
+    private let loadingLabel: String
     private let lock = NSLock()
     private var stage: MLXLoadStage = .checkingCache
     private var downloadFraction: Double?
+    private var downloadCompletedBytes: Int64?
+    private var downloadTotalBytes: Int64?
+    private var downloadBytesPerSecond: Double?
+    private var downloadETA: TimeInterval?
+    private var downloadCurrentFiles: [String] = []
+    private var downloadCompletedFiles: Int?
+    private var downloadTotalFiles: Int?
+    private var downloadCurrentTransports: [String] = []
+    private var lastDownloadSample: (date: Date, completed: Int64)?
     private var timer: DispatchSourceTimer?
     private var spinnerIndex: Int = 0
     private var startedAt = Date()
@@ -2054,8 +2396,9 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
     private let spinnerFrames = ["|", "/", "-", "\\"]
 
-    init(modelID: String) {
+    init(modelID: String, loadingLabel: String = "Loading MLX model") {
         self.modelID = modelID
+        self.loadingLabel = loadingLabel
     }
 
     func start() {
@@ -2064,7 +2407,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         Self.reporterLock.unlock()
 
         startedAt = Date()
-        print("Loading MLX model: \(modelID)")
+        Self.writeDiagnostic("\(loadingLabel): \(modelID)\n")
 
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now(), repeating: .milliseconds(200))
@@ -2076,9 +2419,36 @@ private final class MLXLoadReporter: @unchecked Sendable {
     }
 
     func updateDownload(_ progress: Progress) {
+        let now = Date()
+        let completed = max(0, progress.completedUnitCount)
+        let total = max(0, progress.totalUnitCount)
         lock.lock()
         if stage != .resuming { stage = .downloading }
-        downloadFraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
+        downloadFraction = total > 0 ? progress.fractionCompleted : nil
+        downloadCompletedBytes = completed
+        downloadTotalBytes = total > 1 ? total : nil
+        downloadCurrentFiles = progress.userInfo[AFMDownloadProgressUserInfo.currentFiles] as? [String] ?? []
+        downloadCompletedFiles = progress.userInfo[AFMDownloadProgressUserInfo.completedFiles] as? Int
+        downloadTotalFiles = progress.userInfo[AFMDownloadProgressUserInfo.totalFiles] as? Int
+        downloadCurrentTransports = progress.userInfo[AFMDownloadProgressUserInfo.currentTransports] as? [String] ?? []
+        if let previous = lastDownloadSample {
+            let elapsed = now.timeIntervalSince(previous.date)
+            let delta = completed - previous.completed
+            if elapsed >= 0.1, delta >= 0 {
+                let instantaneous = Double(delta) / elapsed
+                if instantaneous > 0 {
+                    downloadBytesPerSecond = downloadBytesPerSecond.map {
+                        ($0 * 0.7) + (instantaneous * 0.3)
+                    } ?? instantaneous
+                    if total > completed, let speed = downloadBytesPerSecond, speed > 0 {
+                        downloadETA = Double(total - completed) / speed
+                    } else {
+                        downloadETA = nil
+                    }
+                }
+            }
+        }
+        lastDownloadSample = (now, completed)
         lock.unlock()
     }
 
@@ -2087,6 +2457,15 @@ private final class MLXLoadReporter: @unchecked Sendable {
         self.stage = stage
         if stage == .loadingModel || stage == .ready {
             downloadFraction = nil
+            downloadCompletedBytes = nil
+            downloadTotalBytes = nil
+            downloadBytesPerSecond = nil
+            downloadETA = nil
+            downloadCurrentFiles = []
+            downloadCompletedFiles = nil
+            downloadTotalFiles = nil
+            downloadCurrentTransports = []
+            lastDownloadSample = nil
         }
         lock.unlock()
     }
@@ -2112,7 +2491,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
         let status = success ? "ready" : "failed"
         var line = String(
-            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+            format: "[%@] %@ | mem %.2f GB | %.1fs",
             success ? "done" : "fail",
             status,
             memory,
@@ -2121,7 +2500,7 @@ private final class MLXLoadReporter: @unchecked Sendable {
         if let errorMessage, !errorMessage.isEmpty {
             line += " | \(errorMessage)"
         }
-        print(line)
+        Self.writeDiagnostic(Self.terminalSafeLine(line, clearExisting: true) + "\n")
     }
 
     static func finishActiveWithError(_ message: String) {
@@ -2139,6 +2518,14 @@ private final class MLXLoadReporter: @unchecked Sendable {
         }
         let stage = self.stage
         let downloadFraction = self.downloadFraction
+        let completedBytes = self.downloadCompletedBytes
+        let totalBytes = self.downloadTotalBytes
+        let bytesPerSecond = self.downloadBytesPerSecond
+        let eta = self.downloadETA
+        let currentFiles = self.downloadCurrentFiles
+        let completedFiles = self.downloadCompletedFiles
+        let totalFiles = self.downloadTotalFiles
+        let currentTransports = self.downloadCurrentTransports
         spinnerIndex = (spinnerIndex + 1) % spinnerFrames.count
         let spinner = spinnerFrames[spinnerIndex]
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -2146,15 +2533,67 @@ private final class MLXLoadReporter: @unchecked Sendable {
 
         let memory = Self.currentResidentMemoryGB()
 
-        let line = String(
-            format: "\r[%@] %@ | mem %.2f GB | %.1fs",
+        var line = String(
+            format: "[%@] %@ | mem %.2f GB | %.1fs",
             spinner,
             stage.rawValue,
             memory,
             elapsed
         )
-        fputs(line, stdout)
-        fflush(stdout)
+        if stage == .downloading {
+            if let fraction = downloadFraction {
+                line += " | \(Self.progressBar(fraction: fraction, width: 18))"
+                line += String(format: " %5.1f%%", fraction * 100)
+            }
+            if let completedBytes, let totalBytes {
+                line += " | \(Self.formatBytes(completedBytes))/\(Self.formatBytes(totalBytes))"
+            }
+            if let bytesPerSecond, bytesPerSecond > 0 {
+                line += " | \(Self.formatBytes(Int64(bytesPerSecond)))/s"
+            }
+            if let eta, eta.isFinite, eta >= 0 {
+                line += " | ETA \(Self.formatDuration(eta))"
+            }
+            if let completedFiles, let totalFiles {
+                line += " | files \(completedFiles)/\(totalFiles)"
+            }
+            if let first = currentFiles.first {
+                line += " | \(first)"
+                if currentFiles.count > 1 { line += " (+\(currentFiles.count - 1))" }
+            }
+            let transports = Array(Set(currentTransports)).sorted()
+            line += " | transport \(transports.isEmpty ? "auto" : transports.joined(separator: "+"))"
+        }
+        Self.writeDiagnostic(Self.terminalSafeLine(line, clearExisting: true))
+    }
+
+    private static func terminalSafeLine(_ line: String, clearExisting: Bool) -> String {
+        guard isatty(STDERR_FILENO) != 0 else {
+            return "\r\(line)"
+        }
+
+        var size = winsize()
+        let width: Int
+        if ioctl(STDERR_FILENO, UInt(TIOCGWINSZ), &size) == 0, size.ws_col > 1 {
+            width = Int(size.ws_col) - 1
+        } else {
+            width = 119
+        }
+        let clipped: String
+        if line.count <= width {
+            clipped = line
+        } else if width > 3 {
+            clipped = String(line.prefix(width - 3)) + "..."
+        } else {
+            clipped = String(line.prefix(width))
+        }
+        let erase = clearExisting ? "\u{1B}[2K" : ""
+        return "\r\(erase)\(clipped)"
+    }
+
+    private static func writeDiagnostic(_ text: String) {
+        fputs(text, stderr)
+        fflush(stderr)
     }
 
     private static func progressBar(fraction: Double, width: Int) -> String {
@@ -2162,6 +2601,26 @@ private final class MLXLoadReporter: @unchecked Sendable {
         let filled = Int((clamped * Double(width)).rounded(.down))
         let bar = String(repeating: "#", count: filled) + String(repeating: "-", count: max(0, width - filled))
         return "[\(bar)]"
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let rounded = max(0, Int(seconds.rounded()))
+        if rounded >= 3_600 {
+            return String(format: "%dh%02dm", rounded / 3_600, (rounded % 3_600) / 60)
+        }
+        if rounded >= 60 {
+            return String(format: "%dm%02ds", rounded / 60, rounded % 60)
+        }
+        return "\(rounded)s"
     }
 
     private static func currentResidentMemoryGB() -> Double {

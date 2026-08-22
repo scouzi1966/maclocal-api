@@ -13,6 +13,11 @@ import asyncio, aiohttp, json, time, sys, subprocess, threading, os
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
+REQUEST_TIMEOUT_S = int(os.environ.get("AFM_REQUEST_TIMEOUT_S", "1200"))
+MAX_TOKENS_CAP = int(os.environ.get("AFM_MIXED_MAX_TOKENS", "0"))
+ASSERT_ACCEPTANCE = os.environ.get("AFM_MIXED_ASSERT", "0") == "1"
+MIN_AGGREGATE_SCALE = float(os.environ.get("AFM_MIXED_MIN_AGGREGATE_SCALE", "1.20"))
+MAX_SHORT_TTFT_S = float(os.environ.get("AFM_MIXED_MAX_SHORT_TTFT_S", "15"))
 
 # --- Short-answer tests (long prompts, expect brief response) ---
 SHORT_ANSWER_TESTS = [
@@ -206,6 +211,8 @@ class MactopSampler:
 
 async def send_request(session, prompt, max_tokens=4096):
     """Send streaming request, return full stats dict from server."""
+    if MAX_TOKENS_CAP > 0:
+        max_tokens = min(max_tokens, MAX_TOKENS_CAP)
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -281,7 +288,9 @@ async def run_batch(batch_size, tests):
     failed = 0
     results = []
 
-    async with aiohttp.ClientSession() as session:
+    workload_start = time.monotonic()
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S + 30, sock_read=REQUEST_TIMEOUT_S)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for batch_start in range(0, len(tests), batch_size):
             batch = tests[batch_start:batch_start + batch_size]
             tasks = [
@@ -294,31 +303,35 @@ async def run_batch(batch_size, tests):
                 name = test["name"]
                 if isinstance(outcome, Exception):
                     failed += 1
-                    print(f"  FAIL  {name}: exception {outcome}")
-                    results.append({"name": name, "status": "EXCEPTION"})
+                    print(f"  FAIL  {name}: exception {outcome!r}")
+                    results.append({"name": name, "status": "EXCEPTION", "error": repr(outcome)})
                     continue
 
                 r = outcome
                 min_tok = test.get("min_tokens", 0)
                 check = check_response(r["text"], test["expected"], min_tok)
+                r["name"] = name
+                r["kind"] = "long" if min_tok > 0 else "short"
 
                 if check["is_garbage"]:
                     failed += 1
                     print(f"  FAIL  {name}: GARBAGE")
-                    results.append({"name": name, "status": "GARBAGE"})
+                    r["status"] = "GARBAGE"
+                    results.append(r)
                 elif check["too_short"]:
                     failed += 1
                     print(f"  FAIL  {name}: TOO SHORT ({r['completion_tokens']} tok)")
-                    results.append({"name": name, "status": "TOO_SHORT"})
+                    r["status"] = "TOO_SHORT"
+                    results.append(r)
                 elif not check["all_found"]:
                     failed += 1
                     print(f"  FAIL  {name}: missing {check['missing']}")
-                    results.append({"name": name, "status": "MISSING", "missing": check["missing"]})
+                    r["status"] = "MISSING"
+                    r["missing"] = check["missing"]
+                    results.append(r)
                 else:
                     passed += 1
-                    r["name"] = name
                     r["status"] = "OK"
-                    r["kind"] = "long" if min_tok > 0 else "short"
                     results.append(r)
 
                     pp = r["pp_tok_s"]
@@ -329,7 +342,7 @@ async def run_batch(batch_size, tests):
                           f"tg={ct:4d} tok {tg:6.1f} t/s  "
                           f"TTFT={r['ttft']:.2f}s  wall={r['wall_s']:.1f}s")
 
-    return passed, failed, results
+    return passed, failed, results, time.monotonic() - workload_start
 
 
 # ─── main ─────────────────────────────────────────────────────────────────────
@@ -360,45 +373,46 @@ async def main():
         gpu = MactopSampler()
         gpu.start()
 
-        p, f, results = await run_batch(bs, all_tests)
+        p, f, results, workload_wall = await run_batch(bs, all_tests)
         total_passed += p
         total_failed += f
 
         gpu.stop()
         gpu_stats = gpu.summary()
 
-        ok_results = [r for r in results if r.get("status") == "OK"]
-        long_ok = [r for r in ok_results if r.get("kind") == "long"]
-        short_ok = [r for r in ok_results if r.get("kind") == "short"]
+        completed_results = [r for r in results if r.get("completion_tokens") is not None]
+        long_completed = [r for r in completed_results if r.get("kind") == "long"]
+        short_completed = [r for r in completed_results if r.get("kind") == "short"]
 
         # Per-request summary
-        if ok_results:
-            total_prompt = sum(r["prompt_tokens"] for r in ok_results)
-            total_completion = sum(r["completion_tokens"] for r in ok_results)
+        if completed_results:
+            total_prompt = sum(r["prompt_tokens"] for r in completed_results)
+            total_completion = sum(r["completion_tokens"] for r in completed_results)
             total_all = total_prompt + total_completion
-            avg_pp = sum(r["pp_tok_s"] for r in ok_results) / len(ok_results)
-            avg_tg = sum(r["tg_tok_s"] for r in ok_results) / len(ok_results)
-            avg_ttft = sum(r["ttft"] for r in ok_results) / len(ok_results)
-            max_wall = max(r["wall_s"] for r in ok_results)
-            agg_tg = total_completion / max_wall if max_wall > 0 else 0
+            avg_pp = sum(r["pp_tok_s"] for r in completed_results) / len(completed_results)
+            avg_tg = sum(r["tg_tok_s"] for r in completed_results) / len(completed_results)
+            avg_ttft = sum(r["ttft"] for r in completed_results) / len(completed_results)
+            max_wall = max(r["wall_s"] for r in completed_results)
+            agg_tg = total_completion / workload_wall if workload_wall > 0 else 0
 
             print(f"  {'─'*96}")
             print(f"  Totals: {total_prompt} prompt + {total_completion} completion = {total_all} tokens")
             print(f"  Avg pp: {avg_pp:.1f} tok/s   Avg tg (per-req): {avg_tg:.1f} tok/s   "
-                  f"Agg tg: {agg_tg:.1f} tok/s   Avg TTFT: {avg_ttft:.2f}s")
+                  f"Agg tg: {agg_tg:.1f} tok/s   Avg TTFT: {avg_ttft:.2f}s   "
+                  f"Workload wall: {workload_wall:.1f}s")
 
-            if long_ok:
-                l_pp = sum(r["pp_tok_s"] for r in long_ok) / len(long_ok)
-                l_tg = sum(r["tg_tok_s"] for r in long_ok) / len(long_ok)
-                l_ct = sum(r["completion_tokens"] for r in long_ok)
-                l_ttft = sum(r["ttft"] for r in long_ok) / len(long_ok)
+            if long_completed:
+                l_pp = sum(r["pp_tok_s"] for r in long_completed) / len(long_completed)
+                l_tg = sum(r["tg_tok_s"] for r in long_completed) / len(long_completed)
+                l_ct = sum(r["completion_tokens"] for r in long_completed)
+                l_ttft = sum(r["ttft"] for r in long_completed) / len(long_completed)
                 print(f"  Long-decode: {l_ct} tok, avg pp={l_pp:.1f} tg={l_tg:.1f} tok/s, TTFT={l_ttft:.2f}s")
 
-            if short_ok:
-                s_pp = sum(r["pp_tok_s"] for r in short_ok) / len(short_ok)
-                s_tg = sum(r["tg_tok_s"] for r in short_ok) / len(short_ok)
-                s_ct = sum(r["completion_tokens"] for r in short_ok)
-                s_ttft = sum(r["ttft"] for r in short_ok) / len(short_ok)
+            if short_completed:
+                s_pp = sum(r["pp_tok_s"] for r in short_completed) / len(short_completed)
+                s_tg = sum(r["tg_tok_s"] for r in short_completed) / len(short_completed)
+                s_ct = sum(r["completion_tokens"] for r in short_completed)
+                s_ttft = sum(r["ttft"] for r in short_completed) / len(short_completed)
                 print(f"  Short-answer: {s_ct} tok, avg pp={s_pp:.1f} tg={s_tg:.1f} tok/s, TTFT={s_ttft:.2f}s")
 
         if gpu_stats and gpu_stats["n_samples"] > 0:
@@ -412,8 +426,8 @@ async def main():
         print(f"{'='*100}")
 
         all_batch_results[bs] = {
-            "passed": p, "failed": f, "results": ok_results,
-            "gpu": gpu_stats,
+            "passed": p, "failed": f, "results": completed_results,
+            "gpu": gpu_stats, "workload_wall_s": workload_wall,
         }
         await asyncio.sleep(1)
 
@@ -445,7 +459,8 @@ async def main():
         avg_tg = sum(r["tg_tok_s"] for r in ok) / len(ok)
         avg_ttft = sum(r["ttft"] for r in ok) / len(ok)
         max_wall = max(r["wall_s"] for r in ok)
-        agg_tg = total_compl / max_wall if max_wall > 0 else 0
+        workload_wall = br["workload_wall_s"]
+        agg_tg = total_compl / workload_wall if workload_wall > 0 else 0
         g = br.get("gpu") or {}
 
         gpu_pct = f"{g.get('gpu_pct', 0):.0f}%" if g else "—"
@@ -465,6 +480,42 @@ async def main():
         print(f"  ({total_failed} failures: model answer mismatches, not code bugs)")
     print(f"{'='*120}")
 
+    acceptance_failed = False
+    if ASSERT_ACCEPTANCE:
+        baseline = all_batch_results.get(1)
+        widest_size = max(batch_sizes)
+        widest = all_batch_results.get(widest_size)
+        if not baseline or not widest or not baseline["results"] or not widest["results"]:
+            print("  ACCEPTANCE FAIL: B=1 and widest requested batch must both complete")
+            acceptance_failed = True
+        else:
+            def aggregate(result):
+                tokens = sum(r["completion_tokens"] for r in result["results"])
+                return tokens / result["workload_wall_s"]
+
+            baseline_aggregate = aggregate(baseline)
+            widest_aggregate = aggregate(widest)
+            scale = widest_aggregate / baseline_aggregate if baseline_aggregate > 0 else 0
+            widest_short = [r for r in widest["results"] if r.get("kind") == "short"]
+            max_short_ttft = max((r["ttft"] for r in widest_short), default=float("inf"))
+            throughput_ok = scale >= MIN_AGGREGATE_SCALE
+            fairness_ok = max_short_ttft <= MAX_SHORT_TTFT_S
+            print(
+                f"  ACCEPTANCE: aggregate scale={scale:.2f}x "
+                f"(minimum {MIN_AGGREGATE_SCALE:.2f}x), "
+                f"max short TTFT={max_short_ttft:.2f}s "
+                f"(maximum {MAX_SHORT_TTFT_S:.2f}s)"
+            )
+            if not throughput_ok:
+                print("  ACCEPTANCE FAIL: aggregate decode did not scale materially")
+            if not fairness_ok:
+                print("  ACCEPTANCE FAIL: short requests were starved")
+            acceptance_failed = not throughput_ok or not fairness_ok
+
+    # Acceptance mode is a scheduler-performance gate. Semantic answer checks
+    # remain visible in the report but are covered by the uncapped quality run.
+    if ASSERT_ACCEPTANCE:
+        return 1 if acceptance_failed else 0
     return 1 if total_failed else 0
 
 

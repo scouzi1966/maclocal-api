@@ -318,6 +318,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     let looksLikeToolCall =
                         fullText.contains("<function=") ||
                         fullText.contains("<tool_call>") ||
+                        fullText.contains("<atem:function_calls>") ||
                         fullText.contains("DSML｜tool_calls>") ||
                         fullText.contains("DSML|tool_calls>") ||
                         fullText.contains("[TOOL_CALLS]") ||
@@ -405,8 +406,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 completionTokens: completionTok,
                 maxTokens: effectiveMaxTokens,
                 sanitizeContent: sanitizeContent,
-                harmonyChannels: service.harmonyChannels
-            )
+                responseChannelFormat: service.responseChannelFormat,
+                stopSequences: effectiveStop
+                )
 
             // If we got tool calls, return a tool_calls response
             if let toolCalls = finalizedTurn.toolCalls, !toolCalls.isEmpty {
@@ -625,10 +627,14 @@ struct MLXChatCompletionsController: RouteCollection {
                 // State for <think> tag extraction (Qwen, DeepSeek R1, etc.)
                 var insideThinkBlock = false
                 var thinkBuffer = ""
-                // State for harmony channel parsing (gpt-oss). Mutually exclusive with thinkBuffer. (#121)
-                let harmonyChannels = self.service.harmonyChannels
+                // State for response-channel parsing (gpt-oss Harmony or Muse). Mutually exclusive with thinkBuffer.
+                let responseChannelFormat = self.service.responseChannelFormat
+                let harmonyChannels = responseChannelFormat == .harmony
+                let museChannels = responseChannelFormat == .muse
                 var harmonyState = HarmonyState()
                 var harmonyBuffer = ""
+                var museState = MuseResponseChannelState()
+                var museBuffer = ""
                 var verboseReasoningBuf = ""
                 var verboseContentBuf = ""
                 var logprobBuffer = [ResolvedLogprob]()
@@ -645,6 +651,54 @@ struct MLXChatCompletionsController: RouteCollection {
                 // call for final-state collection. Do not put those arguments on the
                 // wire twice: OpenAI clients concatenate argument delta strings.
                 var streamedVendorToolIndices = Set<Int>()
+                var emittedToolCallDeltaIndices = Set<Int>()
+                var streamedToolCallNames = [Int: String]()
+                var streamedToolCallIDs = [Int: String]()
+                var streamedToolCallTypes = [Int: String]()
+                var streamedToolArgumentBuffers = [Int: String]()
+                var completedStreamedToolArgumentIndices = Set<Int>()
+                var suppressRestartedToolArgumentIndices = Set<Int>()
+                func shouldEmitToolDelta(_ delta: StreamDeltaToolCall) -> Bool {
+                    guard let arguments = delta.function?.arguments, !arguments.isEmpty else {
+                        return true
+                    }
+
+                    let index = delta.index
+                    let existing = streamedToolArgumentBuffers[index] ?? ""
+                    let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if completedStreamedToolArgumentIndices.contains(index) {
+                        return false
+                    }
+
+                    if suppressRestartedToolArgumentIndices.contains(index) {
+                        let candidate = existing + arguments
+                        if Self.isCompleteJSONToolArguments(candidate) {
+                            streamedToolArgumentBuffers[index] = candidate
+                            completedStreamedToolArgumentIndices.insert(index)
+                            suppressRestartedToolArgumentIndices.remove(index)
+                            return true
+                        }
+                        return false
+                    }
+
+                    // Some models emit a valid incremental XML/function stream and then
+                    // restart the same arguments as an inline JSON object. OpenAI clients
+                    // concatenate argument fragments, so a same-index restart corrupts
+                    // the stream. Treat `{` after prior argument bytes as a restart,
+                    // not as a legal continuation.
+                    if !existing.isEmpty && trimmed.hasPrefix("{") {
+                        suppressRestartedToolArgumentIndices.insert(index)
+                        return false
+                    }
+
+                    let candidate = existing + arguments
+                    streamedToolArgumentBuffers[index] = candidate
+                    if Self.isCompleteJSONToolArguments(candidate) {
+                        completedStreamedToolArgumentIndices.insert(index)
+                    }
+                    return true
+                }
                 var stoppedBySequence = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
@@ -703,13 +757,21 @@ struct MLXChatCompletionsController: RouteCollection {
                                 permittedToolIndices: &permittedToolIndices
                             )
                         }
-                        guard !filtered.isEmpty else { continue }
-                        streamedVendorToolIndices.formUnion(filtered.map(\.index))
+                        var emitDeltas = [StreamDeltaToolCall]()
+                        for delta in filtered where shouldEmitToolDelta(delta) {
+                            if let name = delta.function?.name { streamedToolCallNames[delta.index] = name }
+                            if let id = delta.id { streamedToolCallIDs[delta.index] = id }
+                            if let type = delta.type { streamedToolCallTypes[delta.index] = type }
+                            emitDeltas.append(delta)
+                        }
+                        guard !emitDeltas.isEmpty else { continue }
+                        streamedVendorToolIndices.formUnion(emitDeltas.map(\.index))
+                        emittedToolCallDeltaIndices.formUnion(emitDeltas.map(\.index))
                         hasToolCalls = true
                         let tcChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
-                            toolCalls: filtered
+                            toolCalls: emitDeltas
                         )
                         let tcData = try encoder.encode(tcChunk)
                         if let jsonString = String(data: tcData, encoding: .utf8) {
@@ -744,8 +806,12 @@ struct MLXChatCompletionsController: RouteCollection {
                                 }
                                 continue
                             }
-                            collectedToolCalls.append(coercedToolCall)
-                            let toolIndex = coercedToolCall.index ?? (collectedToolCalls.count - 1)
+                            let toolIndex = coercedToolCall.index ?? streamedVendorToolIndices.min() ?? collectedToolCalls.count
+                            if toolIndex < collectedToolCalls.count {
+                                collectedToolCalls[toolIndex] = coercedToolCall
+                            } else {
+                                collectedToolCalls.append(coercedToolCall)
+                            }
                             if streamedVendorToolIndices.contains(toolIndex) {
                                 continue
                             }
@@ -754,7 +820,7 @@ struct MLXChatCompletionsController: RouteCollection {
                                 fflush(stdout)
                             }
                             let delta = StreamDeltaToolCall(
-                                index: collectedToolCalls.count - 1,
+                                index: toolIndex,
                                 id: coercedToolCall.id,
                                 type: coercedToolCall.type,
                                 function: StreamDeltaFunction(
@@ -848,6 +914,12 @@ struct MLXChatCompletionsController: RouteCollection {
                                         collectedToolCalls.append(toolCall)
                                     }
                                 case .delta(let delta):
+                                    guard shouldEmitToolDelta(delta) else { continue }
+                                    if let name = delta.function?.name { streamedToolCallNames[delta.index] = name }
+                                    if let id = delta.id { streamedToolCallIDs[delta.index] = id }
+                                    if let type = delta.type { streamedToolCallTypes[delta.index] = type }
+                                    emittedToolCallDeltaIndices.insert(delta.index)
+                                    hasToolCalls = true
                                     let tcChunk = ChatCompletionStreamResponse(
                                         id: streamId,
                                         model: res.modelID,
@@ -883,9 +955,13 @@ struct MLXChatCompletionsController: RouteCollection {
                             buffer: &harmonyBuffer,
                             state: &harmonyState
                         )
-
-                        let emitContent = extracted.content
+                        var emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
+                        if let content = emitContent {
+                            let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
+                            emitContent = trimmed.text
+                            if trimmed.stopped { stoppedBySequence = true }
+                        }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         let hasReasoning = emitReasoning != nil
                         let hasContent = emitContent != nil
@@ -918,6 +994,57 @@ struct MLXChatCompletionsController: RouteCollection {
                         }
                         if harmonyState.stopReached {
                             stoppedBySequence = true
+                            break
+                        }
+                    } else if extractThinking && museChannels {
+                        museBuffer += piece
+                        let extracted = Self.extractMuseResponseChannels(
+                            buffer: &museBuffer,
+                            state: &museState
+                        )
+
+                        var emitContent = extracted.content
+                        let emitReasoning = extracted.reasoning
+                        if let content = emitContent {
+                            let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
+                            emitContent = trimmed.text
+                            if trimmed.stopped { stoppedBySequence = true }
+                        }
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
+                        let hasReasoning = emitReasoning != nil
+                        let hasContent = emitContent != nil
+                        if !deferStructuredOutputContent && (hasReasoning || hasContent || flushLogprobs != nil) {
+                            if self.veryVerbose {
+                                if let r = emitReasoning { verboseReasoningBuf += r }
+                                if let c = emitContent { verboseContentBuf += c }
+                                if verboseReasoningBuf.hasSuffix("\n") || verboseReasoningBuf.count > 200 {
+                                    print("\(Self.purple)[\(Self.timestamp())] SEND reasoning:\n  \(verboseReasoningBuf)\(Self.reset)"); fflush(stdout)
+                                    verboseReasoningBuf = ""
+                                }
+                                if verboseContentBuf.hasSuffix("\n") || verboseContentBuf.count > 200 {
+                                    print("\(Self.teal)[\(Self.timestamp())] SEND content (chunk):\n  \(verboseContentBuf)\(Self.reset)"); fflush(stdout)
+                                    verboseContentBuf = ""
+                                }
+                            }
+                            logprobBuffer = []
+                            let contentChunk = ChatCompletionStreamResponse(
+                                id: streamId,
+                                model: res.modelID,
+                                content: emitContent ?? "",
+                                reasoningContent: emitReasoning,
+                                logprobs: flushLogprobs,
+                                isFirst: false
+                            )
+                            let chunkData = try encoder.encode(contentChunk)
+                            if let jsonString = String(data: chunkData, encoding: .utf8) {
+                                try await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                            }
+                        }
+                        if museState.stopReached {
+                            stoppedBySequence = true
+                            break
+                        }
+                        if stoppedBySequence {
                             break
                         }
                     } else if extractThinking {
@@ -1043,6 +1170,12 @@ struct MLXChatCompletionsController: RouteCollection {
                                 allowedFunctionName: allowedToolName,
                                 permittedToolIndices: &permittedToolIndices
                             ) else { continue }
+                            guard shouldEmitToolDelta(delta) else { continue }
+                            if let name = delta.function?.name { streamedToolCallNames[delta.index] = name }
+                            if let id = delta.id { streamedToolCallIDs[delta.index] = id }
+                            if let type = delta.type { streamedToolCallTypes[delta.index] = type }
+                            emittedToolCallDeltaIndices.insert(delta.index)
+                            hasToolCalls = true
                             let tcChunk = ChatCompletionStreamResponse(
                                 id: streamId,
                                 model: res.modelID,
@@ -1056,7 +1189,23 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                     hasToolCalls = hasToolCalls || toolRuntime.hasToolCalls
                 }
+                if !emittedToolCallDeltaIndices.isEmpty { hasToolCalls = true }
                 if toolRuntime?.madeToolCall == true { hasToolCalls = true }
+
+                if hasToolCalls && collectedToolCalls.isEmpty && !emittedToolCallDeltaIndices.isEmpty {
+                    for index in emittedToolCallDeltaIndices.sorted() {
+                        guard let name = streamedToolCallNames[index] else { continue }
+                        collectedToolCalls.append(ResponseToolCall(
+                            index: index,
+                            id: streamedToolCallIDs[index] ?? "call_\(index)",
+                            type: streamedToolCallTypes[index] ?? "function",
+                            function: ResponseToolCallFunction(
+                                name: name,
+                                arguments: streamedToolArgumentBuffers[index] ?? ""
+                            )
+                        ))
+                    }
+                }
 
                 // Post-loop fallback: if tools were present but no tool calls detected
                 // by token-level matching, try full-content regex parsing.
@@ -1066,6 +1215,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let parserName = self.service.toolCallParser ?? "auto"
                 if !hasToolCalls && !service.isToolCallParserDisabled(service.toolCallParser) && (
                     (effectiveToolCallStartTag != nil && fullContent.contains(effectiveToolCallStartTag!)) ||
+                    fullContent.contains("<atem:function_calls>") ||
                     fullContent.contains("DSML｜tool_calls>") ||
                     fullContent.contains("DSML|tool_calls>") ||
                     fullContent.contains("[TOOL_CALLS]") ||
@@ -1141,7 +1291,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     completionTokens: completionTokens,
                     maxTokens: effectiveMaxTokens,
                     sanitizeContent: sanitizeContent,
-                    harmonyChannels: harmonyChannels
+                    responseChannelFormat: responseChannelFormat,
+                    stopSequences: effectiveStop
                 )
                 let finishReason = finalizedTurn.finishReason
                 if self.veryVerbose {
@@ -1209,9 +1360,38 @@ struct MLXChatCompletionsController: RouteCollection {
                         }
                     }
                 }
+                // Flush remaining Muse response-template channel content.
+                if !deferStructuredOutputContent && extractThinking && museChannels && !museBuffer.isEmpty {
+                    let remaining = Self.flushMuseResponseChannelRemainder(
+                        buffer: &museBuffer,
+                        state: &museState
+                    )
+                    var remainingContent = remaining.content
+                    if let content = remainingContent {
+                        let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
+                        remainingContent = trimmed.text
+                        if trimmed.stopped { stoppedBySequence = true }
+                    }
+                    if remainingContent != nil || remaining.reasoning != nil {
+                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
+                        logprobBuffer = []
+                        let flushChunk = ChatCompletionStreamResponse(
+                            id: streamId,
+                            model: res.modelID,
+                            content: remainingContent ?? "",
+                            reasoningContent: remaining.reasoning,
+                            logprobs: flushLogprobs,
+                            isFirst: false
+                        )
+                        if let flushData = try? encoder.encode(flushChunk),
+                           let jsonString = String(data: flushData, encoding: .utf8) {
+                            try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                        }
+                    }
+                }
                 // Flush remaining thinkBuffer content (tool call tags are handled
                 // above and never enter the thinkBuffer, so this is safe).
-                if !deferStructuredOutputContent && extractThinking && !harmonyChannels && !thinkBuffer.isEmpty {
+                if !deferStructuredOutputContent && extractThinking && responseChannelFormat == .none && !thinkBuffer.isEmpty {
                     let remaining: String?
                     let remainingReasoning: String?
                     if insideThinkBlock {
@@ -1419,7 +1599,7 @@ struct MLXChatCompletionsController: RouteCollection {
     /// Deliberately larger than mlx_lm.server's 512 so interactive clients that
     /// omit max_tokens don't get truncated thinking/code output; parity
     /// benchmarks should pass an explicit max_tokens on both servers.
-    static let defaultMaxCompletionTokens = 4096
+    static let defaultMaxCompletionTokens = MLXModelService.defaultMaximumResponseTokens
 
     static func resolveEffectiveMaxTokens(requested: Int?, serverDefault: Int?) -> Int {
         if let requested, requested > 0 { return requested }
@@ -1449,6 +1629,16 @@ struct MLXChatCompletionsController: RouteCollection {
 
     static func sanitizeStructuredOutput(_ text: String, responseFormat: ResponseFormat?) -> String {
         OpenAIResponseFormatPolicy.sanitizeStructuredOutput(text, responseFormat: responseFormat)
+    }
+
+    private static func isCompleteJSONToolArguments(_ text: String) -> Bool {
+        guard let data = text.data(using: .utf8) else { return false }
+        do {
+            let object = try JSONSerialization.jsonObject(with: data)
+            return object is [String: Any]
+        } catch {
+            return false
+        }
     }
 
     private func createSuccessResponse(req: Request, response: ChatCompletionResponse, grammarDowngraded: Bool = false) async throws -> Response {
@@ -1559,6 +1749,21 @@ struct MLXChatCompletionsController: RouteCollection {
 
     struct HarmonyState {
         var channel: HarmonyChannel = .none
+        var nameBuf: String = ""
+        var stopReached: Bool = false
+    }
+
+    enum MuseResponseChannel {
+        case none
+        case awaitingName
+        case reasoning
+        case content
+        case discard
+        case done
+    }
+
+    struct MuseResponseChannelState {
+        var channel: MuseResponseChannel = .none
         var nameBuf: String = ""
         var stopReached: Bool = false
     }
@@ -1695,6 +1900,151 @@ struct MLXChatCompletionsController: RouteCollection {
         return (content, reasoning)
     }
 
+    private static let museMaxControlLen = 18   // "to=self<|message|>" / "to=user<|message|>"
+
+    /// Extract Muse response-template channels. Muse may emit `to=self<|message|>`
+    /// for internal reasoning and `to=user<|message|>` for visible assistant text.
+    /// Routes those channels to OpenAI `reasoning_content` and `content`, strips
+    /// channel controls, and preserves only a short suffix across chunk boundaries.
+    static func extractMuseResponseChannels(
+        buffer: inout String,
+        state: inout MuseResponseChannelState
+    ) -> (reasoning: String?, content: String?) {
+        var reasoning = ""
+        var content = ""
+
+        parseLoop: while !buffer.isEmpty && !state.stopReached {
+            switch state.channel {
+            case .done:
+                buffer = ""
+                break parseLoop
+
+            case .none:
+                if let r = buffer.range(of: "to=") {
+                    buffer = String(buffer[r.upperBound...])
+                    state.channel = .awaitingName
+                    state.nameBuf = ""
+                } else if buffer.count > Self.museMaxControlLen {
+                    // Muse content should start with a channel. If it does not, keep only
+                    // enough tail to detect a split `to=` marker later.
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -Self.museMaxControlLen)
+                    buffer = String(buffer[safeEnd...])
+                    break parseLoop
+                } else {
+                    break parseLoop
+                }
+
+            case .awaitingName:
+                if let r = buffer.range(of: "<|message|>") {
+                    state.nameBuf += String(buffer[..<r.lowerBound])
+                    buffer = String(buffer[r.upperBound...])
+                    let name = state.nameBuf.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    state.nameBuf = ""
+                    switch name {
+                    case "self": state.channel = .reasoning
+                    case "user", "assistant": state.channel = .content
+                    default: state.channel = .discard
+                    }
+                } else if buffer.count > Self.museMaxControlLen {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -Self.museMaxControlLen)
+                    state.nameBuf += String(buffer[buffer.startIndex..<safeEnd])
+                    buffer = String(buffer[safeEnd...])
+                    break parseLoop
+                } else {
+                    break parseLoop
+                }
+
+            case .reasoning, .content, .discard:
+                let eomRange = buffer.range(of: "<|eom|>")
+                let returnRange = buffer.range(of: "<|return|>")
+                let nextMarker: (range: Range<String.Index>, isReturn: Bool)?
+                if let e = eomRange, let r = returnRange {
+                    nextMarker = (e.lowerBound < r.lowerBound) ? (e, false) : (r, true)
+                } else if let e = eomRange {
+                    nextMarker = (e, false)
+                } else if let r = returnRange {
+                    nextMarker = (r, true)
+                } else {
+                    nextMarker = nil
+                }
+
+                if let marker = nextMarker {
+                    let text = String(buffer[..<marker.range.lowerBound])
+                    switch state.channel {
+                    case .reasoning: reasoning += text
+                    case .content: content += text
+                    default: break
+                    }
+                    buffer = String(buffer[marker.range.upperBound...])
+                    if marker.isReturn {
+                        state.channel = .done
+                        state.stopReached = true
+                    } else {
+                        state.channel = .none
+                    }
+                } else if buffer.count > Self.museMaxControlLen {
+                    let safeEnd = buffer.index(buffer.endIndex, offsetBy: -Self.museMaxControlLen)
+                    let text = String(buffer[buffer.startIndex..<safeEnd])
+                    switch state.channel {
+                    case .reasoning: reasoning += text
+                    case .content: content += text
+                    default: break
+                    }
+                    buffer = String(buffer[safeEnd...])
+                    break parseLoop
+                } else {
+                    break parseLoop
+                }
+            }
+        }
+
+        return (
+            reasoning: reasoning.isEmpty ? nil : reasoning,
+            content: content.isEmpty ? nil : content
+        )
+    }
+
+    static func flushMuseResponseChannelRemainder(
+        buffer: inout String,
+        state: inout MuseResponseChannelState
+    ) -> (reasoning: String?, content: String?) {
+        let extracted = extractMuseResponseChannels(buffer: &buffer, state: &state)
+        var reasoning = extracted.reasoning ?? ""
+        var content = extracted.content ?? ""
+        if !buffer.isEmpty {
+            switch state.channel {
+            case .reasoning: reasoning += buffer
+            case .content: content += buffer
+            default: break
+            }
+            buffer = ""
+        }
+        return (
+            reasoning: reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : reasoning,
+            content: content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : content
+        )
+    }
+
+    static func extractMuseResponseContent(from text: String) -> (content: String, reasoning: String?) {
+        var buffer = text
+        var state = MuseResponseChannelState()
+        var allReasoning = ""
+        var allContent = ""
+        while !buffer.isEmpty {
+            let extracted = extractMuseResponseChannels(buffer: &buffer, state: &state)
+            if let r = extracted.reasoning { allReasoning += r }
+            if let c = extracted.content { allContent += c }
+            if extracted.reasoning == nil && extracted.content == nil { break }
+        }
+        let remaining = flushMuseResponseChannelRemainder(buffer: &buffer, state: &state)
+        if let r = remaining.reasoning { allReasoning += r }
+        if let c = remaining.content { allContent += c }
+        return (
+            allContent.trimmingCharacters(in: .whitespacesAndNewlines),
+            allReasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : allReasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
     /// Extract `<think>...</think>` content from a streaming buffer.
     /// Returns any reasoning and regular content that can be flushed.
     /// The buffer retains incomplete tag fragments for the next call.
@@ -1821,7 +2171,8 @@ struct MLXChatCompletionsController: RouteCollection {
         completionTokens: Int,
         maxTokens: Int,
         sanitizeContent: (String) -> String,
-        harmonyChannels: Bool = false
+        responseChannelFormat: AFMMLXResponseChannelFormat = .none,
+        stopSequences: [String]? = nil
     ) -> FinalizedAssistantTurn {
         var effectiveToolCalls = applyToolChoice(toolCalls, toolChoice: toolChoice)
         // Honor parallel_tool_calls=false by truncating to the first call. (T1.3)
@@ -1842,8 +2193,10 @@ struct MLXChatCompletionsController: RouteCollection {
         let cleanedContent = sanitizeContent(content)
         let finalContent: String
         let reasoningContent: String?
-        if extractThinking && harmonyChannels {
+        if extractThinking && responseChannelFormat == .harmony {
             (finalContent, reasoningContent) = extractHarmonyContent(from: cleanedContent)
+        } else if extractThinking && responseChannelFormat == .muse {
+            (finalContent, reasoningContent) = extractMuseResponseContent(from: cleanedContent)
         } else if extractThinking {
             (finalContent, reasoningContent) = extractThinkContent(
                 from: cleanedContent,
@@ -1854,14 +2207,28 @@ struct MLXChatCompletionsController: RouteCollection {
             finalContent = cleanedContent
             reasoningContent = nil
         }
+        let visibleStop = trimAtFirstStop(finalContent, stopSequences: stopSequences)
 
-        let finishReason = stoppedBySequence ? "stop" : (completionTokens >= maxTokens ? "length" : "stop")
+        let finishReason = (stoppedBySequence || visibleStop.stopped) ? "stop" : (completionTokens >= maxTokens ? "length" : "stop")
         return FinalizedAssistantTurn(
             finishReason: finishReason,
-            content: finalContent,
+            content: visibleStop.text,
             reasoningContent: reasoningContent,
             toolCalls: nil
         )
+    }
+
+    static func trimAtFirstStop(_ text: String, stopSequences: [String]?) -> (text: String, stopped: Bool) {
+        guard let stopSequences else { return (text, false) }
+        var earliest: Range<String.Index>?
+        for stop in stopSequences where !stop.isEmpty {
+            guard let range = text.range(of: stop) else { continue }
+            if earliest == nil || range.lowerBound < earliest!.lowerBound {
+                earliest = range
+            }
+        }
+        guard let earliest else { return (text, false) }
+        return (String(text[..<earliest.lowerBound]), true)
     }
 
     static func applyToolChoice(_ toolCalls: [ResponseToolCall]?, toolChoice: ToolChoice?) -> [ResponseToolCall]? {

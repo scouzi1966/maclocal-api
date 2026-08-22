@@ -119,6 +119,20 @@ has_scanner_failure() {
         "$log_file"
 }
 
+has_generated_dependency_failure() {
+    local log_file="$1"
+    grep -Eq \
+        "unable to open dependencies file .*\.d\)|SwiftDriver\\\\ Compilation\\\\ Requirements .* failed with a nonzero exit code" \
+        "$log_file"
+}
+
+has_recoverable_xcode_failure() {
+    local log_file="$1"
+    has_scanner_failure "$log_file" \
+        || has_generated_dependency_failure "$log_file" \
+        || grep -q "was not compiled for testing" "$log_file"
+}
+
 run_native() {
     local log_file="$1"
     shift
@@ -137,6 +151,15 @@ cd "$ROOT_DIR"
 if [[ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]]; then
     echo "[swiftpm-reliable] vendor/ds4 is not a clean upstream checkout." >&2
     echo "[swiftpm-reliable] Keep DwarfStar vanilla and move interface work into AFM-owned adapters." >&2
+    exit 1
+fi
+
+EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
+ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
+if [[ -z "$EXPECTED_DS4_REVISION" || "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]]; then
+    echo "[swiftpm-reliable] vendor/ds4 revision does not match the repository gitlink." >&2
+    echo "[swiftpm-reliable] expected=${EXPECTED_DS4_REVISION:-missing} actual=$ACTUAL_DS4_REVISION" >&2
+    echo "[swiftpm-reliable] Run: git submodule update --init vendor/ds4" >&2
     exit 1
 fi
 
@@ -184,7 +207,7 @@ run_required_patch_step \
 # the complete native-source identity.
 DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
 DS4_SOURCE_FINGERPRINT="$({
-    git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD
+    printf '%s\n' "$ACTUAL_DS4_REVISION"
 } | shasum -a 256 | awk '{print $1}')"
 PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
 if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then
@@ -219,6 +242,26 @@ if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
     printf '%s\n' "$MLX_SOURCE_FINGERPRINT" > "$MLX_SOURCE_STAMP"
 fi
 
+# A normal Release build emits modules without `-enable-testing`. Xcode 27's
+# native SwiftPM driver may then incorrectly reuse those modules for a Release
+# XCTest invocation, causing `@testable import` to fail. Track build-to-test
+# transitions and invalidate only compiled products; dependency checkouts and
+# downloaded artifacts remain intact.
+CONFIGURATION="$(test_configuration "$@")"
+SCRATCH_PATH="$(test_scratch_path "$@")"
+if [[ "$SCRATCH_PATH" != /* ]]; then
+    SCRATCH_PATH="$ROOT_DIR/$SCRATCH_PATH"
+fi
+OPERATION_STAMP="$STATE_DIR/last-operation-${CONFIGURATION}"
+PREVIOUS_OPERATION="$(cat "$OPERATION_STAMP" 2>/dev/null || true)"
+if [[ "$SUBCOMMAND" == "test" && "$PREVIOUS_OPERATION" == "build" ]]; then
+    echo "[swiftpm-reliable] Release build preceded tests; invalidating non-testable products." >&2
+    rm -rf \
+        "$SCRATCH_PATH/$(uname -m)-apple-macosx/$CONFIGURATION" \
+        "$SCRATCH_PATH/$CONFIGURATION"
+fi
+printf '%s\n' "$SUBCOMMAND" > "$OPERATION_STAMP"
+
 DRIVER="${AFM_SWIFTPM_DRIVER:-auto}"
 DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$DRIVER" == "native" ]] ||
@@ -252,8 +295,8 @@ if [[ "$DRIVER" == "native" ]] ||
     else
         STATUS=$?
     fi
-    if has_scanner_failure "$PRIMARY_LOG"; then
-        echo "[swiftpm-reliable] Native incremental module state is invalid; cleaning products and retrying once." >&2
+    if has_recoverable_xcode_failure "$PRIMARY_LOG"; then
+        echo "[swiftpm-reliable] Native generated build state is invalid; cleaning products and retrying once." >&2
         swift package clean
         if run_native "$RETRY_LOG" "$@"; then
             exit 0
@@ -286,11 +329,11 @@ if [[ $STATUS -eq 0 ]]; then
     exit 0
 fi
 
-if ! has_scanner_failure "$PRIMARY_LOG"; then
+if ! has_recoverable_xcode_failure "$PRIMARY_LOG"; then
     exit "$STATUS"
 fi
 
-echo "[swiftpm-reliable] Xcode module-scanner cache failure detected." >&2
+echo "[swiftpm-reliable] Recoverable Xcode generated-build-state failure detected." >&2
 echo "[swiftpm-reliable] Cleaning build products and retrying with the native driver." >&2
 swift package clean
 

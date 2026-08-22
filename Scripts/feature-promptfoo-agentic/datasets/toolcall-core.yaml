@@ -177,3 +177,159 @@
     - type: is-json
     - type: contains
       value: "\"createTask\""
+
+- description: "named tool_choice restricts the exposed function"
+  vars:
+    prompt: "Create an event called Release review."
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for a location"
+          parameters:
+            type: object
+            properties:
+              location: {type: string}
+            required: [location]
+      - type: function
+        function:
+          name: create_event
+          description: "Create a calendar event"
+          parameters:
+            type: object
+            properties:
+              title: {type: string}
+            required: [title]
+    tool_choice:
+      type: function
+      function:
+        name: create_event
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        return calls.length === 1 && calls[0].function.name === 'create_event';
+
+- description: "parallel_tool_calls false limits a multi-location request to one call"
+  vars:
+    prompt: "Call get_weather for Toronto and Vancouver."
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: "Get weather for one location"
+          parameters:
+            type: object
+            properties:
+              location: {type: string}
+            required: [location]
+    tool_choice: required
+    parallel_tool_calls: false
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        return calls.length === 1 && calls[0].function.name === 'get_weather';
+
+- description: "OpenCode grep schema preserves optional path and include arguments"
+  vars:
+    prompt: "Use grep to find finalizeAssistantTurn under Sources in Swift files."
+    tools:
+      - type: function
+        function:
+          name: grep
+          description: "Search files using a regular expression"
+          parameters:
+            type: object
+            properties:
+              pattern: {type: string}
+              path: {type: string}
+              include:
+                type: array
+                items: {type: string}
+            required: [pattern]
+    tool_choice: required
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        const args = calls[0]?.function?.arguments || {};
+        return calls.length >= 1 && calls[0].function.name === 'grep' &&
+          /finalizeAssistantTurn/.test(String(args.pattern || '')) &&
+          args.path === 'Sources' && Array.isArray(args.include) &&
+          args.include.includes('*.swift');
+
+- description: "Pi write schema preserves camelCase and multiline Unicode content"
+  vars:
+    prompt: "Use write to create Notes/café.md with the exact content: line 1, newline, line 2 🚀. Create directories."
+    tools:
+      - type: function
+        function:
+          name: write
+          description: "Write a file"
+          parameters:
+            type: object
+            properties:
+              path: {type: string}
+              content: {type: string}
+              createDirectories: {type: boolean}
+            required: [path, content]
+    tool_choice: required
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        const args = calls[0]?.function?.arguments || {};
+        return calls.length === 1 && calls[0].function.name === 'write' &&
+          /café\.md$/.test(String(args.path || '')) &&
+          args.content === 'line 1\nline 2 🚀' && args.createDirectories === true;
+
+- description: "OpenClaw apply_patch schema preserves a conventional unified diff"
+  vars:
+    prompt: "Use apply_patch to replace old with new in README.md using a unified diff."
+    tools:
+      - type: function
+        function:
+          name: apply_patch
+          description: "Apply a patch"
+          parameters:
+            type: object
+            properties:
+              input: {type: string}
+            required: [input]
+    tool_choice: required
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        const input = String(calls[0]?.function?.arguments?.input || '');
+        return calls.length === 1 && calls[0].function.name === 'apply_patch' &&
+          /(?:\*\*\* Update File: README\.md|^diff --git a\/README\.md b\/README\.md|^--- (?:a\/)?README\.md)/m.test(input) &&
+          /(?:^@@|\*\*\* Begin Patch)/m.test(input) &&
+          /^-old$/m.test(input) && /^\+new$/m.test(input);
+
+- description: "Hermes todo schema preserves nested task arrays"
+  vars:
+    prompt: "Use todo to create two tasks: Inspect API and Run tests."
+    max_tokens: 1024
+    tools:
+      - type: function
+        function:
+          name: todo
+          description: "Manage a structured task list"
+          parameters:
+            type: object
+            properties:
+              action: {type: string}
+              items:
+                type: array
+                items: {type: string}
+            required: [action, items]
+    tool_choice: required
+  assert:
+    - type: javascript
+      value: |
+        const calls = JSON.parse(output);
+        const args = calls[0]?.function?.arguments || {};
+        return calls.length === 1 && calls[0].function.name === 'todo' &&
+          Array.isArray(args.items) && args.items.length >= 2;

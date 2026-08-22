@@ -256,6 +256,140 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testStreamingControllerSuppressesDuplicateCompletedArgumentClose() async throws {
+        let service = FakeMLXChatService(
+            toolCallParser: "afm_adaptive_xml",
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: "call_weather",
+                        type: "function",
+                        function: StreamDeltaFunction(name: "get_weather", arguments: nil)
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(name: nil, arguments: #"{"location":"Sydney""#)
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(name: nil, arguments: #","unit":"celsius""#)
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(name: nil, arguments: "}")
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(name: nil, arguments: "}")
+                    )
+                ]),
+                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            let argumentDeltas = Self.streamingToolArgumentDeltas(from: res.body.string)
+            XCTAssertEqual(argumentDeltas, [#"{"location":"Sydney""#, #","unit":"celsius""#, "}"])
+            XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
+        }
+    }
+
+    func testStreamingControllerSuppressesRestartedArgumentObject() async throws {
+        let service = FakeMLXChatService(
+            toolCallParser: "afm_adaptive_xml",
+            streamingResult: makeStreamingResult(chunks: [
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: "call_todos",
+                        type: "function",
+                        function: StreamDeltaFunction(name: "create_todos", arguments: nil)
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(
+                            name: nil,
+                            arguments: #"{"todos":["Walk dog","Read book","Cook dinner"]"#
+                        )
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(
+                            name: nil,
+                            arguments: #"{"todos":"[\"Walk dog\", \"Read book\", \"Cook dinner\"]""#
+                        )
+                    )
+                ]),
+                StreamChunk(text: "", toolCallDeltas: [
+                    StreamDeltaToolCall(
+                        index: 0,
+                        id: nil,
+                        type: nil,
+                        function: StreamDeltaFunction(name: nil, arguments: "}")
+                    )
+                ]),
+                StreamChunk(text: "", promptTokens: 20, completionTokens: 5, cachedTokens: 0, promptTime: 0.03, generateTime: 0.02),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, toolsJSON: Self.todoToolsJSON)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            let argumentDeltas = Self.streamingToolArgumentDeltas(from: res.body.string)
+            XCTAssertEqual(argumentDeltas, [#"{"todos":["Walk dog","Read book","Cook dinner"]"#, "}"])
+            XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
+        }
+    }
+
     func testStreamingControllerFiltersToolCallsToNamedFunctionChoice() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",
@@ -702,6 +836,24 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         Self.makeDelayedStreamingResult(modelID: "test-model", chunks: chunks, delayNanoseconds: nil)
     }
 
+    private static func streamingToolArgumentDeltas(from body: String) -> [String] {
+        body
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard line.hasPrefix("data: "),
+                      line != "data: [DONE]" else { return nil }
+                let json = String(line.dropFirst(6))
+                guard let payload = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+                      let choices = payload["choices"] as? [[String: Any]],
+                      let delta = choices.first?["delta"] as? [String: Any],
+                      let toolCalls = delta["tool_calls"] as? [[String: Any]],
+                      let function = toolCalls.first?["function"] as? [String: Any] else {
+                    return nil
+                }
+                return function["arguments"] as? String
+            }
+    }
+
     private func makeStreamingResult(
         chunks: [StreamChunk],
         toolCallStartTag: String?,
@@ -787,6 +939,28 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
               "path": { "type": "string" }
             },
             "required": ["path"]
+          }
+        }
+      }
+    ]
+    """
+
+    private static let todoToolsJSON = """
+    [
+      {
+        "type": "function",
+        "function": {
+          "name": "create_todos",
+          "description": "Create a todo list",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "todos": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["todos"]
           }
         }
       }

@@ -222,6 +222,14 @@ if [ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=al
   exit 1
 fi
 
+EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
+ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
+if [ -z "$EXPECTED_DS4_REVISION" ] || [ "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]; then
+  log_error "vendor/ds4 revision mismatch (expected ${EXPECTED_DS4_REVISION:-missing}, actual $ACTUAL_DS4_REVISION)"
+  log_error "Run: git submodule update --init vendor/ds4"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Step 2: Patches
 # ---------------------------------------------------------------------------
@@ -287,9 +295,12 @@ swift package resolve
 
 if $DO_PATCHES; then
   log_step "Applying persistent DeepSeek V4 MLX primitive"
-  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
   "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh"
   "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh" --check
+  # The complete MLX core patch includes the F8_E8M0 loader change. Verify it
+  # only after applying that patch so a clean checkout is never left in the
+  # partial state that the all-or-nothing patch guard correctly rejects.
+  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
 fi
 
 # ---------------------------------------------------------------------------
@@ -395,6 +406,8 @@ if ! FINAL_BIN="$($SCRIPTS_DIR/find-afm-binary.sh "$BUILD_CONFIG")"; then
   exit 1
 fi
 
+"$SCRIPTS_DIR/check-tree-sitter-highlighting.sh" "$FINAL_BIN"
+
 if [ "$BUILD_CONFIG" = "release" ]; then
   strip "$FINAL_BIN"
   log_info "Stripped debug symbols"
@@ -405,6 +418,19 @@ restore_buildinfo
 trap - EXIT
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
+
+# AFMKit owns the bundled, no-judge evaluation suites. Keep its SwiftPM
+# resource bundle beside the executable in every install layout.
+EVAL_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKit.bundle"
+if [ -f "$EVAL_BUNDLE_DIR/Evals/comprehensive.json" ]; then
+  EVAL_SUITE="$EVAL_BUNDLE_DIR/Evals/comprehensive.json"
+elif [ -f "$EVAL_BUNDLE_DIR/Contents/Resources/Evals/comprehensive.json" ]; then
+  EVAL_SUITE="$EVAL_BUNDLE_DIR/Contents/Resources/Evals/comprehensive.json"
+else
+  log_error "Missing bundled evaluation suite under: $EVAL_BUNDLE_DIR"
+  exit 1
+fi
+log_info "Bundled evaluation suite OK: $EVAL_SUITE"
 
 # Verify the MLX metallib resource bundle is present. SwiftPM uses a flat bundle
 # with some toolchains and a macOS Contents/Resources bundle with Xcode 27.
@@ -469,6 +495,7 @@ log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle)"
 if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
   BUNDLE_SRC="$METALLIB_BUNDLE_DIR"
+  EVAL_BUNDLE_SRC="$EVAL_BUNDLE_DIR"
   WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
 
   SUDO=""
@@ -488,6 +515,11 @@ if $DO_INSTALL; then
   $SUDO cp -R "$BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle"
   $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKitMLX.bundle" \
     "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKitMLX.bundle"
+
+  $SUDO rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
+  $SUDO cp -R "$EVAL_BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
+  $SUDO ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle" \
+    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"
 
   if [ -f "$WEBUI_SRC" ]; then
     $SUDO install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"

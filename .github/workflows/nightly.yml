@@ -20,6 +20,11 @@ jobs:
     - name: Build from scratch
       run: ./Scripts/build-from-scratch.sh
 
+    - name: Build required WebUI artifact
+      run: |
+        make webui
+        Scripts/verify-webui.sh Resources/webui/index.html.gz
+
     - name: Create release package
       run: |
         SHORT_SHA=$(git rev-parse --short HEAD)
@@ -34,14 +39,14 @@ jobs:
         Scripts/check-macos26-compatibility.sh "$BIN"
         cp "$BIN" release-package/
 
-        # Copy webui resources
-        if [ -f "Resources/webui/index.html.gz" ]; then
-          mkdir -p release-package/Resources/webui
-          cp Resources/webui/index.html.gz release-package/Resources/webui/
-        fi
+        # Copy required webui resources. The -w/--webui startup behavior
+        # depends on this file being present in the relocated package.
+        test -s Resources/webui/index.html.gz
+        mkdir -p release-package/Resources/webui
+        cp Resources/webui/index.html.gz release-package/Resources/webui/
 
         # Copy required runtime resource bundles beside the executable.
-        for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/
@@ -50,6 +55,8 @@ jobs:
         cp README.md LICENSE release-package/ 2>/dev/null || true
 
         tar -czf afm-next-arm64.tar.gz -C release-package .
+        tar -xOzf afm-next-arm64.tar.gz ./Resources/webui/index.html.gz > archive-webui.html.gz
+        Scripts/verify-webui.sh archive-webui.html.gz
 
         echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
         echo "BUILD_DATE=${DATE}" >> "$GITHUB_ENV"
@@ -82,7 +89,10 @@ jobs:
         # Set release tag for unique naming
         RELEASE_TAG="nightly-${BUILD_DATE}-${SHORT_SHA}"
         echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
-        VERSION="0.9.5-next.${SHORT_SHA}.${BUILD_DATE}"
+        BASE_VERSION=$(Scripts/nightly-version.sh --field base)
+        VERSION=$(Scripts/nightly-version.sh \
+          --base-version "$BASE_VERSION" --date "$BUILD_DATE" --sha "$SHORT_SHA" \
+          --field canonical)
         echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
         echo "PREV_SHA=${PREV_SHA:-first build}" >> "$GITHUB_ENV"
 

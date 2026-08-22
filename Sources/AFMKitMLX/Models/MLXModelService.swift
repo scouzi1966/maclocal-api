@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Darwin
 import AFMKitCore
 import AFMOpenAICompat
@@ -25,21 +26,17 @@ private extension Dictionary where Key == String, Value == AnyCodable {
     }
 }
 
-/// Process-global holder for the active MTP self-speculative generator.
-///
-/// The MTP head + generator are tied to the loaded model and accessed only inside
-/// `ModelContainer.perform` (serialized), so a single-slot holder is sufficient and avoids
-/// threading the generator through every generation signature. Cleared on model unload.
-final class MTPRuntime: @unchecked Sendable {
-    static let shared = MTPRuntime()
-    private var generator: Qwen3_5MoEMTPGenerator?
-    private let lock = NSLock()
+/// Immutable request-scoped handle that keeps an MTP generator paired with
+/// the model identity and container it was created for. MLX model objects are
+/// not Sendable-audited, but use remains serialized by that ModelContainer.
+private final class MTPGeneratorBinding: @unchecked Sendable {
+    let modelID: String
+    let generator: Qwen3_5MoEMTPGenerator
 
-    func install(model: Qwen3_5MoEModel, head: Qwen3_5MoEMTPHead, depth: Int) {
-        lock.withLock { generator = Qwen3_5MoEMTPGenerator(model: model, head: head, depth: depth) }
+    init(modelID: String, generator: Qwen3_5MoEMTPGenerator) {
+        self.modelID = modelID
+        self.generator = generator
     }
-    func clear() { lock.withLock { generator = nil } }
-    var active: Qwen3_5MoEMTPGenerator? { lock.withLock { generator } }
 }
 
 /// Process-global holder for the active EAGLE3 speculative drafter (Gemma4 dense verifier).
@@ -212,6 +209,8 @@ private final class StreamingScratch: @unchecked Sendable {
 }
 
 public final class MLXModelService: @unchecked Sendable {
+    /// Shared fallback for MLX callers that omit a per-request output limit.
+    public static let defaultMaximumResponseTokens = 8_192
     private struct ConstrainedDecodingSetup {
         let processor: GrammarLogitProcessor
         let mode: String
@@ -229,6 +228,10 @@ public final class MLXModelService: @unchecked Sendable {
     private var currentModelID: String?
     private var currentModelArchitecture: AFMMLXModelArchitecturePreflight?
     private var currentContainer: ModelContainer?
+    /// Bound to `currentContainer` and replaced atomically with it. Requests
+    /// capture both under `stateLock`, so a concurrent model switch cannot pair
+    /// one model's container with another model's MTP generator.
+    private var currentMTPBinding: MTPGeneratorBinding?
     private var activeOperations: Int = 0
     private var isShuttingDown = false
     private var gpuInitialized = false
@@ -242,10 +245,11 @@ public final class MLXModelService: @unchecked Sendable {
     public var kernelEngine: AFMMLXKernelEngine = .native
     public var kvEvictionPolicy: String = "none"  // "none" or "streaming"
     public var enablePrefixCaching: Bool = false
-    /// MTP self-speculative decoding (--mtp). Activates only when the loaded model has an
-    /// mtp.safetensors sidecar (a Qwen3.6 MTP head); otherwise silently falls back to AR.
+    /// MTP self-speculative decoding (--mtp). Qwen 3.8 heads are cached as
+    /// separate model repositories so their weights never enter the base loader.
     public var mtpEnabled: Bool = false
     public var mtpDepth: Int = 3
+    public var mtpModelID: String?
     /// EAGLE3 speculative decoding (--eagle3 <drafter-path>). Activates only when the loaded model
     /// is a dense Gemma4 verifier and a drafter loads from the given path; otherwise falls back to AR.
     public var eagle3DrafterPath: String?
@@ -376,6 +380,15 @@ public final class MLXModelService: @unchecked Sendable {
         AFMMLXToolCallPolicy.isToolCallParserDisabled(parser)
     }
 
+    static func requiresSerialGeneration(canonicalModelType: String) -> Bool {
+        switch canonicalModelType {
+        case "cohere2_moe", "muse_glimmer":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Raw mode (`--tool-call-parser none`): every extraction path — streaming
     /// runtime, scheduler runtime, and post-generation fallback — must be gated
     /// on this so tool markup reaches the client as plain content.
@@ -459,6 +472,10 @@ public final class MLXModelService: @unchecked Sendable {
     /// (`<|channel|>analysis|message|>...<|end|>`) instead of `<think>` tags.
     /// Detected from `model_type == "gpt_oss"` in config.json. (#121)
     public private(set) var harmonyChannels: Bool = false
+    /// Response-template channel dialect used by the generated text. Some models
+    /// use non-Harmony channels such as Muse's `to=self<|message|>` reasoning
+    /// and `to=user<|message|>` visible content.
+    public private(set) var responseChannelFormat: AFMMLXResponseChannelFormat = .none
     /// Built-in chat template applied as an override when the model's own
     /// chat_template.jinja cannot be parsed by swift-jinja (e.g. Cohere's
     /// cohere2_moe template uses block-`set`/`namespace`/macros). nil = use the
@@ -1348,6 +1365,97 @@ public final class MLXModelService: @unchecked Sendable {
         try registry.revalidate(using: resolver)
     }
 
+    private func resolveMTPHead(
+        baseModelDirectory: URL,
+        progress: (@Sendable (Progress) -> Void)?,
+        stage: (@Sendable (MLXLoadStage) -> Void)?,
+        allowDownload: Bool = true
+    ) async throws -> String? {
+        let fileManager = FileManager.default
+
+        // Preserve compatibility with checkpoints that already ship the head.
+        if mtpModelID == nil,
+           let bundled = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+               modelDirectory: baseModelDirectory
+           ) {
+            return bundled
+        }
+
+        let resource = mtpModelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? AFMMLXSpeculativeRuntimeResourceResolver.automaticMTPRepositoryID(
+                modelDirectory: baseModelDirectory
+            )
+        guard let resource, !resource.isEmpty else { return nil }
+
+        let expanded = NSString(string: resource).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        if let localURL = resolver.localFilesystemURLIfExists(expanded) {
+            let localPath = localURL.path
+            fileManager.fileExists(atPath: localPath, isDirectory: &isDirectory)
+            if !isDirectory.boolValue {
+                guard localURL.pathExtension == "safetensors" else {
+                    throw MLXServiceError.loadFailed("MTP override must be a .safetensors file: \(localPath)")
+                }
+                guard AFMMLXMTPRuntimePolicy.directSidecarHasRequiredMetadata(localURL) else {
+                    throw MLXServiceError.loadFailed(
+                        "Direct MTP sidecar overrides require a sibling config.json with quantization_config: \(localPath)"
+                    )
+                }
+                print("[\(ts())] [MTP] using local head: \(localPath)")
+                return localPath
+            }
+            guard let sidecar = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+                resourceDirectory: localURL
+            ) else {
+                throw MLXServiceError.loadFailed("No MTP weights found in \(localPath)")
+            }
+            print("[\(ts())] [MTP] using local head: \(sidecar)")
+            return sidecar
+        }
+
+        let resourceDirectory: URL
+        if let cached = resolver.localModelDirectory(repoId: resource) {
+            resourceDirectory = cached
+        } else {
+            guard allowDownload else { return nil }
+            stage?(.downloading)
+            print("[\(ts())] [MTP] downloading matching head: \(resource)")
+            try await downloadModel(modelID: resource, progress: progress)
+            guard let downloaded = resolver.localModelDirectory(repoId: resource) else {
+                throw MLXServiceError.modelNotFoundInCache(resource)
+            }
+            resourceDirectory = downloaded
+        }
+
+        guard let sidecar = AFMMLXSpeculativeRuntimeResourceResolver.mtpSidecarPath(
+            resourceDirectory: resourceDirectory
+        ) else {
+            throw MLXServiceError.loadFailed("MTP repository \(resource) has no model.safetensors or mtp.safetensors")
+        }
+        print("[\(ts())] [MTP] resolved head \(resource) -> \(sidecar)")
+        return sidecar
+    }
+
+    private func mtpQuantization(for sidecarPath: String) -> (
+        groupSize: Int, bits: Int, mode: QuantizationMode
+    ) {
+        let directory = URL(fileURLWithPath: sidecarPath).deletingLastPathComponent()
+        guard let quantization = AFMMLXSpeculativeRuntimeResourceResolver.mtpQuantization(
+            resourceDirectory: directory
+        ) else {
+            return (64, 4, .affine)
+        }
+
+        let mode: QuantizationMode
+        switch quantization.mode {
+        case "mxfp4": mode = .mxfp4
+        case "mxfp8": mode = .mxfp8
+        case "nvfp4": mode = .nvfp4
+        default: mode = .affine
+        }
+        return (quantization.groupSize, quantization.bits, mode)
+    }
+
     public func ensureLoaded(
         model rawModel: String,
         progress: (@Sendable (Progress) -> Void)? = nil,
@@ -1372,7 +1480,13 @@ public final class MLXModelService: @unchecked Sendable {
         stage?(.checkingCache)
 
         if let cached = withStateLock({ () -> (String, ModelContainer)? in
-            guard currentModelID == modelID, let container = currentContainer else { return nil }
+            guard let container = currentContainer,
+                  AFMMLXMTPRuntimePolicy.canReuseLoadedModel(
+                    loadedModelID: currentModelID,
+                    requestedModelID: modelID,
+                    mtpEnabled: mtpEnabled,
+                    bindingModelID: currentMTPBinding?.modelID
+                  ) else { return nil }
             return (modelID, container)
         }) {
             stage?(.ready)
@@ -1415,6 +1529,33 @@ public final class MLXModelService: @unchecked Sendable {
         )
         try ensureGPUConfigured(for: modelArchitecture)
 
+        // Qwen 3.8 publishes its small MTP head separately from the base model.
+        // Explicit MTP resolves synchronously and fails closed. Disabled-MTP
+        // startup only checks local resources; a missing sidecar is prefetched
+        // asynchronously after the base model is ready.
+        let resolvedMTPSidecar: String?
+        do {
+            resolvedMTPSidecar = try await resolveMTPHead(
+                baseModelDirectory: directory,
+                progress: progress,
+                stage: stage,
+                allowDownload: AFMMLXMTPRuntimePolicy.allowSynchronousSidecarDownload(
+                    mtpEnabled: mtpEnabled
+                )
+            )
+        } catch {
+            if mtpEnabled {
+                throw error
+            }
+            resolvedMTPSidecar = nil
+            print("[\(ts())] [MTP] optional head prefetch failed (\(error)); continuing with AR")
+        }
+        if mtpEnabled && resolvedMTPSidecar == nil {
+            throw MLXServiceError.loadFailed(
+                "MTP was requested, but no compatible sidecar could be resolved for \(modelID)"
+            )
+        }
+
         var config = ModelConfiguration(directory: directory)
         // Auto-detect tool call format from model type (vendor LLMModelFactory lost this code)
         var detectedFormat = inferToolCallFormat(directory: directory)
@@ -1454,17 +1595,20 @@ public final class MLXModelService: @unchecked Sendable {
         // VLM-only guard: if text_config exists but lacks key architecture fields
         // (num_attention_heads, head_dim), the LLM model will use wrong defaults
         // and crash (e.g. gemma-3 VLM). Skip LLM and go straight to VLM.
-        let vlmOnly = isVLMOnlyConfig(directory: directory)
-        let selectedFactory = (forceVLM || vlmOnly) ? "VLM" : "LLM"
+        let selectedFactory = AFMMLXModelFactoryPolicy.initialFactory(
+            forceVLM: forceVLM,
+            architecture: modelArchitecture
+        )
         print(
             "[\(ts())] [ModelArchitecture] declared=\(modelArchitecture.modelType) "
                 + "canonical=\(modelArchitecture.canonicalModelType) "
                 + "vision=\(modelArchitecture.isVisionConfiguration) "
-                + "factory=\(selectedFactory)"
+                + "factory=\(selectedFactory == .vlm ? "VLM" : "LLM")"
         )
         do {
             let loaded: ModelContainer
-            if forceVLM || vlmOnly {
+            var actualFactory = selectedFactory
+            if selectedFactory == .vlm {
                 loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
             } else {
                 do {
@@ -1474,38 +1618,95 @@ public final class MLXModelService: @unchecked Sendable {
                     // LLM factory failed — try VLM factory as fallback
                     do {
                         loaded = try await VLMModelFactory.shared.loadContainer(configuration: config)
+                        actualFactory = .vlm
+                        print("[\(ts())] [MLX] Loaded \(modelID) with VLM fallback")
                     } catch let vlmError {
                         print("[\(ts())] [MLX] VLM fallback also failed for \(modelID): \(vlmError)")
                         throw llmError
                     }
                 }
             }
+            if actualFactory != selectedFactory {
+                print("[\(ts())] [ModelArchitecture] actualFactory=VLM (LLM fallback)")
+            }
+            // MTP: load the explicitly resolved sidecar only after the base model
+            // has loaded. The sidecar remains outside the base checkpoint.
+            var loadedMTPBinding: MTPGeneratorBinding?
+            if mtpEnabled {
+                if let sidecar = resolvedMTPSidecar {
+                    do {
+                        let quantization = mtpQuantization(for: sidecar)
+                        // Select the ModelContext overload explicitly. The dependency also
+                        // exposes a deprecated (model, tokenizer) overload, and Swift can
+                        // otherwise choose it while type-checking this Sendable binding.
+                        loadedMTPBinding = try await loaded.perform {
+                            (context: ModelContext) async throws -> MTPGeneratorBinding in
+                            if let qwen = context.model as? Qwen3_5MoEModel {
+                                let head = try qwen.loadMTPHead(
+                                    sidecarPath: sidecar,
+                                    groupSize: quantization.groupSize,
+                                    bits: quantization.bits,
+                                    mode: quantization.mode
+                                )
+                                let generator = Qwen3_5MoEMTPGenerator(
+                                    model: qwen,
+                                    head: head,
+                                    depth: mtpDepth
+                                )
+                                print("[\(ts())] [MTP] head loaded — self-speculative decoding enabled (depth \(mtpDepth))")
+                                if maxConcurrent >= 2 {
+                                    print("[\(ts())] [MTP] concurrent/batch scheduler uses AR decode; serial requests use MTP")
+                                }
+                                return MTPGeneratorBinding(modelID: modelID, generator: generator)
+                            } else {
+                                throw MLXServiceError.loadFailed(
+                                    "MTP head requires a compatible Qwen text model; loaded \(type(of: context.model))"
+                                )
+                            }
+                        }
+                    } catch {
+                        throw MLXServiceError.loadFailed("MTP head load failed: \(error)")
+                    }
+                } else {
+                    throw MLXServiceError.loadFailed(
+                        "MTP was requested, but no compatible sidecar could be resolved for \(modelID)"
+                    )
+                }
+            } else if resolvedMTPSidecar != nil {
+                print("[\(ts())] [MTP] matching head cached; pass --mtp to enable serial speculative decoding")
+            }
+
+            // Publish the container and its MTP generator as one state change.
+            // A failed sidecar load leaves the previous model state untouched.
             withStateLock {
                 currentContainer = loaded
                 currentModelID = modelID
                 currentModelArchitecture = modelArchitecture
                 currentToolCallFormat = detectedFormat
+                currentMTPBinding = loadedMTPBinding
             }
-            // MTP: if requested and the model ships an mtp.safetensors sidecar, load the head
-            // into the container's model. Silently no-op otherwise (falls back to AR).
-            if mtpEnabled {
-                let sidecar = directory.appendingPathComponent("mtp.safetensors").path
-                if FileManager.default.fileExists(atPath: sidecar) {
+
+            if AFMMLXMTPRuntimePolicy.shouldPrefetchInBackground(
+                mtpEnabled: mtpEnabled,
+                resolvedSidecar: resolvedMTPSidecar,
+                automaticRepositoryID:
+                    AFMMLXSpeculativeRuntimeResourceResolver.automaticMTPRepositoryID(
+                        modelDirectory: directory
+                    )
+            ) {
+                Task { [weak self] in
+                    guard let self else { return }
                     do {
-                        try await loaded.perform { context in
-                            if let qwen = context.model as? Qwen3_5MoEModel {
-                                let head = try qwen.loadMTPHead(sidecarPath: sidecar)
-                                MTPRuntime.shared.install(model: qwen, head: head, depth: mtpDepth)
-                                print("[\(ts())] [MTP] head loaded — self-speculative decoding enabled (depth \(mtpDepth))")
-                            } else {
-                                print("[\(ts())] [MTP] model is not Qwen3.6 text LLM (\(type(of: context.model))) — MTP disabled")
-                            }
-                        }
+                        _ = try await self.resolveMTPHead(
+                            baseModelDirectory: directory,
+                            progress: nil,
+                            stage: nil,
+                            allowDownload: true
+                        )
+                        print("[\(ts())] [MTP] matching head cached in background; pass --mtp on the next launch")
                     } catch {
-                        print("[\(ts())] [MTP] head load failed (\(error)) — falling back to AR")
+                        print("[\(ts())] [MTP] optional background prefetch failed (\(error))")
                     }
-                } else {
-                    print("[\(ts())] [MTP] no mtp.safetensors at \(modelID) — MTP disabled (AR decode)")
                 }
             }
             // EAGLE3: if a drafter path was given and the verifier is a dense Gemma4 text model,
@@ -1581,6 +1782,7 @@ public final class MLXModelService: @unchecked Sendable {
             // routes <|channel|>analysis|message|> ... <|end|> to reasoning_content
             // and <|channel|>final|message|> ... <|return|>/<|end|> to content. (#121)
             self.harmonyChannels = false
+            self.responseChannelFormat = .none
             self.builtinChatTemplate = nil
             self.nativeToolJSONChatTemplate = Self.nativeToolJSONChatTemplate(directory: directory)
             self.forceSerialGeneration = false
@@ -1596,8 +1798,21 @@ public final class MLXModelService: @unchecked Sendable {
                    let modelType = (json["model_type"] as? String)?.lowercased() {
                     if modelType == "gpt_oss" {
                         self.harmonyChannels = true
+                        self.responseChannelFormat = .harmony
                         if debugLogging {
                             print("[\(ts())] [Harmony] Detected gpt_oss model — enabling channel parsing")
+                        }
+                    }
+                    if modelType == "muse_glimmer" {
+                        self.responseChannelFormat = .muse
+                        if debugLogging {
+                            print("[\(ts())] [ResponseTemplate] Detected Muse response channels — routing to=self to reasoning_content and to=user to content")
+                        }
+                    }
+                    if Self.requiresSerialGeneration(canonicalModelType: modelArchitecture.canonicalModelType) {
+                        self.forceSerialGeneration = true
+                        if debugLogging {
+                            print("[\(ts())] [BatchScheduler] \(modelArchitecture.canonicalModelType) — forcing serial generation (batch decode unvalidated)")
                         }
                     }
                     // Cohere's cohere2_moe ships a chat template swift-jinja can't parse
@@ -1634,7 +1849,6 @@ public final class MLXModelService: @unchecked Sendable {
                         // (Prefix caching IS correct here — KVCacheSimple full layers + sub-window
                         // RotatingKVCache reuse verified producing cache hits with correct output —
                         // so it is left enabled.)
-                        self.forceSerialGeneration = true
                         if debugLogging {
                             print("[\(ts())] [ChatTemplate] cohere2_moe — built-in template; forcing serial generation (batch decode unvalidated)")
                         }
@@ -1858,7 +2072,7 @@ public final class MLXModelService: @unchecked Sendable {
     /// Forward cancellation to the scheduler for in-flight batch slots.
     public func cancelBatchSlots(ids: Set<UUID>) async {
         guard let sched = withStateLock({ scheduler }) else { return }
-        await sched.cancelSlots(ids: ids)
+        sched.cancelSlots(ids: ids)
     }
 
     public func generate(
@@ -1901,10 +2115,10 @@ public final class MLXModelService: @unchecked Sendable {
                 StatsAggregator.shared.requestCompleted()
             }
         }
-        let requestHasTools = !(tools?.isEmpty ?? true)
-
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
+        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let container = runtime.container
+        let mtpBinding = runtime.mtpBinding
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -1917,7 +2131,9 @@ public final class MLXModelService: @unchecked Sendable {
         )
         defer { cleanupTempFiles(mediaTempFiles) }
         let wantLogprobs = logprobs == true
-        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
+        let effectiveMaxTokens = capMaxTokensForCapture(
+            maxTokens ?? Self.defaultMaximumResponseTokens
+        )
 
         // Mutable generation state lives in a scratch box so the @Sendable
         // `container.perform` closure (Swift 6) can capture-and-mutate it.
@@ -1975,14 +2191,14 @@ public final class MLXModelService: @unchecked Sendable {
         // ---- MTP self-speculative fast path (greedy, text-only, no tools/grammar/logprobs) ----
         // Eligible when an MTP head is installed and the request is plain greedy generation.
         // Produces output identical to greedy AR (validated P2) but with fewer trunk forwards.
-        let mtpEligible = MTPRuntime.shared.active != nil
+        let mtpEligible = mtpBinding != nil
             && (temperature ?? 0) <= 0.0
             && (tools?.isEmpty ?? true)
             && responseFormat == nil
             && !wantLogprobs
         if mtpEligible {
             if let mtpResult = try await container.perform({ context -> (String, Int, Int)? in
-                guard let gen = MTPRuntime.shared.active else { return nil }
+                guard let gen = mtpBinding?.generator else { return nil }
                 let lmInput = try await context.processor.prepare(input: scratch.userInput)
                 if self.isMultimodalInput(lmInput) { return nil }   // MTP is text-only
                 let promptIds = self.extractTokenArray(lmInput)
@@ -2085,11 +2301,16 @@ public final class MLXModelService: @unchecked Sendable {
             let seqLen = tokens.dim(ndim - 1)
             var generated = ""
             var templateInjectedThink = false
-            if let thinkStart, seqLen >= 2 {
+            if let thinkStart, seqLen > 0 {
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = tokenizer.decode(tokens: lastTwo)
-                if decoded.contains(thinkStart) {
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = tokenizer.decode(tokens: suffix)
+                if Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                ) {
                     generated = thinkStart
                     templateInjectedThink = true
                 }
@@ -2343,11 +2564,16 @@ public final class MLXModelService: @unchecked Sendable {
             let seqLen = tokens.dim(ndim - 1)
             var out = ""
             var templateInjectedThink = false
-            if let thinkStart, seqLen >= 2 {
+            if let thinkStart, seqLen > 0 {
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = context.tokenizer.decode(tokens: lastTwo)
-                if decoded.contains(thinkStart) {
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = context.tokenizer.decode(tokens: suffix)
+                if Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                ) {
                     out = thinkStart
                     templateInjectedThink = true
                 }
@@ -2832,7 +3058,9 @@ public final class MLXModelService: @unchecked Sendable {
         // is created; the Task itself owns the normal endOperation() call.
 
         let modelID = try await ensureLoaded(model: model, countOperation: false)
-        guard let container = withStateLock({ currentContainer }) else { throw MLXServiceError.noModelLoaded }
+        let runtime = try validatedRuntimeForRequest(modelID: modelID, messages: messages)
+        let container = runtime.container
+        let mtpBinding = runtime.mtpBinding
 
         let promptText = buildPrompt(from: messages)
         let toolSpecs = convertToToolSpecs(tools, includePythonJSON: shouldUseNativePythonToolJSONTemplate(for: tools))
@@ -2853,11 +3081,17 @@ public final class MLXModelService: @unchecked Sendable {
             chatTemplateKwargs: chatTemplateKwargs,
             includeSchemaInPrompt: chatTemplateKwargs?.afmIncludeSchemaInPrompt ?? true
         )
+        var streamOwnsTempFiles = false
+        defer {
+            if !streamOwnsTempFiles {
+                cleanupTempFiles(mediaTempFiles)
+            }
+        }
         let promptTokens = estimateTokens(promptText)
         let wantLogprobs = logprobs == true
-        let effectiveMaxTokens = capMaxTokensForCapture(maxTokens ?? 2000)
-        let streamRequestHasTools = !(tools?.isEmpty ?? true)
-
+        let effectiveMaxTokens = capMaxTokensForCapture(
+            maxTokens ?? Self.defaultMaximumResponseTokens
+        )
         // /metrics: streaming-path queue timestamp. The actual
         // requestStarted/observe calls happen ONLY in the serial-path
         // task below (the batch path's stats are owned by BatchScheduler).
@@ -2920,11 +3154,16 @@ public final class MLXModelService: @unchecked Sendable {
                 let tokens = input.text.tokens
                 let ndim = tokens.ndim
                 let seqLen = tokens.dim(ndim - 1)
-                guard seqLen >= 2 else { return false }
+                guard seqLen > 0 else { return false }
                 let flat = tokens.reshaped(-1)
-                let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                let decoded = scheduler.tokenizer.decode(tokens: lastTwo)
-                return decoded.contains(thinkStart)
+                let suffixStart = max(0, seqLen - 8)
+                let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                let decoded = scheduler.tokenizer.decode(tokens: suffix)
+                return Self.promptSuffixOpensThink(
+                    decoded,
+                    startTag: thinkStart,
+                    endTag: self.thinkEndTag
+                )
             }()
 
             let schedulerStream = scheduler.submit(
@@ -2999,7 +3238,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
         let dsparkStreamEligible = specGreedyStream && loadedSupportsDSpark
         let eagle3StreamEligible = specGreedyStream && Eagle3Runtime.shared.active != nil
-        let mtpStreamEligible = specGreedyStream && MTPRuntime.shared.active != nil
+        let mtpStreamEligible = specGreedyStream && mtpBinding != nil
         if dsparkStreamEligible || eagle3StreamEligible || mtpStreamEligible {
             // Prep prompt ids under the lock; nil => multimodal/empty/wrong-model => fall back to AR.
             // Also detect a template-opened think block (last prompt tokens contain thinkStart): for
@@ -3016,8 +3255,13 @@ public final class MLXModelService: @unchecked Sendable {
                 let ids = self.extractTokenArray(lmInput)
                 if ids.isEmpty { return nil }
                 var opened = false
-                if let ts = self.thinkStartTag, ids.count >= 2 {
-                    opened = context.tokenizer.decode(tokens: Array(ids.suffix(2))).contains(ts)
+                if let ts = self.thinkStartTag, !ids.isEmpty {
+                    let decoded = context.tokenizer.decode(tokens: Array(ids.suffix(8)))
+                    opened = Self.promptSuffixOpensThink(
+                        decoded,
+                        startTag: ts,
+                        endTag: self.thinkEndTag
+                    )
                 }
                 return (ids, opened)
             }
@@ -3031,6 +3275,7 @@ public final class MLXModelService: @unchecked Sendable {
                 let thinkStartTag = self.thinkStartTag
                 let stream = AsyncThrowingStream<StreamChunk, Error> { continuation in
                     let task = Task {
+                        defer { self.cleanupTempFiles(mediaTempFiles) }
                         StatsAggregator.shared.requestStarted()
                         if openedThink, let thinkStartTag {
                             continuation.yield(StreamChunk(text: thinkStartTag))
@@ -3067,7 +3312,7 @@ public final class MLXModelService: @unchecked Sendable {
                                     _ = g.generateSpeculative(model: model, promptIds: promptIds,
                                                               maxTokens: maxTok, eosIds: eos,
                                                               blockSize: block, onToken: emit)
-                                } else if let gen = MTPRuntime.shared.active {
+                                } else if let gen = mtpBinding?.generator {
                                     _ = gen.generate(promptIds: promptIds, maxTokens: maxTok,
                                                      eosIds: eos, onToken: emit)
                                 }
@@ -3096,6 +3341,7 @@ public final class MLXModelService: @unchecked Sendable {
                     // Cancel the decode if the SSE client disconnects (frees the serial lock + GPU).
                     continuation.onTermination = { _ in task.cancel() }
                 }
+                streamOwnsTempFiles = true
                 endOperationOnExit = false
                 return (modelID, stream, promptTokens, nil, nil, self.thinkStartTag, self.thinkEndTag)
             }
@@ -3174,11 +3420,16 @@ public final class MLXModelService: @unchecked Sendable {
                         let tokens = input.text.tokens
                         let ndim = tokens.ndim
                         let seqLen = tokens.dim(ndim - 1)
-                        if let thinkStart, seqLen >= 2 {
+                        if let thinkStart, seqLen > 0 {
                             let flat = tokens.reshaped(-1)
-                            let lastTwo = flat[seqLen - 2 ..< seqLen].asArray(Int.self)
-                            let decoded = context.tokenizer.decode(tokens: lastTwo)
-                            if decoded.contains(thinkStart) {
+                            let suffixStart = max(0, seqLen - 8)
+                            let suffix = flat[suffixStart ..< seqLen].asArray(Int.self)
+                            let decoded = context.tokenizer.decode(tokens: suffix)
+                            if Self.promptSuffixOpensThink(
+                                decoded,
+                                startTag: thinkStart,
+                                endTag: self.thinkEndTag
+                            ) {
                                 continuation.yield(StreamChunk(text: thinkStart))
                                 templateInjectedThink = true
                             }
@@ -3630,6 +3881,7 @@ public final class MLXModelService: @unchecked Sendable {
             toolTags = nil
         }
 
+        streamOwnsTempFiles = true
         endOperationOnExit = false
         return (modelID, stream, promptTokens, toolTags?.start, toolTags?.end, self.thinkStartTag, self.thinkEndTag)
     }
@@ -3660,6 +3912,7 @@ public final class MLXModelService: @unchecked Sendable {
                 currentContainer = nil
                 currentModelID = nil
                 currentModelArchitecture = nil
+                currentMTPBinding = nil
             }
         }
 
@@ -4204,6 +4457,18 @@ public final class MLXModelService: @unchecked Sendable {
             if let jsonData = normalized.data(using: .utf8),
                let parsed = try? JSONSerialization.jsonObject(with: jsonData) {
                 return parsed
+            }
+            if schemaType == "array" {
+                // ATEM and XML models occasionally emit a plain scalar or a
+                // comma/newline-delimited list despite an array schema. Keep
+                // the OpenAI tool contract type-safe at the serving boundary.
+                let elements = normalized
+                    .split(whereSeparator: { $0 == "," || $0 == "\n" })
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !elements.isEmpty {
+                    return elements
+                }
             }
             return nil
         default:
@@ -5024,16 +5289,184 @@ public final class MLXModelService: @unchecked Sendable {
             let cache = HubCache(cacheDirectory: cacheDir)
             print("Download destination: \(cacheDir.path)")
             let client = HuggingFace.HubClient(cache: cache)
-            // No @MainActor progress handler — it deadlocks in single-prompt mode
-            // because MainActor is suspended waiting for downloadSnapshot to return.
-            // The spinner is driven by MLXLoadReporter independently.
-            _ = try await client.downloadSnapshot(
-                of: repoID,
-                matching: ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
-            )
+            let patterns = ["*.json", "*.jinja", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "tokenizer*", "*.bpe", "*.bin"]
+            let revision = try await client.getModel(repoID).sha
+            let manifest = try await client.listFiles(
+                in: repoID,
+                revision: revision ?? "main").filter { entry in
+                patterns.contains { fnmatch($0, entry.path, 0) == 0 }
+            }
+            if let revision, !manifest.isEmpty {
+                print("Hugging Face transport: explicit (small=LFS, large=Xet-first with LFS fallback)")
+                try await downloadManifest(
+                    manifest,
+                    repoID: repoID,
+                    revision: revision,
+                    cache: cache,
+                    client: client,
+                    progressHandler: progress)
+            } else {
+                // Retain the official snapshot fallback for repositories whose
+                // API metadata does not expose a commit SHA.
+                _ = try await client.downloadSnapshot(
+                    of: repoID,
+                    matching: patterns
+                )
+            }
         } catch {
             throw MLXServiceError.downloadFailed("\(modelID): \(error.localizedDescription)")
         }
+    }
+
+    private func downloadManifest(
+        _ entries: [Git.TreeEntry],
+        repoID: HuggingFace.Repo.ID,
+        revision: String,
+        cache: HubCache,
+        client: HuggingFace.HubClient,
+        progressHandler: (@Sendable (Progress) -> Void)?
+    ) async throws {
+        let total = entries.reduce(Int64(0)) { partial, entry in
+            partial + max(Int64(entry.size ?? 1), 1)
+        }
+        let aggregate = Progress(totalUnitCount: max(total, 1))
+        let files = try entries.map { entry in
+            let weight = max(Int64(entry.size ?? 1), 1)
+            let blobKey = Self.hubBlobKey(
+                repoID: repoID,
+                revision: revision,
+                entry: entry)
+            let destination = try cache.blobPath(
+                repo: repoID,
+                kind: .model,
+                etag: blobKey)
+            return AFMDownloadProgressUserInfo.File(
+                path: entry.path,
+                expectedBytes: weight,
+                destination: destination,
+                progress: Progress(totalUnitCount: weight))
+        }
+
+        let monitor = Task {
+            while !Task.isCancelled {
+                AFMDownloadProgressUserInfo.enrich(aggregate, files: files)
+                progressHandler?(aggregate)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { monitor.cancel() }
+
+        let indexed = Array(zip(entries.indices, entries))
+        let lfsEntries = indexed.filter { ($0.1.size ?? 0) < 16 * 1024 * 1024 }
+        let xetEntries = indexed.filter { ($0.1.size ?? 0) >= 16 * 1024 * 1024 }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var active = 0
+            for (index, entry) in lfsEntries {
+                while active >= 4 {
+                    if try await group.next() != nil { active -= 1 }
+                }
+                group.addTask {
+                    do {
+                        files[index].setTransport("lfs")
+                        try FileManager.default.createDirectory(
+                            at: files[index].destination!.deletingLastPathComponent(),
+                            withIntermediateDirectories: true)
+                        _ = try await client.downloadFile(
+                            entry,
+                            from: repoID,
+                            to: files[index].destination,
+                            revision: revision,
+                            progress: files[index].progress,
+                            transport: .lfs)
+                        try await cache.storeFile(
+                            at: files[index].destination!,
+                            repo: repoID,
+                            kind: .model,
+                            revision: revision,
+                            filename: entry.path,
+                            etag: Self.hubBlobKey(
+                                repoID: repoID,
+                                revision: revision,
+                                entry: entry),
+                            ref: "main")
+                        files[index].progress.totalUnitCount = files[index].expectedBytes
+                        files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+                    } catch {
+                        throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
+                    }
+                }
+                active += 1
+            }
+            for try await _ in group {}
+        }
+
+        // Large files are processed sequentially while each Xet transfer uses
+        // its own parallel CAS fetches. Try Xet explicitly so logs/progress can
+        // report the transport that actually succeeded; fall back to LFS only
+        // when Xet is unavailable for that file/environment.
+        for (index, entry) in xetEntries {
+            do {
+                try FileManager.default.createDirectory(
+                    at: files[index].destination!.deletingLastPathComponent(),
+                    withIntermediateDirectories: true)
+                do {
+                    files[index].setTransport("xet")
+                    print("Hugging Face transport selected: xet file=\(entry.path)")
+                    _ = try await client.downloadFile(
+                        entry,
+                        from: repoID,
+                        to: files[index].destination,
+                        revision: revision,
+                        progress: files[index].progress,
+                        transport: .xet)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    files[index].setTransport("xet-fallback-lfs")
+                    print("Hugging Face transport fallback: xet failed for \(entry.path): \(error.localizedDescription); retrying with lfs")
+                    try? FileManager.default.removeItem(at: files[index].destination!)
+                    _ = try await client.downloadFile(
+                        entry,
+                        from: repoID,
+                        to: files[index].destination,
+                        revision: revision,
+                        progress: files[index].progress,
+                        transport: .lfs)
+                }
+                try await cache.storeFile(
+                    at: files[index].destination!,
+                    repo: repoID,
+                    kind: .model,
+                    revision: revision,
+                    filename: entry.path,
+                    etag: Self.hubBlobKey(
+                        repoID: repoID,
+                        revision: revision,
+                        entry: entry),
+                    ref: "main")
+                files[index].progress.totalUnitCount = files[index].expectedBytes
+                files[index].progress.completedUnitCount = files[index].progress.totalUnitCount
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw MLXServiceError.downloadFailed("\(entry.path): \(error.localizedDescription)")
+            }
+        }
+        AFMDownloadProgressUserInfo.enrich(aggregate, files: files)
+        progressHandler?(aggregate)
+    }
+
+    private static func hubBlobKey(
+        repoID: HuggingFace.Repo.ID,
+        revision: String,
+        entry: Git.TreeEntry
+    ) -> String {
+        let identity = "\(repoID.description)|\(revision)|\(entry.path)|\(entry.oid ?? "")"
+        return SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func inferToolCallFormat(directory: URL) -> ToolCallFormat? {
@@ -5559,19 +5992,6 @@ public final class MLXModelService: @unchecked Sendable {
         return required
     }
 
-    /// Returns true when the model has a VLM config layout that can't be loaded
-    /// correctly by the LLM factory.  VLM models like gemma-3 store architecture
-    /// fields (num_attention_heads, head_dim, etc.) only inside text_config, not at
-    /// the top level.  The LLM factory's Codable config fills in wrong defaults for
-    /// these missing fields, causing inference crashes.
-    ///
-    /// Models like Qwen3.5-35B-A3B also have text_config but their LLM model class
-    /// (Qwen3_5MoE) properly reads from text_config with full field coverage.
-    /// We detect the "sparse text_config" case by checking for missing key fields.
-    private func isVLMOnlyConfig(directory: URL) -> Bool {
-        AFMMLXModelDescriptor.requiresVisionModelFactory(in: directory)
-    }
-
     private func isVisionModel(directory: URL) throws -> Bool {
         let config = directory.appendingPathComponent("config.json")
         guard let data = try? Data(contentsOf: config),
@@ -5597,8 +6017,83 @@ public final class MLXModelService: @unchecked Sendable {
         return false
     }
 
+    private func validatedRuntimeForRequest(
+        modelID: String,
+        messages: [AFMOpenAICompat.Message]
+    ) throws -> (container: ModelContainer, mtpBinding: MTPGeneratorBinding?) {
+        let state = withStateLock {
+            (currentContainer, currentModelArchitecture, currentMTPBinding, currentModelID == modelID)
+        }
+        guard let container = state.0, state.3 else { throw MLXServiceError.noModelLoaded }
+        guard let architecture = state.1 else {
+            throw MLXServiceError.loadFailed("\(modelID): model architecture is unavailable")
+        }
+
+        for message in messages {
+            guard let content = message.content, case .parts(let parts) = content else { continue }
+            for part in parts {
+                guard let kind = AFMMLXRequestMediaPolicy.kind(
+                    contentPartType: part.type,
+                    mediaURL: part.image_url?.url
+                ) else { continue }
+                guard AFMMLXRequestMediaPolicy.supports(kind, architecture: architecture) else {
+                    let label: String
+                    switch kind {
+                    case .image: label = "image"
+                    case .video: label = "video"
+                    case .audio: label = "audio"
+                    }
+                    throw MLXServiceError.loadFailed(
+                        "\(modelID): \(label) input is not supported by the loaded MLX model"
+                    )
+                }
+            }
+        }
+        let binding = AFMMLXMTPRuntimePolicy.bindingIsUsable(
+            for: modelID,
+            mtpEnabled: mtpEnabled,
+            bindingModelID: state.2?.modelID
+        ) ? state.2 : nil
+        return (container, binding)
+    }
+
     private func buildPrompt(from messages: [AFMOpenAICompat.Message]) -> String {
         messages.map { "\($0.role): \($0.textContent)" }.joined(separator: "\n")
+    }
+
+    static func normalizeReasoningKwargs(
+        _ kwargs: [String: any Sendable],
+        canonicalModelType: String?,
+        forceDisableThinking: Bool
+    ) -> (kwargs: [String: any Sendable], note: String?) {
+        guard canonicalModelType == "muse_glimmer" else {
+            return (kwargs, nil)
+        }
+
+        var normalized = kwargs
+        let explicitNoThinking = forceDisableThinking
+            || (normalized["enable_thinking"] as? Bool) == false
+        let effort = (normalized["reasoning_effort"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if explicitNoThinking {
+            normalized["reasoning_strength"] = "low"
+            normalized.removeValue(forKey: "reasoning_effort")
+            normalized.removeValue(forKey: "enable_thinking")
+            return (
+                normalized,
+                "Muse Glimmer does not expose an off switch in its template; using reasoning_strength=low"
+            )
+        }
+
+        if normalized["reasoning_strength"] == nil, let effort {
+            normalized["reasoning_strength"] = effort
+        }
+
+        normalized.removeValue(forKey: "reasoning_effort")
+        normalized.removeValue(forKey: "enable_thinking")
+        return (normalized, nil)
     }
 
     private func buildUserInput(
@@ -5611,6 +6106,12 @@ public final class MLXModelService: @unchecked Sendable {
         var chatMessages: [Chat.Message] = []
         var hasSystemMessage = false
         var allTempFiles: [URL] = []
+        var callerOwnsTempFiles = false
+        defer {
+            if !callerOwnsTempFiles {
+                cleanupTempFiles(allTempFiles)
+            }
+        }
         // Merge consecutive system/developer messages into one so that Jinja
         // templates requiring a single system message at position 0 don't fail
         // (e.g. Qwen3.5). The OpenAI API allows multiple system messages, so
@@ -5746,6 +6247,7 @@ public final class MLXModelService: @unchecked Sendable {
         }
 
         if chatMessages.isEmpty {
+            callerOwnsTempFiles = true
             return (UserInput(prompt: ""), tempFiles: allTempFiles)
         }
 
@@ -5835,6 +6337,15 @@ public final class MLXModelService: @unchecked Sendable {
         let promptArchitecture = withStateLock {
             currentModelArchitecture?.canonicalModelType
         }
+        let reasoningNormalization = Self.normalizeReasoningKwargs(
+            resolvedKwargs,
+            canonicalModelType: promptArchitecture,
+            forceDisableThinking: forceDisableThinking
+        )
+        resolvedKwargs = reasoningNormalization.kwargs
+        if let note = reasoningNormalization.note {
+            print("[\(ts())] [Think] \(note)")
+        }
         let usesDeepseekV4Encoder = promptArchitecture == "deepseek_v4"
         print(
             "[\(ts())] [ChatTemplate] architecture=\(promptArchitecture ?? "unavailable") "
@@ -5852,6 +6363,7 @@ public final class MLXModelService: @unchecked Sendable {
                 additionalContext: additionalContext,
                 addGenerationPrompt: true
             )
+            callerOwnsTempFiles = true
             return (
                 UserInput(
                     prompt: .text(prompt),
@@ -5873,6 +6385,7 @@ public final class MLXModelService: @unchecked Sendable {
             }
         }
 
+        callerOwnsTempFiles = true
         return (input, tempFiles: allTempFiles)
     }
 
@@ -5950,10 +6463,17 @@ public final class MLXModelService: @unchecked Sendable {
             } else if let url = URL(string: raw),
                       let scheme = url.scheme, scheme == "http" || scheme == "https" {
                 let (data, _) = try awaitURL(url: url)
-                let temp = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("afm_mlx_image_\(UUID().uuidString).\(url.pathExtension.isEmpty ? "jpg" : url.pathExtension)")
+                let ext = url.pathExtension.lowercased()
+                let isVideo = Self.videoExtensions.contains(ext)
+                let temp = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    "afm_mlx_\(isVideo ? "video" : "image")_\(UUID().uuidString).\(ext.isEmpty ? (isVideo ? "mp4" : "jpg") : ext)"
+                )
                 try data.write(to: temp)
-                images.append(.url(temp))
+                if isVideo {
+                    videos.append(.url(temp))
+                } else {
+                    images.append(.url(temp))
+                }
                 tempFiles.append(temp)
             } else if let url = URL(string: raw) {
                 let ext = url.pathExtension.lowercased()
@@ -6322,15 +6842,13 @@ public final class MLXModelService: @unchecked Sendable {
         input.image != nil || input.video != nil
     }
 
-    /// Check the OpenAI request shape before preparing UserInput, so multimodal/audio
-    /// inputs can stay on the legacy container.perform path.
+    /// Keep media requests on the processor-backed path; the lock-free text
+    /// adapter intentionally accepts text-only OpenAI content.
     private func isTextOnlyInput(_ messages: [AFMOpenAICompat.Message]) -> Bool {
         for message in messages {
-            guard let content = message.content else { continue }
-            if case .parts(let parts) = content {
-                if parts.contains(where: { $0.type != "text" }) {
-                    return false
-                }
+            guard let content = message.content, case .parts(let parts) = content else { continue }
+            if parts.contains(where: { $0.type != "text" }) {
+                return false
             }
         }
         return true
@@ -6784,6 +7302,22 @@ public final class MLXModelService: @unchecked Sendable {
     {%- endif %}
     """
 
+    static func promptSuffixOpensThink(
+        _ decodedSuffix: String,
+        startTag: String,
+        endTag: String?
+    ) -> Bool {
+        guard let startRange = decodedSuffix.range(of: startTag, options: .backwards) else {
+            return false
+        }
+        guard let endTag,
+              let endRange = decodedSuffix.range(of: endTag, options: .backwards)
+        else {
+            return true
+        }
+        return startRange.lowerBound > endRange.lowerBound
+    }
+
     /// Adapted from vLLM's tool_chat_template_mistral.jinja — Mistral v7 format.
     /// Modifications: wraps tool calls in <tool_call>/<\/tool_call> instead of [TOOL_CALLS],
     /// removes raise_exception calls, simplified tool_call_id handling.
@@ -6871,6 +7405,7 @@ extension MLXModelService: AFMMLXServingConfigurationProviding {
             thinkStartTag: thinkStartTag,
             thinkEndTag: thinkEndTag,
             harmonyChannels: harmonyChannels,
+            responseChannelFormat: responseChannelFormat,
             structuralStripTags: structuralStripTags,
             fixToolArguments: fixToolArgs,
             grammarConstraintsEnabled: enableGrammarConstraints

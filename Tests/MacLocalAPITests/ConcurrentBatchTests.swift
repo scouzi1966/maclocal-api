@@ -1,6 +1,9 @@
 import Foundation
 import Testing
+import MLX
 import MLXLLM
+import MLXLMCommon
+import MLXVLM
 
 @testable import AFMKit
 @testable import AFMKitMLX
@@ -133,10 +136,101 @@ struct ConcurrentBatchTests {
         #expect(BatchScheduler.defaultMaxConcurrent == 8)
     }
 
-    @Test("BatchScheduler rejects DeepSeek hybrid cache from dense batching")
-    func rejectsDeepseekHybridCacheFromDenseBatching() {
+    @Test("BatchScheduler admission window is enabled for burst fairness")
+    func defaultAdmissionWindowEnabled() {
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds > 0)
+        #expect(BatchScheduler.defaultAdmissionWindowNanoseconds <= 20_000_000)
+    }
+
+    @Test("Gemma 4 defers staggered arrivals until the active cohort drains")
+    func gemma4DefersStaggeredAdmissions() {
+        #expect(BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 1))
+        #expect(BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 8))
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: true, activeSlotCount: 0))
+    }
+
+    @Test("Other models continue admitting requests into active batches")
+    func nonGemmaModelsAdmitStaggeredRequests() {
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: false, activeSlotCount: 4))
+        #expect(!BatchScheduler.shouldDeferStaggeredAdmissions(
+            requiresFixedDecodeCohorts: false, activeSlotCount: 0))
+    }
+
+    @Test("Gemma text and vision models advertise fixed decode cohorts")
+    func gemmaVariantsAdvertiseFixedDecodeCohorts() {
+        #expect(BatchScheduler.requiresFixedDecodeCohorts(for: Gemma4Model.self))
+        #expect(BatchScheduler.requiresFixedDecodeCohorts(for: Gemma4VLM.self))
+        #expect(!BatchScheduler.requiresFixedDecodeCohorts(for: Qwen3Model.self))
+    }
+
+    @Test("BatchScheduler supports DeepSeek hybrid cache through its batch container")
+    func supportsDeepseekHybridCacheBatching() {
         let cache = DeepseekV4Cache(slidingWindow: 128, compressRatio: 4)
-        #expect(!BatchScheduler.supportsDenseBatchMerge(cache))
+        #expect(BatchScheduler.supportsDenseBatchMerge(cache))
+    }
+
+    @Test("DeepSeek batch cache preserves independent hybrid state")
+    func deepseekBatchCachePreservesIndependentState() {
+        func makeCache(offset: Int, poolRows: Int, bufferRows: Int) -> DeepseekV4Cache {
+            let cache = DeepseekV4Cache(
+                slidingWindow: 128,
+                compressRatio: 4,
+                poolQuantizationEnabled: false)
+            if offset > 0 {
+                _ = cache.update(
+                    keys: MLXArray.zeros([1, 2, offset, 8], dtype: .float16),
+                    values: MLXArray.zeros([1, 2, offset, 8], dtype: .float16))
+            }
+            cache.setPooled(
+                .compressor,
+                value: MLXArray.zeros([1, poolRows, 16], dtype: .float16))
+            cache.setPooled(
+                .indexer,
+                value: MLXArray.zeros([1, poolRows + 1, 8], dtype: .float16))
+            cache.setBuffers(
+                .compressor,
+                kv: MLXArray.zeros([1, bufferRows, 16], dtype: .float16),
+                gate: MLXArray.zeros([1, bufferRows, 2], dtype: .float16))
+            cache.setBuffers(
+                .indexer,
+                kv: MLXArray.zeros([1, bufferRows + 1, 8], dtype: .float16),
+                gate: MLXArray.zeros([1, bufferRows + 1, 2], dtype: .float16))
+            return cache
+        }
+
+        let first = makeCache(offset: 3, poolRows: 2, bufferRows: 1)
+        let second = makeCache(offset: 7, poolRows: 5, bufferRows: 3)
+        let third = makeCache(offset: 11, poolRows: 7, bufferRows: 2)
+        let batch = BatchDeepseekV4Cache.merge([first, second])
+
+        #expect(batch.count == 2)
+        #expect(batch.offset == 7)
+        #expect(batch.cache(at: 0).offset == 3)
+        #expect(batch.cache(at: 1).offset == 7)
+        #expect(batch.cache(at: 0).getPooled(.compressor)?.dim(1) == 2)
+        #expect(batch.cache(at: 1).getPooled(.compressor)?.dim(1) == 5)
+        #expect(batch.cache(at: 0).getBuffers(.compressor).kv?.dim(1) == 1)
+        #expect(batch.cache(at: 1).getBuffers(.compressor).kv?.dim(1) == 3)
+
+        batch.extend(with: third)
+        #expect(batch.count == 3)
+        #expect(batch.offset == 11)
+
+        let extracted = batch.extract(1)
+        #expect(extracted.offset == 7)
+        #expect(extracted.getPooled(.indexer)?.dim(1) == 6)
+        #expect(extracted.getBuffers(.indexer).kv?.dim(1) == 4)
+
+        batch.filter([2, 0])
+        #expect(batch.count == 2)
+        #expect(batch.cache(at: 0).offset == 11)
+        #expect(batch.cache(at: 1).offset == 3)
+        #expect(batch.cache(at: 0).getPooled(.compressor)?.dim(1) == 7)
+        #expect(batch.cache(at: 1).getPooled(.compressor)?.dim(1) == 2)
     }
 
     @Test("BatchScheduler preserves reusable partial prefixes for individual prefill")
@@ -161,7 +255,8 @@ struct ConcurrentBatchTests {
             matchedPrefix: 59,
             inputTokenCount: 59,
             hasRecurrentLayers: true,
-            forcedSuffix: nil
+            forcedSuffix: nil,
+            sourceTokenCount: 59
         ) == 0)
         #expect(BatchScheduler.effectiveCachedPrefixLength(
             matchedPrefix: 59,
@@ -187,6 +282,57 @@ struct ConcurrentBatchTests {
             forcedSuffix: nil,
             sourceTokenCount: 60
         ) == 60)
+    }
+
+    @Test("BatchScheduler restores exact DeepSeek prompt-minus-one boundary")
+    func recurrentExactBoundaryRestore() {
+        #expect(BatchScheduler.effectiveCachedPrefixLength(
+            matchedPrefix: 58,
+            inputTokenCount: 59,
+            hasRecurrentLayers: true,
+            forcedSuffix: nil,
+            sourceTokenCount: 58
+        ) == 58)
+    }
+
+    @Test("BatchScheduler snapshots generic recurrent caches at a replay boundary")
+    func genericRecurrentBoundarySnapshot() {
+        #expect(BatchScheduler.requiresReplayBoundarySnapshot([
+            MambaCache(), KVCacheSimple()
+        ]))
+        #expect(!BatchScheduler.requiresReplayBoundarySnapshot([
+            KVCacheSimple(), KVCacheSimple()
+        ]))
+    }
+
+    @Test("BatchScheduler bounds recurrent prefix checkpoints")
+    func recurrentCheckpointSelection() {
+        #expect(BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 0,
+            finalBoundary: 870
+        ) == [256, 512, 768])
+        let long = BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 0,
+            finalBoundary: 32_767
+        )
+        #expect(long.count == 7)
+        #expect(long.last! < 32_767)
+        #expect(BatchScheduler.recurrentCheckpointBoundaries(
+            restoredPrefix: 768,
+            finalBoundary: 870
+        ).isEmpty)
+    }
+
+    @Test("BatchScheduler cache snapshot owns independent MLX storage")
+    func cacheSnapshotOwnsIndependentStorage() {
+        let backing = MLXArray([Int32(10), Int32(20), Int32(30), Int32(40)])
+        let snapshot = BatchScheduler.snapshotCacheState([backing])[0]
+        MLX.eval([snapshot])
+
+        backing[..<3] = MLXArray([Int32(90), Int32(91), Int32(92)])
+        MLX.eval([backing])
+
+        #expect(snapshot.asArray(Int32.self) == [10, 20, 30, 40])
     }
 
     @Test("BatchScheduler emits only completed tool calls from slot runtime events")
@@ -307,8 +453,8 @@ struct ConcurrentBatchTests {
         #expect(readCompleted[0].function.name == "read_file")
     }
 
-    @Test("BatchScheduler emits delta chunks before completed tool call chunks")
-    func streamChunksPreserveDeltaBeforeCompletedOrdering() {
+    @Test("BatchScheduler preserves completed aggregate after argument deltas")
+    func streamChunksPreserveCompletedAggregateAfterDeltas() {
         let events: [ToolCallStreamingEvent] = [
             .started,
             .appendCollected(ResponseToolCall(
@@ -336,8 +482,9 @@ struct ConcurrentBatchTests {
         #expect(chunks.count == 2)
         #expect(chunks[0].toolCallDeltas?.count == 1)
         #expect(chunks[0].toolCalls == nil)
-        #expect(chunks[1].toolCalls?.count == 1)
         #expect(chunks[1].toolCallDeltas == nil)
+        #expect(chunks[1].toolCalls?.count == 1)
+        #expect(chunks[1].toolCalls?.first?.function.name == "get_weather")
         #expect(chunks[1].toolCalls?.first?.function.arguments == #"{"location":"Berlin"}"#)
     }
 

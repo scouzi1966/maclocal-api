@@ -12,11 +12,49 @@ The package exposes dependency-scoped products:
 - `AFMKitFoundationModels`: Apple's Foundation Models service and schema bridge.
 - `AFMKitFoundationModels27`: macOS 27 adapters that expose AFMKit models through
   Apple's `LanguageModel` and `LanguageModelExecutor` protocols.
+- `AFMKitFoundationModels27DwarfStar`: opt-in macOS 27 DwarfStar adapter. Keeping
+  it separate prevents MLX-only consumers from linking the DS4 runtime and resources.
 - `AFMKitServices`: Apple Vision, Speech, synthesis, and NaturalLanguage embeddings.
 
 `AFMKit` remains the compatibility umbrella during migration. It re-exports
 these products so existing consumers do not need immediate import changes.
 New libraries should import only the products they use.
+
+## macOS 27 Provider Contract
+
+The primary extension surface on macOS 27 is Apple's own `LanguageModel` and
+`LanguageModelExecutor` protocol pair. AFMKit does not replace that contract.
+It supplies reusable public adapters so a Swift package can implement an
+execution engine while retaining the behavior expected by
+`LanguageModelSession`:
+
+- `AFMFoundationModelsRequestAdapter` converts Apple transcripts, tool schemas,
+  sampling options, reasoning levels, and structured-output schemas.
+- `AFMFoundationModelsExecutorBridge` converts portable AFMKit generation events
+  into Apple's response, reasoning, tool-call, usage, metadata, and completion
+  channel events.
+- `AFMFoundationModelsModelConfiguration` declares the small amount of model
+  configuration needed by the shared request adapter.
+
+AFMKit includes `MLXLanguageModel` and `DwarfStarLanguageModel` as concrete
+examples. Applications use either one with Apple's API directly:
+
+```swift
+import AFMKitFoundationModels27DwarfStar
+import FoundationModels
+
+let model = DwarfStarLanguageModel(
+    modelPath: "/path/to/deepseek-v4-flash.gguf"
+)
+let session = LanguageModelSession(model: model)
+let response = try await session.respond(to: "Use the available tools if needed.")
+```
+
+A third-party provider follows the same pattern: define a `LanguageModel`,
+implement its `LanguageModelExecutor`, translate the Apple generation request
+with the public request adapter, and send typed events through the public
+executor bridge. This preserves source-level compatibility with Apple's macOS
+27 framework while allowing the inference engine to be replaced independently.
 
 ## MLX Provider
 

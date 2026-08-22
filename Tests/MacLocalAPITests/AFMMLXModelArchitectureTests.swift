@@ -1,4 +1,6 @@
+import Foundation
 import XCTest
+import MLXVLM
 @testable import AFMKitMLX
 
 final class AFMMLXModelArchitectureTests: XCTestCase {
@@ -49,6 +51,7 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("qwen3_vl"))
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("deepseek_v4"))
         XCTAssertTrue(AFMMLXModelArchitecture.isSupported("afmoe"))
+        XCTAssertTrue(AFMMLXModelArchitecture.isSupported("muse_glimmer"))
         XCTAssertFalse(AFMMLXModelArchitecture.isSupported("unknown_arch"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.crashesMetal("afmoe"))
@@ -63,7 +66,92 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
 
         XCTAssertTrue(AFMMLXModelArchitecture.isVisionModelType("qwen3.5"))
         XCTAssertTrue(AFMMLXModelArchitecture.isDualModeModelType("qwen3.5"))
+        XCTAssertTrue(AFMMLXModelArchitecture.isVisionModelType("muse_glimmer"))
+        XCTAssertFalse(AFMMLXModelArchitecture.isLanguageModelType("muse_glimmer"))
+        XCTAssertFalse(AFMMLXModelArchitecture.isDualModeModelType("muse_glimmer"))
         XCTAssertFalse(AFMMLXModelArchitecture.isDualModeModelType("qwen3_vl"))
+    }
+
+    func testMuseGlimmerConfigurationUsesVisionFactory() throws {
+        let config: [String: Any] = [
+            "model_type": "muse_glimmer",
+            "architectures": ["MuseGlimmerForConditionalGeneration"],
+            "image_token_id": 200092,
+            "text_config": [
+                "model_type": "muse_glimmer_text",
+                "num_attention_heads": 32,
+            ],
+            "vision_config": ["model_type": "muse_glimmer_vision"],
+        ]
+        XCTAssertFalse(AFMMLXModelArchitecture.isDualModeConfiguration(config))
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            config, modelID: "mlx-community/Muse-Glimmer-30B-4bit")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertTrue(preflight.requiresVisionModelFactory)
+    }
+
+    func testMuseGlimmerPublishedConfigDecodesArchitectureFieldsWithoutModelIDHeuristics() throws {
+        let configData = try JSONSerialization.data(withJSONObject: [
+            "model_type": "muse_glimmer",
+            "architectures": ["MuseGlimmerForConditionalGeneration"],
+            "image_token_id": 200092,
+            "video_token_id": 200091,
+            "text_config": [
+                "model_type": "muse_glimmer_text",
+                "hidden_size": 6656,
+                "num_hidden_layers": 52,
+                "num_attention_heads": 32,
+                "layer_types": ["sliding_attention", "full_attention"],
+                "layer_rope_theta": [500000.0, 0],
+                "qk_scale_factor": 3.87,
+            ],
+            "vision_config": [
+                "model_type": "muse_glimmer_vision",
+                "hidden_size": 1536,
+                "num_hidden_layers": 50,
+            ],
+        ])
+        let decoded = try JSONSerialization.jsonObject(with: configData) as! [String: Any]
+
+        XCTAssertEqual(decoded["model_type"] as? String, "muse_glimmer")
+        XCTAssertEqual((decoded["text_config"] as? [String: Any])?["hidden_size"] as? Int, 6656)
+        XCTAssertEqual((decoded["vision_config"] as? [String: Any])?["num_hidden_layers"] as? Int, 50)
+
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            decoded, modelID: "arbitrary/local-folder")
+        XCTAssertEqual(preflight.canonicalModelType, "muse_glimmer")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertTrue(preflight.requiresVisionModelFactory)
+        XCTAssertEqual(
+            AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: preflight),
+            .vlm)
+    }
+
+    func testMuseGlimmerFactorySelectionIsArchitectureDriven() throws {
+        let config: [String: Any] = [
+            "model_type": "muse_glimmer",
+            "architectures": ["MuseGlimmerForConditionalGeneration"],
+            "text_config": ["hidden_size": 6656],
+            "vision_config": ["hidden_size": 1536],
+        ]
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            config, modelID: "some-owner/not-muse-named-directory")
+        let plan = AFMMLXRemoteModelLoadPolicy.plan(
+            repoID: "some-owner/not-muse-named-directory",
+            requestedIsVision: false,
+            forceLLMOnly: false,
+            preflight: preflight)
+
+        XCTAssertTrue(plan.isVision)
+        XCTAssertTrue(plan.correctedVisionFromRequest)
+        XCTAssertTrue(plan.forceLLMOnlyApplied == false)
+    }
+
+    func testUnsafeHybridArchitecturesForceSerialGeneration() {
+        XCTAssertTrue(MLXModelService.requiresSerialGeneration(canonicalModelType: "cohere2_moe"))
+        XCTAssertTrue(MLXModelService.requiresSerialGeneration(canonicalModelType: "muse_glimmer"))
+        XCTAssertFalse(MLXModelService.requiresSerialGeneration(canonicalModelType: "qwen3"))
+        XCTAssertFalse(MLXModelService.requiresSerialGeneration(canonicalModelType: "nemotron_h"))
     }
 
     func testDualModeConfigurationRequiresVisionConfig() {
@@ -114,6 +202,32 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
         XCTAssertTrue(preflight.isVisionConfiguration)
         XCTAssertTrue(preflight.requiresVisionModelFactory)
+    }
+
+    func testQwen38PublishedConfigurationUsesExistingQwen35MultimodalArchitecture() throws {
+        let config = Qwen38PublishedConfigFixture.mxfp8
+
+        let preflight = try AFMMLXModelArchitecture.preflightConfiguration(
+            config,
+            modelID: "mlx-community/Qwen3.8-27B-mxfp8"
+        )
+
+        XCTAssertEqual(preflight.modelType, "qwen3_5")
+        XCTAssertEqual(preflight.canonicalModelType, "qwen3_5")
+        XCTAssertTrue(preflight.isVisionConfiguration)
+        XCTAssertFalse(preflight.requiresVisionModelFactory)
+        XCTAssertEqual(
+            AFMMLXModelFactoryPolicy.initialFactory(forceVLM: false, architecture: preflight),
+            .llm
+        )
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.image, architecture: preflight))
+        XCTAssertTrue(AFMMLXRequestMediaPolicy.supports(.video, architecture: preflight))
+        XCTAssertTrue(AFMMLXModelArchitecture.isDualModeConfiguration(config))
+    }
+
+    func testQwen38PublishedConfigurationDecodesWithQwen35VLMFactoryConfiguration() throws {
+        let data = try JSONSerialization.data(withJSONObject: Qwen38PublishedConfigFixture.mxfp8)
+        XCTAssertNoThrow(try JSONDecoder().decode(Qwen3_5MoEVLConfiguration.self, from: data))
     }
 
     func testDeepseekV40731PreflightUsesLanguageModelFactory() throws {
@@ -296,6 +410,7 @@ final class AFMMLXModelArchitectureTests: XCTestCase {
         XCTAssertFalse(AFMMLXModelArchitecture.matchesSupportedNamePattern("example/random-model"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.looksLikeDualMode("mlx-community/Qwen3.5-35B-A3B-4bit"))
+        XCTAssertTrue(AFMMLXModelArchitecture.looksLikeDualMode("Qwen/Qwen3.8-27B-FP8"))
         XCTAssertFalse(AFMMLXModelArchitecture.looksLikeDualMode("mlx-community/Qwen3-VL-4B-Instruct"))
 
         XCTAssertTrue(AFMMLXModelArchitecture.looksLikeVisionModel("mlx-community/paligemma-3b"))

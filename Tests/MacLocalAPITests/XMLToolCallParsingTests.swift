@@ -1080,9 +1080,10 @@ struct XMLToolCallParsingTests {
         #expect(MLXModelService.coerceStringValue("abc", schemaType: "number") == nil)
     }
 
-    @Test("coerceStringValue returns nil for invalid JSON with array type")
-    func coerceStringValueInvalidArray() {
-        #expect(MLXModelService.coerceStringValue("not json", schemaType: "array") == nil)
+    @Test("coerceStringValue wraps a scalar in an array for array schemas")
+    func coerceStringValueScalarArray() {
+        let result = MLXModelService.coerceStringValue("not json", schemaType: "array") as? [String]
+        #expect(result == ["not json"])
     }
 
     @Test("coerceStringValue returns nil for invalid JSON with object type")

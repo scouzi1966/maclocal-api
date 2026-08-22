@@ -136,8 +136,8 @@ mkdir -p "$STAGING"
 
 cp "$BIN" "$STAGING/"
 
-# Runtime resource bundles. Both must remain beside the relocated executable.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+# Runtime resource bundles must remain beside the relocated executable.
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -147,12 +147,21 @@ for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bund
   log_info "Included runtime bundle: $BUNDLE_NAME"
 done
 
-# WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$STAGING/Resources/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
-  log_info "Included webui"
+# The server only opens the browser when the bundled WebUI can be resolved.
+# Build it on demand and require it in every stable package.
+WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
+if [ ! -f "$WEBUI" ]; then
+  log_info "WebUI artifact missing; building it..."
+  make webui
 fi
+if [ ! -f "$WEBUI" ]; then
+  log_error "Required WebUI artifact missing after build: $WEBUI"
+  exit 1
+fi
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
+mkdir -p "$STAGING/Resources/webui"
+cp "$WEBUI" "$STAGING/Resources/webui/"
+log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
 cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
@@ -160,6 +169,12 @@ cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
 TARBALL="$ROOT_DIR/afm-${TAG}-arm64.tar.gz"
 tar -czf "$TARBALL" -C "$STAGING" .
 log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
+
+"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
+ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-stable-archive-webui.html.gz"
+tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+rm -f "$ARCHIVE_WEBUI"
 
 # Step 4: Generate changelog (since last stable tag)
 log_info "Generating changelog..."
@@ -231,6 +246,20 @@ sed -i '' "s/assert_match \"v[0-9][^\"]*\"/assert_match \"v${VERSION}\"/" afm.rb
 # Update caveats version references
 sed -i '' "s/MLX Local Models (v[0-9][^)]*)/MLX Local Models (v${VERSION}+)/" afm.rb
 
+if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.rb; then
+  log_error "Homebrew stable formula does not install the required WebUI"
+  exit 1
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm.rb; then
+  sed -i '' '/libexec.install "afm"/a\
+    libexec.install "MacLocalAPI_AFMKit.bundle"
+' afm.rb
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm.rb; then
+  log_error "Homebrew stable formula does not install the bundled evaluation suites"
+  exit 1
+fi
+
 git add afm.rb
 git commit -m "afm ${VERSION}"
 git push
@@ -249,7 +278,7 @@ log_info "Staging assets into macafm/ for Python package..."
 mkdir -p "$ROOT_DIR/macafm/bin"
 cp "$BIN" "$ROOT_DIR/macafm/bin/"
 
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -266,16 +295,31 @@ if [ -f "$METALLIB" ]; then
   log_info "  Staged default.metallib"
 fi
 
-# WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$ROOT_DIR/macafm/share/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$ROOT_DIR/macafm/share/webui/"
-  log_info "  Staged webui"
-fi
+# WebUI is required for the published wheel.
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
+mkdir -p "$ROOT_DIR/macafm/share/webui"
+cp "$WEBUI" "$ROOT_DIR/macafm/share/webui/"
+log_info "  Staged webui"
 
 log_info "Building Python package..."
 uv build
 log_info "Python package built"
+
+STABLE_WHEEL=$(ls -t "$ROOT_DIR"/dist/macafm-*.whl 2>/dev/null | head -1)
+if [ -z "$STABLE_WHEEL" ]; then
+  log_error "Stable wheel was not produced"
+  exit 1
+fi
+WHEEL_WEBUI="$ROOT_DIR/.build/afm-stable-wheel-webui.html.gz"
+unzip -p "$STABLE_WHEEL" macafm/share/webui/index.html.gz > "$WHEEL_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$WHEEL_WEBUI"
+rm -f "$WHEEL_WEBUI"
+if ! unzip -Z1 "$STABLE_WHEEL" | grep -E \
+  '^macafm/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
+  >/dev/null; then
+  log_error "Stable wheel is missing the bundled comprehensive evaluation suite"
+  exit 1
+fi
 
 # Cleanup staged assets (don't commit binaries to git)
 rm -rf "$ROOT_DIR/macafm/bin" "$ROOT_DIR/macafm/share"

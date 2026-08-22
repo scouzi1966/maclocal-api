@@ -45,6 +45,10 @@ Preserve bulky release-validation output without burdening clones by attaching o
 
 Verify the archive with `shasum -a 256` and `tar -tzf`, check existing assets with `gh release view v<VERSION> --repo scouzi1966/maclocal-api --json assets`, upload with `gh release upload v<VERSION> /tmp/afm-v<VERSION>-test-reports.tar.gz --repo scouzi1966/maclocal-api`, and verify the live asset afterward. Keep reports and archives untracked. Release assets are optional downloads and do not enter clones, source archives, Homebrew installs, or pip installs. Use Actions artifacts only for temporary output; use a separate reports repository with GitHub Pages when permanent browser-rendered HTML is required.
 
+## Nightly Version Contract
+
+Resolve nightly identifiers with `Scripts/nightly-version.sh`; do not assemble them independently in release scripts. Homebrew and every installed `afm --version` must report the canonical `v<base>-next.<YYYYMMDD>.<sha>` value. Python distribution metadata uses the equivalent PEP 440 form `<base>.dev<YYYYMMDD>+<sha>`, because the canonical display value is not a valid Python package version. `Scripts/build-nightly-wheel.sh` must smoke-test the bundled command and fail unless its runtime version exactly matches the canonical Homebrew version.
+
 ## Commit & Pull Request Guidelines
 Recent history favors short, imperative subjects such as `Fix prefix cache save path` or `Add unit test tier`. Prefer `Add`, `Fix`, `Update`, or `Restore`, and keep the subject focused on user-visible behavior. PRs should describe the problem, the approach, and validation performed; link the issue when applicable and include screenshots only for WebUI or report-facing changes.
 

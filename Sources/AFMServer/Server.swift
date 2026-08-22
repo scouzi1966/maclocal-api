@@ -163,6 +163,124 @@ struct ActiveConnectionsMiddleware: AsyncMiddleware {
     }
 }
 
+private struct AFMWebLaunchSnapshot: Sendable {
+    let running: Bool
+    let pid: Int32?
+    let port: Int?
+    let backend: String?
+    let model: String?
+    let logPath: String?
+    let command: [String]
+}
+
+/// Owns child runtimes started from the local WebUI. Process arguments are
+/// passed directly to Foundation.Process (never a shell), and only arguments
+/// assembled from the server-side allowlists below reach this actor.
+private actor AFMWebRuntimeManager {
+    private var process: Process?
+    private var logHandle: FileHandle?
+    private var port: Int?
+    private var backend: String?
+    private var model: String?
+    private var logPath: String?
+    private var command: [String] = []
+
+    func launch(
+        executable: URL,
+        request: AFMWebLaunchRequest,
+        startingAt startPort: Int
+    ) throws -> AFMWebLaunchSnapshot {
+        // Select the port inside the actor. Concurrent start requests must not
+        // both observe the same free port before either child is running.
+        guard let port = Server.availableWebRuntimePort(startingAt: startPort) else {
+            throw Abort(.serviceUnavailable, reason: "No local runtime port is available")
+        }
+        let arguments = try Server.webLaunchArguments(for: request, port: port)
+        let displayCommand = Server.redactedWebLaunchCommand(
+            executable: executable,
+            arguments: arguments)
+
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        try? logHandle?.close()
+
+        let fileManager = FileManager.default
+        let afmDirectory = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".afm", isDirectory: true)
+        let logsDirectory = afmDirectory.appendingPathComponent("logs", isDirectory: true)
+        try fileManager.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+        let logURL = logsDirectory.appendingPathComponent("webui-runtime.log")
+        if !fileManager.fileExists(atPath: logURL.path) {
+            fileManager.createFile(atPath: logURL.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: logURL)
+        try handle.truncate(atOffset: 0)
+
+        let child = Process()
+        child.executableURL = executable
+        child.arguments = arguments
+        child.currentDirectoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["AFM_WEBUI_MANAGED_CHILD"] = "1"
+        child.environment = environment
+        // A WebUI-managed runtime is always a server. Detach it from the
+        // manager's stdin so a piped or non-interactive parent cannot make the
+        // MLX command block while probing stdin for single-prompt mode.
+        child.standardInput = FileHandle.nullDevice
+        child.standardOutput = handle
+        child.standardError = handle
+        do {
+            try child.run()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+
+        self.process = child
+        self.logHandle = handle
+        self.port = port
+        self.backend = request.backend.lowercased()
+        self.model = request.model
+        self.logPath = logURL.path
+        self.command = displayCommand
+        return snapshot()
+    }
+
+    func stop() -> AFMWebLaunchSnapshot {
+        if let process, process.isRunning { process.terminate() }
+        return snapshot()
+    }
+
+    func snapshot() -> AFMWebLaunchSnapshot {
+        closeLogIfExited()
+        return AFMWebLaunchSnapshot(
+            running: process?.isRunning ?? false,
+            pid: process?.processIdentifier,
+            port: port,
+            backend: backend,
+            model: model,
+            logPath: logPath,
+            command: command
+        )
+    }
+
+    func logTail(maxBytes: Int = 24_000) -> String {
+        closeLogIfExited()
+        guard let logPath, let handle = FileHandle(forReadingAtPath: logPath) else { return "" }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
+        try? handle.seek(toOffset: start)
+        return String(data: (try? handle.readToEnd()) ?? Data(), encoding: .utf8) ?? ""
+    }
+
+    private func closeLogIfExited() {
+        guard let process, !process.isRunning, let logHandle else { return }
+        try? logHandle.close()
+        self.logHandle = nil
+    }
+}
+
 // @unchecked Sendable: the server owns a Vapor Application and assorted service
 // references that aren't Sendable-audited. Lifecycle (start/shutdown) is driven
 // from a single controlling flow and the closures it spawns only read immutable
@@ -203,6 +321,7 @@ public class Server: @unchecked Sendable {
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
     private var telegramBridge: TelegramBridge?
+    private let webRuntimeManager = AFMWebRuntimeManager()
 
     private static let audioAvailable: Bool = {
         if #available(macOS 13.0, *) { return true }
@@ -291,6 +410,178 @@ public class Server: @unchecked Sendable {
 
         try routes()
     }
+
+    private static let foundationWebValueOptions: Set<String> = [
+        "--instructions", "--adapter", "--temperature", "--randomness", "--stop",
+        "--prewarm", "--guided-json", "--telegram-bot-token", "--telegram-allow",
+        "--telegram-format", "--telegram-require-prefix"
+    ]
+    private static let foundationWebFlagOptions: Set<String> = [
+        "--verbose", "--very-verbose", "--vv", "--no-streaming",
+        "--permissive-guardrails", "--gateway"
+    ]
+    private static let mlxWebValueOptions: Set<String> = [
+        "--instructions", "--temperature", "--top-p", "--top-k", "--min-p",
+        "--presence-penalty", "--repetition-penalty", "--max-tokens", "--seed",
+        "--max-logprobs", "--kv-cache-size", "--kv-bits", "--prefill-step-size",
+        "--mlx-runtime", "--gguf-file", "--prewarm", "--stop", "--guided-json", "--tool-call-parser",
+        "--kv-eviction", "--default-chat-template-kwargs", "--reasoning-effort",
+        "--concurrent", "--mtp-depth", "--mtp-model", "--dspark-support", "--dspark-draft-tokens",
+        "--dspark-confidence", "--eagle3", "--cache-profile-path", "--gpu-capture",
+        "--gpu-trace", "--chat-template", "--dtype", "--telegram-bot-token", "--telegram-allow", "--telegram-format",
+        "--telegram-require-prefix"
+    ]
+    private static let mlxWebFlagOptions: Set<String> = [
+        "--verbose", "--very-verbose", "--vv", "--no-streaming", "--raw", "--vlm",
+        "--trust-remote-code", "--fix-tool-args", "--enable-prefix-caching", "--mtp",
+        "--dspark-strict", "--enable-grammar-constraints", "--no-think", "--gpu-profile",
+        "--gpu-profile-bw"
+    ]
+
+    private static let webLaunchSecretOptions: Set<String> = ["--telegram-bot-token"]
+
+    static func isLoopbackWebAddress(_ address: String?) -> Bool {
+        guard let address else { return false }
+        return address == "127.0.0.1"
+            || address == "::1"
+            || address.lowercased() == "localhost"
+            || address.lowercased().hasPrefix("::ffff:127.")
+    }
+
+    static func isTrustedWebOrigin(_ origin: String?) -> Bool {
+        guard let origin else { return true } // Non-browser/local API clients.
+        guard origin != "null", let url = URL(string: origin),
+              url.scheme == "http" || url.scheme == "https" else {
+            return false
+        }
+        return isLoopbackWebAddress(url.host)
+    }
+
+    static func isTrustedWebHost(_ host: String?) -> Bool {
+        guard let host, let url = URL(string: "http://\(host)") else { return false }
+        return isLoopbackWebAddress(url.host)
+    }
+
+    private func requireLocalWebControl(_ request: Request) throws {
+        guard webuiEnabled else { throw Abort(.notFound) }
+        guard Self.isLoopbackWebAddress(request.remoteAddress?.ipAddress),
+              Self.isTrustedWebHost(request.headers.first(name: .host)),
+              Self.isTrustedWebOrigin(request.headers.first(name: .origin)) else {
+            throw Abort(.forbidden, reason: "AFM WebUI runtime controls are available only from this Mac")
+        }
+    }
+
+    static func redactedWebLaunchCommand(executable: URL, arguments: [String]) -> [String] {
+        var result = [executable.path]
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            result.append(argument)
+            if webLaunchSecretOptions.contains(argument), index + 1 < arguments.count {
+                result.append("<redacted>")
+                index += 2
+            } else {
+                index += 1
+            }
+        }
+        return result
+    }
+
+    static func webLaunchArguments(for request: AFMWebLaunchRequest, port: Int) throws -> [String] {
+        let backend = request.backend.lowercased()
+        guard backend == "foundation" || backend == "mlx" else {
+            throw Abort(.badRequest, reason: "backend must be 'foundation' or 'mlx'")
+        }
+        var arguments: [String] = []
+        let valueAllowlist: Set<String>
+        let flagAllowlist: Set<String>
+        if backend == "mlx" {
+            guard let model = request.model?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty else {
+                throw Abort(.badRequest, reason: "An MLX model id or local path is required")
+            }
+            guard model.count <= 2048, !model.contains("\0") else {
+                throw Abort(.badRequest, reason: "Invalid MLX model")
+            }
+            arguments += ["mlx", "--model", model]
+            valueAllowlist = mlxWebValueOptions
+            flagAllowlist = mlxWebFlagOptions
+        } else {
+            valueAllowlist = foundationWebValueOptions
+            flagAllowlist = foundationWebFlagOptions
+        }
+
+        for key in (request.values ?? [:]).keys.sorted() {
+            guard valueAllowlist.contains(key) else {
+                throw Abort(.badRequest, reason: "Unsupported \(backend) option: \(key)")
+            }
+            guard let value = request.values?[key], !value.isEmpty else { continue }
+            guard value.count <= 16_384, !value.contains("\0") else {
+                throw Abort(.badRequest, reason: "Invalid value for \(key)")
+            }
+            arguments += [key, value]
+        }
+        for flag in Set(request.flags ?? []).sorted() {
+            guard flagAllowlist.contains(flag) else {
+                throw Abort(.badRequest, reason: "Unsupported \(backend) flag: \(flag)")
+            }
+            arguments.append(flag)
+        }
+
+        // The manager owns the bind address and port so a launched runtime can
+        // never replace or expose the manager process unexpectedly.
+        arguments += ["--hostname", "127.0.0.1", "--port", String(port), "--webui"]
+        return arguments
+    }
+
+    static func availableWebRuntimePort(startingAt start: Int) -> Int? {
+        let lowerBound = max(1024, start)
+        guard lowerBound <= 65_535 else { return nil }
+        let upperBound = min(65_535, lowerBound + 100)
+        for candidate in lowerBound...upperBound {
+            let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+            guard descriptor >= 0 else { continue }
+            defer { Darwin.close(descriptor) }
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(candidate).bigEndian
+            address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+            let result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            if result == 0 { return candidate }
+        }
+        return nil
+    }
+
+    private static func currentExecutableURL() -> URL {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = [CChar](repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
+            }
+        }
+        return Bundle.main.executableURL?.resolvingSymlinksInPath()
+            ?? URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+    }
+
+    private static var webLaunchProfileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".afm", isDirectory: true)
+            .appendingPathComponent("webui-launch-profile.json")
+    }
+
+    private static func jsonResponse(_ object: [String: Any], status: HTTPResponseStatus = .ok) throws -> Response {
+        let response = Response(status: status)
+        response.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
+        response.headers.add(name: .cacheControl, value: "no-store")
+        response.body = .init(data: try JSONSerialization.data(withJSONObject: object))
+        return response
+    }
     
     private func routes() throws {
         let mlxServiceAdapter = mlxModelService.map {
@@ -316,6 +607,140 @@ public class Server: @unchecked Sendable {
                 timestamp: Date().timeIntervalSince1970,
                 version: "1.0.0"
             )
+        }
+
+        // Small read-only endpoint used by the injected local runtime console.
+        // Keep machine-specific paths out of the static web asset and resolve
+        // them in the process that actually owns the model/runtime state.
+        app.get("afm", "runtime") { req -> Response in
+            try self.requireLocalWebControl(req)
+            let environment = ProcessInfo.processInfo.environment
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let modelCache: String
+            if let configured = environment["MACAFM_MLX_MODEL_CACHE"], !configured.isEmpty {
+                modelCache = configured
+            } else if let configured = environment["HUGGINGFACE_HUB_CACHE"] ?? environment["HF_HUB_CACHE"], !configured.isEmpty {
+                modelCache = configured
+            } else if let configured = environment["HF_HOME"], !configured.isEmpty {
+                modelCache = URL(fileURLWithPath: configured).appendingPathComponent("hub").path
+            } else {
+                modelCache = URL(fileURLWithPath: home).appendingPathComponent("Documents/huggingface/models").path
+            }
+
+            let payload: [String: Any] = [
+                "version": BuildInfo.fullVersion,
+                "backend": self.mlxModelID == nil ? "Apple Foundation Models / router" : "MLX",
+                "modelCache": modelCache,
+                "persistence": URL(fileURLWithPath: home).appendingPathComponent(".afm").path,
+                "streaming": self.streamingEnabled,
+                "webui": self.webuiEnabled
+            ]
+            let response = Response(status: .ok)
+            response.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
+            response.headers.add(name: .cacheControl, value: "no-store")
+            response.body = .init(data: try JSONSerialization.data(withJSONObject: payload))
+            return response
+        }
+
+        app.get("afm", "launcher", "profile") { req -> Response in
+            try self.requireLocalWebControl(req)
+            let response = Response(status: .ok)
+            response.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
+            response.headers.add(name: .cacheControl, value: "no-store")
+            if let data = try? Data(contentsOf: Self.webLaunchProfileURL),
+               let profile = try? JSONDecoder().decode(AFMWebLaunchRequest.self, from: data),
+               let safeData = try? JSONEncoder().encode(profile.persistableProfile()) {
+                // Sanitize legacy profiles written by earlier prototypes that
+                // persisted the Telegram token, then never return it to JS.
+                if profile.values?["--telegram-bot-token"] != nil || profile.dryRun != false {
+                    try? safeData.write(to: Self.webLaunchProfileURL, options: .atomic)
+                    try? FileManager.default.setAttributes(
+                        [.posixPermissions: 0o600],
+                        ofItemAtPath: Self.webLaunchProfileURL.path)
+                }
+                response.body = .init(data: safeData)
+            } else {
+                response.body = .init(string: "{}")
+            }
+            return response
+        }
+
+        app.on(.POST, "afm", "launcher", "start", body: .collect(maxSize: "128kb")) { req async throws -> Response in
+            try self.requireLocalWebControl(req)
+            let launch = try req.content.decode(AFMWebLaunchRequest.self)
+            let executable = Self.currentExecutableURL()
+            let launchPort: Int
+            let command: [String]
+
+            if launch.dryRun == true {
+                guard let previewPort = Self.availableWebRuntimePort(startingAt: self.port + 1) else {
+                    throw Abort(.serviceUnavailable, reason: "No local runtime port is available")
+                }
+                let arguments = try Self.webLaunchArguments(for: launch, port: previewPort)
+                launchPort = previewPort
+                command = Self.redactedWebLaunchCommand(executable: executable, arguments: arguments)
+            } else {
+                let snapshot = try await self.webRuntimeManager.launch(
+                    executable: executable,
+                    request: launch,
+                    startingAt: self.port + 1
+                )
+                guard let selectedPort = snapshot.port else {
+                    throw Abort(.internalServerError, reason: "Managed runtime did not select a port")
+                }
+                launchPort = selectedPort
+                command = snapshot.command
+                let profileURL = Self.webLaunchProfileURL
+                try FileManager.default.createDirectory(at: profileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(launch.persistableProfile()).write(to: profileURL, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: profileURL.path)
+            }
+            return try Self.jsonResponse([
+                "accepted": true,
+                "dryRun": launch.dryRun == true,
+                "backend": launch.backend.lowercased(),
+                "model": (launch.model as Any?) ?? NSNull(),
+                "port": launchPort,
+                "url": "http://127.0.0.1:\(launchPort)",
+                "command": command
+            ])
+        }
+
+        app.get("afm", "launcher", "status") { req async throws -> Response in
+            try self.requireLocalWebControl(req)
+            let snapshot = await self.webRuntimeManager.snapshot()
+            var healthy = false
+            if snapshot.running, let port = snapshot.port,
+               let url = URL(string: "http://127.0.0.1:\(port)/health") {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 0.6
+                if let (_, response) = try? await URLSession.shared.data(for: request),
+                   let http = response as? HTTPURLResponse {
+                    healthy = (200..<300).contains(http.statusCode)
+                }
+            }
+            return try Self.jsonResponse([
+                "running": snapshot.running,
+                "healthy": healthy,
+                "pid": (snapshot.pid as Any?) ?? NSNull(),
+                "port": (snapshot.port as Any?) ?? NSNull(),
+                "backend": (snapshot.backend as Any?) ?? NSNull(),
+                "model": (snapshot.model as Any?) ?? NSNull(),
+                "url": (snapshot.port.map { "http://127.0.0.1:\($0)" } as Any?) ?? NSNull(),
+                "logPath": (snapshot.logPath as Any?) ?? NSNull(),
+                "command": snapshot.command
+            ])
+        }
+
+        app.get("afm", "launcher", "log") { req async throws -> Response in
+            try self.requireLocalWebControl(req)
+            return try Self.jsonResponse(["log": await self.webRuntimeManager.logTail()])
+        }
+
+        app.on(.POST, "afm", "launcher", "stop") { req async throws -> Response in
+            try self.requireLocalWebControl(req)
+            let snapshot = await self.webRuntimeManager.stop()
+            return try Self.jsonResponse(["stopped": true, "pid": (snapshot.pid as Any?) ?? NSNull()])
         }
 
         app.get("v1", "models") { req async -> ModelsResponse in
@@ -549,7 +974,7 @@ public class Server: @unchecked Sendable {
                             top_p: 0.95,
                             min_p: 0.05,
                             stream: self.streamingEnabled,
-                            max_tokens: 2000
+                            max_tokens: MLXModelService.defaultMaximumResponseTokens
                         )
                     ),
                     total_slots: 1,
@@ -619,7 +1044,7 @@ public class Server: @unchecked Sendable {
                 let path = req.url.path
 
                 // Don't intercept API routes
-                if path.hasPrefix("/v1/") || path == "/health" || path == "/props" {
+                if path.hasPrefix("/v1/") || path.hasPrefix("/afm/") || path == "/health" || path == "/props" {
                     throw Abort(.notFound)
                 }
 
@@ -631,16 +1056,247 @@ public class Server: @unchecked Sendable {
     /// Custom CSS/JS to inject into webui (branding + auto-select default model + /metrics dashboard)
     private var customCSS: String {
         Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false")
+        + Self.controlCenterTemplate
         + Self.dashboardTemplate
     }
     private static let customCSSTemplate = """
     <style>
+    /* AFM WebUI prototype: presentation-only skin over the stock llama.cpp app. */
+    :root {
+      --afm-canvas: #f4f6f8;
+      --afm-canvas-accent: rgba(255, 143, 31, 0.10);
+      --afm-panel: rgba(255, 255, 255, 0.82);
+      --afm-panel-solid: #ffffff;
+      --afm-panel-muted: rgba(241, 244, 247, 0.88);
+      --afm-line: rgba(16, 24, 40, 0.10);
+      --afm-line-strong: rgba(16, 24, 40, 0.16);
+      --afm-ink: #121820;
+      --afm-muted: #687381;
+      --afm-orange: #f47b20;
+      --afm-orange-strong: #d95f08;
+      --afm-blue: #3276f6;
+      --afm-green: #159b6c;
+      --afm-radius-panel: 22px;
+      --afm-radius-control: 16px;
+      --afm-shadow-panel: 0 20px 55px rgba(24, 32, 44, 0.10);
+      --afm-shadow-control: 0 12px 30px rgba(24, 32, 44, 0.12);
+      --afm-content-width: 54rem;
+      --radius: 0.875rem;
+      --background: oklch(0.965 0.004 255);
+      --sidebar: oklch(0.985 0.003 255);
+      --sidebar-border: oklch(0.87 0.006 255);
+      --primary: oklch(0.56 0.18 45);
+      --ring: oklch(0.68 0.16 48);
+    }
+    .dark {
+      --afm-canvas: #0b0f14;
+      --afm-canvas-accent: rgba(244, 123, 32, 0.11);
+      --afm-panel: rgba(21, 27, 35, 0.82);
+      --afm-panel-solid: #151b23;
+      --afm-panel-muted: rgba(29, 36, 46, 0.90);
+      --afm-line: rgba(255, 255, 255, 0.09);
+      --afm-line-strong: rgba(255, 255, 255, 0.16);
+      --afm-ink: #f3f6fa;
+      --afm-muted: #98a4b3;
+      --afm-orange: #ff923f;
+      --afm-orange-strong: #ffad68;
+      --afm-blue: #6ea0ff;
+      --afm-green: #43c895;
+      --afm-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.34);
+      --afm-shadow-control: 0 16px 36px rgba(0, 0, 0, 0.30);
+      --background: oklch(0.13 0.008 255);
+      --sidebar: oklch(0.16 0.008 255);
+      --sidebar-border: oklch(1 0 0 / 10%);
+      --primary: oklch(0.72 0.16 48);
+      --ring: oklch(0.72 0.16 48);
+    }
+
     /* Hide page until branding + model selection complete */
     body { opacity: 0 !important; }
     body.afm-ready { opacity: 1 !important; transition: opacity 0.15s ease-in; }
+
+    body {
+      color: var(--afm-ink);
+      background:
+        radial-gradient(circle at 76% -12%, var(--afm-canvas-accent), transparent 31rem),
+        var(--afm-canvas) !important;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: -0.005em;
+    }
+
+    /* Turn the stock sidebar/inset into a calm desktop shell without replacing its DOM. */
+    [data-slot="sidebar-wrapper"] {
+      background: transparent !important;
+    }
+    [data-slot="sidebar-container"] {
+      padding: 10px 0 10px 10px;
+    }
+    [data-slot="sidebar-inner"] {
+      border: 1px solid var(--afm-line);
+      border-radius: var(--afm-radius-panel);
+      background: var(--afm-panel) !important;
+      box-shadow: var(--afm-shadow-panel);
+      backdrop-filter: blur(22px) saturate(130%);
+      -webkit-backdrop-filter: blur(22px) saturate(130%);
+      overflow: hidden;
+    }
+    [data-slot="sidebar-header"] {
+      border-bottom: 1px solid var(--afm-line);
+      background: transparent !important;
+    }
+    [data-slot="sidebar-header"] h1 {
+      color: var(--afm-ink);
+      font-size: 1.05rem !important;
+      font-weight: 760 !important;
+      letter-spacing: -0.025em;
+    }
+    [data-slot="sidebar-header"] h1::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--afm-orange), #ffc36e);
+      box-shadow: 0 0 0 4px var(--afm-canvas-accent);
+      margin-right: 7px;
+    }
+    [data-slot="sidebar-content"],
+    [data-slot="sidebar-group"] {
+      background: transparent;
+    }
+    [data-slot="sidebar-group-label"] {
+      color: var(--afm-muted);
+      font-size: 0.67rem;
+      font-weight: 720;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    [data-slot="sidebar-menu-button"] {
+      border-radius: 12px !important;
+    }
+    [data-slot="sidebar-menu-button"]:hover,
+    [data-slot="sidebar-menu-button"][data-active="true"] {
+      background: var(--afm-panel-muted) !important;
+    }
+    [data-slot="sidebar-inset"] {
+      position: relative;
+      margin: 10px;
+      border: 1px solid var(--afm-line);
+      border-radius: var(--afm-radius-panel) !important;
+      background: var(--afm-panel) !important;
+      box-shadow: var(--afm-shadow-panel);
+      overflow: hidden;
+      backdrop-filter: blur(18px) saturate(120%);
+      -webkit-backdrop-filter: blur(18px) saturate(120%);
+    }
+
+    /* Keep the native chat layout, only increasing breathing room and visual hierarchy. */
+    main[aria-label*="Chat"],
+    main[aria-label*="Welcome"] {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--afm-panel-solid) 36%, transparent), transparent 10rem);
+    }
+    main[aria-label*="Welcome"] h1 {
+      color: var(--afm-ink);
+      font-size: clamp(2rem, 4vw, 3.25rem) !important;
+      font-weight: 780 !important;
+      letter-spacing: -0.055em !important;
+    }
+    main[aria-label*="Welcome"] .afm-sub {
+      color: var(--afm-muted) !important;
+      font-size: 0.72rem !important;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    main[aria-label*="Welcome"] .afm-ai-badge {
+      justify-content: center;
+      font-size: 0.78rem !important;
+    }
+    main[aria-label*="Welcome"] p {
+      color: var(--afm-muted);
+      font-size: 1rem !important;
+    }
+    [role="main"] > div > [class*="max-w-[48rem]"],
+    [role="main"] [class*="max-w-[48rem]"] {
+      max-width: var(--afm-content-width) !important;
+    }
+
+    /* Composer: prominent enough to anchor the page, but still the stock working form. */
+    .conversation-chat-form {
+      padding: 16px 20px 20px !important;
+      background: linear-gradient(180deg, transparent, var(--afm-panel-solid) 34%);
+    }
+    [data-slot="input-area"] {
+      border: 1px solid var(--afm-line-strong) !important;
+      border-radius: var(--afm-radius-control) !important;
+      background: color-mix(in srgb, var(--afm-panel-solid) 91%, transparent) !important;
+      box-shadow: var(--afm-shadow-control) !important;
+      backdrop-filter: blur(22px) saturate(130%) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(130%) !important;
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    }
+    [data-slot="input-area"]:focus-within {
+      border-color: color-mix(in srgb, var(--afm-orange) 62%, transparent) !important;
+      box-shadow: 0 0 0 4px var(--afm-canvas-accent), var(--afm-shadow-control) !important;
+      transform: translateY(-1px);
+    }
+    [data-slot="input-area"] textarea {
+      color: var(--afm-ink) !important;
+      font-size: 0.96rem !important;
+      line-height: 1.55 !important;
+    }
+    [data-slot="input-area"] textarea::placeholder {
+      color: var(--afm-muted) !important;
+    }
+    [data-slot="input-area"] [data-slot="button"] {
+      border-radius: 11px !important;
+    }
+
+    /* Messages and their built-in generation statistics remain fully interactive. */
+    [aria-label="User message with actions"] [data-slot="card"] {
+      border: 1px solid color-mix(in srgb, var(--afm-orange) 18%, transparent) !important;
+      background: color-mix(in srgb, var(--afm-orange) 8%, var(--afm-panel-solid)) !important;
+      box-shadow: 0 7px 22px rgba(24, 32, 44, 0.05);
+    }
+    [aria-label="Assistant message with actions"] {
+      padding: 2px 0;
+    }
+    [aria-label="Assistant message with actions"] .info {
+      color: var(--afm-muted);
+    }
+    [data-slot="card"],
+    [data-slot="dialog-content"],
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"] {
+      border-color: var(--afm-line) !important;
+    }
+    [data-slot="dialog-content"],
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"] {
+      background: var(--afm-panel-solid) !important;
+      box-shadow: var(--afm-shadow-panel) !important;
+    }
+
     /* Make model labels on response bubbles static (non-clickable) */
     .info [data-slot="popover-trigger"] { pointer-events: none; }
     .info [data-slot="popover-trigger"] svg { display: none; }
+
+    @media (max-width: 767px) {
+      [data-slot="sidebar-container"] { padding: 0; }
+      [data-slot="sidebar-inner"] { border-radius: 0; border-width: 0 1px 0 0; }
+      [data-slot="sidebar-inset"] {
+        margin: 0;
+        border: 0;
+        border-radius: 0 !important;
+        box-shadow: none;
+      }
+      .conversation-chat-form { padding: 10px 10px 14px !important; }
+      [data-slot="input-area"] { border-radius: 15px !important; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body.afm-ready,
+      [data-slot="input-area"] { transition: none !important; }
+    }
     </style>
     <script>
     (function(){
@@ -915,6 +1571,406 @@ public class Server: @unchecked Sendable {
     </script>
     """
 
+    /// Always-available local runtime console. This deliberately composes with
+    /// the stock llama.cpp chat DOM instead of replacing it, so conversations,
+    /// uploads, generation controls, and persistence keep their native behavior.
+    private static let controlCenterTemplate = """
+    <style>
+      .afm-console-toggle {
+        position: fixed; left: 14px; top: 14px; z-index: 999997;
+        height: 40px; padding: 0 14px; border: 1px solid var(--afm-line-strong);
+        border-radius: 12px; background: var(--afm-panel-solid); color: var(--afm-ink);
+        box-shadow: var(--afm-shadow-control); cursor: pointer; font: 680 12px/1 ui-sans-serif, sans-serif;
+      }
+      .afm-console {
+        position: fixed; inset: 10px auto 10px 10px; z-index: 999998;
+        width: 372px; display: flex; flex-direction: column;
+        border: 1px solid var(--afm-line); border-radius: 20px;
+        background: color-mix(in srgb, var(--afm-panel-solid) 94%, transparent);
+        color: var(--afm-ink); box-shadow: 0 24px 70px rgba(0,0,0,.28);
+        backdrop-filter: blur(24px) saturate(130%); -webkit-backdrop-filter: blur(24px) saturate(130%);
+        transform: translateX(calc(-100% - 18px)); transition: transform .2s ease;
+        overflow: hidden; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      }
+      .afm-console.open { transform: translateX(0); }
+      .afm-console-head { padding: 16px; border-bottom: 1px solid var(--afm-line); }
+      .afm-console-brand { display:flex; align-items:center; gap:10px; }
+      .afm-console-logo {
+        width:34px; height:34px; display:grid; place-items:center; border-radius:11px;
+        color:white; background:linear-gradient(135deg,var(--afm-orange),#ffb464); font-weight:820; font-size:12px;
+        box-shadow:0 7px 18px color-mix(in srgb,var(--afm-orange) 28%,transparent);
+      }
+      .afm-console-title { min-width:0; flex:1; }
+      .afm-console-title strong { display:block; font-size:14px; letter-spacing:-.02em; }
+      .afm-console-title span { display:flex; align-items:center; gap:6px; color:var(--afm-muted); font-size:10px; margin-top:3px; }
+      .afm-console-title i { width:7px; height:7px; border-radius:50%; background:var(--afm-green); box-shadow:0 0 0 3px color-mix(in srgb,var(--afm-green) 14%,transparent); }
+      .afm-console-close { width:30px; height:30px; border:0; border-radius:9px; background:var(--afm-panel-muted); color:var(--afm-muted); cursor:pointer; font-size:17px; }
+      .afm-console-scroll { overflow:auto; padding:12px; display:grid; gap:10px; }
+      .afm-console-section { border:1px solid var(--afm-line); border-radius:14px; background:var(--afm-panel); padding:12px; }
+      .afm-console-label { margin-bottom:9px; color:var(--afm-muted); font-size:9px; font-weight:780; letter-spacing:.11em; text-transform:uppercase; }
+      .afm-console-select {
+        width:100%; height:36px; padding:0 30px 0 10px; border:1px solid var(--afm-line-strong); border-radius:10px;
+        color:var(--afm-ink); background:var(--afm-panel-solid); font-size:11px; outline:none;
+      }
+      .afm-console-modelmeta { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+      .afm-chip { padding:4px 7px; border-radius:999px; background:var(--afm-panel-muted); color:var(--afm-muted); font-size:9px; font-weight:650; }
+      .afm-chip.on { color:var(--afm-green); background:color-mix(in srgb,var(--afm-green) 11%,transparent); }
+      .afm-console-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+      .afm-console-stat { min-width:0; padding:9px; border-radius:10px; background:var(--afm-panel-muted); }
+      .afm-console-stat span { display:block; color:var(--afm-muted); font-size:9px; }
+      .afm-console-stat strong { display:block; margin-top:4px; overflow:hidden; text-overflow:ellipsis; color:var(--afm-ink); font-size:13px; font-variant-numeric:tabular-nums; }
+      .afm-console-meter { grid-column:1/-1; height:4px; overflow:hidden; border-radius:4px; background:var(--afm-line); }
+      .afm-console-meter i { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--afm-green),#7ed6b1); transition:width .25s; }
+      .afm-console-row { display:flex; align-items:center; gap:8px; padding:6px 0; color:var(--afm-muted); font-size:10px; }
+      .afm-console-row + .afm-console-row { border-top:1px solid var(--afm-line); }
+      .afm-console-row b { margin-left:auto; max-width:178px; color:var(--afm-ink); font-size:10px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .afm-console-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+      .afm-console-btn {
+        min-height:34px; padding:7px 9px; border:1px solid var(--afm-line); border-radius:10px;
+        background:var(--afm-panel-solid); color:var(--afm-ink); cursor:pointer; font-size:10px; font-weight:670;
+      }
+      .afm-console-btn:hover { border-color:var(--afm-line-strong); background:var(--afm-panel-muted); }
+      .afm-console-btn.primary { color:white; border-color:transparent; background:var(--afm-orange); }
+      .afm-console-note { color:var(--afm-muted); font-size:9px; line-height:1.45; margin-top:8px; }
+      .afm-launch-choice { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:9px; }
+      .afm-launch-choice button { height:36px; border:1px solid var(--afm-line); border-radius:10px; background:var(--afm-panel-muted); color:var(--afm-muted); cursor:pointer; font-size:11px; font-weight:700; }
+      .afm-launch-choice button.active { border-color:color-mix(in srgb,var(--afm-orange) 55%,transparent); background:color-mix(in srgb,var(--afm-orange) 13%,var(--afm-panel-solid)); color:var(--afm-orange-strong); }
+      .afm-field { display:grid; gap:5px; margin-top:8px; }
+      .afm-field > span { color:var(--afm-muted); font-size:9px; font-weight:650; }
+      .afm-field input,.afm-field select,.afm-field textarea { width:100%; min-height:34px; padding:7px 9px; border:1px solid var(--afm-line); border-radius:9px; background:var(--afm-panel-solid); color:var(--afm-ink); font:10px/1.35 ui-monospace,SFMono-Regular,monospace; outline:none; }
+      .afm-field textarea { min-height:54px; resize:vertical; }
+      .afm-option-group { border-top:1px solid var(--afm-line); margin-top:10px; padding-top:9px; }
+      .afm-option-group summary { color:var(--afm-ink); cursor:pointer; font-size:10px; font-weight:700; list-style:none; display:flex; justify-content:space-between; }
+      .afm-option-group summary::after { content:'+'; color:var(--afm-muted); }
+      .afm-option-group[open] summary::after { content:'−'; }
+      .afm-option-list { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:8px; }
+      .afm-option-list .wide { grid-column:1/-1; }
+      .afm-check { display:flex; align-items:center; gap:6px; min-height:30px; padding:5px 7px; border:1px solid var(--afm-line); border-radius:8px; color:var(--afm-muted); font-size:9px; }
+      .afm-check input { accent-color:var(--afm-orange); }
+      .afm-launch-command { max-height:90px; overflow:auto; margin-top:8px; padding:8px; border-radius:8px; background:#090d12; color:#a7f3d0; font:9px/1.45 ui-monospace,SFMono-Regular,monospace; white-space:pre-wrap; word-break:break-all; display:none; }
+      .afm-launch-status { display:none; margin-top:8px; padding:8px; border-radius:9px; background:var(--afm-panel-muted); color:var(--afm-muted); font-size:9px; line-height:1.4; }
+      .afm-launch-status.show { display:block; }
+      .afm-launch-log { max-height:92px; overflow:auto; margin-top:6px; white-space:pre-wrap; color:var(--afm-muted); font:8px/1.35 ui-monospace,SFMono-Regular,monospace; }
+      .afm-console-footer { padding:10px 14px; border-top:1px solid var(--afm-line); color:var(--afm-muted); font-size:9px; display:flex; justify-content:space-between; }
+      .afm-dash-toggle { display:none !important; }
+      @media (min-width: 900px) {
+        body.afm-console-open [data-slot="sidebar-wrapper"] { padding-left:382px; transition:padding-left .2s ease; }
+        body.afm-console-open .afm-console-toggle { display:none; }
+      }
+      @media (max-width: 899px) {
+        .afm-console { inset:0 auto 0 0; width:min(372px,94vw); border-radius:0 18px 18px 0; }
+        .afm-console-toggle { left:10px; top:10px; }
+      }
+      @media (prefers-reduced-motion: reduce) { .afm-console { transition:none; } }
+    </style>
+    <button class="afm-console-toggle" id="afm-console-toggle" aria-label="Open AFM controls">AFM controls</button>
+    <aside class="afm-console" id="afm-console" aria-label="AFM local runtime controls">
+      <div class="afm-console-head">
+        <div class="afm-console-brand">
+          <div class="afm-console-logo">AFM</div>
+          <div class="afm-console-title"><strong>Local runtime</strong><span><i id="afm-runtime-dot"></i><em id="afm-runtime-status">connecting</em></span></div>
+          <button class="afm-console-close" id="afm-console-close" aria-label="Close AFM controls">&times;</button>
+        </div>
+      </div>
+      <div class="afm-console-scroll">
+        <section class="afm-console-section" id="afm-launcher">
+          <div class="afm-console-label">Launch local runtime</div>
+          <div class="afm-launch-choice">
+            <button type="button" data-backend="foundation" class="active">Foundation</button>
+            <button type="button" data-backend="mlx">MLX / Hugging Face</button>
+          </div>
+          <div class="afm-field" id="afm-launch-model-row" hidden>
+            <span>Model id or local path</span>
+            <input id="afm-launch-model" list="afm-launch-models" placeholder="mlx-community/Qwen3.5-4B-4bit" autocomplete="off">
+            <datalist id="afm-launch-models"></datalist>
+          </div>
+          <div id="afm-launch-options"></div>
+          <div class="afm-console-actions" style="margin-top:10px">
+            <button class="afm-console-btn" id="afm-launch-preview">Preview command</button>
+            <button class="afm-console-btn primary" id="afm-launch-start">Launch runtime</button>
+          </div>
+          <pre class="afm-launch-command" id="afm-launch-command"></pre>
+          <div class="afm-launch-status" id="afm-launch-status"><strong id="afm-launch-status-title">Starting…</strong><div id="afm-launch-status-detail"></div><pre class="afm-launch-log" id="afm-launch-log"></pre><div class="afm-console-actions" style="margin-top:7px"><button class="afm-console-btn primary" id="afm-launch-open" style="display:none">Open runtime</button><button class="afm-console-btn" id="afm-launch-stop" style="display:none">Stop runtime</button></div></div>
+          <div class="afm-console-note">Startup-only changes create a managed loopback runtime. The current chat remains available until the new runtime is healthy.</div>
+        </section>
+        <section class="afm-console-section">
+          <div class="afm-console-label">Current runtime model</div>
+          <select class="afm-console-select" id="afm-console-model" aria-label="Active model"><option>Discovering models…</option></select>
+          <div class="afm-console-modelmeta" id="afm-console-caps"></div>
+        </section>
+        <section class="afm-console-section">
+          <div class="afm-console-label">Resources</div>
+          <div class="afm-console-grid">
+            <div class="afm-console-stat"><span>GPU pressure</span><strong id="afm-console-gpu">—</strong></div>
+            <div class="afm-console-stat"><span>Requests</span><strong id="afm-console-active">—</strong></div>
+            <div class="afm-console-meter"><i id="afm-console-gpu-bar"></i></div>
+            <div class="afm-console-stat"><span>Queue</span><strong id="afm-console-queue">—</strong></div>
+            <div class="afm-console-stat"><span>Generated</span><strong id="afm-console-tokens">—</strong></div>
+          </div>
+        </section>
+        <section class="afm-console-section">
+          <div class="afm-console-label">Runtime</div>
+          <div class="afm-console-row"><span>Backend</span><b id="afm-console-backend">—</b></div>
+          <div class="afm-console-row"><span>Context</span><b id="afm-console-context">—</b></div>
+          <div class="afm-console-row"><span>Streaming</span><b id="afm-console-streaming">—</b></div>
+          <div class="afm-console-row"><span>API</span><b id="afm-console-api">—</b></div>
+        </section>
+        <section class="afm-console-section">
+          <div class="afm-console-label">Local storage</div>
+          <div class="afm-console-row"><span>AFM state</span><b id="afm-console-state-path" title="Click to copy">~/.afm</b></div>
+          <div class="afm-console-row"><span>Model cache</span><b id="afm-console-cache-path" title="Click to copy">—</b></div>
+          <div class="afm-console-note">Chat history remains in the native WebUI browser store. AFM runtime state and the model cache stay on this Mac.</div>
+        </section>
+        <section class="afm-console-section">
+          <div class="afm-console-label">Controls</div>
+          <div class="afm-console-actions">
+            <button class="afm-console-btn primary" id="afm-console-new">New chat</button>
+            <button class="afm-console-btn" id="afm-console-settings">Chat settings</button>
+            <button class="afm-console-btn" id="afm-console-stats">Live statistics</button>
+            <button class="afm-console-btn" id="afm-console-docs">API docs</button>
+          </div>
+          <div class="afm-console-note" id="afm-console-tools-note">Tool calling is selected per request and executed by the connected local client.</div>
+        </section>
+      </div>
+      <div class="afm-console-footer"><span id="afm-console-version">AFM</span><span>localhost only</span></div>
+    </aside>
+    <script>
+    (function(){
+      var panel=document.getElementById('afm-console');
+      var modelSelect=document.getElementById('afm-console-model');
+      var modelDetails={};
+      var launchBackend='foundation', launchURL='', launchPoll=null, launchDraft={values:{},flags:[]};
+      var launchGroups=[
+        {name:'Common',open:true,fields:[
+          {key:'--instructions',label:'Instructions',type:'textarea',backends:'both',wide:true},
+          {key:'--temperature',label:'Temperature',type:'number',backends:'both',placeholder:'server default'},
+          {key:'--prewarm',label:'Prewarm',type:'select',backends:'both',choices:['','y','n']},
+          {key:'--stop',label:'Stop sequences',type:'text',backends:'both',placeholder:'###,END'},
+          {key:'--guided-json',label:'Guided JSON schema',type:'textarea',backends:'both',wide:true},
+          {key:'--no-streaming',label:'Disable streaming',type:'flag',backends:'both'},
+          {key:'--verbose',label:'Verbose logging',type:'flag',backends:'both'},
+          {key:'--very-verbose',label:'Full request logging',type:'flag',backends:'both'},
+          {key:'--vv',label:'Boundary trace logging',type:'flag',backends:'both'}
+        ]},
+        {name:'Foundation options',fields:[
+          {key:'--adapter',label:'LoRA adapter (.fmadapter)',type:'text',backends:'foundation',wide:true},
+          {key:'--randomness',label:'Sampling mode',type:'text',backends:'foundation',placeholder:'greedy or random:top-p=0.9'},
+          {key:'--permissive-guardrails',label:'Permissive guardrails',type:'flag',backends:'foundation'},
+          {key:'--gateway',label:'Discover local backends',type:'flag',backends:'foundation'}
+        ]},
+        {name:'MLX sampling',fields:[
+          {key:'--top-p',label:'Top P',type:'number',backends:'mlx'},
+          {key:'--top-k',label:'Top K',type:'number',backends:'mlx'},
+          {key:'--min-p',label:'Min P',type:'number',backends:'mlx'},
+          {key:'--presence-penalty',label:'Presence penalty',type:'number',backends:'mlx'},
+          {key:'--repetition-penalty',label:'Repetition penalty',type:'number',backends:'mlx'},
+          {key:'--max-tokens',label:'Maximum tokens',type:'number',backends:'mlx'},
+          {key:'--seed',label:'Seed',type:'number',backends:'mlx'},
+          {key:'--max-logprobs',label:'Maximum logprobs',type:'number',backends:'mlx'}
+        ]},
+        {name:'MLX runtime + cache',fields:[
+          {key:'--mlx-runtime',label:'Runtime',type:'select',backends:'mlx',choices:['','auto','mlx','dwarfstar']},
+          {key:'--gguf-file',label:'Exact repository GGUF',type:'text',backends:'mlx',wide:true},
+          {key:'--kv-bits',label:'KV bits',type:'select',backends:'mlx',choices:['','4','8']},
+          {key:'--kv-cache-size',label:'KV cache size',type:'number',backends:'mlx'},
+          {key:'--kv-eviction',label:'KV eviction',type:'select',backends:'mlx',choices:['','none','streaming']},
+          {key:'--prefill-step-size',label:'Prefill step size',type:'number',backends:'mlx'},
+          {key:'--concurrent',label:'Concurrent requests',type:'number',backends:'mlx'},
+          {key:'--chat-template',label:'Chat template',type:'text',backends:'mlx',wide:true},
+          {key:'--dtype',label:'Dtype',type:'text',backends:'mlx'},
+          {key:'--vlm',label:'Vision model (VLM)',type:'flag',backends:'mlx'},
+          {key:'--raw',label:'Raw model output',type:'flag',backends:'mlx'},
+          {key:'--trust-remote-code',label:'Trust remote code',type:'flag',backends:'mlx'},
+          {key:'--enable-prefix-caching',label:'Prefix caching',type:'flag',backends:'mlx'}
+        ]},
+        {name:'Tools + reasoning',fields:[
+          {key:'--tool-call-parser',label:'Tool-call parser',type:'select',backends:'mlx',wide:true,choices:['','none','afm_adaptive_xml','hermes','llama3_json','gemma','mistral','qwen3_xml']},
+          {key:'--reasoning-effort',label:'Reasoning effort',type:'select',backends:'mlx',choices:['','low','high','max']},
+          {key:'--default-chat-template-kwargs',label:'Chat-template kwargs (JSON)',type:'textarea',backends:'mlx',wide:true},
+          {key:'--fix-tool-args',label:'Repair tool arguments',type:'flag',backends:'mlx'},
+          {key:'--enable-grammar-constraints',label:'Grammar constraints',type:'flag',backends:'mlx'},
+          {key:'--no-think',label:'Disable thinking',type:'flag',backends:'mlx'}
+        ]},
+        {name:'Speculative decoding',fields:[
+          {key:'--mtp',label:'Enable MTP',type:'flag',backends:'mlx'},
+          {key:'--mtp-depth',label:'MTP depth',type:'number',backends:'mlx'},
+          {key:'--mtp-model',label:'MTP model override',type:'text',backends:'mlx',wide:true},
+          {key:'--dspark-support',label:'DSpark support GGUF',type:'text',backends:'mlx',wide:true},
+          {key:'--dspark-draft-tokens',label:'DSpark draft tokens',type:'number',backends:'mlx'},
+          {key:'--dspark-confidence',label:'DSpark confidence',type:'number',backends:'mlx'},
+          {key:'--dspark-strict',label:'DSpark strict',type:'flag',backends:'mlx'},
+          {key:'--eagle3',label:'EAGLE3 drafter directory',type:'text',backends:'mlx',wide:true}
+        ]},
+        {name:'Profiling + files',fields:[
+          {key:'--cache-profile-path',label:'Cache profile JSONL',type:'text',backends:'mlx',wide:true},
+          {key:'--gpu-capture',label:'GPU capture path',type:'text',backends:'mlx',wide:true},
+          {key:'--gpu-trace',label:'GPU trace seconds',type:'number',backends:'mlx'},
+          {key:'--gpu-profile',label:'GPU profiling',type:'flag',backends:'mlx'},
+          {key:'--gpu-profile-bw',label:'DRAM bandwidth (mactop)',type:'flag',backends:'mlx'}
+        ]},
+        {name:'Telegram bridge',fields:[
+          {key:'--telegram-bot-token',label:'Bot token',type:'password',backends:'both',wide:true},
+          {key:'--telegram-allow',label:'Allowed user ids',type:'text',backends:'both',wide:true},
+          {key:'--telegram-format',label:'Reply format',type:'select',backends:'both',choices:['','markdown','plain','html']},
+          {key:'--telegram-require-prefix',label:'Required prefix',type:'text',backends:'both'}
+        ]}
+      ];
+
+      function fieldApplies(field){return field.backends==='both'||field.backends===launchBackend}
+      function stashLaunchOptions(){
+        document.querySelectorAll('#afm-launch-options [data-option]').forEach(function(el){
+          var key=el.getAttribute('data-option');
+          if(el.type==='checkbox'){
+            launchDraft.flags=launchDraft.flags.filter(function(f){return f!==key}); if(el.checked)launchDraft.flags.push(key);
+          }else if(el.value){launchDraft.values[key]=el.value}else{delete launchDraft.values[key]}
+        });
+      }
+      function renderLaunchOptions(){
+        var host=document.getElementById('afm-launch-options'); host.innerHTML='';
+        launchGroups.forEach(function(group){
+          var fields=group.fields.filter(fieldApplies); if(!fields.length)return;
+          var details=document.createElement('details'); details.className='afm-option-group'; details.open=!!group.open;
+          var summary=document.createElement('summary'); summary.textContent=group.name; details.appendChild(summary);
+          var list=document.createElement('div'); list.className='afm-option-list';
+          fields.forEach(function(field){
+            var wrap=document.createElement('label'); wrap.className=(field.wide?'wide ':'')+(field.type==='flag'?'afm-check':'afm-field');
+            var input;
+            if(field.type==='flag'){
+              input=document.createElement('input'); input.type='checkbox'; input.checked=launchDraft.flags.indexOf(field.key)!==-1;
+              wrap.appendChild(input); var label=document.createElement('span'); label.textContent=field.label; wrap.appendChild(label);
+            }else{
+              var label=document.createElement('span'); label.textContent=field.label; wrap.appendChild(label);
+              if(field.type==='select'){
+                input=document.createElement('select'); (field.choices||[]).forEach(function(choice){var o=document.createElement('option');o.value=choice;o.textContent=choice||'Default';input.appendChild(o)});
+              }else if(field.type==='textarea'){input=document.createElement('textarea')}
+              else{input=document.createElement('input');input.type=field.type||'text';if(field.type==='number')input.step='any'}
+              input.value=launchDraft.values[field.key]||''; if(field.placeholder)input.placeholder=field.placeholder;
+            }
+            input.setAttribute('data-option',field.key); input.onchange=stashLaunchOptions; wrap.appendChild(input); list.appendChild(wrap);
+          });
+          details.appendChild(list); host.appendChild(details);
+        });
+      }
+      function setLaunchBackend(backend){
+        stashLaunchOptions(); launchBackend=backend;
+        document.querySelectorAll('.afm-launch-choice button').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-backend')===backend)});
+        document.getElementById('afm-launch-model-row').hidden=backend!=='mlx'; renderLaunchOptions();
+      }
+      document.querySelectorAll('.afm-launch-choice button').forEach(function(button){button.onclick=function(){setLaunchBackend(button.getAttribute('data-backend'))}});
+      function launchPayload(dryRun){
+        stashLaunchOptions();
+        return {backend:launchBackend,model:launchBackend==='mlx'?document.getElementById('afm-launch-model').value.trim():null,values:launchDraft.values,flags:Array.from(new Set(launchDraft.flags)),dryRun:!!dryRun};
+      }
+      function launchRequest(payload){
+        return fetch('/afm/launcher/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.reason||j.error||('HTTP '+r.status));return j})});
+      }
+      function displayCommand(command){var pre=document.getElementById('afm-launch-command');pre.style.display='block';pre.textContent=(command||[]).map(function(a){return /[\\s"']/.test(a)?JSON.stringify(a):a}).join(' ')}
+      document.getElementById('afm-launch-preview').onclick=function(){
+        launchRequest(launchPayload(true)).then(function(r){displayCommand(r.command)}).catch(function(e){var s=document.getElementById('afm-launch-status');s.classList.add('show');text('afm-launch-status-title','Cannot build command');text('afm-launch-status-detail',e.message)});
+      };
+      function pollLaunch(){
+        Promise.all([fetch('/afm/launcher/status').then(function(r){return r.json()}),fetch('/afm/launcher/log').then(function(r){return r.json()})]).then(function(all){
+          var s=all[0],log=all[1].log||''; text('afm-launch-log',log.slice(-12000));
+          if(s.healthy){text('afm-launch-status-title','Runtime ready');text('afm-launch-status-detail',(s.backend||'runtime')+(s.model?' · '+s.model:'')+' · port '+s.port);launchURL=s.url;document.getElementById('afm-launch-open').style.display='';document.getElementById('afm-launch-stop').style.display='';clearInterval(launchPoll);launchPoll=null}
+          else if(s.running){text('afm-launch-status-title','Starting local runtime…');text('afm-launch-status-detail','Downloading or loading on port '+s.port);document.getElementById('afm-launch-stop').style.display=''}
+          else{text('afm-launch-status-title','Runtime stopped');text('afm-launch-status-detail','Check the log for startup errors.');document.getElementById('afm-launch-stop').style.display='none';clearInterval(launchPoll);launchPoll=null}
+        }).catch(function(e){text('afm-launch-status-detail',e.message)});
+      }
+      document.getElementById('afm-launch-start').onclick=function(){
+        var status=document.getElementById('afm-launch-status');status.classList.add('show');text('afm-launch-status-title','Starting local runtime…');text('afm-launch-status-detail','Validating configuration');document.getElementById('afm-launch-open').style.display='none';
+        launchRequest(launchPayload(false)).then(function(r){displayCommand(r.command);launchURL=r.url;if(launchPoll)clearInterval(launchPoll);pollLaunch();launchPoll=setInterval(pollLaunch,900)}).catch(function(e){text('afm-launch-status-title','Launch failed');text('afm-launch-status-detail',e.message)});
+      };
+      document.getElementById('afm-launch-open').onclick=function(){if(launchURL)window.open(launchURL,'_blank','noopener')};
+      document.getElementById('afm-launch-stop').onclick=function(){fetch('/afm/launcher/stop',{method:'POST'}).then(function(){pollLaunch()})};
+      function loadLaunchProfile(){fetch('/afm/launcher/profile').then(function(r){return r.json()}).then(function(p){if(!p.backend)return;launchDraft={values:p.values||{},flags:p.flags||[]};document.getElementById('afm-launch-model').value=p.model||'';launchBackend=p.backend;document.querySelectorAll('.afm-launch-choice button').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-backend')===launchBackend)});document.getElementById('afm-launch-model-row').hidden=launchBackend!=='mlx';renderLaunchOptions()}).catch(function(){})}
+      function setOpen(open){ panel.classList.toggle('open',open); document.body.classList.toggle('afm-console-open',open); }
+      document.getElementById('afm-console-toggle').onclick=function(){setOpen(true)};
+      document.getElementById('afm-console-close').onclick=function(){setOpen(false)};
+      setOpen(window.matchMedia('(min-width: 900px)').matches);
+
+      function text(id,value){ var el=document.getElementById(id); if(el) el.textContent=value; }
+      function compact(n){ n=Number(n)||0; return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n)); }
+      function metric(raw,name){ var m=raw.match(new RegExp('^'+name+'(?:\\\\{[^}]*\\\\})?\\\\s+([^\\\\s]+)','m')); return m?Number(m[1]):null; }
+      function nativeModelTrigger(){
+        var form=document.querySelector('[data-slot="chat-form"]')||document.querySelector('.conversation-chat-form');
+        return form && (form.querySelector('button[aria-haspopup="listbox"]')||form.querySelector('button[data-slot="popover-trigger"]'));
+      }
+      function activeNativeModel(){ var t=nativeModelTrigger(); return t?(t.textContent||'').trim():''; }
+      function selectNativeModel(id){
+        var trigger=nativeModelTrigger(); if(!trigger) return;
+        trigger.click();
+        setTimeout(function(){
+          var options=document.querySelectorAll('[role="option"]');
+          for(var i=0;i<options.length;i++){
+            var label=(options[i].textContent||'').trim();
+            if(label===id || label.indexOf(id)!==-1){ options[i].click(); return; }
+          }
+          trigger.click();
+        },180);
+      }
+      function paintCaps(id){
+        var d=modelDetails[id]||{}, caps=d.capabilities||[], host=document.getElementById('afm-console-caps'); host.innerHTML='';
+        ['chat','vision','tools','embeddings'].forEach(function(cap){
+          var chip=document.createElement('span'), yes=caps.indexOf(cap)!==-1 || (cap==='tools'&&caps.indexOf('tool_calling')!==-1);
+          chip.className='afm-chip'+(yes?' on':''); chip.textContent=(yes?'✓ ':'')+cap; host.appendChild(chip);
+        });
+        text('afm-console-tools-note',caps.indexOf('tools')!==-1?'Tool calling supported. Tools are authorized and executed per request by the connected local client.':'This model does not advertise tool-calling support.');
+      }
+      function loadModels(){
+        fetch('/v1/models').then(function(r){return r.json()}).then(function(data){
+          modelDetails={}; (data.models||[]).forEach(function(d){modelDetails[d.model]=d});
+          var models=(data.data||[]).filter(function(m){var caps=(modelDetails[m.id]&&modelDetails[m.id].capabilities)||[];return !(caps.length===1&&caps[0]==='embeddings')}); modelSelect.innerHTML='';
+          var modelHints=document.getElementById('afm-launch-models'); modelHints.innerHTML='';
+          models.forEach(function(m){var hint=document.createElement('option');hint.value=m.id;modelHints.appendChild(hint)});
+          models.forEach(function(m){ var o=document.createElement('option'); o.value=m.id; o.textContent=m.id+(m.status&&m.status.value==='unloaded'?' · available':''); modelSelect.appendChild(o); });
+          var current=activeNativeModel(); var matched=models.find(function(m){return current.indexOf(m.id)!==-1});
+          if(matched) modelSelect.value=matched.id; paintCaps(modelSelect.value);
+          if(modelSelect.value) loadProps(modelSelect.value);
+        }).catch(function(){ modelSelect.innerHTML='<option>Models unavailable</option>'; });
+      }
+      function loadProps(model){
+        fetch('/props?model='+encodeURIComponent(model)).then(function(r){return r.json()}).then(function(p){
+          var g=p.default_generation_settings||{}; text('afm-console-context',compact(g.n_ctx||0)+' tokens');
+        }).catch(function(){});
+      }
+      modelSelect.onchange=function(){ var id=this.value; paintCaps(id); loadProps(id); fetch('/models/load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})}).catch(function(){}); selectNativeModel(id); };
+
+      function loadRuntime(){
+        Promise.all([fetch('/health').then(function(r){return r.json()}),fetch('/afm/runtime').then(function(r){return r.json()})]).then(function(all){
+          var h=all[0],r=all[1]; text('afm-runtime-status',h.status||'healthy'); text('afm-console-version','AFM '+(r.version||h.version||''));
+          text('afm-console-backend',r.backend||'local'); text('afm-console-streaming',r.streaming?'enabled':'disabled'); text('afm-console-api',location.host);
+          text('afm-console-state-path',r.persistence||'~/.afm'); text('afm-console-cache-path',r.modelCache||'default');
+        }).catch(function(){ text('afm-runtime-status','offline'); document.getElementById('afm-runtime-dot').style.background='#ef4444'; });
+      }
+      function pollMetrics(){ fetch('/metrics').then(function(r){return r.text()}).then(function(raw){
+        var gpu=metric(raw,'afm:gpu_cache_usage_perc'), active=metric(raw,'afm:num_requests_running'), started=metric(raw,'afm:requests_started_total'), done=metric(raw,'afm:requests_completed_total');
+        if((active==null||active===0)&&started!=null&&done!=null) active=Math.max(0,started-done);
+        var queue=metric(raw,'afm:num_requests_waiting'), tokens=metric(raw,'afm:generation_tokens_total');
+        text('afm-console-gpu',gpu==null?'not reported':(gpu*100).toFixed(1)+'%'); text('afm-console-active',String(active==null?0:active));
+        text('afm-console-queue',String(queue==null?0:queue)); text('afm-console-tokens',compact(tokens));
+        document.getElementById('afm-console-gpu-bar').style.width=(gpu==null?0:Math.max(0,Math.min(100,gpu*100)))+'%';
+      }).catch(function(){}); }
+
+      function clickNative(words){
+        var all=document.querySelectorAll('button,a');
+        for(var i=0;i<all.length;i++){ if(all[i].closest('.afm-console'))continue; var hay=((all[i].getAttribute('aria-label')||'')+' '+(all[i].getAttribute('title')||'')+' '+(all[i].textContent||'')).toLowerCase(); if(words.some(function(w){return hay.indexOf(w)!==-1})){all[i].click();return true;} }
+        return false;
+      }
+      document.getElementById('afm-console-new').onclick=function(){ if(!clickNative(['new chat','new conversation'])) location.href='/'; };
+      document.getElementById('afm-console-settings').onclick=function(){
+        if(clickNative(['settings','parameters']))return;
+        var gears=document.querySelectorAll('button.rounded-full.backdrop-blur-lg');
+        if(gears.length)gears[gears.length-1].click();
+      };
+      document.getElementById('afm-console-stats').onclick=function(){ var b=document.getElementById('afm-dash-toggle'); if(b)b.click(); };
+      document.getElementById('afm-console-docs').onclick=function(){ window.open('/docs','_blank','noopener'); };
+      ['afm-console-state-path','afm-console-cache-path','afm-console-api'].forEach(function(id){document.getElementById(id).onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(this.textContent||'')}});
+      window.addEventListener('resize',function(){ if(window.innerWidth<900&&panel.classList.contains('open')) document.body.classList.remove('afm-console-open'); });
+      renderLaunchOptions(); loadLaunchProfile(); loadRuntime(); loadModels(); pollMetrics(); setInterval(pollMetrics,1000); setInterval(loadRuntime,15000);
+    })();
+    </script>
+    """
+
     /// Live `/metrics` dashboard injected alongside the webui customCSS.
     /// Renders a slide-out panel from the right edge of the page that polls
     /// `GET /metrics` every 1s, parses the Prometheus text exposition output,
@@ -923,22 +1979,31 @@ public class Server: @unchecked Sendable {
     private static let dashboardTemplate = """
     <style>
       .afm-dash-toggle {
-        position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+        position: fixed; right: 4.25rem; top: 1rem;
         z-index: 999998;
-        width: 32px; height: 80px;
-        border: none; background: rgba(15, 23, 42, 0.85); color: #e2e8f0;
-        border-radius: 8px 0 0 8px;
-        cursor: pointer; font-size: 18px;
+        min-width: 88px; height: 40px; padding: 0 14px;
+        border: 1px solid var(--afm-line); background: var(--afm-panel); color: var(--afm-ink);
+        border-radius: 999px;
+        cursor: pointer; font-size: 12px; font-weight: 680; letter-spacing: -0.01em;
         display: flex; align-items: center; justify-content: center;
-        box-shadow: -2px 0 8px rgba(0,0,0,0.2);
-        transition: background 0.15s;
+        gap: 7px;
+        box-shadow: 0 8px 24px rgba(24, 32, 44, 0.10);
+        backdrop-filter: blur(18px) saturate(130%);
+        -webkit-backdrop-filter: blur(18px) saturate(130%);
+        transition: background 0.15s, border-color 0.15s, transform 0.15s;
       }
-      .afm-dash-toggle:hover { background: rgba(15, 23, 42, 0.95); }
+      .afm-dash-toggle::before {
+        content: ""; width: 7px; height: 7px; border-radius: 999px;
+        background: var(--afm-green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--afm-green) 12%, transparent);
+      }
+      .afm-dash-toggle:hover {
+        background: var(--afm-panel-solid); border-color: var(--afm-line-strong); transform: translateY(-1px);
+      }
       /* Non-modal: no backdrop so the rest of the page stays interactive
          (chat input, model picker, etc.) while the dashboard is open. */
       .afm-dash {
         position: fixed; top: 0; right: 0; bottom: 0;
-        width: min(560px, 50vw);
+        width: min(560px, 94vw);
         z-index: 999999;
         background: #0f172a; color: #e2e8f0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -1033,8 +2098,12 @@ public class Server: @unchecked Sendable {
       .afm-status { font-size: 11px; color: #64748b; }
       .afm-status.err { color: #f87171; }
       .afm-empty { color: #64748b; font-size: 11px; font-style: italic; }
+      @media (max-width: 767px) {
+        .afm-dash-toggle { top: 0.65rem; right: 3.5rem; min-width: 72px; height: 36px; padding: 0 11px; }
+        .afm-dash { width: 100vw; }
+      }
     </style>
-    <button class="afm-dash-toggle" id="afm-dash-toggle" title="Open AFM /metrics dashboard (Esc to close)">📊</button>
+    <button class="afm-dash-toggle" id="afm-dash-toggle" title="Open AFM /metrics dashboard (Esc to close)">Live stats</button>
     <aside class="afm-dash" id="afm-dash" aria-hidden="true">
       <header>
         <h1>AFM /metrics</h1>
@@ -1369,7 +2438,11 @@ public class Server: @unchecked Sendable {
           return rec && rec.samples[0] ? rec.samples[0].labels.model_name : '—';
         }
 
-        document.getElementById('afm-dash-model').innerHTML = '<b>'+modelName()+'</b>';
+        var modelHost = document.getElementById('afm-dash-model');
+        modelHost.textContent = '';
+        var modelStrong = document.createElement('b');
+        modelStrong.textContent = modelName();
+        modelHost.appendChild(modelStrong);
 
         var runningRaw = single('afm:num_requests_running') || 0;
         var waiting = single('afm:num_requests_waiting') || 0;
@@ -1771,7 +2844,7 @@ public class Server: @unchecked Sendable {
         }
 
         // Open browser if webui is enabled
-        if webuiEnabled && webuiPath != nil {
+        if webuiEnabled && webuiPath != nil && ProcessInfo.processInfo.environment["AFM_WEBUI_MANAGED_CHILD"] != "1" {
             let url = "http://\(browserLaunchHost(for: hostname)):\(port)"
             print("  🌐 Opening WebUI in browser: \(url)")
             print("")
@@ -1794,6 +2867,7 @@ public class Server: @unchecked Sendable {
 
         // Shutdown the server first
         Task {
+            _ = await webRuntimeManager.stop()
             // Stop backend discovery
             if let discovery = app.backendDiscovery {
                 await discovery.stopScanning()
@@ -2039,6 +3113,26 @@ public struct HealthResponse: Content {
     public let version: String
     public init(status: String, timestamp: Double, version: String) {
         self.status = status; self.timestamp = timestamp; self.version = version
+    }
+}
+
+struct AFMWebLaunchRequest: Content, Sendable {
+    let backend: String
+    let model: String?
+    let values: [String: String]?
+    let flags: [String]?
+    let dryRun: Bool?
+
+    func persistableProfile() -> AFMWebLaunchRequest {
+        var persistedValues = values ?? [:]
+        persistedValues.removeValue(forKey: "--telegram-bot-token")
+        return AFMWebLaunchRequest(
+            backend: backend,
+            model: model,
+            values: persistedValues,
+            flags: flags,
+            dryRun: false
+        )
     }
 }
 

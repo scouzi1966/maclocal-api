@@ -24,12 +24,14 @@ public struct EngineConfig: Sendable {
     public var instructions: String
     public var adapter: String?
     public var permissiveGuardrails: Bool
+    public var foundationRandomness: String?
     // MLX runtime knobs (ignored by the Foundation Models backend)
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
     public var mlxKernels: String
     public var mtpEnabled: Bool
     public var mtpDepth: Int
+    public var mtpModelID: String?
     public var eagle3DrafterPath: String?
     public var enableGrammarConstraints: Bool
     public var toolCallParser: String?
@@ -49,11 +51,13 @@ public struct EngineConfig: Sendable {
         instructions: String = "You are a helpful assistant",
         adapter: String? = nil,
         permissiveGuardrails: Bool = false,
+        foundationRandomness: String? = nil,
         kvBits: Int? = nil,
         enablePrefixCaching: Bool = false,
         mlxKernels: String = "native",
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
+        mtpModelID: String? = nil,
         eagle3DrafterPath: String? = nil,
         enableGrammarConstraints: Bool = false,
         toolCallParser: String? = nil,
@@ -72,11 +76,13 @@ public struct EngineConfig: Sendable {
         self.instructions = instructions
         self.adapter = adapter
         self.permissiveGuardrails = permissiveGuardrails
+        self.foundationRandomness = foundationRandomness
         self.kvBits = kvBits
         self.enablePrefixCaching = enablePrefixCaching
         self.mlxKernels = mlxKernels
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
+        self.mtpModelID = mtpModelID
         self.eagle3DrafterPath = eagle3DrafterPath
         self.enableGrammarConstraints = enableGrammarConstraints
         self.toolCallParser = toolCallParser
@@ -115,6 +121,9 @@ private extension EngineConfig {
         }
         if let eagle3DrafterPath {
             values["eagle3DrafterPath"] = .string(eagle3DrafterPath)
+        }
+        if let mtpModelID {
+            values["mtpModelID"] = .string(mtpModelID)
         }
         if let toolCallParser {
             values["toolCallParser"] = .string(toolCallParser)
@@ -237,6 +246,77 @@ public enum AFMStreamEvent: Sendable {
 
 // MARK: - AFMEngine
 
+final class AFMEngineFoundationOperationGate: @unchecked Sendable {
+    struct Reservation: Sendable {
+        fileprivate let predecessor: Signal?
+        fileprivate let completion: Signal
+
+        func perform<T: Sendable>(
+            _ operation: @Sendable () async throws -> T
+        ) async throws -> T {
+            if let predecessor {
+                await predecessor.wait()
+            }
+            defer { completion.signal() }
+            try Task.checkCancellation()
+            return try await operation()
+        }
+    }
+
+    fileprivate final class Signal: @unchecked Sendable {
+        private let lock = NSLock()
+        private var signalled = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if signalled {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+
+        func signal() {
+            lock.lock()
+            guard !signalled else {
+                lock.unlock()
+                return
+            }
+            signalled = true
+            let pending = waiters
+            waiters.removeAll()
+            lock.unlock()
+            for waiter in pending {
+                waiter.resume()
+            }
+        }
+    }
+
+    private let lock = NSLock()
+    private var tail: Signal?
+
+    func reserve() -> Reservation {
+        lock.lock()
+        defer { lock.unlock() }
+        let completion = Signal()
+        let reservation = Reservation(predecessor: tail, completion: completion)
+        tail = completion
+        return reservation
+    }
+}
+
+struct AFMEngineFoundationDriver: Sendable {
+    let beforeStreamTask: @Sendable () async -> Void
+    let resetConversation: @Sendable ([Message]) async throws -> Void
+    let respond: @Sendable ([Message], GenerationConfig) async throws -> String
+    let stream: @Sendable ([Message], GenerationConfig) async throws -> AsyncThrowingStream<String, Error>
+}
+
 /// A headless, embeddable entry point to afm's inference backends.
 ///
 /// `AFMEngine` is the programmatic equivalent of the `afm` CLI: construct it with a
@@ -250,8 +330,10 @@ public enum AFMStreamEvent: Sendable {
 /// print(reply.content)
 /// ```
 public actor AFMEngine {
-    public let backend: AFMBackend
+    public nonisolated let backend: AFMBackend
     private let engineConfig: EngineConfig
+    private nonisolated let foundationOperations = AFMEngineFoundationOperationGate()
+    private let foundationDriver: AFMEngineFoundationDriver?
 
     private let registeredModel: AnyAFMModel?
 
@@ -261,6 +343,7 @@ public actor AFMEngine {
     public init(backend: AFMBackend, config: EngineConfig = EngineConfig()) {
         self.backend = backend
         self.engineConfig = config
+        self.foundationDriver = nil
         switch backend {
         case .mlx(let modelID):
             self.registeredModel = try? AFMMLXProviderFactory().makeModel(
@@ -290,11 +373,22 @@ public actor AFMEngine {
     ) throws {
         backend = .provider(providerID: providerID, modelID: modelID)
         self.engineConfig = engineConfig
+        foundationDriver = nil
         registeredModel = try registry.makeModel(
             providerID: providerID,
             modelID: modelID,
             configuration: configuration
         )
+    }
+
+    init(
+        config: EngineConfig = EngineConfig(),
+        foundationDriver: AFMEngineFoundationDriver
+    ) {
+        backend = .foundationModels
+        engineConfig = config
+        self.foundationDriver = foundationDriver
+        registeredModel = nil
     }
 
     /// Load (download if needed) the model and prepare it for inference.
@@ -321,6 +415,16 @@ public actor AFMEngine {
         foundationService = nil
     }
 
+    /// Reset backend-owned conversational state and optionally restore a transcript.
+    /// Stateless backends receive complete request histories and require no action.
+    public func resetConversation(with history: [Message] = []) async throws {
+        guard case .foundationModels = backend else { return }
+        let reservation = foundationOperations.reserve()
+        try await reservation.perform { [self] in
+            try await self.performFoundationReset(with: history)
+        }
+    }
+
     /// Generate a single (non-streaming) response for a chat transcript.
     public func respond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) async throws -> AFMResponse {
         switch backend {
@@ -336,7 +440,10 @@ public actor AFMEngine {
                 modelResponse: try await registeredModel.respond(to: request)
             )
         case .foundationModels:
-            let text = try await foundationGenerate(messages: messages, config: config)
+            let reservation = foundationOperations.reserve()
+            let text = try await reservation.perform { [self] in
+                try await self.foundationGenerate(messages: messages, config: config)
+            }
             return AFMResponse(content: text)
         }
     }
@@ -347,7 +454,15 @@ public actor AFMEngine {
         to messages: [Message],
         _ config: GenerationConfig = GenerationConfig()
     ) -> AsyncThrowingStream<AFMStreamEvent, Error> {
-        AsyncThrowingStream { continuation in
+        let foundationReservation: AFMEngineFoundationOperationGate.Reservation?
+        if case .foundationModels = backend {
+            // Reserve before returning the stream. A reset invoked immediately after this
+            // public call must wait even if the stream's task has not started running yet.
+            foundationReservation = foundationOperations.reserve()
+        } else {
+            foundationReservation = nil
+        }
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     switch backend {
@@ -365,9 +480,18 @@ public actor AFMEngine {
                         }
                         continuation.finish()
                     case .foundationModels:
-                        let text = try await foundationGenerate(messages: messages, config: config)
-                        continuation.yield(.text(text, tokenCount: 0))
-                        continuation.yield(.completed(.stop))
+                        guard let foundationReservation else {
+                            throw AFMEngineError.foundationModelsUnavailable
+                        }
+                        await self.prepareFoundationStreamTask()
+                        try await foundationReservation.perform { [self] in
+                            let stream = try await self.foundationStream(messages: messages, config: config)
+                            for try await text in stream {
+                                try Task.checkCancellation()
+                                continuation.yield(.text(text, tokenCount: 0))
+                            }
+                            continuation.yield(.completed(.stop))
+                        }
                         continuation.finish()
                     }
                 } catch {
@@ -384,10 +508,11 @@ public actor AFMEngine {
         to messages: [Message],
         _ config: GenerationConfig = GenerationConfig()
     ) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+        let events = streamEvents(to: messages, config)
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    for try await event in streamEvents(to: messages, config) {
+                    for try await event in events {
                         if case .text(let text, _) = event, !text.isEmpty {
                             continuation.yield(text)
                         }
@@ -484,16 +609,86 @@ public actor AFMEngine {
         }
     }
 
+    private func performFoundationReset(with history: [Message]) async throws {
+        if let foundationDriver {
+            try await foundationDriver.resetConversation(history)
+            return
+        }
+        try await ensureFoundation()
+        if #available(macOS 26.0, *) {
+            guard let service = foundationService as? FoundationModelService else {
+                throw AFMEngineError.foundationModelsUnavailable
+            }
+            try await service.resetConversation(with: history)
+        }
+    }
+
+    private func prepareFoundationStreamTask() async {
+        await foundationDriver?.beforeStreamTask()
+    }
+
     private func foundationGenerate(messages: [Message], config: GenerationConfig) async throws -> String {
+        if let foundationDriver {
+            return try await foundationDriver.respond(messages, config)
+        }
         try await ensureFoundation()
         if #available(macOS 26.0, *) {
             guard let svc = foundationService as? FoundationModelService else {
                 throw AFMEngineError.foundationModelsUnavailable
             }
+            if config.responseFormat?.type == "json_schema",
+               let schema = config.responseFormat?.jsonSchema {
+                return try await svc.generateGuidedResponse(
+                    for: messages,
+                    jsonSchema: schema,
+                    temperature: config.temperature,
+                    randomness: engineConfig.foundationRandomness,
+                    maxTokens: config.maxTokens,
+                    stop: config.stop
+                )
+            }
             return try await svc.generateResponse(
                 for: messages,
                 temperature: config.temperature,
-                randomness: nil,
+                randomness: engineConfig.foundationRandomness,
+                maxTokens: config.maxTokens,
+                stop: config.stop
+            )
+        }
+        throw AFMEngineError.foundationModelsUnavailable
+    }
+
+    private func foundationStream(
+        messages: [Message],
+        config: GenerationConfig
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        if let foundationDriver {
+            return try await foundationDriver.stream(messages, config)
+        }
+        try await ensureFoundation()
+        if #available(macOS 26.0, *) {
+            guard let svc = foundationService as? FoundationModelService else {
+                throw AFMEngineError.foundationModelsUnavailable
+            }
+            if config.responseFormat?.type == "json_schema",
+               let schema = config.responseFormat?.jsonSchema {
+                let text = try await svc.generateGuidedResponse(
+                    for: messages,
+                    jsonSchema: schema,
+                    temperature: config.temperature,
+                    randomness: engineConfig.foundationRandomness,
+                    maxTokens: config.maxTokens,
+                    stop: config.stop
+                )
+                return AsyncThrowingStream { continuation in
+                    continuation.yield(text)
+                    continuation.finish()
+                }
+            }
+            return svc.generateNativeStreamingResponse(
+                for: messages,
+                temperature: config.temperature,
+                randomness: engineConfig.foundationRandomness,
                 maxTokens: config.maxTokens,
                 stop: config.stop
             )

@@ -96,7 +96,12 @@ else
   fi
   BASE_VERSION="${BASE_VERSION:-0.0.0}"
 fi
-VERSION="${BASE_VERSION}-next.${SHORT_SHA}.${DATE}"
+VERSION=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field canonical)
+PYTHON_VERSION=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field python)
+RELEASE_TAG=$("$SCRIPT_DIR/nightly-version.sh" \
+  --base-version "$BASE_VERSION" --date "$DATE" --sha "$SHORT_SHA" --field tag)
 
 log_info "Building afm-next"
 log_info "  Commit: ${SHORT_SHA}"
@@ -121,7 +126,15 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 log_info "Binary: $BIN"
-"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
+MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
+if [ ! -f "$MLX_METALLIB" ]; then
+  MLX_METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/Contents/Resources/default.metallib"
+fi
+if [ ! -f "$MLX_METALLIB" ]; then
+  log_error "Required MLX metallib missing beside release binary"
+  exit 1
+fi
+"$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN" "$MLX_METALLIB"
 
 # Step 3: Package
 log_info "Creating release package..."
@@ -129,11 +142,25 @@ STAGING="$ROOT_DIR/.build/release-package"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
 
+# The server only opens the browser when the bundled WebUI can be resolved.
+# Build it on demand and treat it as a required release artifact so a nightly
+# cannot silently ship with a non-functional -w/--webui flag.
+WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
+if [ ! -f "$WEBUI" ]; then
+  log_info "WebUI artifact missing; building it..."
+  make webui
+fi
+if [ ! -f "$WEBUI" ]; then
+  log_error "Required WebUI artifact missing after build: $WEBUI"
+  exit 1
+fi
+"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
+
 cp "$BIN" "$STAGING/"
 
-# Runtime resource bundles. Both must remain beside the relocated executable:
-# MLX supplies its compiled Metal library and DwarfStar supplies Metal sources.
-for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+# Runtime resource bundles must remain beside the relocated executable: AFMKit
+# supplies evaluation suites, MLX supplies its metallib, and DwarfStar supplies Metal sources.
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -144,11 +171,9 @@ for BUNDLE_NAME in MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bund
 done
 
 # WebUI
-if [ -f "$ROOT_DIR/Resources/webui/index.html.gz" ]; then
-  mkdir -p "$STAGING/Resources/webui"
-  cp "$ROOT_DIR/Resources/webui/index.html.gz" "$STAGING/Resources/webui/"
-  log_info "Included webui"
-fi
+mkdir -p "$STAGING/Resources/webui"
+cp "$WEBUI" "$STAGING/Resources/webui/"
+log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
 cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
@@ -156,6 +181,37 @@ cp "$ROOT_DIR/LICENSE" "$STAGING/" 2>/dev/null || true
 TARBALL="$ROOT_DIR/afm-next-arm64.tar.gz"
 tar -czf "$TARBALL" -C "$STAGING" .
 log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
+shasum -a 256 "$TARBALL" > "$TARBALL.sha256"
+
+# Exercise the relocated payload before publishing it. This catches missing
+# SwiftPM resource bundles while the candidate is still local.
+"$STAGING/afm" --version
+"$STAGING/afm" --help | grep -q 'mlx'
+test -s "$STAGING/Resources/webui/index.html.gz"
+"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
+
+ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-next-archive-webui.html.gz"
+tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+rm -f "$ARCHIVE_WEBUI"
+
+# Build and verify the pip payload before any GitHub or Homebrew publication.
+# The wheel smoke test asserts that its bundled `afm --version` exactly matches
+# the canonical version written to the Homebrew formula.
+if [ ! -x "$SCRIPT_DIR/build-nightly-wheel.sh" ]; then
+  log_error "Required build-nightly-wheel.sh not found"
+  exit 1
+fi
+log_info "Building and validating nightly wheel..."
+"$SCRIPT_DIR/build-nightly-wheel.sh" \
+  --version "$BASE_VERSION" \
+  --build-version "$VERSION" \
+  --python-version "$PYTHON_VERSION"
+NIGHTLY_WHEEL=$(find "$ROOT_DIR/dist" -maxdepth 1 -name 'macafm_next-*.whl' -print -quit)
+if [ -z "$NIGHTLY_WHEEL" ]; then
+  log_error "Validated nightly wheel was not found"
+  exit 1
+fi
 
 # Step 4: Generate changelog
 log_info "Generating changelog..."
@@ -178,7 +234,6 @@ else
 fi
 
 # Step 5: Upload to GitHub release (unique tag per build, keep history)
-RELEASE_TAG="nightly-${DATE}-${SHORT_SHA}"
 log_info "Creating release: $RELEASE_TAG"
 gh release create "$RELEASE_TAG" \
   --prerelease \
@@ -226,7 +281,9 @@ EOF
 )" \
   --target main \
   --repo "$REPO" \
-  "$TARBALL"
+  "$TARBALL" \
+  "$TARBALL.sha256" \
+  "$NIGHTLY_WHEEL"
 
 log_info "Release uploaded: $RELEASE_TAG"
 
@@ -234,7 +291,19 @@ log_info "Release uploaded: $RELEASE_TAG"
 git tag -f nightly HEAD
 git push origin nightly --force 2>/dev/null || true
 
-# Step 6: Update tap formula
+# Step 6: Publish the already-attached wheel through the PEP 503 index. Do this
+# before updating Homebrew so every advertised installer has a resolvable asset.
+cd "$ROOT_DIR"
+if [ ! -x "$SCRIPT_DIR/update-wheel-index.sh" ]; then
+  log_error "Required update-wheel-index.sh not found"
+  exit 1
+fi
+log_info "Updating the nightly wheel index..."
+"$SCRIPT_DIR/update-wheel-index.sh" "$NIGHTLY_WHEEL" "$RELEASE_TAG" --skip-upload
+
+# Step 7: Update tap formula only after both GitHub assets and the pip index are
+# available. Cross-repository publication cannot be fully atomic, but this
+# ordering avoids exposing a Homebrew release with a missing pip counterpart.
 log_info "Updating tap formula..."
 SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
 
@@ -246,9 +315,22 @@ sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
 sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
 sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 
-# Also emit a pinned versioned formula (afm-next@YYYYMMDD.rb) and prune older nightlies
-# beyond the last 10. This lets users do `brew install scouzi1966/afm/afm-next@20260408`
-# for reproducible installs.
+if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
+  log_error "Homebrew nightly formula does not install the required WebUI"
+  exit 1
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm-next.rb; then
+  sed -i '' '/libexec.install "afm"/a\
+    libexec.install "MacLocalAPI_AFMKit.bundle"
+' afm-next.rb
+fi
+if ! grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm-next.rb; then
+  log_error "Homebrew nightly formula does not install the bundled evaluation suites"
+  exit 1
+fi
+
+# Also emit a pinned versioned formula and prune older nightlies beyond the
+# last 10. This lets users install a reproducible dated build.
 cd "$ROOT_DIR"
 if [ -x "$SCRIPT_DIR/generate-tap-versioned.sh" ]; then
   log_info "Generating versioned nightly formula afm-next@${DATE}.rb"
@@ -257,27 +339,13 @@ if [ -x "$SCRIPT_DIR/generate-tap-versioned.sh" ]; then
 fi
 cd "$TAP_DIR"
 
-git add afm-next.rb "afm-next@${VERSION}.rb" 2>/dev/null || true
-# If prune removed older files, stage the deletions too
-git add -u .
+# Stage only the formula family owned by this publisher, including pruned
+# versioned formula deletions. Never absorb unrelated tap worktree changes.
+git add -A -- afm-next.rb ':(glob)afm-next@*.rb'
 git commit -m "afm-next ${VERSION} (${SHORT_SHA}) + pinned afm-next@${DATE}"
 git push
 
 log_info "Tap updated"
-
-# Step 7: Build nightly wheel and update PEP 503 index
-cd "$ROOT_DIR"
-if [ -x "$SCRIPT_DIR/build-nightly-wheel.sh" ]; then
-  log_info "Building nightly wheel..."
-  "$SCRIPT_DIR/build-nightly-wheel.sh" --version "$BASE_VERSION"
-  WHL=$(ls dist/macafm_next-*.whl 2>/dev/null | head -1)
-  if [ -n "$WHL" ] && [ -x "$SCRIPT_DIR/update-wheel-index.sh" ]; then
-    log_info "Uploading wheel and updating index..."
-    "$SCRIPT_DIR/update-wheel-index.sh" "$WHL" "$RELEASE_TAG"
-  fi
-else
-  log_warn "build-nightly-wheel.sh not found, skipping wheel"
-fi
 
 # Cleanup
 rm -rf "$STAGING"

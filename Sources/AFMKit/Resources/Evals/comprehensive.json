@@ -1,0 +1,1686 @@
+{
+  "schemaVersion": 1,
+  "name": "comprehensive",
+  "description": "All 91 labeled variants from Scripts/test-llm-comprehensive.txt, ported to the native load-once evaluator without Python, shell orchestration, or an AI judge. Runtime-only legacy flags are documented per case; deterministic checks are used where the legacy expectation is machine-verifiable.",
+  "defaults": {
+    "temperature": 0.7,
+    "maxTokens": 512,
+    "seed": 42
+  },
+  "cases": [
+    {
+      "id": "greedy",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ greedy]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "default",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ default]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "high-temp",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ high-temp]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 1.5,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "top-p",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ top-p]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "topP": 0.9
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "top-k",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ top-k]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "topK": 30
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "min-p",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ min-p]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "minP": 0.05
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "combined-samplers",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ combined-samplers]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain why the sky is blue in exactly 3 bullet points.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "topK": 50,
+        "minP": 0.03,
+        "topP": 0.95
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "seed-42-run1",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ seed-42-run1]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a limerick about a cat.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "seed": 42
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "seed-42-run2",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ seed-42-run2]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a limerick about a cat.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "seed": 42
+      },
+      "expectations": {
+        "matchesCase": "seed-42-run1"
+      }
+    },
+    {
+      "id": "no-penalty",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ no-penalty]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a long essay about the history of bread making across civilizations.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "presencePenalty": 0.0
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "with-penalty",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ with-penalty]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a long essay about the history of bread making across civilizations.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "presencePenalty": 1.5
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "repetition-penalty",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ repetition-penalty]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a long essay about the history of bread making across civilizations.",
+      "parameters": {
+        "temperature": 0.8,
+        "maxTokens": 512,
+        "repetitionPenalty": 1.2
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "pirate",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ pirate]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me about quantum computing.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are a pirate. Always respond in pirate speak."
+    },
+    {
+      "id": "scientist",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ scientist]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me about quantum computing.",
+      "parameters": {
+        "temperature": 0.3,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are a physics professor. Be precise and use technical terminology."
+    },
+    {
+      "id": "eli5",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ eli5]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me about quantum computing.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "Explain everything as if the user is 5 years old. Use simple words only."
+    },
+    {
+      "id": "json-output",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ json-output]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Respond with a valid JSON object containing keys \"name\", \"age\", and \"city\". Nothing else.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "validJSON": true,
+        "contains": [
+          "name",
+          "age",
+          "city"
+        ]
+      }
+    },
+    {
+      "id": "numbered-list",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ numbered-list]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List exactly 5 animals, one per line, numbered 1-5. No other text.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "1.",
+          "5."
+        ]
+      }
+    },
+    {
+      "id": "guided-json-simple",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ guided-json-simple]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Generate a person record.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "guided-json-simple",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "age": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "age"
+              ]
+            },
+            "strict": false
+          }
+        }
+      },
+      "expectations": {
+        "validJSON": true
+      }
+    },
+    {
+      "id": "guided-json-nested",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ guided-json-nested]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Describe Tokyo as a structured record with at least 3 landmarks.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "guided-json-nested",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                },
+                "population": {
+                  "type": "integer"
+                },
+                "landmarks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "city",
+                "population",
+                "landmarks"
+              ]
+            },
+            "strict": false
+          }
+        }
+      },
+      "expectations": {
+        "validJSON": true
+      }
+    },
+    {
+      "id": "agent-no-cache-turn1",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-no-cache-turn1]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Read the file Sources/MacLocalAPI/main.swift and explain what it does.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "agent-no-cache-turn2",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-no-cache-turn2]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Now add a --timeout flag to the CLI that sets a request timeout in seconds.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "agent-no-cache-turn3",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-no-cache-turn3]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a unit test for the timeout feature you just described.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "agent-cached-turn1",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-cached-turn1]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --enable-prefix-caching is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Read the file Sources/MacLocalAPI/main.swift and explain what it does.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "agent-cached-turn2",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-cached-turn2]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --enable-prefix-caching is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Now add a --timeout flag to the CLI that sets a request timeout in seconds.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "agent-cached-turn3",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ agent-cached-turn3]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --enable-prefix-caching is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Write a unit test for the timeout feature you just described.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety."
+    },
+    {
+      "id": "short-output",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ short-output].",
+      "prompt": "Describe the entire history of Rome.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 50
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "long-output",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ long-output]. Adaptation: legacy max_tokens 2000 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a detailed recipe for chocolate chip cookies with ingredients, steps, tips, and variations.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "logprobs",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ logprobs]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is 1+1?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "logprobs": true,
+        "topLogprobs": 5
+      },
+      "expectations": {
+        "contains": [
+          "2"
+        ]
+      }
+    },
+    {
+      "id": "small-kv",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ small-kv]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --max-kv-size is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Summarize the key ideas of machine learning in a few paragraphs.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "kv-quantized",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ kv-quantized]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --kv-bits is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Summarize the key ideas of machine learning in a few paragraphs.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "prefill-default",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ prefill-default]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Given this architecture, what are the top 3 performance bottlenecks you would investigate first?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers."
+    },
+    {
+      "id": "prefill-large-4096",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ prefill-large-4096]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --prefill-step-size is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Given this architecture, what are the top 3 performance bottlenecks you would investigate first?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers."
+    },
+    {
+      "id": "prefill-small-256",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ prefill-small-256]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --prefill-step-size is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Given this architecture, what are the top 3 performance bottlenecks you would investigate first?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "system": "You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers."
+    },
+    {
+      "id": "no-streaming",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ no-streaming]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a short poem about the moon.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "streaming": false
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "raw-mode",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ raw-mode]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; raw-output CLI extraction is not varied inside the load-once evaluator.",
+      "prompt": "Think step by step: what is 17 * 23?",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "stop-single",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-single]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 fruits, numbered 1-10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-multi",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-multi]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a Python hello world program in a code block, then write END after it.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "```",
+          "END"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "```",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "stop-newline",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-newline]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is the capital of France? Answer in one sentence.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "\n"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "\n"
+        ]
+      }
+    },
+    {
+      "id": "stop-double-newline",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-double-newline]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a short paragraph about the ocean. Then write a second paragraph about mountains.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "\n\n"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "\n\n"
+        ]
+      }
+    },
+    {
+      "id": "stop-word",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-word]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Name 5 programming languages and briefly describe each one.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "Python"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "Python"
+        ]
+      }
+    },
+    {
+      "id": "stop-period",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-period]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me about the sun in three sentences.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "."
+        ]
+      }
+    },
+    {
+      "id": "stop-cli-only",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-cli-only]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 types of cheese, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-cli-multi",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-cli-multi]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a bash script that prints the current date inside a code block, then write DONE.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "```",
+          "DONE"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "```",
+          "DONE"
+        ]
+      }
+    },
+    {
+      "id": "stop-cli-api-merge",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-cli-api-merge]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 countries, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3.",
+          "5."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3.",
+          "5."
+        ]
+      }
+    },
+    {
+      "id": "stop-cli-api-dedup",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-cli-api-dedup]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 cities, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-non-streaming",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-non-streaming]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 planets or celestial objects, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3."
+        ],
+        "streaming": false
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-guided-json-value",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-guided-json-value]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 5 major world cities as a JSON array. Include Tokyo.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "Tokyo"
+        ],
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "stop-guided-json-value",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "cities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "cities"
+              ]
+            },
+            "strict": false
+          }
+        }
+      },
+      "expectations": {
+        "notContains": [
+          "Tokyo"
+        ]
+      }
+    },
+    {
+      "id": "stop-guided-json-comma",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-guided-json-comma]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Generate a person profile for someone named Alice who is 30 and lives in Paris.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          ","
+        ],
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "stop-guided-json-comma",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "age": {
+                  "type": "integer"
+                },
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "age",
+                "city"
+              ]
+            },
+            "strict": false
+          }
+        }
+      },
+      "expectations": {
+        "notContains": [
+          ","
+        ]
+      }
+    },
+    {
+      "id": "stop-guided-json-brace",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-guided-json-brace]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Describe the color blue with its hex code.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "}"
+        ],
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "stop-guided-json-brace",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string"
+                },
+                "hex": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "color",
+                "hex"
+              ]
+            },
+            "strict": false
+          }
+        }
+      },
+      "expectations": {
+        "notContains": [
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "stop-json-object-key",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-json-object-key]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Generate a JSON object with keys \"name\", \"age\", and \"city\" for a person named Carol.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "age"
+        ],
+        "responseFormat": {
+          "type": "json_object"
+        }
+      },
+      "expectations": {
+        "notContains": [
+          "age"
+        ]
+      }
+    },
+    {
+      "id": "stop-long-phrase",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-long-phrase]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a 3-paragraph essay about renewable energy. Start the last paragraph with \"In conclusion\".",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "In conclusion"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "In conclusion"
+        ]
+      }
+    },
+    {
+      "id": "stop-multi-word",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-multi-word]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a 5-step recipe for making tea. Label each step as \"Step 1\", \"Step 2\", etc.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "Step 3"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "Step 3"
+        ]
+      }
+    },
+    {
+      "id": "stop-no-match",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-no-match].",
+      "prompt": "Explain the difference between TCP and UDP in a few sentences.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 256,
+        "stop": [
+          "XYZZY_NEVER_MATCH"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "XYZZY_NEVER_MATCH"
+        ]
+      }
+    },
+    {
+      "id": "stop-immediate",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-immediate]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Explain what gravity is.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "The",
+          "I",
+          "A"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "The",
+          "I",
+          "A"
+        ]
+      }
+    },
+    {
+      "id": "stop-special-chars",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-special-chars]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 3 facts about the moon. Use **bold** markdown for emphasis.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "**"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "**"
+        ]
+      }
+    },
+    {
+      "id": "stop-html-tag",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-html-tag]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write an HTML unordered list of 5 fruits using <ul> and <li> tags.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "</li>"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "</li>"
+        ]
+      }
+    },
+    {
+      "id": "stop-unicode",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-unicode]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 5 items about space using bullet points (•).",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "•"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "•"
+        ]
+      }
+    },
+    {
+      "id": "stop-four-max",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-four-max]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 facts about numbers, alternating between digit format (1., 2.) and word format (three, four). One per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "3.",
+          "three",
+          "Third",
+          "III"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3.",
+          "three",
+          "Third",
+          "III"
+        ]
+      }
+    },
+    {
+      "id": "stop-system-pirate",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-system-pirate]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me about treasure hunting on the high seas.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "Arrr"
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "Arrr"
+        ]
+      },
+      "system": "You are a pirate. Speak like a pirate in all responses."
+    },
+    {
+      "id": "stop-system-numbered",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-system-numbered]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What are the main benefits of exercise?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "stop": [
+          "4."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "4."
+        ]
+      },
+      "system": "Always respond with numbered lists. Never use bullet points."
+    },
+    {
+      "id": "stop-high-temp",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-high-temp]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 random words, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 1.0,
+        "maxTokens": 512,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-seed-run1",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-seed-run1]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 flowers, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "seed": 42,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-seed-run2",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-seed-run2]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "List 10 flowers, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "seed": 42,
+        "stop": [
+          "3."
+        ]
+      },
+      "expectations": {
+        "matchesCase": "stop-seed-run1",
+        "notContains": [
+          "3."
+        ]
+      }
+    },
+    {
+      "id": "stop-low-max-tokens",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ stop-low-max-tokens].",
+      "prompt": "List 10 mountains, numbered 1 through 10, one per line.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 100,
+        "stop": [
+          "2."
+        ]
+      },
+      "expectations": {
+        "notContains": [
+          "2."
+        ]
+      }
+    },
+    {
+      "id": "response-format-json",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ response-format-json]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Return a JSON object with keys \"language\", \"year_created\", and \"creator\" for Python.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "responseFormat": {
+          "type": "json_object"
+        }
+      },
+      "expectations": {
+        "validJSON": true
+      }
+    },
+    {
+      "id": "response-format-schema",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ response-format-schema]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Generate a fictional person profile.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "responseFormat": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "person",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "age": {
+                  "type": "integer"
+                },
+                "hobbies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "age",
+                "hobbies"
+              ]
+            }
+          }
+        }
+      },
+      "expectations": {
+        "validJSON": true
+      }
+    },
+    {
+      "id": "response-format-text",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ response-format-text]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Tell me the language Python, what year it was created, and who created it. Be brief.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "think-normal",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ think-normal]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "150"
+        ]
+      }
+    },
+    {
+      "id": "think-raw",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ think-raw]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; raw-output CLI extraction is not varied inside the load-once evaluator.",
+      "prompt": "Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "150"
+        ]
+      }
+    },
+    {
+      "id": "streaming-seeded",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ streaming-seeded]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a 4-line poem about the ocean.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "seed": 123,
+        "streaming": true
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "non-streaming-seeded",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ non-streaming-seeded]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a 4-line poem about the ocean.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512,
+        "streaming": false,
+        "seed": 123
+      },
+      "expectations": {
+        "matchesCase": "streaming-seeded"
+      }
+    },
+    {
+      "id": "max-completion-tokens",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ max-completion-tokens].",
+      "prompt": "Explain the causes and consequences of the French Revolution.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 100
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "developer-role",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ developer-role]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a Python function that reverses a string.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      },
+      "developer": "You are a helpful coding assistant. Only respond with code, no explanations."
+    },
+    {
+      "id": "verbose",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ verbose]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --verbose is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Hello, how are you?",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "very-verbose",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ very-verbose]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --very-verbose is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "Hello, how are you?",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "tool-call-auto",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-auto]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is the weather in Tokyo?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Get current weather for a city",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string",
+                    "description": "City name"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ]
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "get_weather"
+      }
+    },
+    {
+      "id": "tool-call-xml",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-xml]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run; --tool-call-parser is a process/runtime flag and is recorded as coverage-only in the load-once evaluator.",
+      "prompt": "What is the weather in Paris in celsius?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Get current weather for a city",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string",
+                    "description": "City name"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ]
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "get_weather"
+      }
+    },
+    {
+      "id": "tool-call-multi",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-multi]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is the weather in London and what time is it in Tokyo?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Get current weather for a city",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ]
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "get_time",
+              "description": "Get current time in a timezone",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone"
+                  }
+                },
+                "required": [
+                  "timezone"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "get_weather"
+      }
+    },
+    {
+      "id": "tool-call-complex",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-complex]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Search recursively for all Swift files under Sources/ with a max of 50 results.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "search_files",
+              "description": "Search for files matching criteria",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Directory to search"
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern"
+                  },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "recursive": {
+                        "type": "boolean"
+                      },
+                      "max_results": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "path",
+                  "pattern"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "search_files"
+      }
+    },
+    {
+      "id": "tool-call-array-param",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-array-param]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Create three todo items: Buy milk, Call dentist, Fix bug #42.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "todowrite",
+              "description": "Write a list of todo items",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "todos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "List of todo items to create"
+                  }
+                },
+                "required": [
+                  "todos"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "todowrite"
+      }
+    },
+    {
+      "id": "tool-call-nullable-param",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-nullable-param]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is the weather in Chicago?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Get weather for a location",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "location": {
+                    "type": "string",
+                    "description": "City name"
+                  },
+                  "units": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Temperature units",
+                    "default": null
+                  }
+                },
+                "required": [
+                  "location"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expectations": {
+        "toolCallName": "get_weather"
+      }
+    },
+    {
+      "id": "tool-call-none",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ tool-call-none]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "What is the current temperature in Berlin?",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "minimal-prompt",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ minimal-prompt]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Hi",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "long-prompt",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ long-prompt]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Repeat after me exactly: The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Now say DONE.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "DONE"
+        ]
+      }
+    },
+    {
+      "id": "special-chars",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ special-chars]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Repeat these characters exactly: <tag> \"quotes\" 'apostrophes' & ampersand \\n newline \\t tab emoji: 🎉🚀 CJK: 你好 Arabic: مرحبا",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "<tag>",
+          "🎉",
+          "你好",
+          "مرحبا"
+        ],
+        "caseSensitive": true
+      }
+    },
+    {
+      "id": "multilingual",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ multilingual]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Translate \"Hello, how are you?\" into French, Spanish, Japanese, and Arabic. Format as a numbered list.",
+      "parameters": {
+        "temperature": 0.3,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "code-python",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ code-python]. Adaptation: legacy max_tokens 32768 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "def ",
+          "prime"
+        ]
+      },
+      "system": "You are a Python expert. Write clean code with no explanation."
+    },
+    {
+      "id": "code-swift",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ code-swift]. Adaptation: legacy max_tokens 32768 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a Swift async function that fetches JSON from a URL using URLSession, decodes it into a Codable struct, and handles errors with Result type.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "URLSession",
+          "async"
+        ],
+        "caseSensitive": true
+      },
+      "system": "You are a Swift expert. Write clean code with no explanation."
+    },
+    {
+      "id": "math",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ math]. Adaptation: legacy max_tokens 32768 is bounded to 512 for the bundled local run.",
+      "prompt": "A store sells notebooks for $3.50 each. If you buy 5 or more, you get a 20% discount. Sales tax is 8.5%. How much do 7 notebooks cost after tax? Show your work.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "contains": [
+          "21.25"
+        ]
+      }
+    },
+    {
+      "id": "long-form",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ long-form]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Write a detailed technical blog post explaining how Mixture-of-Experts (MoE) models work, why they are efficient, and how they compare to dense models of similar total parameter count. Include concrete examples.",
+      "parameters": {
+        "temperature": 0.7,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "minimumCharacters": 1
+      }
+    },
+    {
+      "id": "strict-format",
+      "description": "Ported from Scripts/test-llm-comprehensive.txt [@ strict-format]. Adaptation: legacy max_tokens 4096 is bounded to 512 for the bundled local run.",
+      "prompt": "Output EXACTLY 3 lines. Each line must contain exactly one word. The words must be: apple, banana, cherry. No other text, no numbering, no punctuation.",
+      "parameters": {
+        "temperature": 0.0,
+        "maxTokens": 512
+      },
+      "expectations": {
+        "exact": "apple\nbanana\ncherry",
+        "caseSensitive": false
+      }
+    }
+  ]
+}

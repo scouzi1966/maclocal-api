@@ -1,9 +1,11 @@
 import Foundation
 import AFMOpenAICompat
 import MLX
+@preconcurrency import MLXLLM
 // See MLXModelService.swift for rationale: MLXLMCommon value types predate Swift 6
 // concurrency; downgrade their Sendable diagnostics to warnings.
 @preconcurrency import MLXLMCommon
+@preconcurrency import MLXVLM
 import Tokenizers
 import os
 
@@ -15,6 +17,18 @@ private let _batchTsFormatter: DateFormatter = {
 }()
 
 private func batchTs() -> String { _batchTsFormatter.string(from: Date()) }
+
+private protocol FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { get }
+}
+
+extension Gemma4Model: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
+
+extension Gemma4VLM: FixedDecodeCohortModel {
+    var requiresFixedDecodeCohorts: Bool { true }
+}
 
 /// Manages concurrent generation with dynamic slot allocation and request queuing.
 ///
@@ -43,6 +57,10 @@ actor BatchScheduler {
 
     /// Default maximum concurrent generations.
     static let defaultMaxConcurrent = 8
+    /// Small admission window for concurrent bursts. Without this, the first
+    /// request can start a one-slot prefill/decode before peer requests created
+    /// by the same client batch reach the queue, which looks like serial TTFT.
+    static let defaultAdmissionWindowNanoseconds: UInt64 = 8_000_000
 
     let maxConcurrent: Int
     private let model: any LanguageModel
@@ -51,6 +69,11 @@ actor BatchScheduler {
     private let processor: any UserInputProcessor
     private let configuration: ModelConfiguration
     private let cacheProfilePath: String?
+    private let admissionWindowNanoseconds: UInt64
+    /// Some models change attention behavior when a later, shorter sequence is
+    /// left-padded into an active batch. Keep their decode cohorts fixed so
+    /// staggered arrivals retain the same path as serial generation.
+    private let requiresFixedDecodeCohorts: Bool
 
     /// EOS token IDs built once at init.
     private let eosTokenIds: Set<Int>
@@ -81,6 +104,10 @@ actor BatchScheduler {
         var firstTokenAt: Date?
         let inputTokens: [Int]
         let cachedTokens: Int
+        /// Token boundary represented by the persisted prefix snapshot. DeepSeek
+        /// stores prompt-minus-one so replay can restore recurrent state and
+        /// evaluate the final prompt token to recover the next-token logits.
+        let prefixCacheTokens: [Int]
         /// Snapshotted per-layer KV state from prefill (for prefix cache save).
         /// Stored as arrays rather than live KVCache references to avoid mutation
         /// by the decode loop (batchCaches shares objects in .unbatched mode).
@@ -118,10 +145,9 @@ actor BatchScheduler {
         var stopBuffer = ""
         var insideThink = false
         var stoppedBySequence = false
-        /// Set to true to signal this slot should stop generating.
-        var isCancelled = false
 
         init(
+            id: UUID,
             requestId: String = "",
             continuation: AsyncThrowingStream<StreamChunk, Error>.Continuation,
             promptTokenCount: Int,
@@ -131,6 +157,9 @@ actor BatchScheduler {
             inputTokens: [Int],
             cachedTokens: Int,
             prefillCaches: [KVCache],
+            prefixCacheTokens: [Int]? = nil,
+            prefixCacheStates: [[MLXArray]]? = nil,
+            prefixCacheMetaStates: [[String]]? = nil,
             lastTokenId: Int,
             lastTokenArray: MLXArray,
             sampler: LogitSampler,
@@ -146,7 +175,7 @@ actor BatchScheduler {
             topLogprobsCount: Int = 0,
             temperatureForLogprobs: Float = 1.0
         ) {
-            self.id = UUID()
+            self.id = id
             self.requestId = requestId
             self.continuation = continuation
             self.promptTokenCount = promptTokenCount
@@ -156,13 +185,15 @@ actor BatchScheduler {
             self.inputTokens = inputTokens
             self.cachedTokens = cachedTokens
             self.prefillCaches = prefillCaches
+            self.prefixCacheTokens = prefixCacheTokens ?? inputTokens
             // Snapshot prefill KV state for radix cache save.
             // Must contiguous-copy the arrays — MLX sliced views share the underlying
             // buffer with batchCaches, so batched decode mutations would corrupt the snapshot.
-            self.prefillStates = prefillCaches.map { cache in
+            self.prefillStates = prefixCacheStates ?? prefillCaches.map { cache in
                 cache.state.map { MLX.contiguous($0) }
             }
-            self.prefillMetaStates = prefillCaches.map { $0.metaState }
+            self.prefillMetaStates = prefixCacheMetaStates
+                ?? prefillCaches.map { $0.metaState }
             self.lastTokenId = lastTokenId
             self.lastTokenArray = lastTokenArray
             self.sampler = sampler
@@ -196,8 +227,13 @@ actor BatchScheduler {
     /// Total tokens generated across all slots (for periodic cache clearing).
     private var totalTokensGenerated = 0
 
-    private func hasRecurrentLayers(_ cache: [KVCache]) -> Bool {
-        cache.contains { $0 is ArraysCache || $0 is CacheList }
+    /// Hybrid recurrent state cannot be trimmed to an arbitrary token offset.
+    /// Capture it one token before the prompt boundary, then replay that token
+    /// after restore to recover the same next-token logits.
+    nonisolated static func requiresReplayBoundarySnapshot(_ cache: [KVCache]) -> Bool {
+        cache.contains {
+            $0 is ArraysCache || $0 is CacheList || $0 is DeepseekV4Cache
+        }
     }
 
     /// Whether a per-request cache can be promoted into the scheduler's dense
@@ -207,7 +243,43 @@ actor BatchScheduler {
         cache is KVCacheSimple
             || cache is ArraysCache
             || cache is CacheList
+            || cache is DeepseekV4Cache
             || (cache as? RotatingKVCache)?.isBatchable == true
+    }
+
+    nonisolated static func requiresFixedDecodeCohorts(for modelType: Any.Type) -> Bool {
+        modelType is any FixedDecodeCohortModel.Type
+    }
+
+    /// Copy cache tensors into independent MLX storage before retaining them
+    /// beyond the current decode step. Views and already-contiguous arrays may
+    /// otherwise alias mutable rotating-cache buffers.
+    nonisolated static func snapshotCacheState(_ state: [MLXArray]) -> [MLXArray] {
+        state.map { $0 * 1 }
+    }
+
+    /// Select bounded exact recurrent-state boundaries across a prefill. These
+    /// checkpoints let a later divergent request restore the closest captured
+    /// prefix without pretending recurrent state can be trimmed.
+    nonisolated static func recurrentCheckpointBoundaries(
+        restoredPrefix: Int,
+        finalBoundary: Int,
+        minimumStride: Int = 256,
+        maximumCheckpoints: Int = 8
+    ) -> [Int] {
+        guard finalBoundary > restoredPrefix,
+              minimumStride > 0,
+              maximumCheckpoints > 0
+        else { return [] }
+        let span = finalBoundary - restoredPrefix
+        let stride = max(minimumStride, (span + maximumCheckpoints - 1) / maximumCheckpoints)
+        var boundaries: [Int] = []
+        var boundary = restoredPrefix + stride
+        while boundary < finalBoundary && boundaries.count < maximumCheckpoints {
+            boundaries.append(boundary)
+            boundary += stride
+        }
+        return boundaries
     }
 
     private func unsafeExactReplaySuffix() -> Int? {
@@ -327,6 +399,7 @@ actor BatchScheduler {
     }
 
     struct PendingRequest: @unchecked Sendable {
+        let id: UUID
         let requestId: String
         /// Wall-clock instant the request was accepted by `submit()`. Used to
         /// derive queue time, e2e latency, and TTFT in `/metrics`.
@@ -352,6 +425,11 @@ actor BatchScheduler {
     /// Thread-safe in-flight counter (pending + active). Incremented in submit(),
     /// decremented in finishSlot() and error paths. Used for capacity checks.
     private let _inFlightCount = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Cancellation must be observable from the synchronous GPU loop without
+    /// waiting for an actor hop. The generation loop intentionally contains no
+    /// suspension point while slots are active.
+    private let _cancelledSlotIDs = OSAllocatedUnfairLock(initialState: Set<UUID>())
 
     /// Atomically reserve a slot if under capacity. Returns true if reserved.
     nonisolated func tryReserve() -> Bool {
@@ -414,10 +492,39 @@ actor BatchScheduler {
         _inFlightCount.withLock { $0 }
     }
 
-    /// Cancel all slots matching the given IDs.
-    func cancelSlots(ids: Set<UUID>) {
-        for slot in slots where ids.contains(slot.id) {
-            slot.isCancelled = true
+    /// Cancel pending or active scheduler slots. This is nonisolated so an SSE
+    /// stream's termination handler can signal the synchronous GPU loop.
+    nonisolated func cancelSlots(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        _cancelledSlotIDs.withLock { $0.formUnion(ids) }
+
+        let removed = _pendingQueue.withLock { queue -> [PendingRequest] in
+            var cancelled: [PendingRequest] = []
+            queue.removeAll { request in
+                guard ids.contains(request.id) else { return false }
+                cancelled.append(request)
+                return true
+            }
+            return cancelled
+        }
+        guard !removed.isEmpty else { return }
+
+        _inFlightCount.withLock { $0 = max(0, $0 - removed.count) }
+        for request in removed {
+            clearCancellation(request.id)
+            request.continuation.finish(throwing: CancellationError())
+            StatsAggregator.shared.requestSucceeded(reason: "abort")
+            StatsAggregator.shared.requestCompleted()
+        }
+    }
+
+    nonisolated private func isCancellationRequested(_ id: UUID) -> Bool {
+        _cancelledSlotIDs.withLock { $0.contains(id) }
+    }
+
+    nonisolated private func clearCancellation(_ id: UUID) {
+        _cancelledSlotIDs.withLock { cancelledIDs in
+            _ = cancelledIDs.remove(id)
         }
     }
 
@@ -438,7 +545,8 @@ actor BatchScheduler {
         configuration: ModelConfiguration,
         maxConcurrent: Int = BatchScheduler.defaultMaxConcurrent,
         enablePrefixCaching: Bool = false,
-        cacheProfilePath: String? = nil
+        cacheProfilePath: String? = nil,
+        admissionWindowNanoseconds: UInt64 = BatchScheduler.defaultAdmissionWindowNanoseconds
     ) {
         self.model = model
         self.tokenizer = tokenizer
@@ -446,6 +554,9 @@ actor BatchScheduler {
         self.configuration = configuration
         self.maxConcurrent = maxConcurrent
         self.cacheProfilePath = cacheProfilePath
+        self.admissionWindowNanoseconds = admissionWindowNanoseconds
+        self.requiresFixedDecodeCohorts = Self.requiresFixedDecodeCohorts(
+            for: type(of: model))
 
         let debug = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         self.radixCache = RadixTreeCache(
@@ -515,10 +626,17 @@ actor BatchScheduler {
         }
 
         let (stream, continuation) = AsyncThrowingStream<StreamChunk, Error>.makeStream()
+        let slotID = UUID()
+
+        continuation.onTermination = { [weak self] termination in
+            guard case .cancelled = termination else { return }
+            self?.cancelSlots(ids: [slotID])
+        }
 
         // Note: slot already reserved by tryReserve() in the controller layer.
         _pendingQueue.withLock {
             $0.append(PendingRequest(
+                id: slotID,
                 requestId: requestId,
                 queuedAt: Date(),
                 input: input,
@@ -542,12 +660,46 @@ actor BatchScheduler {
 
     /// Drain all pending requests from the nonisolated queue.
     /// Called from within the actor-isolated generationLoop.
-    private func drainPendingQueue() -> [PendingRequest] {
+    private func drainPendingQueue(limit: Int? = nil) -> [PendingRequest] {
         _pendingQueue.withLock { q in
-            let result = q
-            q.removeAll()
+            let result: [PendingRequest]
+            if let limit, q.count > limit {
+                result = Array(q.prefix(limit))
+                q.removeFirst(limit)
+            } else {
+                result = q
+                q.removeAll()
+            }
             return result
         }
+    }
+
+    /// Give same-burst requests a bounded chance to join an empty scheduler.
+    /// This is intentionally tiny and only applies before the first active slot;
+    /// it improves fairness for concurrent/batch clients without adding per-token
+    /// latency once generation is in progress.
+    private func drainAdmissionBatch() async -> [PendingRequest] {
+        var requests = drainPendingQueue(limit: maxConcurrent)
+        guard slots.isEmpty,
+              requests.count == 1,
+              maxConcurrent > 1,
+              admissionWindowNanoseconds > 0
+        else {
+            return requests
+        }
+
+        do {
+            try await Task.sleep(nanoseconds: admissionWindowNanoseconds)
+        } catch {
+            // The generation loop is cancelled by shutdown. Return the locally
+            // held requests so the loop can reject them before any GPU work.
+            return requests
+        }
+        let remainingCapacity = max(0, maxConcurrent - requests.count)
+        if remainingCapacity > 0 {
+            requests.append(contentsOf: drainPendingQueue(limit: remainingCapacity))
+        }
+        return requests
     }
 
     /// Gracefully shut down.
@@ -619,12 +771,43 @@ actor BatchScheduler {
         while !_isShutdown.withLock({ $0 }) {
             let stepStart = debugTiming ? Date() : Date.distantPast
 
-            // Drain nonisolated queue — no Task.yield() needed for request pickup
-            let newRequests = drainPendingQueue()
+            // Drain nonisolated queue. When idle, wait a bounded admission
+            // window so same-burst concurrent requests start together.
+            let newRequests: [PendingRequest]
+            if Self.shouldDeferStaggeredAdmissions(
+                requiresFixedDecodeCohorts: requiresFixedDecodeCohorts,
+                activeSlotCount: slots.count
+            ) {
+                newRequests = []
+            } else {
+                newRequests = await drainAdmissionBatch()
+            }
+            if Task.isCancelled || _isShutdown.withLock({ $0 }) {
+                for req in newRequests {
+                    _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                    req.continuation.finish(
+                        throwing: MLXServiceError.serviceShuttingDown)
+                    StatsAggregator.shared.requestSucceeded(reason: "abort")
+                    StatsAggregator.shared.requestCompleted()
+                }
+                if !slots.isEmpty {
+                    // Drain in-flight GPU work before shutdown tears down cache.
+                    Stream.gpu.synchronize()
+                }
+                return
+            }
             if !newRequests.isEmpty {
                 // Separate capacity-limited requests from overflow
                 var accepted: [PendingRequest] = []
                 for req in newRequests {
+                    if isCancellationRequested(req.id) {
+                        clearCancellation(req.id)
+                        _inFlightCount.withLock { $0 = max(0, $0 - 1) }
+                        req.continuation.finish(throwing: CancellationError())
+                        StatsAggregator.shared.requestSucceeded(reason: "abort")
+                        StatsAggregator.shared.requestCompleted()
+                        continue
+                    }
                     if slots.count + accepted.count < maxConcurrent {
                         accepted.append(req)
                     } else {
@@ -641,7 +824,13 @@ actor BatchScheduler {
 
                     for req in accepted {
                         let isMultimodal = req.input.image != nil || req.input.video != nil
-                        if isMultimodal || hasReusableCachedPrefix(for: req) {
+                        let requestCache = model.newCache(parameters: req.parameters)
+                        let recurrentCache = radixCache != nil
+                            && Self.requiresReplayBoundarySnapshot(requestCache)
+                        if isMultimodal
+                            || recurrentCache
+                            || hasReusableCachedPrefix(for: req, cache: requestCache)
+                        {
                             individual.append(req)
                         } else {
                             batchEligible.append(req)
@@ -669,6 +858,21 @@ actor BatchScheduler {
 
             // --- Batched decode: build graph from lastTokenArray (CPU, ~2.7ms) ---
             let activeB = slots.count
+            if activeB > 1, stepCount == 0 || stepCount % 256 == 0 {
+                let deepseekHybrid = batchCaches.contains {
+                    $0 is BatchDeepseekV4Cache || $0 is DeepseekV4Cache
+                }
+                if deepseekHybrid {
+                    let enabled = ProcessInfo.processInfo.environment[
+                        "VMLX_DSV4_DWARFSTAR_CACHE_BATCH"]
+                        .map { !["0", "false", "off"].contains($0.lowercased()) }
+                        ?? true
+                    let mode = enabled
+                        ? "DwarfStar-style private cache descriptors + batched attention"
+                        : "legacy row-split attention"
+                    print("[\(batchTs())] [BatchScheduler] DeepSeek V4 hybrid decode: B=\(activeB) \(mode)")
+                }
+            }
             let tokens: MLXArray
             if activeB == 1 {
                 tokens = slots[0].lastTokenArray.reshaped([1, 1])
@@ -736,7 +940,7 @@ actor BatchScheduler {
                     let slot = slots[i]
 
                     // Check for per-slot cancellation
-                    if slot.isCancelled {
+                    if isCancellationRequested(slot.id) {
                         completedIndices.append(i)
                         continue
                     }
@@ -899,33 +1103,45 @@ actor BatchScheduler {
         forcedSuffix: Int?,
         sourceTokenCount: Int? = nil
     ) -> Int {
-        if matchedPrefix == inputTokenCount && hasRecurrentLayers && forcedSuffix == nil {
-            return 0
-        }
         if matchedPrefix == inputTokenCount, let forcedSuffix {
             return max(0, inputTokenCount - forcedSuffix)
         }
+        if hasRecurrentLayers && forcedSuffix == nil {
+            // A recurrent state is reusable only at the exact token boundary
+            // where it was captured, with at least one suffix token left to
+            // recover logits. Never trim a longer descendant recurrent state.
+            guard matchedPrefix < inputTokenCount,
+                  sourceTokenCount == matchedPrefix
+            else { return 0 }
+            return matchedPrefix
+        }
         let minSuffix = 16
         let effectivePrefix = min(matchedPrefix, max(0, inputTokenCount - minSuffix))
-        if hasRecurrentLayers && forcedSuffix == nil,
-           let sourceTokenCount, sourceTokenCount != effectivePrefix {
-            return 0
-        }
         return effectivePrefix
+    }
+
+    static func shouldDeferStaggeredAdmissions(
+        requiresFixedDecodeCohorts: Bool,
+        activeSlotCount: Int
+    ) -> Bool {
+        requiresFixedDecodeCohorts && activeSlotCount > 0
     }
 
     /// Probe whether a request must use individual prefill to preserve a reusable
     /// radix entry. This is called only from the actor's serialized generation loop.
-    private func hasReusableCachedPrefix(for req: PendingRequest) -> Bool {
+    private func hasReusableCachedPrefix(
+        for req: PendingRequest,
+        cache: [KVCache]
+    ) -> Bool {
         guard let radix = radixCache else { return false }
         let inputTokens = req.input.text.tokens.reshaped(-1).asArray(Int.self)
         guard !inputTokens.isEmpty else { return false }
 
-        let match = radix.findPrefixMatch(inputTokens)
+        let recurrent = Self.requiresReplayBoundarySnapshot(cache)
+        let match = recurrent
+            ? radix.findExactBoundaryMatch(inputTokens)
+            : radix.findPrefixMatch(inputTokens)
         guard match.prefixLen > 0, match.layerStates != nil else { return false }
-
-        let cache = model.newCache(parameters: req.parameters)
-        let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
         return Self.effectiveCachedPrefixLength(
             matchedPrefix: match.prefixLen,
             inputTokenCount: inputTokens.count,
@@ -956,7 +1172,10 @@ actor BatchScheduler {
         // Prefix cache: restore KV state if available
         if !isMultimodal, let radix = radixCache {
             let tLookup0 = Date.timeIntervalSinceReferenceDate
-            let match = radix.findPrefixMatch(inputTokens)
+            let recurrent = Self.requiresReplayBoundarySnapshot(cache)
+            let match = recurrent
+                ? radix.findExactBoundaryMatch(inputTokens)
+                : radix.findPrefixMatch(inputTokens)
             let prefixLen = match.prefixLen
             let layerStates = match.layerStates
             let layerMetaStates = match.layerMetaStates
@@ -966,7 +1185,6 @@ actor BatchScheduler {
             // Inlined hasRecurrentLayers(cache): an actor-isolated call would make
             // the compiler treat the non-Sendable `cache` as "sent", conflicting
             // with its later in-actor uses. Inlining keeps it in one region.
-            let recurrent = cache.contains { $0 is ArraysCache || $0 is CacheList }
             let effectivePrefix = Self.effectiveCachedPrefixLength(
                 matchedPrefix: prefixLen,
                 inputTokenCount: inputTokens.count,
@@ -1027,9 +1245,73 @@ actor BatchScheduler {
         let logitSampler = req.parameters.sampler()
         logitProcessor?.prompt(generateInput.text.tokens)
 
-        // Run model on full prompt (B=1)
-        let prefillInput = generateInput.text[text: .newAxis]  // [1, seqLen]
-        let result = model(prefillInput, cache: cache, state: nil)
+        // Hybrid recurrent state (DeepSeek compressor/indexer, Mamba, and
+        // GatedDeltaNet) is not safely rewindable from a longer snapshot.
+        // Persist the exact prompt-minus-one boundary instead: restore that
+        // state later and evaluate the final prompt token to reproduce the
+        // original next-token logits.
+        let shouldCaptureReplayBoundary = radixCache != nil
+            && Self.requiresReplayBoundarySnapshot(cache)
+            && !inputTokens.isEmpty
+        var prefixCacheTokens: [Int]? = nil
+        var prefixCacheStates: [[MLXArray]]? = nil
+        var prefixCacheMetaStates: [[String]]? = nil
+        let suffixTokens = generateInput.text.tokens.reshaped(-1).asArray(Int.self)
+        let result: LMOutput
+        if shouldCaptureReplayBoundary, let finalToken = suffixTokens.last {
+            var recurrentState: LMOutput.State? = nil
+            // `generateInput` was sliced at `cachedTokens` on restore, so this
+            // array contains only the uncached suffix before the final replay
+            // token. The consumed offsets below are relative to that suffix.
+            let uncachedLeadingTokens = Array(suffixTokens.dropLast())
+            let finalBoundary = inputTokens.count - 1
+            let checkpoints = Self.recurrentCheckpointBoundaries(
+                restoredPrefix: cachedTokens,
+                finalBoundary: finalBoundary
+            )
+            var consumed = 0
+            for boundary in checkpoints + [finalBoundary] {
+                let targetConsumed = boundary - cachedTokens
+                guard targetConsumed > consumed else { continue }
+                let chunk = Array(uncachedLeadingTokens[consumed..<targetConsumed])
+                recurrentState = model(
+                    LMInput.Text(tokens: MLXArray(chunk)[.newAxis]),
+                    cache: cache,
+                    state: recurrentState
+                ).state
+                consumed = targetConsumed
+
+                if boundary < finalBoundary, let radix = radixCache {
+                    let states = cache.map { Self.snapshotCacheState($0.state) }
+                    MLX.eval(states.flatMap { $0 })
+                    radix.insert(
+                        tokens: Array(inputTokens.prefix(boundary)),
+                        layerStates: states,
+                        layerMetaStates: cache.map { $0.metaState }
+                    )
+                    DebugLogger.log(
+                        "[BatchScheduler] Recurrent prefix checkpoint: \(boundary) tokens")
+                }
+            }
+            let states = cache.map { layerCache in
+                // `contiguous` may return the original storage when the source
+                // is already contiguous. Rotating caches mutate that storage in
+                // place, so force an independent allocation for the retained
+                // prompt-minus-one snapshot.
+                Self.snapshotCacheState(layerCache.state)
+            }
+            MLX.eval(states.flatMap { $0 })
+            prefixCacheTokens = Array(inputTokens.dropLast())
+            prefixCacheStates = states
+            prefixCacheMetaStates = cache.map { $0.metaState }
+            result = model(
+                LMInput.Text(tokens: MLXArray([finalToken]).reshaped([1, 1])),
+                cache: cache,
+                state: recurrentState)
+        } else {
+            let prefillInput = generateInput.text[text: .newAxis]  // [1, seqLen]
+            result = model(prefillInput, cache: cache, state: nil)
+        }
 
         // Extract last-position logits and sample first token.
         // Use [0, -1, 0...] to collapse batch dim → [vocabSize] (scalar sample output).
@@ -1082,6 +1364,7 @@ actor BatchScheduler {
         }
 
         let slot = SlotState(
+            id: req.id,
             requestId: req.requestId,
             continuation: req.continuation,
             promptTokenCount: inputTokens.count,
@@ -1091,6 +1374,9 @@ actor BatchScheduler {
             inputTokens: inputTokens,
             cachedTokens: cachedTokens,
             prefillCaches: cache,
+            prefixCacheTokens: prefixCacheTokens,
+            prefixCacheStates: prefixCacheStates,
+            prefixCacheMetaStates: prefixCacheMetaStates,
             lastTokenId: firstToken,
             lastTokenArray: tokenArray,  // already eval'd — used as model input for first decode step
             sampler: logitSampler,
@@ -1270,7 +1556,9 @@ actor BatchScheduler {
         // BatchRotatingKVCache. The decode loop handles them correctly in batch.
         // Individual prefill adds <1% overhead (63ms for 15 requests vs 17s decode).
         let hasRotatingLayers = templateCache.contains { $0 is RotatingKVCache }
+        let hasDeepseekHybridLayers = templateCache.contains { $0 is DeepseekV4Cache }
         let canBatch = !hasRotatingLayers
+            && !hasDeepseekHybridLayers
             && templateCache.allSatisfy(Self.supportsDenseBatchMerge)
         if !canBatch {
             for req in requests { prefillOne(req) }
@@ -1412,6 +1700,7 @@ actor BatchScheduler {
             let firstToken = tokenArrays[i].item(Int.self)
 
             let slot = SlotState(
+                id: req.id,
                 requestId: req.requestId,
                 continuation: req.continuation,
                 promptTokenCount: allInputTokens[i].count,
@@ -1500,6 +1789,7 @@ actor BatchScheduler {
             // B=0 → B=1: Keep individual caches if all are simple/batchable types (zero overhead)
             let allSimple = individualCache.allSatisfy {
                 $0 is KVCacheSimple || $0 is ArraysCache || $0 is CacheList
+                || $0 is DeepseekV4Cache
                 || ($0 as? RotatingKVCache)?.isBatchable == true
             }
             if allSimple {
@@ -1535,7 +1825,9 @@ actor BatchScheduler {
             // B=1 → B≥2: Promote existing + new to batch caches
             Stream.gpu.synchronize()  // Ensure B=1 cache arrays are fully evaluated
             batchCaches = zip(batchCaches, individualCache).map { existing, new in
-                if let existingCL = existing as? CacheList, new is CacheList {
+                if existing is DeepseekV4Cache, new is DeepseekV4Cache {
+                    return BatchDeepseekV4Cache.merge([existing, new]) as KVCache
+                } else if let existingCL = existing as? CacheList, new is CacheList {
                     return BatchCacheList.merge([existingCL, new], leftPadding: [0, 0]) as KVCache
                 } else if let existingAC = existing as? ArraysCache,
                    let newAC = new as? ArraysCache {
@@ -1552,7 +1844,10 @@ actor BatchScheduler {
         case .batched:
             // B≥2 → B+1: Extend existing batch caches
             for layer in 0..<batchCaches.count where layer < individualCache.count {
-                if let batchBCL = batchCaches[layer] as? BatchCacheList,
+                if let batchDeepseek = batchCaches[layer] as? BatchDeepseekV4Cache,
+                   let newDeepseek = individualCache[layer] as? DeepseekV4Cache {
+                    batchDeepseek.extend(with: newDeepseek)
+                } else if let batchBCL = batchCaches[layer] as? BatchCacheList,
                    let newCL = individualCache[layer] as? CacheList {
                     for subIdx in 0..<batchBCL.count where subIdx < newCL.count {
                         if let batchAC = batchBCL[subIdx] as? ArraysCache,
@@ -1593,6 +1888,7 @@ actor BatchScheduler {
         let debugTiming = ProcessInfo.processInfo.environment["AFM_DEBUG"] == "1"
         let finishStart = debugTiming ? Date() : Date.distantPast
         let slot = slots[index]
+        let wasCancelled = isCancellationRequested(slot.id)
         let elapsed = Date().timeIntervalSince(slot.startTime)
         let generateTime = elapsed - slot.prefillTime
 
@@ -1610,7 +1906,7 @@ actor BatchScheduler {
         var saveTrimTime: Double? = nil
         var saveTruncateTime: Double? = nil
         var saveInsertTime: Double? = nil
-        if let radix = radixCache, !slot.inputTokens.isEmpty {
+        if let radix = radixCache, !slot.prefixCacheTokens.isEmpty, !wasCancelled {
             let tSave0 = Date.timeIntervalSinceReferenceDate
             // Use pre-snapshotted state from prefill time — immune to decode mutations.
             let layerStates = slot.prefillStates
@@ -1618,7 +1914,7 @@ actor BatchScheduler {
             let tSaveTrim = tSave0
             let tSaveTruncate = tSave0
             radix.insert(
-                tokens: slot.inputTokens,
+                tokens: slot.prefixCacheTokens,
                 layerStates: layerStates,
                 layerMetaStates: layerMetaStates
             )
@@ -1631,17 +1927,17 @@ actor BatchScheduler {
             }
             let maxOffset = layerStates.map { $0.isEmpty ? 0 : $0[0].dim(2) }.max() ?? 0
             print(
-                "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.inputTokens.count) | " +
+                "[\(batchTs())] [PrefixCache] Save complete: mode=batch | stored_tokens=\(slot.prefixCacheTokens.count) | " +
                     "radix_entries=\(radix.count) | trim=\(String(format: "%.6f", saveTrimTime ?? 0))s | " +
                     "truncate=\(String(format: "%.6f", saveTruncateTime ?? 0))s | insert=\(String(format: "%.6f", saveInsertTime ?? 0))s | " +
                     "layers=\(layerStates.count) active_layers=\(activeLayers) max_offset=\(maxOffset)"
             )
-            DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.inputTokens.count) tokens")
+            DebugLogger.log("[BatchScheduler] Prefix cache save: \(slot.prefixCacheTokens.count) tokens")
         }
         logCacheProfile(
             phase: "save",
             mode: "batch",
-            outcome: slot.inputTokens.isEmpty ? "skip" : "save",
+            outcome: slot.prefixCacheTokens.isEmpty || wasCancelled ? "skip" : "save",
             inputTokenCount: slot.inputTokens.count,
             cachedTokenCount: slot.cachedTokens,
             promptTime: slot.prefillTime,
@@ -1670,7 +1966,9 @@ actor BatchScheduler {
         // implies an explicit stop string match), then length-cap, otherwise
         // a clean stop (EOS / model-emitted end).
         let finishedReason: String
-        if slot.stoppedBySequence {
+        if wasCancelled {
+            finishedReason = "abort"
+        } else if slot.stoppedBySequence {
             finishedReason = "stop"
         } else if let max = slot.maxTokens, slot.tokenCount >= max {
             finishedReason = "length"
@@ -1692,6 +1990,7 @@ actor BatchScheduler {
         )
         StatsAggregator.shared.requestSucceeded(reason: finishedReason)
         StatsAggregator.shared.requestCompleted()
+        clearCancellation(slot.id)
 
         DebugLogger.log("[BatchScheduler] Finished slot req=\(slot.requestId) (\(slot.tokenCount) tok, \(String(format: "%.2f", elapsed))s, in-flight: \(_inFlightCount.withLock { $0 })/\(maxConcurrent))")
 
@@ -1708,7 +2007,9 @@ actor BatchScheduler {
             case .batched:
                 let idxArray = MLXArray(keepIndices.map { Int32($0) })
                 for layer in 0..<batchCaches.count {
-                    if let bclCache = batchCaches[layer] as? BatchCacheList {
+                    if let deepseekCache = batchCaches[layer] as? BatchDeepseekV4Cache {
+                        deepseekCache.filter(keepIndices)
+                    } else if let bclCache = batchCaches[layer] as? BatchCacheList {
                         // Filter each sub-cache inside the CacheList
                         for subIdx in 0..<bclCache.count {
                             if let bkvSub = bclCache[subIdx] as? BatchKVCacheSimple {

@@ -82,21 +82,31 @@ AFM_EAGLE3_BLOCK=3 afm mlx -m mlx-community/gemma-4-31b-it-4bit --eagle3 "$DRAFT
 
 ---
 
-## 2. MTP self-speculative decoding — Qwen3.6
+## 2. MTP self-speculative decoding — Qwen3.6 and Qwen3.8
 
 **Flag:** `--mtp`
 
-Self-speculative decoding using Qwen3.6's **in-model MTP head** (no separate draft model).
+Self-speculative decoding using a small MTP head published for the base model.
 Quality-preserving: bit-exact to greedy AR on short generations, near-greedy on long ones (the
 depth-2 "bonus" token comes from a batched verify forward, so longer outputs may differ
 token-for-token while staying greedy-quality). ~**+52% decode** vs AR; ~**+47%** end-to-end.
 
-Requires a model checkpoint that ships the `mtp.safetensors` sidecar (the plain
-`mlx-community/Qwen3.6-27B-4bit` conversion **strips** the MTP head, so `--mtp` no-ops there):
+Qwen3.6 requires a checkpoint that ships `mtp.safetensors`. For Qwen3.8, AFM detects the
+architecture and quantization from `config.json`, then downloads the matching standalone MTP
+repository (`4bit`, `8bit`, `bf16`, `mxfp4`, `mxfp8`, or `nvfp4`). The head is prefetched even
+without `--mtp`, and remains separate from the base weights so the normal model loader cannot
+ingest it accidentally.
 
 ```bash
 # model dir must contain mtp.safetensors next to the base weights
 afm mlx -m Youssofal/Qwen3.6-27B-MTPLX-Optimized-Speed --mtp --port 9999
+
+# Automatically uses mlx-community/Qwen3.8-27B-MTP-4bit
+afm mlx -m mlx-community/Qwen3.8-27B-4bit --mtp --port 9999
+
+# Explicit repository, local directory, or .safetensors override
+afm mlx -m mlx-community/Qwen3.8-27B-4bit --mtp \
+  --mtp-model mlx-community/Qwen3.8-27B-MTP-4bit --port 9999
 ```
 
 ```bash
@@ -107,8 +117,12 @@ curl -s http://127.0.0.1:9999/v1/chat/completions -H 'Content-Type: application/
 }'
 ```
 
-**When the fast path engages:** same eligibility as EAGLE3 (greedy, text-only, streaming or
-non-streaming, no tools/grammar/logprobs/stop). No MTP head present → silently falls back to AR.
+**When the fast path engages:** same eligibility as EAGLE3 (greedy, text-only, serial streaming
+or non-streaming, no tools/grammar/logprobs/stop). Concurrent, continuous-batch, prefix-cache,
+and ineligible requests remain fully functional through autoregressive decoding. If `--mtp` is
+explicit and its head cannot be resolved, startup fails instead of silently running without the
+requested acceleration. Without `--mtp`, a head-prefetch failure is non-fatal so offline AR usage
+continues to work.
 
 `--mtp-depth N` is accepted for compatibility but **not used** (the loop uses the fixed
 depth-2-bonus structure from mlx-lm PR #990).
@@ -161,7 +175,7 @@ AFM_DEBUG=1 AFM_EAGLE3_PROFILE=1 afm mlx -m <gemma4-31b> --eagle3 <drafter> --po
 | Feature | Flag | Model | Speedup | Output |
 |---------|------|-------|---------|--------|
 | EAGLE3 | `--eagle3 <dir>` | dense Gemma4-31B | ~+30% decode | lossless (== greedy AR) |
-| MTP | `--mtp` | Qwen3.6 w/ `mtp.safetensors` | ~+52% decode | near-greedy (bit-exact on short gens) |
+| MTP | `--mtp` | Qwen3.6 sidecar or Qwen3.8 matching head | serial decode acceleration | near-greedy (bit-exact on short gens) |
 | SDPA backport | (build-time) | any | ~+10% @16k | correct at all depths |
 | Eager think-tag | (auto) | thinking models | TTFT 610→346ms | unchanged |
 | Kernel prewarm | (auto) | any | faster cold token | unchanged |

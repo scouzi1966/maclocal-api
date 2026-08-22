@@ -16,7 +16,10 @@ import asyncio, aiohttp, json, time, sys, os
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
-REQUEST_TIMEOUT_S = int(os.environ.get("AFM_REQUEST_TIMEOUT_S", "180"))
+# A 4,096-token decode can exceed ten minutes when several long generations
+# share the GPU. Keep the override for targeted tests, but do not classify a
+# healthy, slow concurrent decode as an engine failure by default.
+REQUEST_TIMEOUT_S = int(os.environ.get("AFM_REQUEST_TIMEOUT_S", "1200"))
 
 # ─── Long system prompts (simulate agent instructions) ────────────────────────
 
@@ -297,13 +300,19 @@ async def run_conversation(session, conv):
 
     for i, turn in enumerate(conv["turns"]):
         messages.append({"role": "user", "content": turn["user"]})
+        turn_started = time.monotonic()
         try:
             r = await asyncio.wait_for(
                 send_request(session, messages, turn.get("max_tokens", 1024)),
                 timeout=REQUEST_TIMEOUT_S
             )
         except Exception as exc:
-            raise RuntimeError(f"{conv['name']}/t{i+1}: {exc}") from exc
+            elapsed = time.monotonic() - turn_started
+            detail = str(exc) or repr(exc)
+            raise RuntimeError(
+                f"{conv['name']}/t{i+1}: {type(exc).__name__} after "
+                f"{elapsed:.1f}s: {detail}"
+            ) from exc
 
         check = check_response(r["text"], turn["expected"])
         r["turn"] = i + 1
