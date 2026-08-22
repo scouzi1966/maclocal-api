@@ -39,6 +39,27 @@ final class AFMKitConsumerContractTests: XCTestCase {
         }
     }
 
+    private struct ReplacementModel: AFMModel {
+        let descriptor = AFMModelDescriptor(
+            providerID: "test.replace",
+            modelID: "replace-1",
+            displayName: "Replace 1",
+            capabilities: [.text, .streaming]
+        )
+        func availability() async -> AFMModelAvailability { .available }
+        func load(progress: (@Sendable (Double) -> Void)?) async throws -> AFMModelDescriptor {
+            descriptor
+        }
+        func respond(to request: AFMRequest) async throws -> AFMModelResponse { .init() }
+        func streamResponse(to request: AFMRequest) -> AsyncThrowingStream<AFMGenerationEvent, Error> {
+            AsyncThrowingStream { continuation in
+                continuation.yield(.responseText(action: .replace, text: "H", tokenCount: 1))
+                continuation.yield(.responseText(action: .replace, text: "Hello", tokenCount: 2))
+                continuation.finish()
+            }
+        }
+    }
+
     func testCompatibilityEngineUsesRegisteredAFMKitProvider() async throws {
         let registry = AFMProviderRegistry()
         try registry.register(
@@ -75,5 +96,38 @@ final class AFMKitConsumerContractTests: XCTestCase {
         XCTAssertEqual(request.messages.count, 1)
         XCTAssertEqual(request.messages[0].role, .system)
         XCTAssertEqual(request.messages[0].content, [.text("Follow project policy.")])
+    }
+
+    func testLegacyEnginePreservesProviderConstructionError() async {
+        let engine = AFMEngine(
+            backend: .provider(providerID: "missing", modelID: "model")
+        )
+        do {
+            _ = try await engine.load()
+            XCTFail("Expected provider registration failure")
+        } catch let error as AFMError {
+            XCTAssertEqual(error, .providerNotRegistered("missing"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testLegacyStreamConvertsCumulativeReplacementsToDeltas() async throws {
+        let registry = AFMProviderRegistry()
+        try registry.register(AnyAFMProviderFactory(
+            descriptor: .init(id: "test.replace", displayName: "Replace"),
+            modelDescriptors: { [ReplacementModel().descriptor] },
+            makeModel: { _, _ in AnyAFMModel(ReplacementModel()) }
+        ))
+        let engine = try AFMEngine(
+            providerID: "test.replace",
+            modelID: "replace-1",
+            registry: registry
+        )
+        var output = ""
+        for try await delta in engine.streamRespond(to: [.init(role: "user", content: "hi")]) {
+            output += delta
+        }
+        XCTAssertEqual(output, "Hello")
     }
 }

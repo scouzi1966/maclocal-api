@@ -1,6 +1,7 @@
 import Foundation
 import AFMKitCore
 import AFMOpenAICompat
+import AFMKitInference
 import AFMKitMLX
 import AFMKitFoundationModels
 import AFMKitServices
@@ -149,6 +150,7 @@ private extension EngineConfig {
 public struct GenerationConfig: Sendable {
     public var temperature: Double?
     public var maxTokens: Int?
+    public var reasoningEnabled: Bool?
     public var topP: Double?
     public var topK: Int?
     public var minP: Double?
@@ -165,6 +167,7 @@ public struct GenerationConfig: Sendable {
     public init(
         temperature: Double? = nil,
         maxTokens: Int? = nil,
+        reasoningEnabled: Bool? = nil,
         topP: Double? = nil,
         topK: Int? = nil,
         minP: Double? = nil,
@@ -180,6 +183,7 @@ public struct GenerationConfig: Sendable {
     ) {
         self.temperature = temperature
         self.maxTokens = maxTokens
+        self.reasoningEnabled = reasoningEnabled
         self.topP = topP
         self.topK = topK
         self.minP = minP
@@ -206,6 +210,7 @@ public struct AFMResponse: Sendable {
     public let promptTokens: Int
     public let cachedPromptTokens: Int
     public let completionTokens: Int
+    public let reasoningTokens: Int
     public let finishReason: AFMFinishReason
     public let metadata: [String: AFMJSONValue]
     public init(
@@ -216,6 +221,7 @@ public struct AFMResponse: Sendable {
         promptTokens: Int = 0,
         cachedPromptTokens: Int = 0,
         completionTokens: Int = 0,
+        reasoningTokens: Int = 0,
         finishReason: AFMFinishReason = .stop,
         metadata: [String: AFMJSONValue] = [:]
     ) {
@@ -226,6 +232,7 @@ public struct AFMResponse: Sendable {
         self.promptTokens = promptTokens
         self.cachedPromptTokens = cachedPromptTokens
         self.completionTokens = completionTokens
+        self.reasoningTokens = reasoningTokens
         self.finishReason = finishReason
         self.metadata = metadata
     }
@@ -335,7 +342,8 @@ public actor AFMEngine {
     private nonisolated let foundationOperations = AFMEngineFoundationOperationGate()
     private let foundationDriver: AFMEngineFoundationDriver?
 
-    private let registeredModel: AnyAFMModel?
+    private nonisolated let inferenceEngine: AFMKitInference.AFMEngine?
+    private nonisolated let inferenceConstructionError: (any Error)?
 
     // Foundation Models backend is created lazily on first use (macOS 26+ only).
     private var foundationService: Any?
@@ -346,17 +354,35 @@ public actor AFMEngine {
         self.foundationDriver = nil
         switch backend {
         case .mlx(let modelID):
-            self.registeredModel = try? AFMMLXProviderFactory().makeModel(
-                id: AFMModelID(rawValue: modelID),
-                configuration: config.mlxProviderConfiguration
-            )
+            do {
+                let model = try AFMMLXProviderFactory().makeModel(
+                    id: AFMModelID(rawValue: modelID),
+                    configuration: config.mlxProviderConfiguration
+                )
+                inferenceEngine = try AFMKitInference.AFMEngine(
+                    model: model,
+                    maximumConcurrentRequests: max(1, config.maxConcurrent)
+                )
+                inferenceConstructionError = nil
+            } catch {
+                inferenceEngine = nil
+                inferenceConstructionError = error
+            }
         case .foundationModels:
-            self.registeredModel = nil
+            inferenceEngine = nil
+            inferenceConstructionError = nil
         case .provider(let providerID, let modelID):
-            self.registeredModel = try? AFMProviderRegistry.shared.makeModel(
-                providerID: providerID,
-                modelID: modelID
-            )
+            do {
+                inferenceEngine = try AFMKitInference.AFMEngine(
+                    providerID: providerID,
+                    modelID: modelID,
+                    maximumConcurrentRequests: max(1, config.maxConcurrent)
+                )
+                inferenceConstructionError = nil
+            } catch {
+                inferenceEngine = nil
+                inferenceConstructionError = error
+            }
         }
     }
 
@@ -374,11 +400,14 @@ public actor AFMEngine {
         backend = .provider(providerID: providerID, modelID: modelID)
         self.engineConfig = engineConfig
         foundationDriver = nil
-        registeredModel = try registry.makeModel(
+        inferenceEngine = try AFMKitInference.AFMEngine(
             providerID: providerID,
             modelID: modelID,
-            configuration: configuration
+            configuration: configuration,
+            maximumConcurrentRequests: max(1, engineConfig.maxConcurrent),
+            registry: registry
         )
+        inferenceConstructionError = nil
     }
 
     init(
@@ -388,7 +417,8 @@ public actor AFMEngine {
         backend = .foundationModels
         engineConfig = config
         self.foundationDriver = foundationDriver
-        registeredModel = nil
+        inferenceEngine = nil
+        inferenceConstructionError = nil
     }
 
     /// Load (download if needed) the model and prepare it for inference.
@@ -397,10 +427,7 @@ public actor AFMEngine {
     public func load(progress: (@Sendable (Double) -> Void)? = nil) async throws -> String {
         switch backend {
         case .mlx, .provider:
-            guard let registeredModel else {
-                throw AFMEngineError.backendUnavailable
-            }
-            return try await registeredModel.load(progress: progress).modelID.rawValue
+            return try await requireInferenceEngine().load(progress: progress).modelID.rawValue
         case .foundationModels:
             try await ensureFoundation()
             return "apple-foundation-model"
@@ -409,8 +436,8 @@ public actor AFMEngine {
 
     /// Release backend resources held by this engine.
     public func unload() async {
-        if let registeredModel {
-            await registeredModel.unload()
+        if let inferenceEngine {
+            await inferenceEngine.unload()
         }
         foundationService = nil
     }
@@ -429,16 +456,11 @@ public actor AFMEngine {
     public func respond(to messages: [Message], _ config: GenerationConfig = GenerationConfig()) async throws -> AFMResponse {
         switch backend {
         case .mlx, .provider:
-            guard let registeredModel else {
-                throw AFMEngineError.backendUnavailable
-            }
-            let request = try AFMRequest(
-                openAIMessages: messages,
-                generationConfig: config
+            let response = try await requireInferenceEngine().respond(
+                to: messages,
+                config.inferenceConfiguration
             )
-            return AFMResponse(
-                modelResponse: try await registeredModel.respond(to: request)
-            )
+            return AFMResponse(inferenceResponse: response)
         case .foundationModels:
             let reservation = foundationOperations.reserve()
             let text = try await reservation.perform { [self] in
@@ -467,16 +489,21 @@ public actor AFMEngine {
                 do {
                     switch backend {
                     case .mlx, .provider:
-                        guard let registeredModel else {
-                            throw AFMEngineError.backendUnavailable
-                        }
-                        let request = try AFMRequest(
-                            openAIMessages: messages,
-                            generationConfig: config
-                        )
-                        for try await event in registeredModel.streamResponse(to: request) {
-                            if Task.isCancelled { break }
-                            continuation.yield(Self.streamEvent(from: event))
+                        let engine = try self.requireInferenceEngine()
+                        var responseText = ""
+                        var reasoningText = ""
+                        for try await event in engine.streamEvents(
+                            to: messages,
+                            config.inferenceConfiguration
+                        ) {
+                            try Task.checkCancellation()
+                            if let compatibleEvent = try Self.streamEvent(
+                                from: event,
+                                responseText: &responseText,
+                                reasoningText: &reasoningText
+                            ) {
+                                continuation.yield(compatibleEvent)
+                            }
                         }
                         continuation.finish()
                     case .foundationModels:
@@ -527,22 +554,34 @@ public actor AFMEngine {
     }
 
     private nonisolated static func streamEvent(
-        from event: AFMGenerationEvent
-    ) -> AFMStreamEvent {
+        from event: AFMKitInference.AFMStreamEvent,
+        responseText: inout String,
+        reasoningText: inout String
+    ) throws -> AFMStreamEvent? {
         switch event {
-        case .responseText(_, let text, let tokenCount):
-            return .text(text, tokenCount: tokenCount)
-        case .reasoningText(_, let text, let tokenCount):
-            return .reasoning(text, tokenCount: tokenCount)
+        case .text(let action, let text, let tokenCount):
+            let delta = try appendCompatibleDelta(
+                action: action,
+                text: text,
+                rendered: &responseText
+            )
+            return delta.isEmpty ? nil : .text(delta, tokenCount: tokenCount)
+        case .reasoning(let action, let text, let tokenCount):
+            let delta = try appendCompatibleDelta(
+                action: action,
+                text: text,
+                rendered: &reasoningText
+            )
+            return delta.isEmpty ? nil : .reasoning(delta, tokenCount: tokenCount)
         case .tokenLogprobs(let values):
             return .tokenLogprobs(values)
         case .toolCall(let call, let stage):
             return .toolCall(call, stage: stage)
-        case .usage(let usage):
+        case .usage(let promptTokens, let completionTokens, let cachedTokens, _):
             return .usage(
-                promptTokens: usage.inputTokens,
-                completionTokens: usage.outputTokens,
-                cachedTokens: usage.cachedInputTokens
+                promptTokens: promptTokens,
+                completionTokens: completionTokens,
+                cachedTokens: cachedTokens
             )
         case .metadata(let metadata):
             return .metadata(metadata)
@@ -553,12 +592,39 @@ public actor AFMEngine {
         }
     }
 
+    private nonisolated static func appendCompatibleDelta(
+        action: AFMTextUpdateAction,
+        text: String,
+        rendered: inout String
+    ) throws -> String {
+        switch action {
+        case .append:
+            rendered += text
+            return text
+        case .replace:
+            guard text.hasPrefix(rendered) else {
+                throw AFMKitInference.AFMEngineError.nonAppendTextReplacement
+            }
+            let delta = String(text.dropFirst(rendered.count))
+            rendered = text
+            return delta
+        }
+    }
+
     // MARK: - Batch / concurrent generation
 
     /// Generate responses for several chat transcripts concurrently, bounded by
     /// `EngineConfig.maxConcurrent` (set ≥2 to engage the MLX batch scheduler). Results
     /// are returned in the same order as `transcripts`.
     public nonisolated func respondBatch(_ transcripts: [[Message]], _ config: GenerationConfig = GenerationConfig()) async throws -> [AFMResponse] {
+        switch backend {
+        case .mlx, .provider:
+            return try await requireInferenceEngine()
+                .respondBatch(transcripts, config.inferenceConfiguration)
+                .map(AFMResponse.init(inferenceResponse:))
+        case .foundationModels:
+            break
+        }
         if transcripts.isEmpty { return [] }
         let cap = max(1, engineConfig.maxConcurrent)
         var results = [AFMResponse?](repeating: nil, count: transcripts.count)
@@ -578,6 +644,12 @@ public actor AFMEngine {
             }
         }
         return results.compactMap { $0 }
+    }
+
+    private nonisolated func requireInferenceEngine() throws -> AFMKitInference.AFMEngine {
+        if let inferenceEngine { return inferenceEngine }
+        if let inferenceConstructionError { throw inferenceConstructionError }
+        throw AFMEngineError.backendUnavailable
     }
 
     // MARK: - Auxiliary capabilities (Apple-native, backend-independent)
@@ -694,6 +766,45 @@ public actor AFMEngine {
             )
         }
         throw AFMEngineError.foundationModelsUnavailable
+    }
+}
+
+extension GenerationConfig {
+    var inferenceConfiguration: AFMKitInference.GenerationConfig {
+        AFMKitInference.GenerationConfig(
+            temperature: temperature,
+            maxTokens: maxTokens,
+            reasoningEnabled: reasoningEnabled,
+            topP: topP,
+            topK: topK,
+            minP: minP,
+            repetitionPenalty: repetitionPenalty,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            logprobs: logprobs,
+            topLogprobs: topLogprobs,
+            stop: stop,
+            tools: tools,
+            responseFormat: responseFormat,
+            metadata: metadata
+        )
+    }
+}
+
+private extension AFMResponse {
+    init(inferenceResponse response: AFMKitInference.AFMResponse) {
+        self.init(
+            content: response.content,
+            reasoningContent: response.reasoningContent,
+            toolCalls: response.toolCalls,
+            logprobs: response.logprobs,
+            promptTokens: response.promptTokens,
+            cachedPromptTokens: response.cachedPromptTokens,
+            completionTokens: response.completionTokens,
+            reasoningTokens: response.reasoningTokens,
+            finishReason: response.finishReason,
+            metadata: response.metadata
+        )
     }
 }
 
