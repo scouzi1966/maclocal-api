@@ -65,6 +65,10 @@ TAG="v${VERSION}"
 
 cd "$ROOT_DIR"
 
+# Authentication is valid for development builds, but production artifacts
+# must remain buildable by downstream users without repository credentials.
+"$SCRIPT_DIR/check-public-release-eligibility.sh"
+
 # Verify prerequisites
 if ! command -v gh >/dev/null 2>&1; then
   log_error "gh CLI not found. Install with: brew install gh"
@@ -137,7 +141,7 @@ mkdir -p "$STAGING"
 cp "$BIN" "$STAGING/"
 
 # Runtime resource bundles must remain beside the relocated executable.
-for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -273,36 +277,9 @@ sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
 sed -i '' "s/^__version__ = \".*\"/__version__ = \"${VERSION}\"/" macafm/__init__.py
 log_info "Updated pyproject.toml and macafm/__init__.py"
 
-# Step 8: Build Python package (stage assets into macafm/ for wheel bundling)
-log_info "Staging assets into macafm/ for Python package..."
-mkdir -p "$ROOT_DIR/macafm/bin"
-cp "$BIN" "$ROOT_DIR/macafm/bin/"
-
-for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
-  BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
-  if [ ! -d "$BUNDLE_DIR" ]; then
-    log_error "Required runtime bundle missing: $BUNDLE_DIR"
-    exit 1
-  fi
-  cp -R "$BUNDLE_DIR" "$ROOT_DIR/macafm/bin/"
-  log_info "  Staged $BUNDLE_NAME"
-done
-
-# Metallib
-METALLIB="$(dirname "$BIN")/MacLocalAPI_AFMKitMLX.bundle/default.metallib"
-if [ -f "$METALLIB" ]; then
-  cp "$METALLIB" "$ROOT_DIR/macafm/bin/"
-  log_info "  Staged default.metallib"
-fi
-
-# WebUI is required for the published wheel.
-"$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
-mkdir -p "$ROOT_DIR/macafm/share/webui"
-cp "$WEBUI" "$ROOT_DIR/macafm/share/webui/"
-log_info "  Staged webui"
-
+# Step 8: Build and install-test the native Python wheel.
 log_info "Building Python package..."
-uv build
+"$SCRIPT_DIR/build-stable-wheel.sh" --version "$VERSION"
 log_info "Python package built"
 
 STABLE_WHEEL=$(ls -t "$ROOT_DIR"/dist/macafm-*.whl 2>/dev/null | head -1)
@@ -310,20 +287,7 @@ if [ -z "$STABLE_WHEEL" ]; then
   log_error "Stable wheel was not produced"
   exit 1
 fi
-WHEEL_WEBUI="$ROOT_DIR/.build/afm-stable-wheel-webui.html.gz"
-unzip -p "$STABLE_WHEEL" macafm/share/webui/index.html.gz > "$WHEEL_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$WHEEL_WEBUI"
-rm -f "$WHEEL_WEBUI"
-if ! unzip -Z1 "$STABLE_WHEEL" | grep -E \
-  '^macafm/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
-  >/dev/null; then
-  log_error "Stable wheel is missing the bundled comprehensive evaluation suite"
-  exit 1
-fi
-
-# Cleanup staged assets (don't commit binaries to git)
-rm -rf "$ROOT_DIR/macafm/bin" "$ROOT_DIR/macafm/share"
-log_info "Cleaned staged assets from macafm/"
+"$SCRIPT_DIR/verify-native-wheel.sh" "$STABLE_WHEEL" macafm
 
 # Cleanup release staging
 rm -rf "$STAGING"

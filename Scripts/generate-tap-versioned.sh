@@ -106,11 +106,10 @@ class ${class} < Formula
 
   def install
     bin.install "afm"
-    if File.directory?("MacLocalAPI_AFMKit.bundle")
-      (libexec/"MacLocalAPI_AFMKit.bundle").install Dir["MacLocalAPI_AFMKit.bundle/*"]
-    end
-    if File.directory?("MacLocalAPI_AFMKitMLX.bundle")
-      (libexec/"MacLocalAPI_AFMKitMLX.bundle").install Dir["MacLocalAPI_AFMKitMLX.bundle/*"]
+    ["MacLocalAPI_AFMKit.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+      if File.directory?(bundle_name)
+        (libexec/bundle_name).install Dir["#{bundle_name}/*"]
+      end
     end
     if File.exist?("Resources/webui/index.html.gz")
       (share/"afm/webui").install "Resources/webui/index.html.gz"
@@ -118,15 +117,12 @@ class ${class} < Formula
   end
 
   def post_install
-    eval_bundle_src = libexec/"MacLocalAPI_AFMKit.bundle"
-    eval_bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_AFMKit.bundle"
-    eval_bundle_dst.unlink if eval_bundle_dst.symlink? || eval_bundle_dst.exist?
-    eval_bundle_dst.make_symlink(eval_bundle_src) if eval_bundle_src.exist?
-
-    bundle_src = libexec/"MacLocalAPI_AFMKitMLX.bundle"
-    bundle_dst = HOMEBREW_PREFIX/"bin/MacLocalAPI_AFMKitMLX.bundle"
-    bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
-    bundle_dst.make_symlink(bundle_src) if bundle_src.exist?
+    ["MacLocalAPI_AFMKit.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+      bundle_src = libexec/bundle_name
+      bundle_dst = HOMEBREW_PREFIX/"bin"/bundle_name
+      bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
+      bundle_dst.make_symlink(bundle_src) if bundle_src.exist?
+    end
   end
 
   def caveats
@@ -170,8 +166,8 @@ class ${class} < Formula
   def install
     libexec.install "afm"
     libexec.install "MacLocalAPI_AFMKit.bundle"
-    libexec.install "MacLocalAPI_AFMKitMLX.bundle"
-    libexec.install "MacLocalAPI_AFMKitDwarfStar.bundle"
+    libexec.install "AFMKit_AFMKitMLX.bundle"
+    libexec.install "AFMKit_AFMKitDwarfStar.bundle"
     (bin/"afm").write_env_script libexec/"afm", AFM_BUILD_VERSION: "v#{version}"
 
     if File.exist?("Resources/webui/index.html.gz")

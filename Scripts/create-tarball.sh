@@ -55,6 +55,7 @@ done
 if [ -z "$OUTPUT" ]; then
   OUTPUT="$ROOT_DIR/$TARBALL_NAME"
 fi
+mkdir -p "$(dirname "$OUTPUT")"
 
 # Find the built binary
 BIN_PATH_1="$ROOT_DIR/.build/arm64-apple-macosx/release/afm"
@@ -96,7 +97,7 @@ fi
 DIRNAME="afm-${VERSION}-${ARCH}"
 mkdir -p "$STAGING/$DIRNAME/Resources/webui"
 cp "$BIN" "$STAGING/$DIRNAME/"
-for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
@@ -108,10 +109,7 @@ cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"
-ARCHIVE_WEBUI="$PACKAGE_WORK_ROOT/archive-webui.html.gz"
-tar -xOzf "$OUTPUT" "$DIRNAME/Resources/webui/index.html.gz" > "$ARCHIVE_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
-rm -f "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-release-archive.sh" "$OUTPUT"
 cleanup_staging
 trap - EXIT
 

@@ -25,15 +25,7 @@ if [ ! -x "$BINARY" ]; then
 fi
 
 if [ -z "$METALLIB" ]; then
-  BUNDLE_DIR="$(dirname "$BINARY")/MacLocalAPI_AFMKitMLX.bundle"
-  for candidate in \
-    "$BUNDLE_DIR/default.metallib" \
-    "$BUNDLE_DIR/Contents/Resources/default.metallib"; do
-    if [ -f "$candidate" ]; then
-      METALLIB="$candidate"
-      break
-    fi
-  done
+  METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --metallib "$(dirname "$BINARY")" 2>/dev/null || true)"
 fi
 
 if [ ! -f "$METALLIB" ]; then
