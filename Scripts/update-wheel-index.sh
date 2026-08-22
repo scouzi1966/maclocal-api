@@ -3,7 +3,7 @@
 # Add a new nightly wheel to the PEP 503 simple index and deploy it.
 #
 # Usage:
-#   ./Scripts/update-wheel-index.sh <wheel-file> <release-tag> [--no-deploy]
+#   ./Scripts/update-wheel-index.sh <wheel-file> <release-tag> [--no-deploy] [--skip-upload]
 #
 # Example:
 #   ./Scripts/update-wheel-index.sh dist/macafm_next-0.9.13.dev20260621-py3-none-any.whl nightly-20260621-97e6683
@@ -25,17 +25,19 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 DEPLOY=true
+UPLOAD=true
 POSITIONAL=()
 for arg in "$@"; do
     case "$arg" in
         --no-deploy) DEPLOY=false ;;
+        --skip-upload) UPLOAD=false ;;
         *) POSITIONAL+=("$arg") ;;
     esac
 done
 set -- "${POSITIONAL[@]:-}"
 
 if [ $# -lt 2 ]; then
-    echo "Usage: $0 <wheel-file> <release-tag> [--no-deploy]"
+    echo "Usage: $0 <wheel-file> <release-tag> [--no-deploy] [--skip-upload]"
     exit 1
 fi
 
@@ -61,8 +63,14 @@ if [ ! -f "$WHL_PATH" ]; then
 fi
 
 # ---------- upload wheel to GitHub release ----------
-echo "[INFO] Uploading wheel to release ${RELEASE_TAG}..."
-gh release upload "$RELEASE_TAG" "$WHL_PATH" --repo "$REPO" --clobber
+if [ "$UPLOAD" = true ]; then
+    echo "[INFO] Uploading wheel to release ${RELEASE_TAG}..."
+    gh release upload "$RELEASE_TAG" "$WHL_PATH" --repo "$REPO" --clobber
+else
+    echo "[INFO] Wheel was attached during release creation; skipping duplicate upload"
+    gh release view "$RELEASE_TAG" --repo "$REPO" --json assets \
+        --jq '.assets[].name' | grep -Fxq "$WHL_NAME"
+fi
 
 WHEEL_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${WHL_NAME}"
 echo "[INFO] Wheel URL: ${WHEEL_URL}"

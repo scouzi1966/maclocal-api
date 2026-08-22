@@ -89,7 +89,10 @@ jobs:
         # Set release tag for unique naming
         RELEASE_TAG="nightly-${BUILD_DATE}-${SHORT_SHA}"
         echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
-        VERSION="0.9.5-next.${SHORT_SHA}.${BUILD_DATE}"
+        BASE_VERSION=$(Scripts/nightly-version.sh --field base)
+        VERSION=$(Scripts/nightly-version.sh \
+          --base-version "$BASE_VERSION" --date "$BUILD_DATE" --sha "$SHORT_SHA" \
+          --field canonical)
         echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
         echo "PREV_SHA=${PREV_SHA:-first build}" >> "$GITHUB_ENV"
 
