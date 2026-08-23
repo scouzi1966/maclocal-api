@@ -108,7 +108,7 @@ final class AFMEvaluationTests: XCTestCase {
             }
         }
 
-        XCTAssertThrowsError(try AFMEvaluationSuiteStore.validateParameters(
+        XCTAssertThrowsError(try AFMEvaluationValidator.validateParameters(
             .init(seed: -1),
             context: "CLI")) { error in
             XCTAssertTrue(error.localizedDescription.contains("CLI seed must be >= 0"))

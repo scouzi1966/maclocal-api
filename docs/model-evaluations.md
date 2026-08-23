@@ -4,6 +4,13 @@
 It does not start an HTTP server, invoke Python, call a cloud service, or use an AI
 judge. The MLX model is loaded once and reused for every case.
 
+Reusable schemas, validation, deterministic scoring, metrics, budgets, and
+report rendering come from the provider-free `AFMEvalKit` product. maclocal-api
+continues to own the bundled `comprehensive.json`, `~/.afm/evals` discovery and
+defaults, CLI planning, model runner, signal handling, persistence, and browser
+launching. This keeps the evaluation contract reusable without coupling the SDK
+to MLX, Apple Foundation Models, the AFM executable, or host filesystem policy.
+
 `--bench` is a discoverable alias for `--eval`. Select additional suites by repeating
 `--eval-suite`; specifying a suite implies `--eval`:
 

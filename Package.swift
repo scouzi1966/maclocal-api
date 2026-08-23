@@ -223,6 +223,15 @@ let package = Package(
                 .product(name: "AFMKitServices", package: "AFMKit")
             ]
         ),
+        .target(
+            name: "AFMEvaluationHost",
+            dependencies: [
+                .product(name: "AFMEvalKit", package: "AFMKit")
+            ],
+            resources: [
+                .copy("Resources/Evals")
+            ]
+        ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
             name: "AFMKit",
@@ -230,12 +239,10 @@ let package = Package(
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMOpenAICompat", package: "AFMKit"),
                 .product(name: "AFMKitInference", package: "AFMKit"),
+                "AFMEvaluationHost",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMKitFoundationModels",
                 .product(name: "AFMKitServices", package: "AFMKit")
-            ],
-            resources: [
-                .copy("Resources/Evals")
             ],
             swiftSettings: [
                 // Enable optimizations for release builds
@@ -362,6 +369,10 @@ let package = Package(
         .testTarget(
             name: "AFMKitServicesCompatibilityTests",
             dependencies: ["AFMKitServicesCompatibility"]
+        ),
+        .testTarget(
+            name: "AFMEvaluationHostTests",
+            dependencies: ["AFMEvaluationHost"]
         ),
         .testTarget(
             name: "AFMKitFoundationModels27DwarfStarCompatibilityTests",

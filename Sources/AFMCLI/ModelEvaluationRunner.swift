@@ -132,7 +132,7 @@ extension MlxCommand {
             stop: stop.map { $0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) } },
             responseFormat: defaultResponseFormat
         )
-        try AFMEvaluationSuiteStore.validateParameters(baseParameters, context: "CLI")
+        try AFMEvaluationValidator.validateParameters(baseParameters, context: "CLI")
         try AFMEvaluationRunPolicy.validatePlannedOutput(
             suites: suites,
             baseParameters: baseParameters)

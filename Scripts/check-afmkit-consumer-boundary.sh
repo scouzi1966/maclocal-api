@@ -9,7 +9,7 @@ fail() {
   exit 1
 }
 
-for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat AFMKitServices; do
+for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat AFMKitServices AFMEvalKit; do
   [[ ! -d "Sources/$shadow_target" ]] || \
     fail "consumer shadow target still exists: Sources/$shadow_target"
 done
@@ -45,6 +45,17 @@ grep -Fqx '@_exported import AFMKitServices' "${service_facade_files[0]}" || \
 if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${service_facade_files[0]}"; then
   fail "AFMKitServicesCompatibility facade contains a local implementation"
 fi
+
+[[ -f Sources/AFMKit/AFMEvaluationExports.swift ]] || \
+  fail "AFMKit must preserve its evaluation compatibility export"
+grep -Fqx '@_exported import AFMEvaluationHost' Sources/AFMKit/AFMEvaluationExports.swift || \
+  fail "AFMKit evaluation compatibility must re-export the host layer"
+grep -Fqx '@_exported import AFMEvalKit' Sources/AFMEvaluationHost/AFMEvaluation.swift || \
+  fail "AFMEvaluationHost must re-export the provider-owned evaluation contracts"
+[[ -f Sources/AFMEvaluationHost/Resources/Evals/comprehensive.json ]] || \
+  fail "the bundled comprehensive suite must remain in the maclocal host layer"
+[[ ! -e Sources/AFMKit/Resources/Evals/comprehensive.json ]] || \
+  fail "the bundled comprehensive suite remains coupled to the AFMKit aggregate target"
 
 [[ -f Package.resolved ]] || \
   fail "tracked Package.resolved is missing; restore it before resolving dependencies"
@@ -203,7 +214,7 @@ for line in declared_paths:
 PY
 
 if grep -ERn \
-  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple|AFMKitEmbeddings|AFMKitSpeech|AFMKitSpeechSynthesis|AFMKitVision|AFMKitServices)' \
+  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple|AFMKitEmbeddings|AFMKitSpeech|AFMKitSpeechSynthesis|AFMKitVision|AFMKitServices|AFMEvalKit)' \
   Tests --include='*.swift' >/dev/null; then
   fail "consumer tests reach into AFMKit provider internals"
 fi
@@ -310,6 +321,14 @@ owned_types = {
     "SpeechService",
     "SpeechSynthesisService",
     "VisionService",
+    "AFMEvaluationSuite",
+    "AFMEvaluationCase",
+    "AFMEvaluationParameters",
+    "AFMEvaluationExpectations",
+    "AFMEvaluationRunReport",
+    "AFMEvaluationScorer",
+    "AFMEvaluationValidator",
+    "AFMEvaluationReportWriter",
 }
 declaration = re.compile(
     r"\b(?:class|struct|enum|protocol|actor)\s+(" + "|".join(owned_types) + r")\b"
@@ -335,6 +354,7 @@ if checkout.is_dir():
         checkout / "Sources/AFMKitSpeechSynthesis",
         checkout / "Sources/AFMKitVision",
         checkout / "Sources/AFMKitServices",
+        checkout / "Sources/AFMEvalKit",
         checkout / "Packages/AFMKitMLX/Sources/AFMKitMLX",
         checkout / "Packages/AFMKitDwarfStar/Sources/AFMKitDwarfStar",
         checkout / "Packages/AFMKitDwarfStar/Sources/CDwarfStar",
