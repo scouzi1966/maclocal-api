@@ -3,6 +3,7 @@ import AFMKit
 import AFMKitMLX
 import Foundation
 
+#if compiler(>=6.4)
 struct ChatCompletionsController: RouteCollection {
     private let streamingEnabled: Bool
     private let instructions: String
@@ -916,3 +917,41 @@ struct ChatCompletionsController: RouteCollection {
         return chunks.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
+#else
+/// Foundation Models is a compiler-gated provider. Older toolchains still
+/// build the MLX server and return a clear error if its Foundation route is used.
+struct ChatCompletionsController: RouteCollection {
+    init(
+        streamingEnabled: Bool = true,
+        instructions: String = "You are a helpful assistant",
+        adapter: String? = nil,
+        temperature: Double? = nil,
+        randomness: String? = nil,
+        permissiveGuardrails: Bool,
+        veryVerbose: Bool = false,
+        stop: String? = nil,
+        defaultGuidedJsonSchema: ResponseFormat? = nil
+    ) {}
+
+    func boot(routes: RoutesBuilder) throws {
+        let v1 = routes.grouped("v1")
+        v1.on(.POST, "chat", "completions", body: .collect(maxSize: "100mb"), use: unavailable)
+    }
+
+    static func resolveStrictJsonSchema(
+        requestFormat: ResponseFormat?,
+        serverDefault: ResponseFormat?
+    ) -> ResponseJsonSchema? {
+        OpenAIResponseFormatPolicy.effectiveStrictJsonSchema(
+            requestFormat: requestFormat,
+            serverDefault: serverDefault
+        )
+    }
+
+    private func unavailable(req: Request) async throws -> Response {
+        throw Abort(
+            .serviceUnavailable,
+            reason: "Apple Foundation Models require the Swift 6.4 toolchain or newer.")
+    }
+}
+#endif

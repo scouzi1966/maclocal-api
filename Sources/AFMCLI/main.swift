@@ -133,6 +133,7 @@ struct ServeCommand: ParsableCommand {
 
         // Validate randomness parameter
         if let rand = randomness {
+#if compiler(>=6.4)
             do {
                 _ = try RandomnessConfig.parse(rand)
             } catch let error as FoundationModelError {
@@ -140,6 +141,10 @@ struct ServeCommand: ParsableCommand {
             } catch {
                 throw ValidationError("Invalid randomness parameter format")
             }
+#else
+            throw ValidationError(
+                "--randomness requires the Swift 6.4 toolchain or newer")
+#endif
         }
 
         let defaultGuidedJsonSchema: ResponseFormat?
@@ -2133,6 +2138,7 @@ struct RootCommand: ParsableCommand {
 
         // Validate randomness parameter
         if let rand = randomness {
+#if compiler(>=6.4)
             do {
                 _ = try RandomnessConfig.parse(rand)
             } catch let error as FoundationModelError {
@@ -2140,6 +2146,10 @@ struct RootCommand: ParsableCommand {
             } catch {
                 throw ValidationError("Invalid randomness parameter format")
             }
+#else
+            throw ValidationError(
+                "--randomness requires the Swift 6.4 toolchain or newer")
+#endif
         }
 
         let hasTelegramOptions = TUIInvocationPolicy.hasTelegramOptions(
@@ -2766,6 +2776,7 @@ extension RootCommand {
         group.enter()
         Task {
             do {
+#if compiler(>=6.4)
                 if #available(macOS 26.0, *) {
                     debugLog("macOS 26+ detected, initializing FoundationModelService...")
                     let foundationService = try await FoundationModelService(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails)
@@ -2785,6 +2796,9 @@ extension RootCommand {
                     debugLog("macOS 26+ not available")
                     result.value = .failure(FoundationModelError.notAvailable)
                 }
+#else
+                result.value = .failure(AFMEngineError.foundationModelsUnavailable)
+#endif
             } catch {
                 debugLog("Error occurred: \(error)")
                 result.value = .failure(error)
@@ -2798,11 +2812,15 @@ extension RootCommand {
         case .success(let response):
             print(response)
         case .failure(let error):
+#if compiler(>=6.4)
             if let foundationError = error as? FoundationModelError {
                 print("Error: \(foundationError.localizedDescription)")
             } else {
                 print("Error: \(error.localizedDescription)")
             }
+#else
+            print("Error: \(error.localizedDescription)")
+#endif
             throw ExitCode.failure
         case .none:
             print("Error: Unexpected error occurred")

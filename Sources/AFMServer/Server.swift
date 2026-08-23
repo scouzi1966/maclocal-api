@@ -2739,9 +2739,15 @@ public class Server: @unchecked Sendable {
         print("")
 
         // Initialize the Foundation Model Service once at startup
+#if compiler(>=6.4)
         if #available(macOS 26.0, *) {
             try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, prewarm: prewarmEnabled)
         }
+#else
+        throw Abort(
+            .serviceUnavailable,
+            reason: "Apple Foundation Models require the Swift 6.4 toolchain or newer.")
+#endif
 
         let repoURL = "https://github.com/scouzi1966/maclocal-api"
         let link = "\u{001B}]8;;\(repoURL)\u{001B}\\\(repoURL)\u{001B}]8;;\u{001B}\\"

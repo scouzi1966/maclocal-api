@@ -31,6 +31,8 @@ facade_files=(Sources/AFMKitFoundationModels/*.swift)
   fail "AFMKitFoundationModels must contain only its compatibility facade"
 grep -Fqx '@_exported import AFMKitApple' "${facade_files[0]}" || \
   fail "AFMKitFoundationModels must re-export the AFMKitApple product"
+grep -Fqx '#if compiler(>=6.4)' "${facade_files[0]}" || \
+  fail "AFMKitFoundationModels must compile to an empty compatibility surface on Xcode 26"
 if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${facade_files[0]}"; then
   fail "AFMKitFoundationModels facade contains a local implementation"
 fi

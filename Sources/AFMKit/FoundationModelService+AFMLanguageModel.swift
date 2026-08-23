@@ -2,6 +2,7 @@ import Foundation
 import AFMOpenAICompat
 import AFMKitFoundationModels
 
+#if compiler(>=6.4)
 /// Adapts Apple's Foundation Models service to AFMKit's provider-neutral facade.
 @available(macOS 26.0, *)
 extension FoundationModelService: AFMLanguageModel {
@@ -29,3 +30,4 @@ extension FoundationModelService: AFMLanguageModel {
         )
     }
 }
+#endif
