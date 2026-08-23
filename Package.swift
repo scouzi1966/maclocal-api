@@ -221,8 +221,7 @@ let package = Package(
             name: "AFMKitServicesCompatibility",
             dependencies: [
                 .product(name: "AFMKitServices", package: "AFMKit")
-            ],
-            path: "Sources/AFMKitServices"
+            ]
         ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
@@ -359,6 +358,10 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/usr/lib/swift"], .when(configuration: .release)),
                 .unsafeFlags(["-Xlinker", "-dead_strip"], .when(configuration: .release))
             ]
+        ),
+        .testTarget(
+            name: "AFMKitServicesCompatibilityTests",
+            dependencies: ["AFMKitServicesCompatibility"]
         ),
         .testTarget(
             name: "MacLocalAPITests",

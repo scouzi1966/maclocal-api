@@ -1,7 +1,7 @@
 import XCTest
 
 @testable import AFMKit
-@testable import AFMKitServices
+import AFMKitServices
 @testable import AFMServer
 
 final class EmbeddingModelRegistryTests: XCTestCase {
@@ -9,11 +9,11 @@ final class EmbeddingModelRegistryTests: XCTestCase {
         let registry = EmbeddingModelRegistry()
 
         let english = registry.resolve(modelID: EmbeddingModelRegistry.defaultModelID)
-        let multilingual = registry.resolve(modelID: EmbeddingModelRegistry.multilingualModelID)
+        let multilingual = registry.resolve(modelID: "apple-nl-contextual-multi")
 
         XCTAssertEqual(english?.id, EmbeddingModelRegistry.defaultModelID)
         XCTAssertEqual(english?.backend, .nlContextual)
-        XCTAssertEqual(multilingual?.id, EmbeddingModelRegistry.multilingualModelID)
+        XCTAssertEqual(multilingual?.id, "apple-nl-contextual-multi")
         XCTAssertEqual(multilingual?.backend, .nlContextual)
     }
 
