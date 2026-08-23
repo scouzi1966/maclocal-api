@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCRATCH="$ROOT/.build/core-only-gate"
-LOG="$ROOT/.build/core-only-gate.log"
+AFMKIT_ROOT="${AFMKIT_EXAMPLE_PATH:-$ROOT/.build/checkouts/AFMKit}"
+CONSUMER_SOURCE="$ROOT/.build/core-only-consumer-source"
 CONSUMER_SCRATCH="$ROOT/.build/core-only-consumer-gate"
 CONSUMER_LOG="$ROOT/.build/core-only-consumer-gate.log"
 
@@ -19,27 +19,32 @@ if grep -Eq '\.package\([^)]*branch:' "$ROOT/Package.swift"; then
     exit 1
 fi
 
-rm -rf "$SCRATCH"
-mkdir -p "$ROOT/.build"
+if [[ ! -f "$AFMKIT_ROOT/Package.swift" ]]; then
+    "$ROOT/Scripts/resolve-release-dependencies.sh"
+fi
 
-swift build \
-    --package-path "$ROOT" \
-    --scratch-path "$SCRATCH" \
-    --target AFMKitCore \
-    -v 2>&1 | tee "$LOG"
-
-if grep -E -- "$OPTIONAL_MODULE_PATTERN" "$LOG"; then
-    echo "AFMKitCore unexpectedly compiled an optional implementation target." >&2
+expected_revision="$(python3 - "$ROOT/Package.resolved" <<'PY'
+import json
+import sys
+lock = json.load(open(sys.argv[1]))
+print(next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")["state"]["revision"])
+PY
+)"
+actual_revision="$(git -C "$AFMKIT_ROOT" rev-parse HEAD)"
+if [[ "$actual_revision" != "$expected_revision" ]]; then
+    echo "AFMKit consumer fixture is not at the locked revision." >&2
+    echo "expected=$expected_revision actual=$actual_revision" >&2
     exit 1
 fi
 
-if ! grep -E -- '-module-name AFMKitCore' "$LOG" >/dev/null; then
-    echo "AFMKitCore was not compiled by the graph gate." >&2
-    exit 1
-fi
+lock_hash="$(shasum -a 256 "$ROOT/Package.resolved" | cut -d' ' -f1)"
+rm -rf "$CONSUMER_SOURCE" "$CONSUMER_SCRATCH"
+mkdir -p "$CONSUMER_SOURCE"
+cp "$ROOT/Examples/AFMKitCoreOnlyConsumer/Package.swift" "$CONSUMER_SOURCE/"
+cp -R "$ROOT/Examples/AFMKitCoreOnlyConsumer/Sources" "$CONSUMER_SOURCE/"
 
-swift build \
-    --package-path "$ROOT/Examples/AFMKitCoreOnlyConsumer" \
+AFMKIT_EXAMPLE_PATH="$AFMKIT_ROOT" swift build \
+    --package-path "$CONSUMER_SOURCE" \
     --scratch-path "$CONSUMER_SCRATCH" \
     -v 2>&1 | tee "$CONSUMER_LOG"
 
@@ -53,4 +58,14 @@ if ! grep -E -- '-module-name AFMKitCoreOnlyConsumer' "$CONSUMER_LOG" >/dev/null
     exit 1
 fi
 
-echo "AFMKitCore build graph and core-only consumer contain no optional implementation targets."
+if ! grep -E -- '-module-name AFMKitCore' "$CONSUMER_LOG" >/dev/null; then
+    echo "The independent AFMKitCore product was not compiled by the consumer gate." >&2
+    exit 1
+fi
+
+if [[ "$(shasum -a 256 "$ROOT/Package.resolved" | cut -d' ' -f1)" != "$lock_hash" ]]; then
+    echo "Independent consumer validation changed the tracked release lock." >&2
+    exit 1
+fi
+
+echo "Independent AFMKitCore consumer resolved without optional implementation targets."

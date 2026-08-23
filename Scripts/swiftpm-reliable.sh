@@ -10,12 +10,55 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Local dependency development is explicit. A remote revision/tag dependency
+# cannot legally depend on a local package path in SwiftPM, so normal and
+# release builds must leave AFMKit on its immutable compatibility tags.
+USE_LOCAL_MLX_PATCH_STACK=0
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" && -n "${MACLOCAL_MLX_SWIFT_LM_PATH:-}" ]]; then
+    export AFMKIT_MLX_SWIFT_LM_PATH="${AFMKIT_MLX_SWIFT_LM_PATH:-$MACLOCAL_MLX_SWIFT_LM_PATH}"
+fi
+
+# The source-patch stack is a migration/dependency-development tool, never a
+# normal build input. Published AFMKit dependencies are immutable and must be
+# tested exactly as resolved. Opt in only when deliberately maintaining the
+# legacy local dependency stack.
+if [[ "${MACLOCAL_USE_LEGACY_MLX_PATCH_STACK:-0}" == "1" ]]; then
+    if [[ -z "${MACLOCAL_MLX_SWIFT_LM_PATH:-}" ]]; then
+        echo "[swiftpm-reliable] MACLOCAL_USE_LEGACY_MLX_PATCH_STACK=1 requires MACLOCAL_MLX_SWIFT_LM_PATH." >&2
+        exit 2
+    fi
+    USE_LOCAL_MLX_PATCH_STACK=1
+fi
+
+# Legacy dependency maintenance can target an explicit MLX checkout. Normal
+# builds leave resolved checkouts untouched.
+if [[ "$USE_LOCAL_MLX_PATCH_STACK" == "1" ]]; then
+    export MLX_SWIFT_CHECKOUT="${MLX_SWIFT_CHECKOUT:-$ROOT_DIR/.build/checkouts/mlx-swift-afm}"
+fi
 SUBCOMMAND="${1:-}"
 if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
     echo "Usage: $0 <build|test> [swiftpm options...]" >&2
     exit 2
 fi
 shift
+
+LOCAL_PACKAGE_ROOT=""
+if [[ -n "${MACLOCAL_AFMKIT_WORKSPACE_PATH:-}" ]]; then
+    echo "[swiftpm-reliable] MACLOCAL_AFMKIT_WORKSPACE_PATH is reserved for the generated workspace." >&2
+    exit 2
+fi
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    LOCAL_PACKAGE_ROOT="$($ROOT_DIR/Scripts/prepare-local-afmkit-workspace.sh)" || exit $?
+    export MACLOCAL_AFMKIT_WORKSPACE_PATH="$(cd "$MACLOCAL_AFMKIT_PATH" && pwd)"
+    set -- --package-path "$LOCAL_PACKAGE_ROOT" --scratch-path "$ROOT_DIR/.build" "$@"
+    echo "[swiftpm-reliable] Using isolated local AFMKit workspace: $LOCAL_PACKAGE_ROOT" >&2
+fi
+
+if [[ -z "${MACLOCAL_AFMKIT_PATH:-}" && ! -f "$ROOT_DIR/.build/checkouts/AFMKit/Package.swift" ]]; then
+    echo "[swiftpm-reliable] Resolving the authenticated release dependency graph." >&2
+    "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" || exit $?
+fi
 
 LOG_DIR="$ROOT_DIR/.build-reliable-logs"
 STATE_DIR="$ROOT_DIR/.build-reliable-state"
@@ -26,14 +69,13 @@ RETRY_LOG="$LOG_DIR/${SUBCOMMAND}-${STAMP}-native-retry.log"
 
 # XCTest's executable can be hosted outside the package build directory, so
 # AFMKitMLX cannot reliably infer the SwiftPM resource-bundle location from
-# `_NSGetExecutablePath`. Tests always use the canonical committed metallib;
-# an explicit caller override still wins. Export this before SwiftPM launches
-# the test process so it also survives clean/retry builds.
+# `_NSGetExecutablePath`. Resolve the immutable AFMKit package resource; an
+# explicit caller override still wins.
 if [[ "$SUBCOMMAND" == "test" && -z "${MACAFM_MLX_METALLIB:-}" ]]; then
-    CANONICAL_METALLIB="$ROOT_DIR/Sources/AFMKitMLX/Resources/default.metallib"
-    if [[ ! -f "$CANONICAL_METALLIB" ]]; then
-        echo "[swiftpm-reliable] Missing canonical MLX metallib: $CANONICAL_METALLIB" >&2
-        exit 1
+    if ! CANONICAL_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --source 2>/dev/null)"; then
+        echo "[swiftpm-reliable] Resolving AFMKit before locating its MLX resource." >&2
+        "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" || exit $?
+        CANONICAL_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --source)" || exit $?
     fi
     export MACAFM_MLX_METALLIB="$CANONICAL_METALLIB"
     echo "[swiftpm-reliable] XCTest MLX metallib: $MACAFM_MLX_METALLIB" >&2
@@ -77,6 +119,17 @@ test_scratch_path() {
     printf '%s\n' "$ROOT_DIR/.build"
 }
 
+swift_package_clean() {
+    if [[ -n "$LOCAL_PACKAGE_ROOT" ]]; then
+        swift package \
+            --package-path "$LOCAL_PACKAGE_ROOT" \
+            --scratch-path "${SCRATCH_PATH:-$ROOT_DIR/.build}" \
+            clean
+    else
+        swift package clean
+    fi
+}
+
 stage_xctest_metallib() {
     [[ "$SUBCOMMAND" == "test" ]] || return 0
 
@@ -102,11 +155,21 @@ stage_xctest_metallib() {
     architecture="$(uname -m)"
     local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/MacLocalAPIPackageTests.xctest/Contents/MacOS"
     mkdir -p "$predicted_dir"
-    cp "$source" "$predicted_dir/mlx.metallib"
+
+    stage_metallib() {
+        local destination="$1/mlx.metallib"
+        if [[ -e "$destination" ]]; then
+            chmod u+w "$destination" || return $?
+        fi
+        cp "$source" "$destination" || return $?
+    }
+
+    stage_metallib "$predicted_dir" || return $?
 
     local executable_dir
     while IFS= read -r executable_dir; do
-        cp "$source" "$executable_dir/mlx.metallib"
+        [[ "$executable_dir" == "$predicted_dir" ]] && continue
+        stage_metallib "$executable_dir" || return $?
     done < <(find "$scratch_path" -type d -path '*.xctest/Contents/MacOS' -print 2>/dev/null)
 
     echo "[swiftpm-reliable] Staged MLX metallib for XCTest: $predicted_dir/mlx.metallib" >&2
@@ -146,21 +209,57 @@ run_native() {
 
 cd "$ROOT_DIR"
 
-# DwarfStar is a vanilla dependency. AFM integration belongs in CDwarfStar and
-# AFMKitDwarfStar; fail instead of compiling locally modified engine sources.
-if [[ -n "$(git -C "$ROOT_DIR/vendor/ds4" status --porcelain --untracked-files=all)" ]]; then
-    echo "[swiftpm-reliable] vendor/ds4 is not a clean upstream checkout." >&2
-    echo "[swiftpm-reliable] Keep DwarfStar vanilla and move interface work into AFM-owned adapters." >&2
-    exit 1
-fi
+read -r EXPECTED_AFMKIT_REVISION LOCKED_AFMKIT_LOCATION < <(
+    python3 - "$ROOT_DIR/Package.resolved" <<'PY'
+import json
+import sys
 
-EXPECTED_DS4_REVISION="$(git -C "$ROOT_DIR" ls-files -s vendor/ds4 | awk '{print $2}')"
-ACTUAL_DS4_REVISION="$(git -C "$ROOT_DIR/vendor/ds4" rev-parse HEAD)"
-if [[ -z "$EXPECTED_DS4_REVISION" || "$ACTUAL_DS4_REVISION" != "$EXPECTED_DS4_REVISION" ]]; then
-    echo "[swiftpm-reliable] vendor/ds4 revision does not match the repository gitlink." >&2
-    echo "[swiftpm-reliable] expected=${EXPECTED_DS4_REVISION:-missing} actual=$ACTUAL_DS4_REVISION" >&2
-    echo "[swiftpm-reliable] Run: git submodule update --init vendor/ds4" >&2
-    exit 1
+lock = json.load(open(sys.argv[1]))
+pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
+print(pin["state"]["revision"], pin["location"])
+PY
+)
+
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    AFMKIT_SOURCE_ROOT="$(cd "$MACLOCAL_AFMKIT_PATH" && pwd)"
+    AFMKIT_SOURCE_ID="local:$AFMKIT_SOURCE_ROOT"
+else
+    AFMKIT_SOURCE_ROOT="$ROOT_DIR/.build/checkouts/AFMKit"
+    [[ -f "$AFMKIT_SOURCE_ROOT/Package.swift" ]] || {
+        echo "[swiftpm-reliable] Resolved AFMKit checkout is missing: $AFMKIT_SOURCE_ROOT" >&2
+        exit 1
+    }
+
+    ACTUAL_AFMKIT_REVISION="$(git -C "$AFMKIT_SOURCE_ROOT" rev-parse HEAD)"
+    if [[ "$ACTUAL_AFMKIT_REVISION" != "$EXPECTED_AFMKIT_REVISION" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout does not match Package.resolved." >&2
+        echo "[swiftpm-reliable] expected=$EXPECTED_AFMKIT_REVISION actual=$ACTUAL_AFMKIT_REVISION" >&2
+        exit 1
+    fi
+    if [[ -n "$(git -C "$AFMKIT_SOURCE_ROOT" status --porcelain --untracked-files=all)" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout is locally modified." >&2
+        echo "[swiftpm-reliable] Refusing to compile a dependency that differs from its immutable lock." >&2
+        exit 1
+    fi
+
+    AFMKIT_REPOSITORY="$(git -C "$AFMKIT_SOURCE_ROOT" remote get-url origin)"
+    ACTUAL_AFMKIT_LOCATION="$AFMKIT_REPOSITORY"
+    if [[ -d "$AFMKIT_REPOSITORY" ]]; then
+        ACTUAL_AFMKIT_LOCATION="$(git -C "$AFMKIT_REPOSITORY" remote get-url origin)"
+    fi
+    normalize_git_location() {
+        local location="$1"
+        location="${location#git@github.com:}"
+        location="${location#https://github.com/}"
+        location="${location%.git}"
+        printf '%s\n' "$location"
+    }
+    if [[ "$(normalize_git_location "$ACTUAL_AFMKIT_LOCATION")" != "$(normalize_git_location "$LOCKED_AFMKIT_LOCATION")" ]]; then
+        echo "[swiftpm-reliable] Resolved AFMKit checkout came from an unexpected repository." >&2
+        echo "[swiftpm-reliable] expected=$LOCKED_AFMKIT_LOCATION actual=$ACTUAL_AFMKIT_LOCATION" >&2
+        exit 1
+    fi
+    AFMKIT_SOURCE_ID="revision:$ACTUAL_AFMKIT_REVISION"
 fi
 
 run_required_patch_step() {
@@ -173,73 +272,90 @@ run_required_patch_step() {
     fi
 }
 
-# The official DeepSeek V4 checkpoint uses F8_E8M0 safetensor metadata for
-# byte-packed block scales. The pinned mlx-swift release predates that tag.
-# Resolve once on a fresh clone, then apply the idempotent source patch before
-# SwiftPM decides whether dependency products are current.
-MLX_SAFETENSORS_SOURCE="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
-if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
-    echo "[swiftpm-reliable] Resolving mlx-swift before applying official FP8 loader support." >&2
-    swift package resolve
+if [[ "$USE_LOCAL_MLX_PATCH_STACK" == "1" ]]; then
+    # Legacy-only dependency maintenance. The immutable AFM compatibility tags
+    # already contain these changes and are never rewritten by a consumer.
+    MLX_SAFETENSORS_SOURCE="$MLX_SWIFT_CHECKOUT/Source/Cmlx/mlx/mlx/io/safetensors.cpp"
+    if [[ ! -f "$MLX_SAFETENSORS_SOURCE" ]]; then
+        echo "[swiftpm-reliable] Resolving mlx-swift before applying local compatibility patches." >&2
+        "$ROOT_DIR/Scripts/resolve-release-dependencies.sh"
+    fi
+    run_required_patch_step \
+        "DeepSeek V4 kernels" \
+        "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
+    run_required_patch_step \
+        "DeepSeek V4 kernel verification" \
+        "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
+    run_required_patch_step \
+        "official FP8 loader verification" \
+        "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
+    run_required_patch_step \
+        "vendored MLX Swift sources" \
+        "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
+    run_required_patch_step \
+        "vendored MLX Swift source verification" \
+        "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
 fi
-run_required_patch_step \
-    "DeepSeek V4 kernels" \
-    "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh"
-run_required_patch_step \
-    "DeepSeek V4 kernel verification" \
-    "$ROOT_DIR/Scripts/apply-mlx-deepseek-v4-kernels.sh" --check
-run_required_patch_step \
-    "official FP8 loader verification" \
-    "$ROOT_DIR/Scripts/apply-mlx-official-fp8-loader.sh"
-# Keep the persistent vendor checkout synchronized with the authoritative
-# Swift sources under Scripts/patches before SwiftPM evaluates dependencies.
-# Without this, a Release build can succeed while compiling stale vendored
-# model code and silently omit the optimization being benchmarked.
-run_required_patch_step \
-    "vendored MLX Swift sources" \
-    "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
-run_required_patch_step \
-    "vendored MLX Swift source verification" \
-    "$ROOT_DIR/Scripts/apply-mlx-patches.sh" --check
 
-# Xcode 27's native driver can also miss changes in the C sources included by
-# CDwarfStar. The dependency is consumed unchanged, so its pinned revision is
-# the complete native-source identity.
-DS4_SOURCE_STAMP="$STATE_DIR/ds4-source.sha256"
-DS4_SOURCE_FINGERPRINT="$({
-    printf '%s\n' "$ACTUAL_DS4_REVISION"
-} | shasum -a 256 | awk '{print $1}')"
-PREVIOUS_DS4_SOURCE_FINGERPRINT="$(cat "$DS4_SOURCE_STAMP" 2>/dev/null || true)"
-if [[ "$DS4_SOURCE_FINGERPRINT" != "$PREVIOUS_DS4_SOURCE_FINGERPRINT" ]]; then
-    echo "[swiftpm-reliable] DwarfStar source changed; invalidating stale native-driver products." >&2
+# Xcode 27's native driver can miss dependency source changes. Normal builds
+# fingerprint the validated immutable AFMKit revision. Explicit local AFMKit
+# development also fingerprints provider source contents and native bridges.
+AFMKIT_SOURCE_STAMP="$STATE_DIR/afmkit-source.sha256"
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    AFMKIT_SOURCE_FINGERPRINT="$({
+        printf '%s\n' "$AFMKIT_SOURCE_ID"
+        {
+            printf '%s\0' "$AFMKIT_SOURCE_ROOT/Package.swift"
+            find "$AFMKIT_SOURCE_ROOT/Sources" -type f -print0
+            if [[ -d "$AFMKIT_SOURCE_ROOT/Packages" ]]; then
+                find "$AFMKIT_SOURCE_ROOT/Packages" -type f -print0
+            fi
+            if [[ -d "$AFMKIT_SOURCE_ROOT/vendor/ds4" ]]; then
+                find "$AFMKIT_SOURCE_ROOT/vendor/ds4" -type f -print0
+            fi
+        } | sort -z | xargs -0 shasum -a 256
+    } | shasum -a 256 | awk '{print $1}')"
+else
+    AFMKIT_SOURCE_FINGERPRINT="$(printf '%s\n' "$AFMKIT_SOURCE_ID" | shasum -a 256 | awk '{print $1}')"
+fi
+PREVIOUS_AFMKIT_SOURCE_FINGERPRINT="$(cat "$AFMKIT_SOURCE_STAMP" 2>/dev/null || true)"
+if [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
+    echo "[swiftpm-reliable] AFMKit source changed; invalidating stale compiled products." >&2
+    AFMKIT_SCRATCH_PATH="$(test_scratch_path "$@")"
+    if [[ "$AFMKIT_SCRATCH_PATH" != /* ]]; then
+        AFMKIT_SCRATCH_PATH="$ROOT_DIR/$AFMKIT_SCRATCH_PATH"
+    fi
     rm -rf \
-        "$ROOT_DIR/.build/arm64-apple-macosx" \
-        "$ROOT_DIR/.build/debug" \
-        "$ROOT_DIR/.build/release"
-    printf '%s\n' "$DS4_SOURCE_FINGERPRINT" > "$DS4_SOURCE_STAMP"
+        "$AFMKIT_SCRATCH_PATH/out" \
+        "$AFMKIT_SCRATCH_PATH/arm64-apple-macosx" \
+        "$AFMKIT_SCRATCH_PATH/debug" \
+        "$AFMKIT_SCRATCH_PATH/release"
+    printf '%s\n' "$AFMKIT_SOURCE_FINGERPRINT" > "$AFMKIT_SOURCE_STAMP"
 fi
 
 # Xcode 27 Beta 3's native SwiftPM driver can miss source changes inside the
 # local mlx-swift-lm package and report a successful no-op build. Fingerprint
 # that package independently of SwiftPM and discard only compiled products when
 # it changes. Dependency clones and downloaded artifacts remain intact.
-MLX_SOURCE_STAMP="$STATE_DIR/mlx-swift-lm-source.sha256"
-MLX_SOURCE_FINGERPRINT="$({
-    find "$ROOT_DIR/vendor/mlx-swift-lm/Libraries" -type f -print0
-    printf '%s\0' "$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
-    printf '%s\0' "$MLX_SAFETENSORS_SOURCE"
-    find "$ROOT_DIR/Scripts/patches" -type f -print0
-    printf '%s\0' "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
-    find "$ROOT_DIR/Scripts/patches/mlx-swift-deepseek-v4" -type f -print0
-} | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
-PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"
-if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
-    echo "[swiftpm-reliable] MLX source changed; invalidating stale native-driver products." >&2
-    rm -rf \
-        "$ROOT_DIR/.build/arm64-apple-macosx" \
-        "$ROOT_DIR/.build/debug" \
-        "$ROOT_DIR/.build/release"
-    printf '%s\n' "$MLX_SOURCE_FINGERPRINT" > "$MLX_SOURCE_STAMP"
+if [[ "$USE_LOCAL_MLX_PATCH_STACK" == "1" ]]; then
+    MLX_SOURCE_STAMP="$STATE_DIR/mlx-swift-lm-source.sha256"
+    MLX_SOURCE_FINGERPRINT="$({
+        find "$MACLOCAL_MLX_SWIFT_LM_PATH/Libraries" -type f -print0
+        printf '%s\0' "$MACLOCAL_MLX_SWIFT_LM_PATH/Package.swift"
+        printf '%s\0' "$MLX_SAFETENSORS_SOURCE"
+        find "$ROOT_DIR/Scripts/patches" -type f -print0
+        printf '%s\0' "$ROOT_DIR/Scripts/apply-mlx-patches.sh"
+        find "$ROOT_DIR/Scripts/patches/mlx-swift-deepseek-v4" -type f -print0
+    } | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
+    PREVIOUS_MLX_SOURCE_FINGERPRINT="$(cat "$MLX_SOURCE_STAMP" 2>/dev/null || true)"
+    if [[ "$MLX_SOURCE_FINGERPRINT" != "$PREVIOUS_MLX_SOURCE_FINGERPRINT" ]]; then
+        echo "[swiftpm-reliable] Local MLX source changed; invalidating stale native-driver products." >&2
+        rm -rf \
+            "$ROOT_DIR/.build/arm64-apple-macosx" \
+            "$ROOT_DIR/.build/debug" \
+            "$ROOT_DIR/.build/release"
+        printf '%s\n' "$MLX_SOURCE_FINGERPRINT" > "$MLX_SOURCE_STAMP"
+    fi
 fi
 
 # A normal Release build emits modules without `-enable-testing`. Xcode 27's
@@ -297,7 +413,7 @@ if [[ "$DRIVER" == "native" ]] ||
     fi
     if has_recoverable_xcode_failure "$PRIMARY_LOG"; then
         echo "[swiftpm-reliable] Native generated build state is invalid; cleaning products and retrying once." >&2
-        swift package clean
+        swift_package_clean
         if run_native "$RETRY_LOG" "$@"; then
             exit 0
         else
@@ -335,7 +451,7 @@ fi
 
 echo "[swiftpm-reliable] Recoverable Xcode generated-build-state failure detected." >&2
 echo "[swiftpm-reliable] Cleaning build products and retrying with the native driver." >&2
-swift package clean
+swift_package_clean
 
 if run_native "$RETRY_LOG" "$@"; then
     STATUS=0

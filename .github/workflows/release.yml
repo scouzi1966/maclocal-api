@@ -16,6 +16,9 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Verify dependencies are publicly distributable
+      run: Scripts/check-public-release-eligibility.sh
+
     - name: Set up Node.js for WebUI
       uses: actions/setup-node@v4
       with:
@@ -27,17 +30,14 @@ jobs:
     # Do NOT pin an older swift-actions/setup-swift toolchain: Swift < 6.0
     # cannot build a 6.0 tools-version package, and a swift.org toolchain lacks
     # the FoundationModels framework.
-    - name: Build Release Binary
+    - name: Run complete release gate
+      env:
+        AFMKIT_READ_TOKEN: ${{ secrets.AFMKIT_READ_TOKEN }}
       run: |
         sw_vers
         xcodebuild -version
         swift --version
-        ./build.sh --stable --yes
-
-    - name: Build and verify required WebUI artifact
-      run: |
-        make webui
-        Scripts/verify-webui.sh Resources/webui/index.html.gz
+        Scripts/validate-release.sh
     
     - name: Create Release Package
       run: |
@@ -53,7 +53,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
         Scripts/verify-webui.sh release-package/Resources/webui/index.html.gz
 
-        for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMKitMLX.bundle MacLocalAPI_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/
@@ -67,7 +67,7 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
-          echo "DwarfStar: $(git -C vendor/ds4 rev-parse HEAD)"
+          echo "AFMKit: $(python3 -c 'import json,sys; print(next(p for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "afmkit")["state"]["revision"])' Package.resolved)"
         } > release-package/BUILD-ENVIRONMENT.txt
         
         # Create install guide
@@ -82,13 +82,14 @@ jobs:
         
         # Create archive
         tar -czf afm-v$VERSION-arm64.tar.gz -C release-package .
-        tar -xOzf afm-v$VERSION-arm64.tar.gz ./Resources/webui/index.html.gz > archive-webui.html.gz
-        Scripts/verify-webui.sh archive-webui.html.gz
+        Scripts/verify-release-archive.sh afm-v$VERSION-arm64.tar.gz
     
     - name: Upload to Release
       uses: softprops/action-gh-release@v1
       with:
-        files: afm-v*-arm64.tar.gz
+        files: |
+          afm-v*-arm64.tar.gz
+          dist/macafm-*.whl
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -61,13 +61,15 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
         let runtimeModel = AFMDwarfStarModel(
             modelID: AFMModelID(rawValue: URL(fileURLWithPath: model).lastPathComponent),
             modelPath: model,
-            contextWindow: context,
-            prefillChunk: prefillChunk,
-            powerPercent: powerPercent,
-            runtime: AFMDwarfStarRuntimeCoordinator()
+            configuration: AFMDwarfStarRuntimeConfiguration(
+                contextWindow: context,
+                prefillChunk: prefillChunk,
+                powerPercent: powerPercent
+            )
         )
 
-        print("runtime: in-process DwarfStar (\(AFMDwarfStarRuntime.backendName))")
+        let backendName = "metal"
+        print("runtime: in-process DwarfStar (\(backendName))")
         print("model: \(model)")
         print("mapping: vanilla DwarfStar GGUF mmap")
         let loadStart = ContinuousClock.now
@@ -117,7 +119,7 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
             )
 
             if let expectedSHA256,
-               digest.caseInsensitiveCompare(expectedSHA256) != .orderedSame {
+               digest.caseInsensitiveCompare(expectedSHA256) != ComparisonResult.orderedSame {
                 throw ValidationError(
                     "run \(index) hash mismatch: expected \(expectedSHA256), got \(digest)"
                 )
@@ -139,7 +141,7 @@ struct DwarfStarBenchmarkCommand: AsyncParsableCommand {
             / Double(measuredRuns.count)
         let summary = Summary(
             runtime: "in-process-dwarfstar",
-            backend: AFMDwarfStarRuntime.backendName,
+            backend: backendName,
             model: model,
             prompt: prompt,
             tokens: tokens,
