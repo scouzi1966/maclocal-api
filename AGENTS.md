@@ -5,7 +5,11 @@ See `CLAUDE.md` for additional project-specific build, architecture, and workflo
 ## Project Structure & Module Organization
 `Sources/AFMCLI/` contains the CLI, `Sources/AFMServer/` owns Vapor and the OpenAI HTTP boundary, and `Sources/AFMKit/` is maclocal-api's aggregate facade. The standalone provider contracts and runtimes come from the pinned AFMKit package. Tests live in `Tests/MacLocalAPITests/`; automation and regression scripts are in `Scripts/`, design notes in `docs/`, and generated artifacts in `test-reports/` and `archive/`.
 
-`vendor/` contains pinned submodules (`mlx-swift-lm`, `llama.cpp`, `xgrammar`, and canonical `antirez/ds4`). Do not edit vendor files directly. Normal builds do not mutate or compile the legacy `vendor/mlx-swift-lm` checkout; they consume immutable AFMKit and AFM-compatible MLX dependencies. `Scripts/patches/` and `apply-mlx-patches.sh` remain only for explicit compatibility-package maintenance. DwarfStar must remain an unchanged upstream checkout; keep its integration in AFMKit-owned adapter sources.
+`vendor/` contains only application-owned submodules such as `llama.cpp`. MLX,
+mlx-c, mlx-swift-lm, xgrammar, and DwarfStar provider sources are owned by the
+exact-versioned AFMKit package. Do not add shadow provider implementations or
+patch resolved SwiftPM checkouts in this consumer; make provider changes in
+AFMKit and then bump the single AFMKit version.
 
 ## Build, Test, and Development Commands
 Use the project `Makefile` for normal workflows. All direct SwiftPM build and
@@ -13,9 +17,9 @@ test invocations must go through `Scripts/swiftpm-reliable.sh`; do not invoke
 raw `swift build` or `swift test`. The wrapper selects the reliable Xcode 27
 driver, repairs stale explicit-module state once, and stages the canonical MLX
 metallib beside every XCTest executable for MLX's C++ runtime. The default
-package graph pins AFMKit by immutable revision and pins both AFM-compatible MLX
-packages by exact version. Local dependency paths and the legacy source-patch
-stack require explicit environment opt-ins.
+package graph pins one exact AFMKit version, which owns every provider source
+and runtime dependency. A local AFMKit workspace path is supported only for
+paired development before the exact-version bump.
 This applies to release/coverage harness scripts and copied XCTest reruns too;
 do not replace the wrapper with raw `swift test` or a one-off environment fix.
 
@@ -24,7 +28,6 @@ do not replace the wrapper with raw `swift test` or a one-off environment fix.
 - `make run` starts the debug server on port `9999`.
 - `make test` performs the basic binary and portability checks.
 - `./Scripts/build-from-scratch.sh` runs the full clean consumer build, including submodules and WebUI assets, against immutable package dependencies.
-- `make patch` is restricted to explicit legacy compatibility-package maintenance.
 - `Scripts/swiftpm-reliable.sh build -c release --product afm` builds AFM directly.
 - `Scripts/swiftpm-reliable.sh test -c release` runs the Swift unit test suite directly.
 - `./Scripts/test-assertions.sh --tier smoke --model <model>` runs the broader assertion and integration harness.

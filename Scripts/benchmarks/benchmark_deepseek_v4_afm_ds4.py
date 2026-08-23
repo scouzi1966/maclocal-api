@@ -141,17 +141,15 @@ def git_output(root: Path, *arguments: str) -> str | None:
 
 
 def source_provenance(root: Path) -> dict[str, Any]:
+    afmkit = root / ".build/checkouts/AFMKit"
     paths = [
-        root / "Scripts/patches/DeepseekV4.swift",
-        root / "Scripts/patches/DeepseekV4ActivationQuant.swift",
-        root / "Scripts/patches/SwitchLayers.swift",
-        root / "vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift",
-        root / "vendor/mlx-swift-lm/Libraries/MLXLMCommon/DeepseekV4ActivationQuant.swift",
-        root / "vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift",
-        root / ".build/checkouts/mlx-swift/Source/MLX/MLXFast.swift",
-        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp",
-        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp",
-        root / ".build/checkouts/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h",
+        afmkit / "vendor/MLX/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift",
+        afmkit / "vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/DeepseekV4ActivationQuant.swift",
+        afmkit / "vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift",
+        afmkit / "vendor/MLX/mlx-swift/Source/MLX/MLXFast.swift",
+        afmkit / "vendor/MLX/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp",
+        afmkit / "vendor/MLX/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp",
+        afmkit / "vendor/MLX/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h",
     ]
     return {
         "git_commit": git_output(root, "rev-parse", "HEAD"),

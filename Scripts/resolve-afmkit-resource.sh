@@ -66,7 +66,7 @@ search_roots+=(
 
 for root in "${search_roots[@]}"; do
   [[ -d "$root" ]] || continue
-  for bundle_name in AFMKit_AFMKitMLX.bundle MacLocalAPI_AFMKitMLX.bundle; do
+  for bundle_name in AFMKit_AFMKitMLX.bundle; do
     bundle="$root/$bundle_name"
     for resource in "$bundle/default.metallib" "$bundle/Contents/Resources/default.metallib"; do
       if [[ -f "$resource" ]]; then

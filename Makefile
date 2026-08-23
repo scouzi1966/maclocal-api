@@ -1,24 +1,10 @@
 # AFM - Apple Foundation Models API
 # Makefile for building and distributing the portable CLI
 
-.PHONY: build clean install uninstall portable dist test test-tui release-gate test-release-tooling help submodules submodule-status webui verify-webui build-with-webui patch patch-check patch-revert verify-afmkit-consumer-boundary resolve-release-dependencies
-
-PATCH_SH := Scripts/apply-mlx-patches.sh
+.PHONY: build clean install uninstall portable dist test test-tui release-gate test-release-tooling help submodules submodule-status webui verify-webui build-with-webui verify-afmkit-consumer-boundary resolve-release-dependencies
 
 # Default target
 all: build
-
-# Legacy dependency maintenance only. Normal builds consume immutable AFMKit
-# and AFM-compatible MLX packages and must not mutate vendor submodules.
-patch:
-	@echo "Applying the legacy mlx-swift-lm patch stack..."
-	@bash $(PATCH_SH)
-
-patch-check:
-	@bash $(PATCH_SH) --check
-
-patch-revert:
-	@bash $(PATCH_SH) --revert
 
 verify-afmkit-consumer-boundary:
 	@Scripts/check-afmkit-consumer-boundary.sh
@@ -139,8 +125,6 @@ help:
 	@echo "  portable        - Build with enhanced portability"
 	@echo "  clean           - Clean build artifacts without changing vendor worktrees"
 	@echo "  patch           - Apply legacy vendor patches explicitly"
-	@echo "  patch-check     - Verify vendor patch status"
-	@echo "  patch-revert    - Revert explicitly applied vendor patches"
 	@echo "  verify-afmkit-consumer-boundary - Check immutable dependency and packaging ownership"
 	@echo "  install         - Install to /usr/local/bin (requires sudo)"
 	@echo "  uninstall       - Remove only AFM-owned files under INSTALL_PREFIX"

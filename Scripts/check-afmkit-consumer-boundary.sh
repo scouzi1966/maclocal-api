@@ -103,9 +103,6 @@ manifest_environment = os.environ.copy()
 for name in (
     "MACLOCAL_AFMKIT_PATH",
     "MACLOCAL_AFMKIT_WORKSPACE_PATH",
-    "MACLOCAL_MLX_SWIFT_LM_PATH",
-    "AFMKIT_MLX_SWIFT_PATH",
-    "AFMKIT_MLX_SWIFT_LM_PATH",
 ):
     manifest_environment.pop(name, None)
 package = json.loads(
@@ -136,8 +133,6 @@ for dependency in package.get("dependencies", []):
 
 required_direct = {
     "afmkit",
-    "mlx-swift-afm",
-    "mlx-swift-lm",
 }
 missing = sorted(required_direct - direct_identities)
 if missing:
@@ -150,8 +145,8 @@ for identity, (expected_location, checkout_name) in provider_packages.items():
     pin = pins_by_identity[identity]
     if pin["location"] != expected_location:
         fail(f"{identity} release lock points at an unexpected source")
-    if pin["state"].get("version") != "0.1.0":
-        fail(f"{identity} must resolve the exact 0.1.0 release")
+    if pin["state"].get("version") != "0.1.1":
+        fail(f"{identity} must resolve the exact 0.1.1 release")
 
     checkout = Path(".build/checkouts") / checkout_name
     if not checkout.is_dir():
@@ -232,6 +227,10 @@ if grep -Fq '$(PATCH_STAMP)' Makefile; then
   fail "Makefile still uses a vendor patch stamp"
 fi
 
+if grep -Eq 'mlx-swift-afm|scouzi1966/mlx-swift-lm' Package.swift Package.resolved; then
+  fail "consumer release graph still depends directly on a legacy MLX fork"
+fi
+
 if grep -ERn \
   'MacLocalAPI_AFMKit(MLX|DwarfStar)\.bundle' \
   .github/workflows Scripts/build-native-wheel.sh Scripts/build-nightly-wheel.sh \
@@ -275,7 +274,7 @@ grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" |
 if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
   fail "independent core consumer still relies on a removed maclocal compatibility product"
 fi
-grep -Fq 'exact: "0.1.0"' "$example_manifest" || \
+grep -Fq 'exact: "0.1.1"' "$example_manifest" || \
   fail "independent core consumer must use the exact AFMKit release"
 
 for project in pyproject.toml pyproject-next.toml; do

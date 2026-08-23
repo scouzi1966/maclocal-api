@@ -989,7 +989,7 @@ public class Server: @unchecked Sendable {
                             top_p: 0.95,
                             min_p: 0.05,
                             stream: self.streamingEnabled,
-                            max_tokens: MLXModelService.defaultMaximumResponseTokens
+                            max_tokens: MLXChatCompletionsController.defaultMaxCompletionTokens
                         )
                     ),
                     total_slots: 1,

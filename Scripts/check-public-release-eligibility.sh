@@ -16,9 +16,7 @@ package = json.loads(subprocess.check_output(["swift", "package", "dump-package"
 dependencies = {item["sourceControl"][0]["identity"]: item["sourceControl"][0]
                 for item in package["dependencies"] if item.get("sourceControl")}
 expected_versions = {
-    "afmkit": "0.1.0",
-    "mlx-swift-afm": "0.31.6-afm.1",
-    "mlx-swift-lm": "0.31.6-afm.3",
+    "afmkit": "0.1.1",
 }
 for identity, expected_version in expected_versions.items():
     pin, dependency = pins.get(identity), dependencies.get(identity)
