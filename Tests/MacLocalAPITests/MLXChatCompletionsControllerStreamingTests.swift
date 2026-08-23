@@ -17,6 +17,62 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testStreamingStopFilterWithholdsDelimiterSplitAcrossChunks() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
+
+        XCTAssertEqual(filter.consume("answer ST"), "answer ")
+        XCTAssertEqual(filter.consume("OP trailing"), "")
+        XCTAssertTrue(filter.stopped)
+        XCTAssertEqual(filter.flush(), "")
+    }
+
+    func testStreamingStopFilterFlushesUnmatchedPartialDelimiter() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
+
+        XCTAssertEqual(filter.consume("answer ST"), "answer ")
+        XCTAssertEqual(filter.flush(), "ST")
+        XCTAssertFalse(filter.stopped)
+    }
+
+    func testStreamingStopFilterHandlesUnicodeAndOverlappingStops() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["🛑", "END"])
+
+        XCTAssertEqual(filter.consume("one E"), "one ")
+        XCTAssertEqual(filter.consume("ND two 🛑 three"), "")
+        XCTAssertTrue(filter.stopped)
+    }
+
+    func testStreamingControllerNeverEmitsSplitStopDelimiter() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "answer ST"),
+                AFMServerStreamChunk(text: "OP trailing", stoppedBySequence: true),
+                AFMServerStreamChunk(text: " ignored", promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, #""content":"answer ""#)
+            XCTAssertFalse(res.body.string.contains("STOP"))
+            XCTAssertFalse(res.body.string.contains("trailing"))
+            XCTAssertFalse(res.body.string.contains("ignored"))
+            XCTAssertContains(res.body.string, #""finish_reason":"stop""#)
+        }
+    }
+
     func testStreamingControllerSerializesProviderToolCallsIntoSSEToolCalls() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
@@ -838,17 +894,19 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         prompt: String = "What is the weather in Berlin?",
         toolsJSON: String = weatherToolsJSON,
         toolChoiceJSON: String? = nil,
-        responseFormatJSON: String? = nil
+        responseFormatJSON: String? = nil,
+        stopJSON: String? = nil
     ) throws -> ByteBuffer {
         let toolChoiceLine = toolChoiceJSON.map { "\n          \"tool_choice\": \($0)," } ?? ""
         let responseFormatLine = responseFormatJSON.map { "\n          \"response_format\": \($0)," } ?? ""
+        let stopLine = stopJSON.map { "\n          \"stop\": \($0)," } ?? ""
         let json = """
         {
           "model": "test-model",
           "stream": \(stream ? "true" : "false"),
           "messages": [
             { "role": "user", "content": "\(prompt)" }
-          ],\(toolChoiceLine)\(responseFormatLine)
+          ],\(toolChoiceLine)\(responseFormatLine)\(stopLine)
           "tools": \(toolsJSON)
         }
         """

@@ -11,6 +11,70 @@ struct FinalizedAssistantTurn {
     let toolCalls: [ResponseToolCall]?
 }
 
+/// Prevents API stop sequences from reaching an SSE client, including when a
+/// delimiter is split across provider chunks. The provider may report that it
+/// stopped only after yielding the token that completed the delimiter, so the
+/// controller must retain any suffix that could still become a stop sequence.
+struct StreamingStopSequenceFilter {
+    private let stopSequences: [String]
+    private var pending = ""
+    private(set) var stopped = false
+
+    init(stopSequences: [String]?) {
+        self.stopSequences = Array(Set((stopSequences ?? []).filter { !$0.isEmpty }))
+    }
+
+    mutating func consume(_ text: String) -> String {
+        guard !stopped else { return "" }
+        guard !stopSequences.isEmpty else { return text }
+        pending += text
+
+        var earliestStop: Range<String.Index>?
+        for stop in stopSequences {
+            guard let range = pending.range(of: stop) else { continue }
+            if earliestStop == nil || range.lowerBound < earliestStop!.lowerBound {
+                earliestStop = range
+            }
+        }
+        if let earliestStop {
+            let output = String(pending[..<earliestStop.lowerBound])
+            pending = ""
+            stopped = true
+            return output
+        }
+
+        var retainedCount = 0
+        let maximumCandidateLength = min(
+            pending.count,
+            stopSequences.map(\.count).max() ?? 0
+        )
+        if maximumCandidateLength > 0 {
+            for length in stride(from: maximumCandidateLength, through: 1, by: -1) {
+                let suffix = pending.suffix(length)
+                if stopSequences.contains(where: { $0.hasPrefix(suffix) }) {
+                    retainedCount = length
+                    break
+                }
+            }
+        }
+
+        guard retainedCount > 0 else {
+            defer { pending = "" }
+            return pending
+        }
+        let boundary = pending.index(pending.endIndex, offsetBy: -retainedCount)
+        let output = String(pending[..<boundary])
+        pending = String(pending[boundary...])
+        return output
+    }
+
+    mutating func flush() -> String {
+        guard !stopped else { return "" }
+        defer { pending = "" }
+        return pending
+    }
+}
+
 struct MLXChatCompletionsController: RouteCollection {
     private static let degenerateTailRegex = try! NSRegularExpression(pattern: "([!?.:,;`~_\\-*=|])\\1{79,}$")
 
@@ -673,6 +737,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     return true
                 }
                 var stoppedBySequence = false
+                var streamingStopFilter = StreamingStopSequenceFilter(stopSequences: effectiveStop)
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
                 var realCachedTokens: Int? = nil
@@ -795,9 +860,8 @@ struct MLXChatCompletionsController: RouteCollection {
                         var emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
                         if let content = emitContent {
-                            let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
-                            emitContent = trimmed.text
-                            if trimmed.stopped { stoppedBySequence = true }
+                            emitContent = streamingStopFilter.consume(content)
+                            if streamingStopFilter.stopped { stoppedBySequence = true }
                         }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         let hasReasoning = emitReasoning != nil
@@ -843,9 +907,8 @@ struct MLXChatCompletionsController: RouteCollection {
                         var emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
                         if let content = emitContent {
-                            let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
-                            emitContent = trimmed.text
-                            if trimmed.stopped { stoppedBySequence = true }
+                            emitContent = streamingStopFilter.consume(content)
+                            if streamingStopFilter.stopped { stoppedBySequence = true }
                         }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         let hasReasoning = emitReasoning != nil
@@ -881,9 +944,6 @@ struct MLXChatCompletionsController: RouteCollection {
                             stoppedBySequence = true
                             break
                         }
-                        if stoppedBySequence {
-                            break
-                        }
                     } else if extractThinking {
                         // Drop structural wrapper tokens (e.g. Cohere <|START_TEXT|>) before
                         // buffering. Safe per-piece: special tokens detokenize atomically,
@@ -907,8 +967,12 @@ struct MLXChatCompletionsController: RouteCollection {
                             endTag: thinkEndTag ?? "</think>"
                         )
 
-                        let emitContent = extracted.content
+                        var emitContent = extracted.content
                         let emitReasoning = extracted.reasoning
+                        if let content = emitContent {
+                            emitContent = streamingStopFilter.consume(content)
+                            if streamingStopFilter.stopped { stoppedBySequence = true }
+                        }
 
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
 
@@ -957,10 +1021,12 @@ struct MLXChatCompletionsController: RouteCollection {
                         }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
                         logprobBuffer = []
+                        let visiblePiece = streamingStopFilter.consume(piece)
+                        if streamingStopFilter.stopped { stoppedBySequence = true }
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
-                            content: piece,
+                            content: visiblePiece,
                             logprobs: flushLogprobs,
                             isFirst: false
                         )
@@ -1048,7 +1114,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Flush remaining harmony buffer (#121). When the stream ends mid-channel
                 // without a closing <|end|>/<|return|>, emit whatever was being accumulated.
                 if !deferStructuredOutputContent && extractThinking && harmonyChannels && !harmonyBuffer.isEmpty {
-                    let remaining: String?
+                    var remaining: String?
                     let remainingReasoning: String?
                     switch harmonyState.channel {
                     case .analysis:
@@ -1060,6 +1126,10 @@ struct MLXChatCompletionsController: RouteCollection {
                     default:
                         remaining = nil
                         remainingReasoning = nil
+                    }
+                    if let content = remaining {
+                        remaining = streamingStopFilter.consume(content)
+                        if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remaining != nil || remainingReasoning != nil {
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
@@ -1086,9 +1156,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     )
                     var remainingContent = remaining.content
                     if let content = remainingContent {
-                        let trimmed = Self.trimAtFirstStop(content, stopSequences: effectiveStop)
-                        remainingContent = trimmed.text
-                        if trimmed.stopped { stoppedBySequence = true }
+                        remainingContent = streamingStopFilter.consume(content)
+                        if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remainingContent != nil || remaining.reasoning != nil {
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
@@ -1110,7 +1179,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Flush remaining thinkBuffer content (tool call tags are handled
                 // above and never enter the thinkBuffer, so this is safe).
                 if !deferStructuredOutputContent && extractThinking && responseChannelFormat == .none && !thinkBuffer.isEmpty {
-                    let remaining: String?
+                    var remaining: String?
                     let remainingReasoning: String?
                     if insideThinkBlock {
                         remainingReasoning = thinkBuffer
@@ -1118,6 +1187,10 @@ struct MLXChatCompletionsController: RouteCollection {
                     } else {
                         remaining = thinkBuffer
                         remainingReasoning = nil
+                    }
+                    if let content = remaining {
+                        remaining = streamingStopFilter.consume(content)
+                        if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remaining != nil || remainingReasoning != nil {
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
@@ -1153,10 +1226,12 @@ struct MLXChatCompletionsController: RouteCollection {
                 if deferStructuredOutputContent,
                    finalizedTurn.toolCalls == nil,
                    finalizedTurn.content != nil || finalizedTurn.reasoningContent != nil || !logprobBuffer.isEmpty {
+                    let visibleContent = streamingStopFilter.consume(finalizedTurn.content ?? "")
+                    if streamingStopFilter.stopped { stoppedBySequence = true }
                     let contentChunk = ChatCompletionStreamResponse(
                         id: streamId,
                         model: res.modelID,
-                        content: finalizedTurn.content ?? "",
+                        content: visibleContent,
                         reasoningContent: finalizedTurn.reasoningContent,
                         logprobs: logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer),
                         isFirst: false
@@ -1164,6 +1239,20 @@ struct MLXChatCompletionsController: RouteCollection {
                     logprobBuffer = []
                     let contentData = try encoder.encode(contentChunk)
                     if let jsonString = String(data: contentData, encoding: .utf8) {
+                        try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
+                    }
+                }
+
+                let withheldContent = streamingStopFilter.flush()
+                if !withheldContent.isEmpty {
+                    let flushChunk = ChatCompletionStreamResponse(
+                        id: streamId,
+                        model: res.modelID,
+                        content: withheldContent,
+                        isFirst: false
+                    )
+                    let flushData = try encoder.encode(flushChunk)
+                    if let jsonString = String(data: flushData, encoding: .utf8) {
                         try? await writer.write(.buffer(.init(string: "data: \(jsonString)\n\n")))
                     }
                 }
