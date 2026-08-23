@@ -1,5 +1,5 @@
 import XCTest
-import AFMKitServices
+import AFMKitServicesCompatibility
 
 final class AFMKitServicesCompatibilityTests: XCTestCase {
     func testLegacyProductMakesUpstreamServiceModuleImportable() {
