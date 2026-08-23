@@ -738,6 +738,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
                 var stoppedBySequence = false
                 var streamingStopFilter = StreamingStopSequenceFilter(stopSequences: effectiveStop)
+                var providerStopReached = false
                 var realPromptTokens: Int? = nil
                 var realCompletionTokens: Int? = nil
                 var realCachedTokens: Int? = nil
@@ -750,6 +751,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 var pendingRawTag: String? = nil
                 for try await streamChunk in res.stream {
                     let piece = streamChunk.text
+                    let suppressPayload = providerStopReached || streamingStopFilter.stopped
+                    let providerReportedStop = streamChunk.stoppedBySequence == true
+                    providerStopReached = providerStopReached || providerReportedStop
 
                     // Capture real token counts and timing from the info chunk
                     if let pt = streamChunk.promptTokens { realPromptTokens = pt }
@@ -759,7 +763,16 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = streamChunk.promptTime { realPromptTime = pt }
                     if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
-                    if let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
+                    // Once either the provider or the visible-content filter has
+                    // stopped, drain only telemetry from subsequent chunks.
+                    guard !suppressPayload else { continue }
+
+                    var stopPreview = streamingStopFilter
+                    if !extractThinking { _ = stopPreview.consume(piece) }
+                    let allowCurrentSemanticPayload = !providerReportedStop && !stopPreview.stopped
+
+                    if allowCurrentSemanticPayload,
+                       let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
                         let filtered = deltas.filter {
                             Self.isToolDeltaAllowed(
                                 $0,
@@ -792,7 +805,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
 
                     // Handle tool call chunks from the vendor parser
-                    if let tcs = streamChunk.toolCalls, !tcs.isEmpty {
+                    if allowCurrentSemanticPayload,
+                       let tcs = streamChunk.toolCalls, !tcs.isEmpty {
                         for tc in tcs {
                             // Coerce argument types before emitting (Gemma 4 escape markers, etc.)
                             let coercedToolCall = service.coerceToolCallArguments(tc, tools: effectiveTools)
@@ -840,7 +854,7 @@ struct MLXChatCompletionsController: RouteCollection {
 
                     fullContent += piece
 
-                    if let lps = streamChunk.logprobs {
+                    if allowCurrentSemanticPayload, let lps = streamChunk.logprobs {
                         logprobBuffer.append(contentsOf: lps)
                     }
 
@@ -861,6 +875,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitReasoning = extracted.reasoning
                         if let content = emitContent {
                             emitContent = streamingStopFilter.consume(content)
+                            if emitContent != content { logprobBuffer = [] }
                             if streamingStopFilter.stopped { stoppedBySequence = true }
                         }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
@@ -908,6 +923,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitReasoning = extracted.reasoning
                         if let content = emitContent {
                             emitContent = streamingStopFilter.consume(content)
+                            if emitContent != content { logprobBuffer = [] }
                             if streamingStopFilter.stopped { stoppedBySequence = true }
                         }
                         let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
@@ -971,6 +987,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         let emitReasoning = extracted.reasoning
                         if let content = emitContent {
                             emitContent = streamingStopFilter.consume(content)
+                            if emitContent != content { logprobBuffer = [] }
                             if streamingStopFilter.stopped { stoppedBySequence = true }
                         }
 
@@ -1019,10 +1036,12 @@ struct MLXChatCompletionsController: RouteCollection {
                         if deferStructuredOutputContent {
                             continue
                         }
-                        let flushLogprobs = logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer)
-                        logprobBuffer = []
                         let visiblePiece = streamingStopFilter.consume(piece)
                         if streamingStopFilter.stopped { stoppedBySequence = true }
+                        let flushLogprobs = visiblePiece == piece && !providerReportedStop && !logprobBuffer.isEmpty
+                            ? Self.buildChoiceLogprobs(logprobBuffer)
+                            : nil
+                        logprobBuffer = []
                         let contentChunk = ChatCompletionStreamResponse(
                             id: streamId,
                             model: res.modelID,
@@ -1129,6 +1148,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                     if let content = remaining {
                         remaining = streamingStopFilter.consume(content)
+                        if remaining != content { logprobBuffer = [] }
                         if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remaining != nil || remainingReasoning != nil {
@@ -1157,6 +1177,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     var remainingContent = remaining.content
                     if let content = remainingContent {
                         remainingContent = streamingStopFilter.consume(content)
+                        if remainingContent != content { logprobBuffer = [] }
                         if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remainingContent != nil || remaining.reasoning != nil {
@@ -1190,6 +1211,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                     if let content = remaining {
                         remaining = streamingStopFilter.consume(content)
+                        if remaining != content { logprobBuffer = [] }
                         if streamingStopFilter.stopped { stoppedBySequence = true }
                     }
                     if remaining != nil || remainingReasoning != nil {
@@ -1227,6 +1249,7 @@ struct MLXChatCompletionsController: RouteCollection {
                    finalizedTurn.toolCalls == nil,
                    finalizedTurn.content != nil || finalizedTurn.reasoningContent != nil || !logprobBuffer.isEmpty {
                     let visibleContent = streamingStopFilter.consume(finalizedTurn.content ?? "")
+                    if visibleContent != (finalizedTurn.content ?? "") { logprobBuffer = [] }
                     if streamingStopFilter.stopped { stoppedBySequence = true }
                     let contentChunk = ChatCompletionStreamResponse(
                         id: streamId,
