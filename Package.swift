@@ -360,13 +360,17 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "AFMKitServicesCompatibilityTests",
+            dependencies: ["AFMKitServicesCompatibility"]
+        ),
+        .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitFoundationModels27DwarfStar",
-                .product(name: "AFMKitServices", package: "AFMKit"),
+                "AFMKitServicesCompatibility",
                 "AFMServer",
                 "AFMTerminalUI",
                 .product(name: "Jinja", package: "swift-jinja"),
