@@ -118,6 +118,13 @@ start_server() {
       ;;
   esac
 
+  # Keep model-runtime qualification explicit and shell-safe. Release testing
+  # sets AFM_MTP=1 for Qwen 3.8 so every Promptfoo profile exercises the same
+  # MTP path without accepting an arbitrary string of shell arguments.
+  if [[ "${AFM_MTP:-0}" == "1" ]]; then
+    extra_args+=(--mtp)
+  fi
+
   cleanup
   wait_for_port_free || exit 1
   : > "$log_file"

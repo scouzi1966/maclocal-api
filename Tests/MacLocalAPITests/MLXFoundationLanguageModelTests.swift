@@ -5,8 +5,15 @@ import AFMKit
 import FoundationModels
 import XCTest
 
-@available(macOS 27.0, *)
 final class MLXFoundationLanguageModelTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard #available(macOS 27.0, *) else {
+            throw XCTSkip("The Foundation Models LanguageModel API requires macOS 27")
+        }
+    }
+
+    @available(macOS 27.0, *)
     func testCompatibilityFacadeReexportsMLXLanguageModel() {
         let model = MLXLanguageModel(
             modelID: "mlx-community/model-a",
@@ -33,6 +40,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertTrue(model.capabilities.contains(.guidedGeneration))
     }
 
+    @available(macOS 27.0, *)
     func testCompatibilityFacadeReexportsLanguageModelPlan() {
         let descriptor = AFMModelDescriptor(
             providerID: "afmkit.mlx",
@@ -58,6 +66,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertTrue(plan.supportsGuidedGeneration)
     }
 
+    @available(macOS 27.0, *)
     func testCompatibilityFacadeReexportsRequestAdapter() throws {
         let transcript = Transcript(entries: [
             .instructions(
@@ -78,6 +87,7 @@ final class MLXFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(messages.map(Self.text), ["Be concise.", "Question", "Answer"])
     }
 
+    @available(macOS 27.0, *)
     func testDwarfStarLanguageModelPublishesAppleToolCallingContract() {
         let model = DwarfStarLanguageModel(
             modelPath: "/models/deepseek-v4-flash.gguf",

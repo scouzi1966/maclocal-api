@@ -230,6 +230,7 @@ let package = Package(
             dependencies: [
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMOpenAICompat", package: "AFMKit"),
+                .product(name: "AFMKitInference", package: "AFMKit"),
                 .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMKitFoundationModels",
                 .product(name: "AFMKitServices", package: "AFMKit")

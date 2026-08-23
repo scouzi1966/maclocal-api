@@ -639,7 +639,8 @@ dur=$(( $(now_ms) - t0 ))
 if ! echo "$stream_content" | grep -q "5"; then
   run_test "Stop" "Streaming: stop string '5' absent" "no '5' in stream" "PASS" "$dur"
 else
-  run_test "Stop" "Streaming: stop string '5' absent" "no '5' in stream" "FAIL: found '5'" "$dur"
+  stream_preview=$(printf '%s' "$stream_content" | head -c 240)
+  run_test "Stop" "Streaming: stop string '5' absent" "no '5' in stream" "FAIL: found '5' in: $stream_preview" "$dur"
 fi
 
 if min_tier standard; then

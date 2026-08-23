@@ -17,6 +17,194 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testStreamingStopFilterWithholdsDelimiterSplitAcrossChunks() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
+
+        XCTAssertEqual(filter.consume("answer ST"), "answer ")
+        XCTAssertEqual(filter.consume("OP trailing"), "")
+        XCTAssertTrue(filter.stopped)
+        XCTAssertEqual(filter.flush(), "")
+    }
+
+    func testStreamingStopFilterFlushesUnmatchedPartialDelimiter() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
+
+        XCTAssertEqual(filter.consume("answer ST"), "answer ")
+        XCTAssertEqual(filter.flush(), "ST")
+        XCTAssertFalse(filter.stopped)
+    }
+
+    func testStreamingStopFilterHandlesUnicodeAndOverlappingStops() {
+        var filter = StreamingStopSequenceFilter(stopSequences: ["🛑", "END"])
+
+        XCTAssertEqual(filter.consume("one E"), "one ")
+        XCTAssertEqual(filter.consume("ND two 🛑 three"), "")
+        XCTAssertTrue(filter.stopped)
+    }
+
+    func testStreamingControllerNeverEmitsSplitStopDelimiter() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "answer ST"),
+                AFMServerStreamChunk(text: "OP trailing", stoppedBySequence: true),
+                AFMServerStreamChunk(text: " ignored", promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, #""content":"answer ""#)
+            XCTAssertFalse(res.body.string.contains("STOP"))
+            XCTAssertFalse(res.body.string.contains("trailing"))
+            XCTAssertFalse(res.body.string.contains("ignored"))
+            XCTAssertContains(res.body.string, #""finish_reason":"stop""#)
+        }
+    }
+
+    func testProviderStopFlagSuppressesTrailingChunksAndToolCalls() async throws {
+        let lateTool = ResponseToolCall(
+            index: 0,
+            id: "late",
+            type: "function",
+            function: .init(name: "get_weather", arguments: #"{"location":"late"}"#)
+        )
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "visible", stoppedBySequence: true),
+                AFMServerStreamChunk(
+                    text: " trailing",
+                    toolCalls: [lateTool],
+                    promptTokens: 4,
+                    completionTokens: 2,
+                    promptTime: 0.1,
+                    generateTime: 0.2
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertContains(res.body.string, #""content":"visible""#)
+            XCTAssertFalse(res.body.string.contains("trailing"))
+            XCTAssertFalse(res.body.string.contains("late"))
+            XCTAssertFalse(res.body.string.contains("tool_calls"))
+            XCTAssertContains(res.body.string, #""completion_tokens":2"#)
+            XCTAssertContains(res.body.string, #""finish_reason":"stop""#)
+        }
+    }
+
+    func testSplitStopAcrossThinkTagContentPreservesReasoning() async throws {
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "<think>STOP in reasoning</think>visible ST"),
+                AFMServerStreamChunk(text: "OP hidden", promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service, temperature: nil, repetitionPenalty: nil)
+            .boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+        ) { res async in
+            XCTAssertContains(res.body.string, "STOP in reasoning")
+            XCTAssertContains(res.body.string, #""content":"visible ""#)
+            XCTAssertFalse(res.body.string.contains("hidden"))
+        }
+    }
+
+    func testSplitStopAcrossHarmonyFinalChannelPreservesReasoning() async throws {
+        let service = FakeMLXChatService(
+            responseChannelFormat: .harmony,
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "<|channel|>analysis<|message|>STOP in reasoning<|end|><|channel|>final<|message|>visible ST"),
+                AFMServerStreamChunk(text: "OP hidden<|return|>", promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service, temperature: nil, repetitionPenalty: nil)
+            .boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+        ) { res async in
+            XCTAssertContains(res.body.string, "STOP in reasoning")
+            XCTAssertContains(res.body.string, "visible ")
+            XCTAssertFalse(res.body.string.contains("hidden"))
+        }
+    }
+
+    func testSplitStopAcrossMuseFinalChannelPreservesReasoning() async throws {
+        let service = FakeMLXChatService(
+            responseChannelFormat: .muse,
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "to=self<|message|>STOP in reasoning<|eom|>to=user<|message|>visible ST"),
+                AFMServerStreamChunk(text: "OP hidden<|return|>", promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service, temperature: nil, repetitionPenalty: nil)
+            .boot(routes: app)
+
+        let body = try requestBody(stream: true, stopJSON: #"["STOP"]"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+        ) { res async in
+            XCTAssertContains(res.body.string, "STOP in reasoning")
+            XCTAssertContains(res.body.string, "visible ")
+            XCTAssertFalse(res.body.string.contains("hidden"))
+        }
+    }
+
+    func testDeferredStructuredOutputAppliesSplitStopBeforeEmission() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: #"{"answer":"visible ST"#),
+                AFMServerStreamChunk(text: #"OP hidden"}"#, promptTokens: 4, completionTokens: 5),
+            ])
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service, temperature: nil, repetitionPenalty: nil)
+            .boot(routes: app)
+
+        let body = try requestBody(
+            stream: true,
+            responseFormatJSON: #"{"type":"json_object"}"#,
+            stopJSON: #"["STOP"]"#
+        )
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+        ) { res async in
+            XCTAssertFalse(res.body.string.contains("STOP"))
+            XCTAssertFalse(res.body.string.contains("hidden"))
+            XCTAssertContains(res.body.string, #""finish_reason":"stop""#)
+        }
+    }
+
     func testStreamingControllerSerializesProviderToolCallsIntoSSEToolCalls() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
@@ -838,17 +1026,19 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         prompt: String = "What is the weather in Berlin?",
         toolsJSON: String = weatherToolsJSON,
         toolChoiceJSON: String? = nil,
-        responseFormatJSON: String? = nil
+        responseFormatJSON: String? = nil,
+        stopJSON: String? = nil
     ) throws -> ByteBuffer {
         let toolChoiceLine = toolChoiceJSON.map { "\n          \"tool_choice\": \($0)," } ?? ""
         let responseFormatLine = responseFormatJSON.map { "\n          \"response_format\": \($0)," } ?? ""
+        let stopLine = stopJSON.map { "\n          \"stop\": \($0)," } ?? ""
         let json = """
         {
           "model": "test-model",
           "stream": \(stream ? "true" : "false"),
           "messages": [
             { "role": "user", "content": "\(prompt)" }
-          ],\(toolChoiceLine)\(responseFormatLine)
+          ],\(toolChoiceLine)\(responseFormatLine)\(stopLine)
           "tools": \(toolsJSON)
         }
         """
@@ -1039,6 +1229,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
     let supportsStrictToolGrammar: Bool
     let thinkStartTag: String?
     let thinkEndTag: String?
+    let responseChannelFormat: AFMResponseChannelFormat
     let fixToolArgs: Bool
     let enableGrammarConstraints: Bool = false
     var servingConfiguration: AFMChatServingConfiguration {
@@ -1047,6 +1238,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
             supportsStrictToolGrammar: supportsStrictToolGrammar,
             thinkStartTag: thinkStartTag,
             thinkEndTag: thinkEndTag,
+            responseChannelFormat: responseChannelFormat,
             fixToolArguments: fixToolArgs,
             grammarConstraintsEnabled: enableGrammarConstraints
         )
@@ -1067,6 +1259,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
         supportsStrictToolGrammar: Bool = false,
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
+        responseChannelFormat: AFMResponseChannelFormat = .none,
         fixToolArgs: Bool = false,
         generateResult: AFMChatGenerationResult? = nil,
         streamingResult: AFMChatStreamingResult
@@ -1076,6 +1269,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
         self.supportsStrictToolGrammar = supportsStrictToolGrammar
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
+        self.responseChannelFormat = responseChannelFormat
         self.fixToolArgs = fixToolArgs
         self.generateResult = generateResult ?? (
             modelID: "test-model",
@@ -1099,6 +1293,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
         supportsStrictToolGrammar: Bool = false,
         thinkStartTag: String? = nil,
         thinkEndTag: String? = nil,
+        responseChannelFormat: AFMResponseChannelFormat = .none,
         fixToolArgs: Bool = false,
         streamingHandler: @escaping ([Message]) -> AFMChatStreamingResult
     ) {
@@ -1107,6 +1302,7 @@ private final class FakeMLXChatService: AFMChatServing, @unchecked Sendable {
         self.supportsStrictToolGrammar = supportsStrictToolGrammar
         self.thinkStartTag = thinkStartTag
         self.thinkEndTag = thinkEndTag
+        self.responseChannelFormat = responseChannelFormat
         self.fixToolArgs = fixToolArgs
         self.generateResult = (
             modelID: "test-model",
