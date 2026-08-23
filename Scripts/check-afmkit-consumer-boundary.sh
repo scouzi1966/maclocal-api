@@ -9,7 +9,7 @@ fail() {
   exit 1
 }
 
-for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat; do
+for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat AFMKitServices; do
   [[ ! -d "Sources/$shadow_target" ]] || \
     fail "consumer shadow target still exists: Sources/$shadow_target"
 done
@@ -33,6 +33,15 @@ grep -Fqx '@_exported import AFMKitApple' "${facade_files[0]}" || \
   fail "AFMKitFoundationModels must re-export the AFMKitApple product"
 if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${facade_files[0]}"; then
   fail "AFMKitFoundationModels facade contains a local implementation"
+fi
+
+service_facade_files=(Sources/AFMKitServicesCompatibility/*.swift)
+[[ ${#service_facade_files[@]} -eq 1 && -f "${service_facade_files[0]}" ]] || \
+  fail "AFMKitServicesCompatibility must contain only its compatibility facade"
+grep -Fqx '@_exported import AFMKitServices' "${service_facade_files[0]}" || \
+  fail "AFMKitServicesCompatibility must re-export the AFMKitServices product"
+if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${service_facade_files[0]}"; then
+  fail "AFMKitServicesCompatibility facade contains a local implementation"
 fi
 
 [[ -f Package.resolved ]] || \
@@ -192,7 +201,7 @@ for line in declared_paths:
 PY
 
 if grep -ERn \
-  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple)' \
+  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple|AFMKitEmbeddings|AFMKitSpeech|AFMKitSpeechSynthesis|AFMKitVision|AFMKitServices)' \
   Tests --include='*.swift' >/dev/null; then
   fail "consumer tests reach into AFMKit provider internals"
 fi
@@ -293,6 +302,12 @@ owned_types = {
     "OpenAIRequest",
     "OpenAIResponse",
     "OpenAIResponseFormatPolicy",
+    "EmbeddingBackend",
+    "EmbeddingModelRegistry",
+    "NLContextualEmbeddingBackend",
+    "SpeechService",
+    "SpeechSynthesisService",
+    "VisionService",
 }
 declaration = re.compile(
     r"\b(?:class|struct|enum|protocol|actor)\s+(" + "|".join(owned_types) + r")\b"
@@ -313,6 +328,11 @@ if checkout.is_dir():
     provider_roots = [
         checkout / "Sources/AFMKitApple",
         checkout / "Sources/AFMOpenAICompat",
+        checkout / "Sources/AFMKitEmbeddings",
+        checkout / "Sources/AFMKitSpeech",
+        checkout / "Sources/AFMKitSpeechSynthesis",
+        checkout / "Sources/AFMKitVision",
+        checkout / "Sources/AFMKitServices",
         checkout / "Packages/AFMKitMLX/Sources/AFMKitMLX",
         checkout / "Packages/AFMKitDwarfStar/Sources/AFMKitDwarfStar",
         checkout / "Packages/AFMKitDwarfStar/Sources/CDwarfStar",

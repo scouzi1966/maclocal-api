@@ -221,8 +221,7 @@ let package = Package(
             name: "AFMKitServicesCompatibility",
             dependencies: [
                 .product(name: "AFMKitServices", package: "AFMKit")
-            ],
-            path: "Sources/AFMKitServices"
+            ]
         ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
@@ -367,7 +366,7 @@ let package = Package(
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitFoundationModels27DwarfStar",
-                "AFMKitServicesCompatibility",
+                .product(name: "AFMKitServices", package: "AFMKit"),
                 "AFMServer",
                 "AFMTerminalUI",
                 .product(name: "Jinja", package: "swift-jinja"),
