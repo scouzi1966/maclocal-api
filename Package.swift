@@ -4,20 +4,6 @@ import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let mlxSwiftDependency: Package.Dependency
-let mlxSwiftPackageIdentity: String
-if let localMLXSwiftPath = ProcessInfo.processInfo.environment["AFMKIT_MLX_SWIFT_PATH"],
-   !localMLXSwiftPath.isEmpty {
-    mlxSwiftDependency = .package(path: localMLXSwiftPath)
-    mlxSwiftPackageIdentity = URL(fileURLWithPath: localMLXSwiftPath).lastPathComponent.lowercased()
-} else {
-    mlxSwiftDependency = .package(
-        url: "https://github.com/scouzi1966/mlx-swift-afm",
-        exact: "0.31.6-afm.1"
-    )
-    mlxSwiftPackageIdentity = "mlx-swift-afm"
-}
-let mlxSwiftLMDependency: Package.Dependency
 let foundationModelsDependencies: [Target.Dependency]
 let foundationModels27Dependencies: [Target.Dependency]
 let dwarfStarFoundationModelsDependencies: [Target.Dependency]
@@ -37,15 +23,6 @@ foundationModelsDependencies = []
 foundationModels27Dependencies = []
 dwarfStarFoundationModelsDependencies = []
 #endif
-if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_SWIFT_LM_PATH"],
-   !localMLXSwiftLMPath.isEmpty {
-    mlxSwiftLMDependency = .package(path: localMLXSwiftLMPath)
-} else {
-    mlxSwiftLMDependency = .package(
-        url: "https://github.com/scouzi1966/mlx-swift-lm.git",
-        exact: "0.31.6-afm.3"
-    )
-}
 let afmKitDependency: Package.Dependency
 if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"],
    !localAFMKitPath.isEmpty {
@@ -57,7 +34,7 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WO
     // Bumping AFMKit is therefore one explicit, reviewable AFM change.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        exact: "0.1.0"
+        exact: "0.1.1"
     )
 }
 
@@ -163,18 +140,12 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-toml.git", revision: "64b56832c2cffe41758f28e05c756a3a98d16f41"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-yaml.git", revision: "a1c4812a73ec5e089de8e441fdea3a921e8d5079"),
         .package(url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown.git", revision: "a0a00f817d02412bd92c54d316f164d827b57b5c"),
-        // Normal builds consume the immutable AFM compatibility tag. Developers
-        // can opt into a local checkout with MACLOCAL_MLX_SWIFT_LM_PATH.
-        mlxSwiftLMDependency,
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(
             url: "https://github.com/huggingface/swift-huggingface.git",
             from: "0.8.1",
             traits: ["Xet"]
         ),
-        // All AFMKit consumers share one tagged MLX fork identity. This avoids
-        // duplicate MLX modules while preserving the kernels required by AFM.
-        mlxSwiftDependency,
         // Jinja (transitive via swift-transformers) — exposed for test target.
         // 2.4.0 broke swift-transformers ≤1.3.3 (ObjectKey change in Hub/Config.swift);
         // 2.4.1 restored source compatibility upstream, so no cap is needed.
@@ -223,6 +194,15 @@ let package = Package(
                 .product(name: "AFMKitServices", package: "AFMKit")
             ]
         ),
+        .target(
+            name: "AFMEvaluationHost",
+            dependencies: [
+                .product(name: "AFMEvalKit", package: "AFMKit")
+            ],
+            resources: [
+                .copy("Resources/Evals")
+            ]
+        ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
             name: "AFMKit",
@@ -230,12 +210,10 @@ let package = Package(
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMOpenAICompat", package: "AFMKit"),
                 .product(name: "AFMKitInference", package: "AFMKit"),
+                "AFMEvaluationHost",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMKitFoundationModels",
                 .product(name: "AFMKitServices", package: "AFMKit")
-            ],
-            resources: [
-                .copy("Resources/Evals")
             ],
             swiftSettings: [
                 // Enable optimizations for release builds
@@ -253,10 +231,7 @@ let package = Package(
             dependencies: [
                 "AFMKit",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
-                .product(name: "Vapor", package: "vapor"),
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm")
+                .product(name: "Vapor", package: "vapor")
             ],
             swiftSettings: [
                 .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
@@ -323,10 +298,7 @@ let package = Package(
                 .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm")
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             exclude: [
                 // Embedded into the binary's __TEXT,__info_plist section via linker flags below.
@@ -362,6 +334,10 @@ let package = Package(
         .testTarget(
             name: "AFMKitServicesCompatibilityTests",
             dependencies: ["AFMKitServicesCompatibility"]
+        ),
+        .testTarget(
+            name: "AFMEvaluationHostTests",
+            dependencies: ["AFMEvaluationHost"]
         ),
         .testTarget(
             name: "AFMKitFoundationModels27DwarfStarCompatibilityTests",

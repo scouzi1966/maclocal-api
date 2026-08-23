@@ -4,6 +4,13 @@
 It does not start an HTTP server, invoke Python, call a cloud service, or use an AI
 judge. The MLX model is loaded once and reused for every case.
 
+Reusable schemas, validation, deterministic scoring, metrics, budgets, and
+report rendering come from the provider-free `AFMEvalKit` product. maclocal-api
+continues to own the bundled `comprehensive.json`, `~/.afm/evals` discovery and
+defaults, CLI planning, model runner, signal handling, persistence, and browser
+launching. This keeps the evaluation contract reusable without coupling the SDK
+to MLX, Apple Foundation Models, the AFM executable, or host filesystem policy.
+
 `--bench` is a discoverable alias for `--eval`. Select additional suites by repeating
 `--eval-suite`; specifying a suite implies `--eval`:
 
@@ -126,6 +133,8 @@ checks. Checks are case-insensitive unless `caseSensitive` is true.
 For safety and predictable local resource use, names cannot contain path separators,
 suite files are capped at 5 MB and 1,000 cases, prompt/system text is capped at 64 KB
 per field, aggregate planned output is capped at 1,000,000 tokens, generation
-parameters have bounded ranges, and scaffold mode never
+parameters have bounded ranges and a 1 MB encoded ceiling, tool and response
+format structures are checked, deterministic expectation strings are bounded,
+and scaffold mode never
 overwrites a file. Suite files define inference inputs only: there are no commands,
 hooks, environment interpolation, network callbacks, or arbitrary file paths.

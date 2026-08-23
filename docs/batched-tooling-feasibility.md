@@ -40,9 +40,9 @@ AFM already supports:
 - streaming OpenAI-style tool-call emission
 - non-streaming OpenAI-style `tool_calls`
 
-In
-[Scripts/patches/Evaluate.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Scripts/patches/Evaluate.swift),
-the serial generation path also has a `ToolCallProcessor` in the vendor stream pipeline.
+In AFMKit's vendored
+`vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift`, the serial
+generation path also has a `ToolCallProcessor` in the vendor stream pipeline.
 
 ### What the batch path does today
 

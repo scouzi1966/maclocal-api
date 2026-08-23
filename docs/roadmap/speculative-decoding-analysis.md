@@ -99,7 +99,7 @@ Performance data on Apple Silicon:
 
 **MTP availability**: `mtp_num_hidden_layers: 1` present in Qwen3.5-2B dense config. The MTP weights exist in published model files. However, **AFM currently strips them**:
 ```swift
-// Scripts/patches/Qwen3_5MoE.swift:928
+// AFMKit vendor/MLX/mlx-swift-lm/Libraries/MLXLLM/Models/Qwen3_5MoE.swift
 sanitizedWeights = sanitizedWeights.filter { !$0.key.contains("mtp.") }
 ```
 

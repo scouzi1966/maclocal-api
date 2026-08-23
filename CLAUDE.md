@@ -24,26 +24,19 @@ Sources/
 ├── AFMKitFoundationModels/   # macOS 26 Apple service compatibility
 └── AFMKitFoundationModels27/ # facade over AFMKit macOS 27 products
 vendor/
-├── mlx-swift-lm/             # legacy maintenance checkout; not a normal build input
 └── llama.cpp/                # WebUI source
 Scripts/
-├── patches/                  # legacy compatibility-package maintenance sources
 ├── check-afmkit-consumer-boundary.sh
 └── build-from-scratch.sh     # clean immutable consumer build
 ```
 
-## Vendor Patch System
+## Provider source ownership
 
-**NEVER modify files in `vendor/` directly.** Normal builds do not use the MLX
-vendor tree. Compatibility-package maintenance goes through `Scripts/patches/`
-and explicit legacy patch commands.
-
-The patch script (`Scripts/apply-mlx-patches.sh`) copies complete Swift files from `Scripts/patches/` to vendor targets. Three arrays define the mapping:
-- `PATCH_FILES=()` — filenames in `Scripts/patches/`
-- `TARGET_PATHS=()` — relative paths under `vendor/mlx-swift-lm/`
-- `NEW_FILES=()` — files that don't exist upstream
-
-Commands: `--check` (verify), `--revert` (restore originals), no flag (apply).
+AFMKit is the only source of truth for MLX, mlx-c, mlx-swift-lm, xgrammar,
+DwarfStar, and their AFM adaptations. maclocal-api consumes one exact AFMKit
+version and must not vendor, fork, patch, or compile a second provider tree.
+Use `MACLOCAL_AFMKIT_WORKSPACE_PATH` for reversible paired development, validate
+both repositories, then publish and pin one new AFMKit version.
 
 ### DwarfStar dependency boundary
 
@@ -53,37 +46,11 @@ through its resolved AFMKit dependency. `Scripts/swiftpm-reliable.sh` validates
 and fingerprints that checkout so Xcode cannot reuse products compiled from a
 different provider revision.
 
-### MLX C++ / Metal-kernel patches (separate from the Swift patch set)
-
-These low-level MLX scripts are retained only for AFM compatibility-package
-maintenance. Normal maclocal-api builds never patch resolved SwiftPM checkouts
-or rebuild AFMKit's committed Metal resource:
-
-- `Scripts/apply-mlx-qmv-wide-backport.sh` — backports mlx **PR #3764's `qmv_wide`** small-batch
-  quantized matvec (affine int4/int8 only, GPU gen 15+): each weight group is dequantized once and
-  reused across streamed input vectors. Gated to **M ≥ 3** (not upstream's 2) so the MTP/EAGLE3
-  M=2 verify forwards stay on the same kernel as M=1 decode (M=2 near-tie logit shifts measurably
-  cut MTP acceptance and shifted greedy trajectories). Measured on Qwen3.6-27B-4bit/M4 Pro:
-  **batch B=4 +32%, B=8 +29% aggregate decode; MTP and single-stream bit-identical/unchanged**.
-  Source files in `Scripts/patches/mlx-cpp-qmv-wide/`. Quantized kernels are JIT-compiled from
-  `mlx-generated/quantized.cpp` (the runtime-authoritative copy this script also patches) — no
-  metallib rebuild needed for this one. FULL-FILE replacement: **must run BEFORE
-  apply-mlx-cpp-patches.sh** (build.sh enforces the order; the script refuses to apply out of order).
-- `Scripts/apply-mlx-cpp-patches.sh` — `qmv_fast_wide` quantized matvec kernels.
-- `Scripts/apply-mlx-sdpa-backport.sh` — backports mlx-swift **0.31.3's adaptive-block 2-pass SDPA**
-  into the pinned 0.30.3 tree. 0.30.3 hardcodes the split-K count `blocks=32`; 0.31.3 makes it a
-  runtime function-constant scaled by sequence length (up to 1024), giving **decode@16k ~+10%
-  (≈13.0→14.4 tok/s on Qwen3.6-27B-4bit/M4 Pro), correct at all depths**. Source files live in
-  `Scripts/patches/mlx-cpp-sdpa/`; it also inserts the `check_kernel_threadgroup_size` helper into
-  `utils.h`. Both scripts support `--check`/`--revert`. **After applying, the metallib MUST be
-  rebuilt** (`Scripts/rebuild-metallib.sh`) so the kernel change takes effect — see the Build section.
-
 ## Build
 
-**IMPORTANT:** Normal and release builds consume immutable AFMKit and AFM-compatible
-MLX dependencies. Do not apply the legacy patch stack or rebuild a resolved
-package checkout. `--legacy-patches` is restricted to explicit dependency
-maintenance, and `--rebuild-metallib` requires a writable `MACLOCAL_AFMKIT_PATH`.
+**IMPORTANT:** Normal and release builds consume immutable AFMKit. Do not patch
+or rebuild a resolved package checkout. `--rebuild-metallib` requires a writable
+`MACLOCAL_AFMKIT_PATH` and is an AFMKit-maintainer operation.
 
 ```bash
 Scripts/swiftpm-reliable.sh build
@@ -185,7 +152,10 @@ Helper script: `./Scripts/gpu-profile.sh` wraps all profiling workflows.
 ### Sampling Parameters
 All functional end-to-end: `temperature`, `top_p`, `repetition_penalty`, `top_k`, `min_p`, `presence_penalty`, `seed`.
 
-Added via vendor patch in `Scripts/patches/Evaluate.swift`: `TopKProcessor`, `MinPProcessor`, `PresenceContext`, `CompositeLogitProcessor`.
+Implemented in AFMKit's vendored
+`vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift`:
+`TopKProcessor`, `MinPProcessor`, `PresenceContext`, and
+`CompositeLogitProcessor`.
 
 Sampler chain order (following llama.cpp): penalties → top_k → min_p → temperature+sampling.
 

@@ -9,7 +9,7 @@ fail() {
   exit 1
 }
 
-for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat AFMKitServices; do
+for shadow_target in AFMKitCore AFMKitMLX AFMKitDwarfStar AFMOpenAICompat AFMKitServices AFMEvalKit; do
   [[ ! -d "Sources/$shadow_target" ]] || \
     fail "consumer shadow target still exists: Sources/$shadow_target"
 done
@@ -45,6 +45,17 @@ grep -Fqx '@_exported import AFMKitServices' "${service_facade_files[0]}" || \
 if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${service_facade_files[0]}"; then
   fail "AFMKitServicesCompatibility facade contains a local implementation"
 fi
+
+[[ -f Sources/AFMKit/AFMEvaluationExports.swift ]] || \
+  fail "AFMKit must preserve its evaluation compatibility export"
+grep -Fqx '@_exported import AFMEvaluationHost' Sources/AFMKit/AFMEvaluationExports.swift || \
+  fail "AFMKit evaluation compatibility must re-export the host layer"
+grep -Fqx '@_exported import AFMEvalKit' Sources/AFMEvaluationHost/AFMEvaluation.swift || \
+  fail "AFMEvaluationHost must re-export the provider-owned evaluation contracts"
+[[ -f Sources/AFMEvaluationHost/Resources/Evals/comprehensive.json ]] || \
+  fail "the bundled comprehensive suite must remain in the maclocal host layer"
+[[ ! -e Sources/AFMKit/Resources/Evals/comprehensive.json ]] || \
+  fail "the bundled comprehensive suite remains coupled to the AFMKit aggregate target"
 
 [[ -f Package.resolved ]] || \
   fail "tracked Package.resolved is missing; restore it before resolving dependencies"
@@ -92,9 +103,6 @@ manifest_environment = os.environ.copy()
 for name in (
     "MACLOCAL_AFMKIT_PATH",
     "MACLOCAL_AFMKIT_WORKSPACE_PATH",
-    "MACLOCAL_MLX_SWIFT_LM_PATH",
-    "AFMKIT_MLX_SWIFT_PATH",
-    "AFMKIT_MLX_SWIFT_LM_PATH",
 ):
     manifest_environment.pop(name, None)
 package = json.loads(
@@ -125,8 +133,6 @@ for dependency in package.get("dependencies", []):
 
 required_direct = {
     "afmkit",
-    "mlx-swift-afm",
-    "mlx-swift-lm",
 }
 missing = sorted(required_direct - direct_identities)
 if missing:
@@ -139,8 +145,8 @@ for identity, (expected_location, checkout_name) in provider_packages.items():
     pin = pins_by_identity[identity]
     if pin["location"] != expected_location:
         fail(f"{identity} release lock points at an unexpected source")
-    if pin["state"].get("version") != "0.1.0":
-        fail(f"{identity} must resolve the exact 0.1.0 release")
+    if pin["state"].get("version") != "0.1.1":
+        fail(f"{identity} must resolve the exact 0.1.1 release")
 
     checkout = Path(".build/checkouts") / checkout_name
     if not checkout.is_dir():
@@ -203,7 +209,7 @@ for line in declared_paths:
 PY
 
 if grep -ERn \
-  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple|AFMKitEmbeddings|AFMKitSpeech|AFMKitSpeechSynthesis|AFMKitVision|AFMKitServices)' \
+  '@testable import (AFMKitCore|AFMKitMLX|AFMKitDwarfStar|AFMOpenAICompat|AFMKitApple|AFMKitEmbeddings|AFMKitSpeech|AFMKitSpeechSynthesis|AFMKitVision|AFMKitServices|AFMEvalKit)' \
   Tests --include='*.swift' >/dev/null; then
   fail "consumer tests reach into AFMKit provider internals"
 fi
@@ -219,6 +225,10 @@ if grep -Eq '^(build|debug):.*(PATCH_STAMP|patch)' Makefile; then
 fi
 if grep -Fq '$(PATCH_STAMP)' Makefile; then
   fail "Makefile still uses a vendor patch stamp"
+fi
+
+if grep -Eq 'mlx-swift-afm|scouzi1966/mlx-swift-lm' Package.swift Package.resolved; then
+  fail "consumer release graph still depends directly on a legacy MLX fork"
 fi
 
 if grep -ERn \
@@ -264,7 +274,7 @@ grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" |
 if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
   fail "independent core consumer still relies on a removed maclocal compatibility product"
 fi
-grep -Fq 'exact: "0.1.0"' "$example_manifest" || \
+grep -Fq 'exact: "0.1.1"' "$example_manifest" || \
   fail "independent core consumer must use the exact AFMKit release"
 
 for project in pyproject.toml pyproject-next.toml; do
@@ -310,6 +320,14 @@ owned_types = {
     "SpeechService",
     "SpeechSynthesisService",
     "VisionService",
+    "AFMEvaluationSuite",
+    "AFMEvaluationCase",
+    "AFMEvaluationParameters",
+    "AFMEvaluationExpectations",
+    "AFMEvaluationRunReport",
+    "AFMEvaluationScorer",
+    "AFMEvaluationValidator",
+    "AFMEvaluationReportWriter",
 }
 declaration = re.compile(
     r"\b(?:class|struct|enum|protocol|actor)\s+(" + "|".join(owned_types) + r")\b"
@@ -335,6 +353,7 @@ if checkout.is_dir():
         checkout / "Sources/AFMKitSpeechSynthesis",
         checkout / "Sources/AFMKitVision",
         checkout / "Sources/AFMKitServices",
+        checkout / "Sources/AFMEvalKit",
         checkout / "Packages/AFMKitMLX/Sources/AFMKitMLX",
         checkout / "Packages/AFMKitDwarfStar/Sources/AFMKitDwarfStar",
         checkout / "Packages/AFMKitDwarfStar/Sources/CDwarfStar",

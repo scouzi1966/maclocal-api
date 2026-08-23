@@ -108,7 +108,7 @@ final class AFMEvaluationTests: XCTestCase {
             }
         }
 
-        XCTAssertThrowsError(try AFMEvaluationSuiteStore.validateParameters(
+        XCTAssertThrowsError(try AFMEvaluationValidator.validateParameters(
             .init(seed: -1),
             context: "CLI")) { error in
             XCTAssertTrue(error.localizedDescription.contains("CLI seed must be >= 0"))
@@ -271,6 +271,10 @@ final class AFMEvaluationTests: XCTestCase {
             try AFMEvaluationCLIPlan.resolve(
                 evaluate: false, bench: false, suites: [], list: true,
                 scaffold: "x", validate: nil, noOpen: false))
+        XCTAssertThrowsError(
+            try AFMEvaluationCLIPlan.resolve(
+                evaluate: true, bench: false, suites: [], list: true,
+                scaffold: nil, validate: nil, noOpen: false))
     }
 
     func testScaffoldCreatesValidSuiteAndRefusesOverwrite() throws {

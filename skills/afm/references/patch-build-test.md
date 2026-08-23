@@ -4,32 +4,22 @@
 
 Use this file when changing vendor integration, build steps, WebUI packaging, regression scripts, or release flow.
 
-## Vendor Patch Workflow
+## AFMKit provider workflow
 
-Never treat `vendor/mlx-swift-lm` edits as source of truth.
+Never add a provider source or MLX patch stack to maclocal-api.
 
-Source of truth:
+Source of truth is the exact AFMKit release. For paired development:
 
-- `Scripts/patches/*.swift`
-- mapping logic in `Scripts/apply-mlx-patches.sh`
-
-Patch script modes:
-
-- apply: `./Scripts/apply-mlx-patches.sh`
-- check: `./Scripts/apply-mlx-patches.sh --check`
-- revert: `./Scripts/apply-mlx-patches.sh --revert`
-
-Script behavior:
-
-- copies patch files over mapped vendor targets
-- keeps `.original` backups for revert
-- handles new files list and package pin replacements
+- make the provider change in AFMKit
+- set `MACLOCAL_AFMKIT_WORKSPACE_PATH` to that checkout
+- validate AFMKit and maclocal-api together
+- release AFMKit and bump maclocal-api's single exact version
 
 ## Makefile Build Path
 
-`make build` depends on patch stamp:
+`make build` first checks the AFMKit consumer boundary:
 
-- applies patches first
+- resolves the immutable AFMKit graph
 - builds release binary with optimization flags
 - strips binary
 
@@ -38,20 +28,19 @@ Other targets:
 - `make debug`
 - `make webui`
 - `make build-with-webui`
-- `make clean` (also reverts patches if stamp exists)
+- `make clean`
 - `make test`
 
 ## Full Bootstrap Build
 
 `./Scripts/build-from-scratch.sh` (default behavior):
 
-1. init/update submodules
-2. apply patches and verify
-3. build llama.cpp webui assets
-4. clean + resolve Swift packages
-5. inject commit into `BuildInfo.swift`
-6. build afm
-7. verify metallib bundle
+1. init/update application submodules
+2. build llama.cpp webui assets
+3. clean + resolve the exact AFMKit package
+4. inject commit into `BuildInfo.swift`
+5. build afm
+6. verify AFMKit resource bundles
 
 ## Common Test Scripts
 

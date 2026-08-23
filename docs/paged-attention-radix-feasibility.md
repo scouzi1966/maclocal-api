@@ -34,9 +34,9 @@ stores `KVCacheEntry` values containing:
 
 This means each cached prefix stores serialized layer state snapshots, not references into a shared KV block pool.
 
-The current cache API in
-[Scripts/patches/KVCache.swift](/Volumes/edata/codex/dev/git/maclocal-api/NEXT/maclocal-api/Scripts/patches/KVCache.swift)
-is also snapshot-oriented. The `KVCache` protocol exposes:
+The current cache API in AFMKit's vendored
+`vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift` is also
+snapshot-oriented. The `KVCache` protocol exposes:
 
 - `update(keys:values:)`
 - `state`

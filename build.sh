@@ -8,8 +8,8 @@
 #
 # Steps:
 #   0) Verify / install toolchain dependencies (git, Swift/Xcode CLT, Node + npm)
-#   1) Initialize git submodules (mlx-swift-lm, llama.cpp, ...)
-#   2) Optionally apply the legacy local dependency patch stack
+#   1) Initialize the remaining consumer-owned submodules (llama.cpp, xgrammar, ...)
+#   2) Resolve the immutable AFMKit dependency graph
 #   3) Build the llama.cpp webui assets and embed them
 #   4) Clean + resolve Swift packages
 #   4b) Optionally rebuild AFMKit's MLX Metal library during local AFMKit development
@@ -33,7 +33,6 @@ BUILD_CONFIG="release"
 INCLUDE_BUILD_COMMIT=true
 DO_CLEAN=true
 DO_SUBMODULES=true
-DO_PATCHES=false
 DO_WEBUI=true
 DO_METALLIB=false
 ASSUME_YES=false
@@ -60,8 +59,6 @@ Options:
   --stable             Build a stable binary without a commit suffix
   --no-clean           Skip clean step before build
   --skip-submodules    Skip git submodule init/update
-  --legacy-patches     Apply the legacy local dependency patch stack
-  --skip-patches       Compatibility alias for the default immutable build
   --skip-webui         Skip llama.cpp webui build
   --rebuild-metallib   Rebuild default.metallib in MACLOCAL_AFMKIT_PATH
   --skip-metallib      Compatibility alias for the default immutable build
@@ -80,8 +77,6 @@ for arg in "$@"; do
     --stable) INCLUDE_BUILD_COMMIT=false ;;
     --no-clean) DO_CLEAN=false ;;
     --skip-submodules) DO_SUBMODULES=false ;;
-    --legacy-patches) DO_PATCHES=true ;;
-    --skip-patches) DO_PATCHES=false ;;
     --skip-webui) DO_WEBUI=false ;;
     --rebuild-metallib) DO_METALLIB=true ;;
     --skip-metallib) DO_METALLIB=false ;;
@@ -231,26 +226,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Patches
-# ---------------------------------------------------------------------------
-MLX_SWIFT_USES_LEGACY_BACKPORTS=false
-if grep -qF 'exact: "0.30.3"' "$ROOT_DIR/Package.swift"; then
-  MLX_SWIFT_USES_LEGACY_BACKPORTS=true
-fi
-
-if $DO_PATCHES; then
-  log_step "Applying vendored dependency patch sets"
-  if [ ! -x "$SCRIPTS_DIR/apply-mlx-patches.sh" ]; then
-    log_error "Missing patch script: $SCRIPTS_DIR/apply-mlx-patches.sh"
-    exit 1
-  fi
-  "$SCRIPTS_DIR/apply-mlx-patches.sh"
-  "$SCRIPTS_DIR/apply-mlx-patches.sh" --check
-else
-  log_warn "Skipping vendored dependency patch application"
-fi
-
-# ---------------------------------------------------------------------------
 # Step 3: WebUI
 # ---------------------------------------------------------------------------
 if $DO_WEBUI; then
@@ -292,46 +267,6 @@ if ! AFMKIT_SOURCE_METALLIB="$($SCRIPTS_DIR/resolve-afmkit-resource.sh --source)
   exit 1
 fi
 log_info "AFMKit MLX metallib: $AFMKIT_SOURCE_METALLIB"
-
-if $DO_PATCHES; then
-  log_step "Applying persistent DeepSeek V4 MLX primitive"
-  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh"
-  "$SCRIPTS_DIR/apply-mlx-deepseek-v4-kernels.sh" --check
-  # The complete MLX core patch includes the F8_E8M0 loader change. Verify it
-  # only after applying that patch so a clean checkout is never left in the
-  # partial state that the all-or-nothing patch guard correctly rejects.
-  "$SCRIPTS_DIR/apply-mlx-official-fp8-loader.sh"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 4a: Apply MLX C++ / Metal-kernel patches to the resolved mlx-swift checkout
-# ---------------------------------------------------------------------------
-# These patch the EPHEMERAL .build/checkouts/mlx-swift C++ tree (wiped by clean/re-resolve),
-# so they must run AFTER `swift package resolve` and BEFORE the metallib rebuild (which compiles
-# the patched kernels) and `swift build` (which compiles the patched dispatch C++).
-#   - apply-mlx-qmv-wide-backport.sh : mlx#3764 qmv_wide small-batch matvec (spec-decode verify,
-#                                      batch B=2-8). FULL-FILE replacement — MUST run before
-#                                      apply-mlx-cpp-patches.sh, which edits the same files.
-#   - apply-mlx-cpp-patches.sh    : qmv_fast_wide quantized matvec kernels
-#   - apply-mlx-sdpa-backport.sh  : 0.31.3 adaptive-block SDPA (decode@16k ~+10%, correct)
-if $DO_PATCHES && $MLX_SWIFT_USES_LEGACY_BACKPORTS; then
-  if [ -x "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh" ]; then
-    log_step "Applying MLX qmv_wide backport (mlx#3764)"
-    "$SCRIPTS_DIR/apply-mlx-qmv-wide-backport.sh"
-  fi
-  if [ -x "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh" ]; then
-    log_step "Applying MLX C++ kernel patches (qmv_fast_wide)"
-    "$SCRIPTS_DIR/apply-mlx-cpp-patches.sh"
-  fi
-  if [ -x "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh" ]; then
-    log_step "Applying MLX SDPA 0.31.3 adaptive-block backport"
-    "$SCRIPTS_DIR/apply-mlx-sdpa-backport.sh"
-  fi
-elif $DO_PATCHES; then
-  log_info "Skipping legacy MLX 0.30.3 kernel backports for the active MLX runtime"
-else
-  log_warn "Skipping MLX C++ / SDPA patches (--skip-patches)"
-fi
 
 # ---------------------------------------------------------------------------
 # Step 4b: Optional AFMKit metallib maintenance

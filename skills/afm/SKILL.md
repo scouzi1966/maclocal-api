@@ -1,6 +1,6 @@
 ---
 name: afm
-description: Maintain and extend AFM (maclocal-api), a Swift OpenAI-compatible local LLM server and CLI for Apple Foundation Models, MLX models, API gateway proxying, and Vision OCR. Use when working on AFM CLI commands (`afm`, `afm mlx`, `afm vision`), OpenAI `/v1/chat/completions` and `/v1/models` behavior, streaming SSE, tool-calling, structured outputs, reasoning extraction, vendor mlx-swift-lm patch integration, WebUI packaging, or AFM build/test/release scripts.
+description: Maintain and extend AFM (maclocal-api), a Swift OpenAI-compatible local LLM server and CLI for Apple Foundation Models, MLX models, API gateway proxying, and Vision OCR. Use when working on AFM CLI commands (`afm`, `afm mlx`, `afm vision`), OpenAI `/v1/chat/completions` and `/v1/models` behavior, streaming SSE, tool-calling, structured outputs, reasoning extraction, AFMKit integration, WebUI packaging, or AFM build/test/release scripts.
 ---
 
 # AFM Skill
@@ -22,7 +22,7 @@ Use this skill when working on:
 - MLX tool calling, parser overrides, reasoning extraction, structured outputs
 - Gateway backend discovery/proxying (Ollama, LM Studio, Jan, local OpenAI endpoints)
 - Vision OCR and table extraction
-- Vendor mlx-swift-lm patch pipeline, build scripts, regression tests
+- AFMKit provider integration, build scripts, regression tests
 
 ## 2. Key File Reference
 
@@ -40,7 +40,7 @@ Use this skill when working on:
 | Backend discovery | `Sources/MacLocalAPI/Services/BackendDiscoveryService.swift` |
 | Backend proxying | `Sources/MacLocalAPI/Services/BackendProxyService.swift` |
 | Backend definitions/capabilities | `Sources/MacLocalAPI/Models/BackendConfiguration.swift` |
-| Vendor patch orchestrator | `Scripts/apply-mlx-patches.sh` |
+| Provider boundary check | `Scripts/check-afmkit-consumer-boundary.sh` |
 | Full bootstrap build | `Scripts/build-from-scratch.sh` |
 
 ## 3. Core Rules
@@ -48,16 +48,16 @@ Use this skill when working on:
 - Work from `maclocal-api/` project root.
 - Keep OpenAI compatibility first: request fields, response shape, SSE chunk format.
 - Keep Foundation and MLX behavior aligned where practical.
-- Treat `vendor/mlx-swift-lm` as patch-target output:
-  - edit `Scripts/patches/*` first
-  - apply/check via `Scripts/apply-mlx-patches.sh`
+- Treat AFMKit as the only provider source of truth. Use
+  `MACLOCAL_AFMKIT_WORKSPACE_PATH` for paired development, then bump the exact
+  AFMKit version after its changes are released.
 - Preserve CORS and streaming headers.
 - Keep both streaming and non-streaming paths correct for every new feature.
 
 ## 4. Quick Start Commands
 
 ```bash
-# Build (Makefile applies vendor patches)
+# Build against the exact AFMKit release
 make build
 
 # Debug build
@@ -66,9 +66,8 @@ make debug
 # Full bootstrap build
 ./Scripts/build-from-scratch.sh
 
-# Vendor patch workflow
-./Scripts/apply-mlx-patches.sh --check
-./Scripts/apply-mlx-patches.sh
+# Provider boundary
+./Scripts/check-afmkit-consumer-boundary.sh
 
 # Run Foundation server
 ./.build/debug/afm -p 9999 -v

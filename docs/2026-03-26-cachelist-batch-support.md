@@ -9,8 +9,8 @@ The `prefillBatch()` validation at line 915 rejects CacheList because it's neith
 ## Affected Files
 
 - `Sources/MacLocalAPI/Models/BatchScheduler.swift` — prefillBatch validation, cache creation, extraction
-- `vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift` (via `Scripts/patches/KVCache.swift`) — CacheList class
-- `vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift` (via `Scripts/patches/BatchKVCache.swift`) — may need BatchCacheList
+- AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift` — CacheList class
+- AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift` — may need BatchCacheList
 
 ## Affected Models
 
@@ -24,7 +24,8 @@ The `prefillBatch()` validation at line 915 rejects CacheList because it's neith
 
 ### Step 1: Fix CacheList missing protocol implementations
 
-**File:** `Scripts/patches/KVCache.swift` (CacheList class, line ~1189)
+**File:** AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift`
+(CacheList class)
 
 Add:
 
@@ -59,7 +60,8 @@ CacheList(MambaCache, KVCacheSimple)     →  BatchCacheList([MambaCache(leftPad
 
 ### Step 4: Create BatchCacheList class
 
-**File:** `Scripts/patches/BatchKVCache.swift` (new class)
+**File:** AFMKit
+`vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift` (new class)
 
 A batched wrapper for CacheList that:
 - Holds an array of batched sub-caches

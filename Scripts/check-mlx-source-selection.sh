@@ -3,18 +3,40 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENDOR_MANIFEST="$ROOT_DIR/vendor/mlx-swift-lm/Package.swift"
-
-if [[ ! -f "$VENDOR_MANIFEST" ]]; then
-    echo "mlx-swift-lm vendor is not initialized; URL fallback is expected."
-    exit 0
+if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
+    AFMKIT_ROOT="$(cd "$MACLOCAL_AFMKIT_PATH" && pwd)"
+else
+    AFMKIT_ROOT="$ROOT_DIR/.build/checkouts/AFMKit"
 fi
 
-PACKAGE_JSON="$(cd "$ROOT_DIR" && swift package dump-package)"
-if ! grep -Fq '"path" : "vendor/mlx-swift-lm"' <<<"$PACKAGE_JSON" &&
-   ! grep -Fq "\"path\" : \"$ROOT_DIR/vendor/mlx-swift-lm\"" <<<"$PACKAGE_JSON"; then
-    echo "error: initialized vendor/mlx-swift-lm is not the resolved package source" >&2
-    exit 1
-fi
+for manifest in \
+    "$AFMKIT_ROOT/vendor/MLX/mlx-swift/Package.swift" \
+    "$AFMKIT_ROOT/vendor/MLX/mlx-swift-lm/Package.swift"; do
+    [[ -f "$manifest" ]] || {
+        echo "error: AFMKit does not contain its vendored MLX package: $manifest" >&2
+        exit 1
+    }
+done
 
-echo "mlx-swift-lm source selection: vendor/mlx-swift-lm"
+swift package --package-path "$AFMKIT_ROOT" dump-package | python3 -c '
+import json
+import sys
+
+package = json.load(sys.stdin)
+if any(dependency.get("fileSystem") for dependency in package.get("dependencies", [])):
+    raise SystemExit("error: AFMKit must not expose local package dependencies")
+targets = {target.get("name"): target.get("path", "") for target in package.get("targets", [])}
+expected = {
+    "Cmlx": "vendor/MLX/mlx-swift/Source/Cmlx",
+    "MLX": "vendor/MLX/mlx-swift/Source/MLX",
+    "MLXLMCommon": "vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon",
+    "MLXLLM": "vendor/MLX/mlx-swift-lm/Libraries/MLXLLM",
+    "MLXVLM": "vendor/MLX/mlx-swift-lm/Libraries/MLXVLM",
+}
+for name, suffix in expected.items():
+    path = targets.get(name, "")
+    if not path.endswith(suffix):
+        raise SystemExit(f"error: AFMKit target {name} does not resolve {suffix}")
+'
+
+echo "MLX source selection: AFMKit/vendor/MLX"
