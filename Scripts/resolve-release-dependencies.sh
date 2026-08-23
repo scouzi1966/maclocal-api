@@ -53,10 +53,10 @@ done < <(python3 - <<'PY'
 import json
 lock = json.load(open("Package.resolved"))
 pins = {pin["identity"]: pin for pin in lock["pins"]}
-for identity in ("afmkit", "afmkitmlx", "afmkitdwarfstar"):
+for identity in ("afmkit", "mlx-swift-afm"):
     pin = pins.get(identity)
     if pin is None:
-        raise SystemExit(f"missing coordinated provider lock: {identity}")
+        raise SystemExit(f"missing private release lock: {identity}")
     print("\t".join((identity, pin["location"], pin["state"]["revision"])))
 PY
 )
@@ -99,9 +99,9 @@ for source in "${AFMKIT_RELEASE_SOURCES[@]}"; do
 [afmkit-auth] Local builds: authenticate a GitHub account with repository read access
 [afmkit-auth] using 'gh auth login' followed by 'gh auth setup-git'.
 [afmkit-auth] CI/releases: provide a masked AFMKIT_READ_TOKEN secret with read access
-[afmkit-auth] to all coordinated AFMKit repositories. The default cross-repository
-[afmkit-auth] GITHUB_TOKEN is not sufficient. No production release is permitted until
-[afmkit-auth] every provider package is public or an approved
+[afmkit-auth] to the AFMKit repository. The default cross-repository GITHUB_TOKEN is
+[afmkit-auth] not sufficient. No production release is permitted until AFMKit and
+[afmkit-auth] every dependency in its root graph are public or an approved
 [afmkit-auth] public immutable artifact replaces this private dependency.
 EOF
   exit 1

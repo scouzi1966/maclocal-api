@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-read_provider_release_sources() {
+read_public_release_sources() {
   python3 - "$ROOT_DIR" <<'PY'
 import json, os, subprocess, sys
 root = sys.argv[1]
@@ -15,14 +15,21 @@ for name in ("MACLOCAL_AFMKIT_PATH", "MACLOCAL_AFMKIT_WORKSPACE_PATH"):
 package = json.loads(subprocess.check_output(["swift", "package", "dump-package"], cwd=root, env=env))
 dependencies = {item["sourceControl"][0]["identity"]: item["sourceControl"][0]
                 for item in package["dependencies"] if item.get("sourceControl")}
-for identity in ("afmkit", "afmkitmlx", "afmkitdwarfstar"):
+expected_versions = {
+    "afmkit": "0.1.0",
+    "mlx-swift-afm": "0.31.6-afm.1",
+    "mlx-swift-lm": "0.31.6-afm.3",
+}
+for identity, expected_version in expected_versions.items():
     pin, dependency = pins.get(identity), dependencies.get(identity)
     if pin is None or dependency is None:
-        raise SystemExit(f"missing coordinated provider dependency: {identity}")
+        raise SystemExit(f"missing release dependency: {identity}")
     requirement = dependency["requirement"]
     if set(requirement) != {"exact"}:
         raise SystemExit(f"{identity} must use an exact semantic version")
     version = requirement["exact"][0]
+    if version != expected_version:
+        raise SystemExit(f"{identity} must use exact version {expected_version}")
     if pin["state"].get("version") != version:
         raise SystemExit(f"{identity} lock does not match exact version {version}")
     print("\t".join((identity, pin["location"], pin["state"]["revision"], version)))
@@ -49,16 +56,12 @@ check_public_release_eligibility() {
       echo "[release-public] $identity must use a public GitHub HTTPS URL: $url" >&2
       return 1
     }
-    [[ "$version" == "0.1.0" ]] || {
-      echo "[release-public] $identity is not on coordinated release 0.1.0: $version" >&2
-      return 1
-    }
     if ! probe_public_source "$url" "$revision" "$ROOT_DIR/.build/public-provider-probe/$identity"; then
       echo "[release-public] $identity $version is not anonymously fetchable at ${revision:0:12}." >&2
       return 1
     fi
     echo "[release-public] $identity $version (${revision:0:12}) is exact and anonymously fetchable."
-  done < <(read_provider_release_sources)
+  done < <(read_public_release_sources)
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

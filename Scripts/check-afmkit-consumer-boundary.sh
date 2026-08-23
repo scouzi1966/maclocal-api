@@ -114,8 +114,6 @@ for dependency in package.get("dependencies", []):
 
 required_direct = {
     "afmkit",
-    "afmkitmlx",
-    "afmkitdwarfstar",
     "mlx-swift-afm",
     "mlx-swift-lm",
 }
@@ -125,15 +123,13 @@ if missing:
 
 provider_packages = {
     "afmkit": ("https://github.com/scouzi1966/AFMKit.git", "AFMKit"),
-    "afmkitmlx": ("https://github.com/scouzi1966/AFMKitMLX.git", "AFMKitMLX"),
-    "afmkitdwarfstar": ("https://github.com/scouzi1966/AFMKitDwarfStar.git", "AFMKitDwarfStar"),
 }
 for identity, (expected_location, checkout_name) in provider_packages.items():
     pin = pins_by_identity[identity]
     if pin["location"] != expected_location:
         fail(f"{identity} release lock points at an unexpected source")
     if pin["state"].get("version") != "0.1.0":
-        fail(f"{identity} must resolve the coordinated 0.1.0 release")
+        fail(f"{identity} must resolve the exact 0.1.0 release")
 
     checkout = Path(".build/checkouts") / checkout_name
     if not checkout.is_dir():
@@ -258,7 +254,7 @@ if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
   fail "independent core consumer still relies on a removed maclocal compatibility product"
 fi
 grep -Fq 'exact: "0.1.0"' "$example_manifest" || \
-  fail "independent core consumer must use the exact coordinated AFMKit release"
+  fail "independent core consumer must use the exact AFMKit release"
 
 for project in pyproject.toml pyproject-next.toml; do
   grep -Fq '"bin/*/*/*/*/*"' "$project" || \
@@ -312,15 +308,15 @@ for path in local_files:
             f"[afmkit-boundary] AFMKit-owned provider declaration copied into {path}"
         )
 
-checkout = Path(".build/checkouts/AFMKit/Sources")
+checkout = Path(".build/checkouts/AFMKit")
 if checkout.is_dir():
     provider_roots = [
-        checkout / "AFMKitApple",
-        checkout / "AFMOpenAICompat",
-        checkout / "AFMKitMLX",
-        checkout / "AFMKitDwarfStar",
-        checkout / "CDwarfStar",
-        checkout / "CXGrammar",
+        checkout / "Sources/AFMKitApple",
+        checkout / "Sources/AFMOpenAICompat",
+        checkout / "Packages/AFMKitMLX/Sources/AFMKitMLX",
+        checkout / "Packages/AFMKitDwarfStar/Sources/AFMKitDwarfStar",
+        checkout / "Packages/AFMKitDwarfStar/Sources/CDwarfStar",
+        checkout / "Packages/AFMKitMLX/Sources/CXGrammar",
     ]
     provider_sources = []
     for root in provider_roots:

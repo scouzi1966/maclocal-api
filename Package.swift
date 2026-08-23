@@ -18,6 +18,25 @@ if let localMLXSwiftPath = ProcessInfo.processInfo.environment["AFMKIT_MLX_SWIFT
     mlxSwiftPackageIdentity = "mlx-swift-afm"
 }
 let mlxSwiftLMDependency: Package.Dependency
+let foundationModelsDependencies: [Target.Dependency]
+let foundationModels27Dependencies: [Target.Dependency]
+let dwarfStarFoundationModelsDependencies: [Target.Dependency]
+#if compiler(>=6.4)
+foundationModelsDependencies = [
+    .product(name: "AFMKitApple", package: "AFMKit")
+]
+foundationModels27Dependencies = [
+    .product(name: "AFMKitApple", package: "AFMKit"),
+    .product(name: "AFMKitFoundationModelsMLX", package: "AFMKit")
+]
+dwarfStarFoundationModelsDependencies = [
+    .product(name: "AFMKitFoundationModelsDwarfStar", package: "AFMKit")
+]
+#else
+foundationModelsDependencies = []
+foundationModels27Dependencies = []
+dwarfStarFoundationModelsDependencies = []
+#endif
 if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_SWIFT_LM_PATH"],
    !localMLXSwiftLMPath.isEmpty {
     mlxSwiftLMDependency = .package(path: localMLXSwiftLMPath)
@@ -28,28 +47,16 @@ if let localMLXSwiftLMPath = ProcessInfo.processInfo.environment["MACLOCAL_MLX_S
     )
 }
 let afmKitDependency: Package.Dependency
-let afmKitMLXDependency: Package.Dependency
-let afmKitDwarfStarDependency: Package.Dependency
 if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"],
    !localAFMKitPath.isEmpty {
-    // Paired development consumes all provider packages from one AFMKit
-    // checkout. The tracked release manifest remains exact-versioned.
+    // Paired development consumes every product from one AFMKit checkout. The
+    // tracked release manifest remains exact-versioned.
     afmKitDependency = .package(name: "AFMKit", path: localAFMKitPath)
-    afmKitMLXDependency = .package(name: "AFMKitMLX", path: "\(localAFMKitPath)/Packages/AFMKitMLX")
-    afmKitDwarfStarDependency = .package(name: "AFMKitDwarfStar", path: "\(localAFMKitPath)/Packages/AFMKitDwarfStar")
 } else {
-    // Release builds lock all three published provider packages together.
-    // Bumping AFMKit is therefore an explicit, reviewable AFM change.
+    // Release builds lock one AFMKit package and all of its products together.
+    // Bumping AFMKit is therefore one explicit, reviewable AFM change.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        exact: "0.1.0"
-    )
-    afmKitMLXDependency = .package(
-        url: "https://github.com/scouzi1966/AFMKitMLX.git",
-        exact: "0.1.0"
-    )
-    afmKitDwarfStarDependency = .package(
-        url: "https://github.com/scouzi1966/AFMKitDwarfStar.git",
         exact: "0.1.0"
     )
 }
@@ -93,7 +100,7 @@ let package = Package(
         ),
         .library(
             name: "AFMKitServices",
-            targets: ["AFMKitServices"]
+            targets: ["AFMKitServicesCompatibility"]
         ),
         // Headless, SPM-importable library: model loading + inference + OpenAI-compatible
         // services + the HTTP server. `import AFMKit` from another package/app.
@@ -123,8 +130,6 @@ let package = Package(
         // local-development wrapper stages a disposable manifest before using
         // the internal workspace-only path override.
         afmKitDependency,
-        afmKitMLXDependency,
-        afmKitDwarfStarDependency,
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.3"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         // Parse CommonMark/GFM into a real syntax tree for the native terminal UI.
@@ -191,41 +196,33 @@ let package = Package(
         .target(
             name: "AFMKitMLXCompatibility",
             dependencies: [
-                .product(name: "AFMKitMLX", package: "AFMKitMLX")
+                .product(name: "AFMKitMLX", package: "AFMKit")
             ]
         ),
         .target(
             name: "AFMKitDwarfStarCompatibility",
             dependencies: [
-                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar")
+                .product(name: "AFMKitDwarfStar", package: "AFMKit")
             ]
         ),
         .target(
             name: "AFMKitFoundationModels",
-            dependencies: [
-                .product(name: "AFMKitApple", package: "AFMKit")
-            ]
+            dependencies: foundationModelsDependencies
         ),
         .target(
             name: "AFMKitFoundationModels27",
-            dependencies: [
-                .product(name: "AFMKitApple", package: "AFMKit"),
-                .product(name: "AFMKitFoundationModelsMLX", package: "AFMKitMLX")
-            ]
+            dependencies: foundationModels27Dependencies
         ),
         .target(
             name: "AFMKitFoundationModels27DwarfStar",
-            dependencies: [
-                "AFMKit",
-                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar"),
-                "AFMKitFoundationModels27"
-            ]
+            dependencies: dwarfStarFoundationModelsDependencies
         ),
         .target(
-            name: "AFMKitServices",
+            name: "AFMKitServicesCompatibility",
             dependencies: [
-                .product(name: "AFMKitCore", package: "AFMKit")
-            ]
+                .product(name: "AFMKitServices", package: "AFMKit")
+            ],
+            path: "Sources/AFMKitServices"
         ),
         // Core library — all reusable inference/service/server code. Importable via SPM.
         .target(
@@ -233,9 +230,9 @@ let package = Package(
             dependencies: [
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMOpenAICompat", package: "AFMKit"),
-                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
+                .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMKitFoundationModels",
-                "AFMKitServices"
+                .product(name: "AFMKitServices", package: "AFMKit")
             ],
             resources: [
                 .copy("Resources/Evals")
@@ -255,7 +252,7 @@ let package = Package(
             name: "AFMServer",
             dependencies: [
                 "AFMKit",
-                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
+                .product(name: "AFMKitMLX", package: "AFMKit"),
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXVLM", package: "mlx-swift-lm"),
@@ -322,8 +319,8 @@ let package = Package(
                 "AFMKit",
                 "AFMTerminalUI",
                 .product(name: "AFMKitCore", package: "AFMKit"),
-                .product(name: "AFMKitDwarfStar", package: "AFMKitDwarfStar"),
-                .product(name: "AFMKitMLX", package: "AFMKitMLX"),
+                .product(name: "AFMKitDwarfStar", package: "AFMKit"),
+                .product(name: "AFMKitMLX", package: "AFMKit"),
                 "AFMServer",
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -369,7 +366,7 @@ let package = Package(
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
                 "AFMKitFoundationModels27DwarfStar",
-                "AFMKitServices",
+                "AFMKitServicesCompatibility",
                 "AFMServer",
                 "AFMTerminalUI",
                 .product(name: "Jinja", package: "swift-jinja"),

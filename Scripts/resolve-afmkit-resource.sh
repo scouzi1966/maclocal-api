@@ -36,17 +36,18 @@ fi
 
 afmkit_roots=()
 [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]] && afmkit_roots+=("$MACLOCAL_AFMKIT_PATH")
-[[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]] && afmkit_roots+=("$MACLOCAL_AFMKIT_PATH/Packages/AFMKitMLX")
-afmkit_roots+=("$ROOT_DIR/.build/checkouts/AFMKitMLX")
 afmkit_roots+=("$ROOT_DIR/.build/checkouts/AFMKit")
 
 if [[ "$MODE" == "source" ]]; then
   for afmkit_root in "${afmkit_roots[@]}"; do
-    candidate="$afmkit_root/Sources/AFMKitMLX/Resources/default.metallib"
-    if [[ -f "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      exit 0
-    fi
+    for candidate in \
+      "$afmkit_root/Packages/AFMKitMLX/Sources/AFMKitMLX/Resources/default.metallib" \
+      "$afmkit_root/Sources/AFMKitMLX/Resources/default.metallib"; do
+      if [[ -f "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        exit 0
+      fi
+    done
   done
   echo "AFMKit MLX source resource was not found. Run 'swift package resolve' first or set MACLOCAL_AFMKIT_PATH." >&2
   exit 1

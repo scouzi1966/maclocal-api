@@ -307,13 +307,9 @@ if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
         {
             printf '%s\0' "$AFMKIT_SOURCE_ROOT/Package.swift"
             find "$AFMKIT_SOURCE_ROOT/Sources" -type f -print0
-            for provider_package in AFMKitMLX AFMKitDwarfStar; do
-                provider_root="$AFMKIT_SOURCE_ROOT/Packages/$provider_package"
-                if [[ -d "$provider_root" ]]; then
-                    printf '%s\0' "$provider_root/Package.swift"
-                    find "$provider_root/Sources" -type f -print0
-                fi
-            done
+            if [[ -d "$AFMKIT_SOURCE_ROOT/Packages" ]]; then
+                find "$AFMKIT_SOURCE_ROOT/Packages" -type f -print0
+            fi
             if [[ -d "$AFMKIT_SOURCE_ROOT/vendor/ds4" ]]; then
                 find "$AFMKIT_SOURCE_ROOT/vendor/ds4" -type f -print0
             fi

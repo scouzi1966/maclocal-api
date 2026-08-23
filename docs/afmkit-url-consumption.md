@@ -1,26 +1,23 @@
 # Consuming AFMKit by URL
 
 AFMKit is the single source of truth for provider implementations. AFM consumes
-one coordinated, exact release of its three dependency-scoped packages:
+one exact release and selects every provider product from it:
 
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
     exact: "0.1.0"
 )
-.package(url: "https://github.com/scouzi1966/AFMKitMLX.git", exact: "0.1.0")
-.package(url: "https://github.com/scouzi1966/AFMKitDwarfStar.git", exact: "0.1.0")
 ```
 
-The three versions move together. Do not use a branch or revision requirement
-for release builds.
+Do not use a branch or revision requirement for release builds.
 
 ## Production Blocker
 
 This branch deliberately stops before making repositories public or publishing
-tags. AFM release publication remains fail-closed until all three repositories
-exist, are anonymously readable, expose `0.1.0`, and the tracked lock resolves
-those exact tags. Making a repository public is an explicit human checkpoint,
+tags. AFM release publication remains fail-closed until AFMKit and every
+dependency in its root graph are anonymously readable, AFMKit exposes `0.1.0`,
+and the tracked lock resolves that exact tag. Making a repository public is an explicit human checkpoint,
 not part of the reversible code cutover.
 
 Rollback before that checkpoint is a normal branch deletion. After merging but
@@ -70,9 +67,7 @@ The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
 | Dependency | Requirement | Purpose |
 | --- | --- | --- |
-| `AFMKit` | exact `0.1.0` | Core, OpenAI compatibility, and Apple products |
-| `AFMKitMLX` | exact `0.1.0` | MLX runtime and macOS 27 Foundation Models adapter |
-| `AFMKitDwarfStar` | exact `0.1.0` | DwarfStar runtime and native bridge |
+| `AFMKit` | exact `0.1.0` | Core, services, evaluation, MLX, DwarfStar, Apple, and Foundation Models bridge products |
 | `mlx-swift-afm` | exact `0.31.6-afm.1` | AFM-compatible MLX Swift/C++/Metal runtime |
 | `mlx-swift-lm` | exact `0.31.6-afm.3` | AFM model architectures and generation behavior |
 
@@ -84,7 +79,7 @@ the clean AFMKit checkout against its lock and origin, and checks the remaining
 consumer-owned vendor gitlinks. Release resolution uses
 `swift package --force-resolved-versions resolve` and fails if the lock is stale.
 
-AFMKit owns `Sources/AFMKitMLX/Resources/default.metallib` and DwarfStar's Metal
+AFMKit owns `Packages/AFMKitMLX/Sources/AFMKitMLX/Resources/default.metallib` and DwarfStar's Metal
 sources. SwiftPM emits those as `AFMKit_AFMKitMLX.bundle` and
 `AFMKit_AFMKitDwarfStar.bundle`. maclocal-api packages the bundles unchanged
 beside `afm`; it does not rebuild or rename them.

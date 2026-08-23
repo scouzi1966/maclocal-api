@@ -4,8 +4,8 @@
 provider packages. It must remain free of MLX, XGrammar, Vapor, Foundation
 Models, CoreAI, and vendor SDK dependencies.
 
-The coordinated `AFMKit`, `AFMKitMLX`, and `AFMKitDwarfStar` packages expose
-these dependency-scoped products at one exact release version:
+The single `AFMKit` package exposes these dependency-scoped products at one
+exact release version:
 
 - `AFMKitCore`: provider contracts, registry, events, and concurrency helpers.
 - `AFMOpenAICompat`: OpenAI transport DTOs without a model runtime.
