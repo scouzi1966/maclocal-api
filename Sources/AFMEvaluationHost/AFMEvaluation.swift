@@ -212,13 +212,23 @@ public struct AFMEvaluationSuiteStore {
         let base = "\(formatter.string(from: date))-\(modelPart)-\(suitePart)"
         var candidate = rootDirectory.appendingPathComponent(base, isDirectory: true)
         var suffix = 2
-        while fileManager.fileExists(atPath: candidate.path) {
-            candidate = rootDirectory.appendingPathComponent("\(base)-\(suffix)", isDirectory: true)
-            suffix += 1
+        while true {
+            do {
+                try fileManager.createDirectory(
+                    at: candidate,
+                    withIntermediateDirectories: false,
+                    attributes: [.posixPermissions: 0o700])
+                return candidate
+            } catch {
+                let nsError = error as NSError
+                guard nsError.domain == NSCocoaErrorDomain,
+                      nsError.code == CocoaError.Code.fileWriteFileExists.rawValue else {
+                    throw error
+                }
+                candidate = rootDirectory.appendingPathComponent("\(base)-\(suffix)", isDirectory: true)
+                suffix += 1
+            }
         }
-        try fileManager.createDirectory(at: candidate, withIntermediateDirectories: false)
-        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: candidate.path)
-        return candidate
     }
 
     public static func sanitizePathComponent(_ value: String) -> String {

@@ -3,6 +3,27 @@ import Foundation
 import XCTest
 @testable import AFMEvaluationHost
 
+private actor AsyncStartBarrier {
+    private let participantCount: Int
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    init(participantCount: Int) {
+        self.participantCount = participantCount
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+            guard continuations.count == participantCount else { return }
+            let waiting = continuations
+            continuations.removeAll(keepingCapacity: false)
+            for continuation in waiting {
+                continuation.resume()
+            }
+        }
+    }
+}
+
 final class AFMEvaluationHostTests: XCTestCase {
     func testBundledComprehensiveSuiteStaysInMaclocalHost() throws {
         let url = try XCTUnwrap(
@@ -42,6 +63,39 @@ final class AFMEvaluationHostTests: XCTestCase {
         XCTAssertThrowsError(try AFMEvaluationCLIPlan.resolve(
             evaluate: false, bench: false, suites: [], list: false,
             scaffold: "new", validate: nil, noOpen: true))
+    }
+
+    func testConcurrentRunDirectoriesAreCreatedAtomically() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let barrier = AsyncStartBarrier(participantCount: 16)
+        let urls = try await withThrowingTaskGroup(of: URL.self, returning: [URL].self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    await barrier.wait()
+                    return try AFMEvaluationSuiteStore(rootDirectory: root).makeRunDirectory(
+                        model: "org/model",
+                        suites: ["comprehensive"],
+                        date: date)
+                }
+            }
+
+            var results: [URL] = []
+            for try await url in group {
+                results.append(url)
+            }
+            return results
+        }
+
+        XCTAssertEqual(Set(urls.map(\.path)).count, 16)
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory))
+            XCTAssertTrue(isDirectory.boolValue)
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        }
     }
 
     private func temporaryDirectory() -> URL {
