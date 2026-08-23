@@ -152,7 +152,10 @@ Helper script: `./Scripts/gpu-profile.sh` wraps all profiling workflows.
 ### Sampling Parameters
 All functional end-to-end: `temperature`, `top_p`, `repetition_penalty`, `top_k`, `min_p`, `presence_penalty`, `seed`.
 
-Added via vendor patch in `Scripts/patches/Evaluate.swift`: `TopKProcessor`, `MinPProcessor`, `PresenceContext`, `CompositeLogitProcessor`.
+Implemented in AFMKit's vendored
+`vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift`:
+`TopKProcessor`, `MinPProcessor`, `PresenceContext`, and
+`CompositeLogitProcessor`.
 
 Sampler chain order (following llama.cpp): penalties → top_k → min_p → temperature+sampling.
 

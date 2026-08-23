@@ -131,19 +131,19 @@ depth-2-bonus structure from mlx-lm PR #990).
 
 ## 3. Long-context SDPA (automatic — no flag)
 
-The pinned mlx-swift 0.30.3 tree is patched with **0.31.3's adaptive-block 2-pass SDPA**
-(backported in `Scripts/patches/mlx-cpp-sdpa/`). This is applied at build time and needs no flag —
+AFMKit's vendored MLX tree includes the adaptive-block 2-pass SDPA implementation
+under `vendor/MLX/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/`. It needs no flag —
 it just makes long-context decode faster: **~+10% decode@16k** (≈13.0→14.4 tok/s on
 Qwen3.6-27B-4bit / M4 Pro), correct at all depths.
 
-Applied automatically by the full build:
+The immutable AFMKit release supplies the matching source and metallib automatically:
 
 ```bash
-./build.sh                  # applies all patches + rebuilds default.metallib + builds
+./build.sh                  # resolves AFMKit and builds AFM
 ```
 
-> The metallib **must** be rebuilt after the SDPA patch (`./build.sh` does this via
-> `Scripts/rebuild-metallib.sh`); a kernel/dispatch mismatch silently produces garbage.
+> AFMKit owns the source/metallib pairing. Local AFMKit kernel development must rebuild
+> its metallib before testing; normal maclocal-api builds consume the released bundle.
 
 ---
 

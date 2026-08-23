@@ -27,10 +27,10 @@ Validation status: focused Release contract tests passed; runtime model validati
   - [`mlx-community/Qwen3.8-27B-bf16`](https://huggingface.co/mlx-community/Qwen3.8-27B-bf16)
 - Comparison baseline: `Qwen/Qwen3.6-27B`
 - Current AFM implementation:
-  - `Scripts/patches/Qwen3_5MoE.swift`
-  - `Scripts/patches/Qwen3VL.swift`
-  - `Scripts/patches/LLMModelFactory.swift`
-  - `Scripts/patches/VLMModelFactory.swift`
+  - AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXLLM/Models/Qwen3_5MoE.swift`
+  - AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXVLM/Models/Qwen3VL.swift`
+  - AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXLLM/LLMModelFactory.swift`
+  - AFMKit `vendor/MLX/mlx-swift-lm/Libraries/MLXVLM/VLMModelFactory.swift`
 
 ### Exact published architecture
 
@@ -81,7 +81,10 @@ Validation status: focused Release contract tests passed; runtime model validati
 - Direct loading of the raw Hugging Face Transformers FP8 repo is **not the supported AFM MLX path**.
 - AFM's loader expects MLX-formatted checkpoints and optional MLX quantization metadata.
 - The raw Qwen FP8 repos publish Transformers-style `quantization_config` (`quant_method: "fp8"`, `fmt: "e4m3"`), which is not the same as an MLX snapshot.
-- AFM's special packed-weight inference in `Scripts/patches/Load.swift` is targeted at MLX block-scaled tensor layouts (`mxfp4` / `mxfp8`) after weight loading, not generic Transformers FP8 repos.
+- AFMKit's special packed-weight inference in
+  `vendor/MLX/mlx-swift-lm/Libraries/MLXLMCommon/Load.swift` is targeted at MLX
+  block-scaled tensor layouts (`mxfp4` / `mxfp8`) after weight loading, not
+  generic Transformers FP8 repos.
 
 ## Source changes made
 

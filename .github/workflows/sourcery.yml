@@ -29,4 +29,4 @@ jobs:
         with:
           token: ${{ secrets.SOURCERY_TOKEN }}
           diff_ref: ${{ github.event.pull_request.base.sha }}
-          target: Sources Tests Scripts/patches Package.swift
+          target: Sources Tests Package.swift
