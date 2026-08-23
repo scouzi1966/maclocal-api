@@ -340,6 +340,11 @@ publication policy. Release workflows fail closed until AFMKit is required by
 an exact public semantic version, or the source-package release surface is
 explicitly excluded.
 
+`AFMKitFoundationModels27DwarfStar` remains as a source-compatible re-export;
+the implementation and runtime lifetime management now live in AFMKit's
+`AFMKitFoundationModelsDwarfStar` product. This keeps AFM and independent
+AFMKit consumers on the same bridge while preserving a one-commit rollback.
+
 Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the
 [independent AFMKitCore consumer](Examples/AFMKitCoreOnlyConsumer/).
 

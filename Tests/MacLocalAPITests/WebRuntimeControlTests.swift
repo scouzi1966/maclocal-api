@@ -2,6 +2,29 @@ import XCTest
 @testable import AFMServer
 
 final class WebRuntimeControlTests: XCTestCase {
+    func testExplicitModelRoutingSkipsAppleFoundationStartup() {
+        XCTAssertTrue(Server.usesAppleFoundationBackend(
+            mlxModelID: nil,
+            hasMLXModel: false,
+            hasProviderModel: false
+        ))
+        XCTAssertFalse(Server.usesAppleFoundationBackend(
+            mlxModelID: "mlx-community/model",
+            hasMLXModel: true,
+            hasProviderModel: false
+        ))
+        XCTAssertFalse(Server.usesAppleFoundationBackend(
+            mlxModelID: "provider/model",
+            hasMLXModel: false,
+            hasProviderModel: true
+        ))
+        XCTAssertTrue(Server.usesAppleFoundationBackend(
+            mlxModelID: "missing/model",
+            hasMLXModel: false,
+            hasProviderModel: false
+        ))
+    }
+
     func testWebControlAcceptsOnlyLoopbackAddressesAndOrigins() {
         XCTAssertTrue(Server.isLoopbackWebAddress("127.0.0.1"))
         XCTAssertTrue(Server.isLoopbackWebAddress("::1"))

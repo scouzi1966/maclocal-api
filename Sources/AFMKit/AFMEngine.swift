@@ -666,6 +666,7 @@ public actor AFMEngine {
     // MARK: - Foundation Models bridge (macOS 26+)
 
     private func ensureFoundation() async throws {
+#if compiler(>=6.4)
         if #available(macOS 26.0, *) {
             if foundationService == nil {
                 foundationService = try await FoundationModelService(
@@ -679,6 +680,9 @@ public actor AFMEngine {
         } else {
             throw AFMEngineError.foundationModelsUnavailable
         }
+#else
+        throw AFMEngineError.foundationModelsUnavailable
+#endif
     }
 
     private func performFoundationReset(with history: [Message]) async throws {
@@ -686,6 +690,7 @@ public actor AFMEngine {
             try await foundationDriver.resetConversation(history)
             return
         }
+#if compiler(>=6.4)
         try await ensureFoundation()
         if #available(macOS 26.0, *) {
             guard let service = foundationService as? FoundationModelService else {
@@ -693,6 +698,9 @@ public actor AFMEngine {
             }
             try await service.resetConversation(with: history)
         }
+#else
+        throw AFMEngineError.foundationModelsUnavailable
+#endif
     }
 
     private func prepareFoundationStreamTask() async {
@@ -703,6 +711,7 @@ public actor AFMEngine {
         if let foundationDriver {
             return try await foundationDriver.respond(messages, config)
         }
+#if compiler(>=6.4)
         try await ensureFoundation()
         if #available(macOS 26.0, *) {
             guard let svc = foundationService as? FoundationModelService else {
@@ -728,6 +737,9 @@ public actor AFMEngine {
             )
         }
         throw AFMEngineError.foundationModelsUnavailable
+#else
+        throw AFMEngineError.foundationModelsUnavailable
+#endif
     }
 
     private func foundationStream(
@@ -737,6 +749,7 @@ public actor AFMEngine {
         if let foundationDriver {
             return try await foundationDriver.stream(messages, config)
         }
+#if compiler(>=6.4)
         try await ensureFoundation()
         if #available(macOS 26.0, *) {
             guard let svc = foundationService as? FoundationModelService else {
@@ -766,6 +779,9 @@ public actor AFMEngine {
             )
         }
         throw AFMEngineError.foundationModelsUnavailable
+#else
+        throw AFMEngineError.foundationModelsUnavailable
+#endif
     }
 }
 

@@ -557,6 +557,18 @@ public class Server: @unchecked Sendable {
         return nil
     }
 
+    /// Mirrors the chat-controller routing predicate without constructing a
+    /// service adapter. A model id plus either concrete model selects the
+    /// MLX-compatible path; every other configuration falls back to Apple's
+    /// Foundation Models controller.
+    static func usesAppleFoundationBackend(
+        mlxModelID: String?,
+        hasMLXModel: Bool,
+        hasProviderModel: Bool
+    ) -> Bool {
+        mlxModelID == nil || (!hasMLXModel && !hasProviderModel)
+    }
+
     private static func currentExecutableURL() -> URL {
         var size: UInt32 = 0
         _ = _NSGetExecutablePath(nil, &size)
@@ -2738,9 +2750,22 @@ public class Server: @unchecked Sendable {
         print("  \(brightCyan)╚════════════════════════════════════════════════════════════════════╝\(reset)")
         print("")
 
-        // Initialize the Foundation Model Service once at startup
-        if #available(macOS 26.0, *) {
-            try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, prewarm: prewarmEnabled)
+        // Initialize Foundation Models only for the Foundation route. MLX and
+        // provider-backed servers must remain usable with the Xcode 26 compiler.
+        if Self.usesAppleFoundationBackend(
+            mlxModelID: mlxModelID,
+            hasMLXModel: mlxModel != nil,
+            hasProviderModel: afmModel != nil
+        ) {
+#if compiler(>=6.4)
+            if #available(macOS 26.0, *) {
+                try await FoundationModelService.initialize(instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, prewarm: prewarmEnabled)
+            }
+#else
+            throw Abort(
+                .serviceUnavailable,
+                reason: "Apple Foundation Models require the Swift 6.4 toolchain or newer.")
+#endif
         }
 
         let repoURL = "https://github.com/scouzi1966/maclocal-api"

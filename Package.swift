@@ -364,6 +364,10 @@ let package = Package(
             dependencies: ["AFMKitServicesCompatibility"]
         ),
         .testTarget(
+            name: "AFMKitFoundationModels27DwarfStarCompatibilityTests",
+            dependencies: ["AFMKitFoundationModels27DwarfStar"]
+        ),
+        .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
                 "AFMKit",

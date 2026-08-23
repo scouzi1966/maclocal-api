@@ -1,4 +1,4 @@
-#if canImport(FoundationModels)
+#if compiler(>=6.4) && canImport(FoundationModels)
 import AFMKit
 @testable import AFMKitFoundationModels27
 @testable import AFMKitFoundationModels27DwarfStar
