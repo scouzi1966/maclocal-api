@@ -34,10 +34,15 @@ public enum AFMEvaluationCLIPlan {
             throw AFMEvaluationError.conflictingCLI(
                 "Use only one of --eval-list, --eval-init, or --eval-validate at a time.")
         }
+        let requestsRun = evaluate || bench || !suites.isEmpty
+        if managementCount > 0, requestsRun || noOpen {
+            throw AFMEvaluationError.conflictingCLI(
+                "Evaluation management options cannot be combined with --eval, --bench, --eval-suite, or --no-open.")
+        }
         if list { return .list }
         if let scaffold { return .scaffold(name: scaffold) }
         if let validate { return .validate(reference: validate) }
-        if evaluate || bench || !suites.isEmpty {
+        if requestsRun {
             let selected = suites.isEmpty ? ["comprehensive"] : suites
             return .run(suites: selected, openReport: !noOpen)
         }
@@ -157,7 +162,7 @@ public struct AFMEvaluationSuiteStore {
         try decode(url: url, origin: .custom)
     }
 
-    func decode(
+    public func decode(
         url: URL,
         origin: AFMEvaluationSuiteDescriptor.Origin
     ) throws -> AFMEvaluationSuite {

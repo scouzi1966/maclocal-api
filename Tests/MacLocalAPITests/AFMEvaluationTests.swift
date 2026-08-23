@@ -271,6 +271,10 @@ final class AFMEvaluationTests: XCTestCase {
             try AFMEvaluationCLIPlan.resolve(
                 evaluate: false, bench: false, suites: [], list: true,
                 scaffold: "x", validate: nil, noOpen: false))
+        XCTAssertThrowsError(
+            try AFMEvaluationCLIPlan.resolve(
+                evaluate: true, bench: false, suites: [], list: true,
+                scaffold: nil, validate: nil, noOpen: false))
     }
 
     func testScaffoldCreatesValidSuiteAndRefusesOverwrite() throws {

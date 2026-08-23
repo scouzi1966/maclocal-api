@@ -133,6 +133,8 @@ checks. Checks are case-insensitive unless `caseSensitive` is true.
 For safety and predictable local resource use, names cannot contain path separators,
 suite files are capped at 5 MB and 1,000 cases, prompt/system text is capped at 64 KB
 per field, aggregate planned output is capped at 1,000,000 tokens, generation
-parameters have bounded ranges, and scaffold mode never
+parameters have bounded ranges and a 1 MB encoded ceiling, tool and response
+format structures are checked, deterministic expectation strings are bounded,
+and scaffold mode never
 overwrites a file. Suite files define inference inputs only: there are no commands,
 hooks, environment interpolation, network callbacks, or arbitrary file paths.
