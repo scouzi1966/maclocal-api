@@ -71,21 +71,21 @@ Explain why the sky is blue in exactly 3 bullet points.
 # AI: Expected: coherent 3-bullet response, quality between greedy and high-temp.
 [@ top-p]
 temperature: 0.8
-afm: --no-think --top-p 0.9
+afm: --top-p 0.9
 Explain why the sky is blue in exactly 3 bullet points.
 
 # AI: Tests top-k sampling (top_k=30). Feature: --top-k CLI flag.
 # AI: Expected: coherent response. Top-k restricts to 30 most likely tokens per step.
 [@ top-k]
 temperature: 0.8
-afm: --no-think --top-k 30
+afm: --top-k 30
 Explain why the sky is blue in exactly 3 bullet points.
 
 # AI: Tests min-p filtering (min_p=0.05). Feature: --min-p CLI flag.
 # AI: Expected: coherent response. Min-p filters tokens below 5% of max probability.
 [@ min-p]
 temperature: 0.8
-afm: --no-think --min-p 0.05
+afm: --min-p 0.05
 Explain why the sky is blue in exactly 3 bullet points.
 
 # AI: Tests combined sampler chain: top-k → min-p → temperature (llama.cpp order).
@@ -93,7 +93,7 @@ Explain why the sky is blue in exactly 3 bullet points.
 # AI: Verifies the sampler chain doesn't conflict or crash when all are combined.
 [@ combined-samplers]
 temperature: 0.8
-afm: --no-think --top-k 50 --min-p 0.03 --top-p 0.95
+afm: --top-k 50 --min-p 0.03 --top-p 0.95
 Explain why the sky is blue in exactly 3 bullet points.
 
 # AI: Tests seed-based determinism (seed=42, run 1 of 2). Feature: --seed CLI flag.
@@ -101,14 +101,14 @@ Explain why the sky is blue in exactly 3 bullet points.
 # AI: character-for-character identical since same seed + same temperature.
 [@ seed-42-run1]
 temperature: 0.7
-afm: --no-think --seed 42
+afm: --seed 42
 Write a limerick about a cat.
 
 # AI: Tests seed-based determinism (seed=42, run 2 of 2). Feature: --seed CLI flag.
 # AI: Expected: output MUST be identical to seed-42-run1. Any difference = seed bug.
 [@ seed-42-run2]
 temperature: 0.7
-afm: --no-think --seed 42
+afm: --seed 42
 Write a limerick about a cat.
 
 # ══════════════════════════════════════════════════════════════════════
@@ -121,7 +121,7 @@ Write a limerick about a cat.
 [@ no-penalty]
 temperature: 0.8
 max_tokens: 20000
-afm: --no-think --presence-penalty 0.0
+afm: --presence-penalty 0.0
 Write a long essay about the history of bread making across civilizations.
 
 # AI: Tests strong presence penalty (1.5). Feature: --presence-penalty flag.
@@ -130,7 +130,7 @@ Write a long essay about the history of bread making across civilizations.
 [@ with-penalty]
 temperature: 0.8
 max_tokens: 20000
-afm: --no-think --presence-penalty 1.5
+afm: --presence-penalty 1.5
 Write a long essay about the history of bread making across civilizations.
 
 # AI: Tests repetition penalty (1.2). Feature: --repetition-penalty flag.
@@ -139,7 +139,7 @@ Write a long essay about the history of bread making across civilizations.
 [@ repetition-penalty]
 temperature: 0.8
 max_tokens: 20000
-afm: --no-think --repetition-penalty 1.2
+afm: --repetition-penalty 1.2
 Write a long essay about the history of bread making across civilizations.
 
 # ══════════════════════════════════════════════════════════════════════
@@ -196,7 +196,7 @@ List exactly 5 animals, one per line, numbered 1-5. No other text.
 [@ guided-json-simple]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
 expect: {"valid_json":true,"json_schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}}
 Return a person record for Ada, age 37.
 
@@ -206,7 +206,7 @@ Return a person record for Ada, age 37.
 [@ guided-json-nested]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --guided-json '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"},"landmarks":{"type":"array","items":{"type":"string"}}},"required":["city","population","landmarks"]}'
+afm: --guided-json '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"},"landmarks":{"type":"array","items":{"type":"string"}}},"required":["city","population","landmarks"]}'
 Describe Tokyo as a structured record with at least 3 landmarks.
 
 # ══════════════════════════════════════════════════════════════════════
@@ -249,7 +249,7 @@ Write a unit test for the timeout feature you just described.
 [@ agent-cached-turn1]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --enable-prefix-caching
+afm: --enable-prefix-caching
 system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
 Read the file Sources/MacLocalAPI/main.swift and explain what it does.
 
@@ -259,7 +259,7 @@ Read the file Sources/MacLocalAPI/main.swift and explain what it does.
 [@ agent-cached-turn2]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --enable-prefix-caching
+afm: --enable-prefix-caching
 system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
 Now add a --timeout flag to the CLI that sets a request timeout in seconds.
 
@@ -269,7 +269,7 @@ Now add a --timeout flag to the CLI that sets a request timeout in seconds.
 [@ agent-cached-turn3]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --enable-prefix-caching
+afm: --enable-prefix-caching
 system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
 Write a unit test for the timeout feature you just described.
 
@@ -305,7 +305,7 @@ max_tokens: 20000
 logprobs: true
 top_logprobs: 5
 expect: {"logprobs_min":1}
-afm: --no-think --max-logprobs 5
+afm: --max-logprobs 5
 What is 1+1?
 
 # ══════════════════════════════════════════════════════════════════════
@@ -318,7 +318,7 @@ What is 1+1?
 [@ small-kv]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --max-kv-size 2048
+afm: --max-kv-size 2048
 Summarize the key ideas of machine learning in a few paragraphs.
 
 # AI: Tests KV cache quantization. Feature: --kv-bits 4 (4-bit quantized KV cache).
@@ -327,7 +327,7 @@ Summarize the key ideas of machine learning in a few paragraphs.
 [@ kv-quantized]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --kv-bits 4
+afm: --kv-bits 4
 Summarize the key ideas of machine learning in a few paragraphs.
 
 # AI: Tests default prefill step size. Feature: --prefill-step-size (GPU batch size for prompt).
@@ -345,7 +345,7 @@ Given this architecture, what are the top 3 performance bottlenecks you would in
 [@ prefill-large-4096]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --prefill-step-size 4096
+afm: --prefill-step-size 4096
 system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
 Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
 
@@ -355,7 +355,7 @@ Given this architecture, what are the top 3 performance bottlenecks you would in
 [@ prefill-small-256]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --prefill-step-size 256
+afm: --prefill-step-size 256
 system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
 Given this architecture, what are the top 3 performance bottlenecks you would investigate first?
 
@@ -369,7 +369,7 @@ Given this architecture, what are the top 3 performance bottlenecks you would in
 [@ no-streaming]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --no-streaming
+afm: --no-streaming
 Write a short poem about the moon.
 
 # AI: Tests raw mode. Feature: --raw (disables <think> tag extraction).
@@ -379,7 +379,7 @@ Write a short poem about the moon.
 [@ raw-mode]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --raw
+afm: --raw
 Think step by step: what is 17 * 23?
 
 # ══════════════════════════════════════════════════════════════════════
@@ -466,7 +466,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_PERIO
 [@ stop-cli-only]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --stop "<AFM_CLI_STOP>"
+afm: --stop "<AFM_CLI_STOP>"
 expect: {"finish_reason":"stop","content_equals":"AFM_CLI_PREFIX","content_not_contains":["<AFM_CLI_STOP>","AFM_CLI_SUFFIX"]}
 Output exactly the following text, with no quotes or extra whitespace: AFM_CLI_PREFIX<AFM_CLI_STOP>AFM_CLI_SUFFIX
 
@@ -476,7 +476,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_CLI_P
 [@ stop-cli-multi]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --stop "<AFM_CLI_FIRST>,<AFM_CLI_SECOND>"
+afm: --stop "<AFM_CLI_FIRST>,<AFM_CLI_SECOND>"
 expect: {"finish_reason":"stop","content_equals":"AFM_CLI_MULTI_PREFIX","content_not_contains":["<AFM_CLI_FIRST>","AFM_CLI_BETWEEN","<AFM_CLI_SECOND>","AFM_CLI_MULTI_SUFFIX"]}
 Output exactly the following text, with no quotes or extra whitespace: AFM_CLI_MULTI_PREFIX<AFM_CLI_FIRST>AFM_CLI_BETWEEN<AFM_CLI_SECOND>AFM_CLI_MULTI_SUFFIX
 
@@ -487,7 +487,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_CLI_M
 temperature: 0.0
 max_tokens: 20000
 stop: ["<AFM_API_STOP>"]
-afm: --no-think --stop "<AFM_CLI_STOP>"
+afm: --stop "<AFM_CLI_STOP>"
 expect: {"finish_reason":"stop","content_equals":"AFM_MERGE_PREFIX","content_not_contains":["<AFM_API_STOP>","AFM_MERGE_BETWEEN","<AFM_CLI_STOP>","AFM_MERGE_SUFFIX"]}
 Output exactly the following text, with no quotes or extra whitespace: AFM_MERGE_PREFIX<AFM_API_STOP>AFM_MERGE_BETWEEN<AFM_CLI_STOP>AFM_MERGE_SUFFIX
 
@@ -498,7 +498,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_MERGE
 temperature: 0.0
 max_tokens: 20000
 stop: ["<AFM_DEDUP_STOP>"]
-afm: --no-think --stop "<AFM_DEDUP_STOP>"
+afm: --stop "<AFM_DEDUP_STOP>"
 expect: {"finish_reason":"stop","content_equals":"AFM_DEDUP_PREFIX","content_not_contains":["<AFM_DEDUP_STOP>","AFM_DEDUP_SUFFIX"]}
 Output exactly the following text, with no quotes or extra whitespace: AFM_DEDUP_PREFIX<AFM_DEDUP_STOP>AFM_DEDUP_SUFFIX
 
@@ -510,7 +510,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_DEDUP
 [@ stop-non-streaming]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --no-streaming
+afm: --no-streaming
 stop: ["<AFM_NONSTREAM_STOP>"]
 expect: {"finish_reason":"stop","content_equals":"AFM_NONSTREAM_PREFIX","content_not_contains":["<AFM_NONSTREAM_STOP>","AFM_NONSTREAM_SUFFIX"]}
 Output exactly the following text, with no quotes or extra whitespace: AFM_NONSTREAM_PREFIX<AFM_NONSTREAM_STOP>AFM_NONSTREAM_SUFFIX
@@ -524,7 +524,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_NONST
 temperature: 0.0
 max_tokens: 20000
 stop: ["Tokyo"]
-afm: --no-think --guided-json '{"type":"object","properties":{"cities":{"type":"array","items":{"type":"string"}}},"required":["cities"]}'
+afm: --guided-json '{"type":"object","properties":{"cities":{"type":"array","items":{"type":"string"}}},"required":["cities"]}'
 expect: {"finish_reason":"stop","valid_json":false,"content_not_contains":"Tokyo"}
 List 5 major world cities as a JSON array. Include Tokyo.
 
@@ -535,7 +535,7 @@ List 5 major world cities as a JSON array. Include Tokyo.
 temperature: 0.0
 max_tokens: 20000
 stop: [","]
-afm: --no-think --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"city":{"type":"string"}},"required":["name","age","city"]}'
+afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"city":{"type":"string"}},"required":["name","age","city"]}'
 expect: {"finish_reason":"stop","valid_json":false,"content_not_contains":","}
 Generate a person profile for someone named Alice who is 30 and lives in Paris.
 
@@ -546,7 +546,7 @@ Generate a person profile for someone named Alice who is 30 and lives in Paris.
 temperature: 0.0
 max_tokens: 20000
 stop: ["}"]
-afm: --no-think --guided-json '{"type":"object","properties":{"color":{"type":"string"},"hex":{"type":"string"}},"required":["color","hex"]}'
+afm: --guided-json '{"type":"object","properties":{"color":{"type":"string"},"hex":{"type":"string"}},"required":["color","hex"]}'
 expect: {"finish_reason":"stop","valid_json":false,"content_not_contains":"}"}
 Describe the color blue with its hex code.
 
@@ -768,7 +768,7 @@ Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it 
 [@ think-raw]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --raw
+afm: --raw
 Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it go?
 
 # ══════════════════════════════════════════════════════════════════════
@@ -783,7 +783,7 @@ Solve step by step: If a train travels at 60 mph for 2.5 hours, how far does it 
 [@ streaming-seeded]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --seed 123
+afm: --seed 123
 Write a 4-line poem about the ocean.
 
 # AI: Tests non-streaming output with seed. Feature: --no-streaming + seed determinism.
@@ -792,7 +792,7 @@ Write a 4-line poem about the ocean.
 [@ non-streaming-seeded]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --no-streaming --seed 123
+afm: --no-streaming --seed 123
 Write a 4-line poem about the ocean.
 
 # ══════════════════════════════════════════════════════════════════════
@@ -828,7 +828,7 @@ Write a Python function that reverses a string.
 [@ verbose]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --verbose
+afm: --verbose
 Hello, how are you?
 
 # AI: Tests very-verbose logging mode. Feature: --very-verbose flag (full request/response logging).
@@ -837,7 +837,7 @@ Hello, how are you?
 [@ very-verbose]
 temperature: 0.7
 max_tokens: 20000
-afm: --no-think --very-verbose
+afm: --very-verbose
 Hello, how are you?
 
 # ══════════════════════════════════════════════════════════════════════
@@ -863,7 +863,7 @@ Call get_weather exactly once for Tokyo. Call no other tools.
 [@ tool-call-xml]
 temperature: 0.0
 max_tokens: 20000
-afm: --no-think --tool-call-parser qwen3_xml
+afm: --tool-call-parser qwen3_xml
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"get_weather","arguments":{"city":"Paris","unit":"celsius"}}]}
 tools: [{"type":"function","function":{"name":"get_weather","description":"Get current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}]
 Call get_weather exactly once for Paris with unit celsius. Call no other tools.
