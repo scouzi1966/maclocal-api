@@ -20,8 +20,13 @@ with open(RESULTS_FILE) as f:
 for idx, r in enumerate(results):
     r["_jsonl_idx"] = idx
 
-ok = [r for r in results if r["status"] == "OK"]
-fail = [r for r in results if r["status"] == "FAIL"]
+def result_passed(result):
+    if "overall_status" in result:
+        return result["overall_status"] == "pass"
+    return result.get("status") == "OK"
+
+ok = [r for r in results if result_passed(r)]
+fail = [r for r in results if not result_passed(r)]
 ok_sorted = sorted(ok, key=lambda r: r.get("tokens_per_sec", 0), reverse=True)
 
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -127,7 +132,7 @@ if prompts_file and os.path.isfile(prompts_file):
                                        'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
                                        'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
                                        'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                       'frequency_penalty:', 'media:')):
+                                       'frequency_penalty:', 'media:', 'expect:')):
                 comment_buf = []
 
 # ── Parse per-test reasons from smart analysis .md files ─────────────────────
@@ -216,6 +221,11 @@ def config_panel(r):
         perf_badges.append(config_badge("json", "valid", "#3fb950"))
     elif vjson is False:
         perf_badges.append(config_badge("json", "INVALID", "#f85149"))
+    assertion = r.get("assertion_status")
+    if assertion == "pass":
+        perf_badges.append(config_badge("assert", "pass", "#3fb950"))
+    elif assertion == "fail":
+        perf_badges.append(config_badge("assert", "FAIL", "#f85149"))
     perf_badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
@@ -250,7 +260,18 @@ for i, r in enumerate(ok_sorted):
     # ── Build AI Intent section ──
     intent_html = ""
     label = r.get("label", "")
-    if label and label in ai_intents:
+    if r.get("is_baseline"):
+        intent_lines = (
+            "Global [all] baseline: judge this ordinary prompt on its own response quality. "
+            "The enclosing variant's settings remain active, but its variant-specific test "
+            "intent and expectations do not apply to this record."
+        )
+        intent_html = f"""
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Baseline Intent</summary>
+      <div class="ai-detail-body">{html.escape(intent_lines)}</div>
+    </details>"""
+    elif label and label in ai_intents:
         intent_lines = "<br>".join(html.escape(line) for line in ai_intents[label])
         intent_html = f"""
     <details class="ai-detail">
@@ -312,7 +333,7 @@ def ai_score_cell(score):
 fail_rows = ""
 if fail:
     for r in fail:
-        error = r.get("error", "Unknown error")
+        error = r.get("error") or "; ".join(r.get("assertion_failures", [])) or "Unknown error"
         error_clean = error.replace("\\n", " ").replace('\\"', '"').strip()
         if "loadFailed" in error_clean:
             m = re.search(r'loadFailed\("([^"]+)"\)', error_clean)

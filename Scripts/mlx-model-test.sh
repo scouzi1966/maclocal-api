@@ -39,6 +39,11 @@
 #   system:              System prompt text
 #   developer:           OpenAI developer-role message text
 #   tools:               OpenAI tools array as JSON
+#   expect:              Executable result oracle as JSON, e.g.:
+#                         {"valid_json":true,"finish_reason":"stop"}
+#                         {"tool_calls":[{"name":"get_weather","arguments":{"city":"Paris"}}]}
+#                         {"logprobs_min":1}
+#                         {"content_equals":"prefix","content_not_contains":["STOP","suffix"]}
 #   afm:                 CLI flags passed to the afm server process, e.g.:
 #                          --verbose / --very-verbose
 #                          --no-streaming
@@ -119,6 +124,7 @@ set -uo pipefail
 # Unset CLAUDECODE so that `claude` CLI can be invoked from within a Claude Code session
 # (e.g. when this script is launched via --smart from an active Claude Code terminal)
 unset CLAUDECODE 2>/dev/null || true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Prefer local build over PATH (Homebrew install may be stale)
 if [ -z "${AFM_BIN:-}" ] && [ -x ".build/arm64-apple-macosx/release/afm" ]; then
@@ -595,6 +601,8 @@ with open(filepath) as f:
                 config['defaults']['developer'] = line.split(':', 1)[1].strip()
             elif line.startswith('tools:'):
                 config['defaults']['tools'] = json.loads(line.split(':', 1)[1].strip())
+            elif line.startswith('expect:'):
+                config['defaults']['expect'] = json.loads(line.split(':', 1)[1].strip())
             elif line.startswith('afm:'):
                 config['defaults']['afm'] = line.split(':', 1)[1].strip()
             elif line.startswith('media:'):
@@ -653,6 +661,8 @@ with open(filepath) as f:
             sec['params']['developer'] = line.split(':', 1)[1].strip()
         elif line.startswith('tools:'):
             sec['params']['tools'] = json.loads(line.split(':', 1)[1].strip())
+        elif line.startswith('expect:'):
+            sec['params']['expect'] = json.loads(line.split(':', 1)[1].strip())
         elif line.startswith('afm:'):
             sec['afm'] = line.split(':', 1)[1].strip()
         elif line.startswith('media:'):
@@ -876,6 +886,7 @@ result = {
     'system': system,
     'developer': merge_param('developer'),
     'tools': merge_param('tools'),
+    'expect': merge_param('expect'),
     'afm_args': afm_args,
     'top_p': merge_param('top_p'),
     'top_k': merge_param('top_k'),
@@ -998,8 +1009,9 @@ print(json.dumps(c))
 " "$display_name" "$prompt_text" "$pidx")
 
   # Single python3 block: builds OpenAI SDK call, sends request, outputs JSONL result
-  METRICS=$(_SEND_CONFIG="$send_config" python3 - "$PORT" "$load_time" "$TIMEOUT_GENERATE" <<'SEND_PYEOF'
+  METRICS=$(_SEND_CONFIG="$send_config" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - "$PORT" "$load_time" "$TIMEOUT_GENERATE" <<'SEND_PYEOF'
 import json, sys, time, os
+from mlx_model_test_oracle import evaluate_expectations, expectation_for_prompt
 
 # Read config from env var (stdin used by heredoc)
 config = json.loads(os.environ['_SEND_CONFIG'])
@@ -1101,6 +1113,9 @@ if config.get('repetition_penalty') is not None:
 if extra_body:
     kwargs['extra_body'] = extra_body
 
+is_baseline = config.get('prompt_idx', 0) < config.get('num_baseline', 0)
+expectation = expectation_for_prompt(config)
+
 try:
     gen_start = time.time()
     response = client.chat.completions.create(**kwargs)
@@ -1151,24 +1166,40 @@ try:
     if logprobs_data and hasattr(logprobs_data, 'content') and logprobs_data.content:
         logprobs_count = len(logprobs_data.content)
 
-    # JSON validation: check if content is valid JSON
+    # JSON validation is explicit. Natural-language mentions of "JSON" are not
+    # an oracle (for example, a prompt can ask for Swift code that parses JSON).
     is_valid_json = None  # None = not tested
     response_format = config.get('response_format')
     response_format_type = response_format.get('type') if isinstance(response_format, dict) else response_format
-    if response_format_type in ('json_object', 'json_schema') or \
-       any(kw in prompt_text.lower() for kw in ('json', 'valid json')):
+    if response_format_type in ('json_object', 'json_schema') or expectation.get('valid_json') is not None:
         try:
             json.loads(msg)
             is_valid_json = True
         except (json.JSONDecodeError, ValueError):
             is_valid_json = False
 
+    oracle_valid_json, assertion_failures = evaluate_expectations(
+        expectation,
+        content=msg,
+        finish_reason=finish_reason,
+        logprobs_count=logprobs_count,
+        tool_calls=tool_calls,
+    )
+    if is_valid_json is None:
+        is_valid_json = oracle_valid_json
+
+    assertion_status = 'not_configured' if not expectation else ('fail' if assertion_failures else 'pass')
+
     result = {
-        'model': display_name,
+        'model': model,
         'label': label,
         'prompt': prompt_text,
-        'is_baseline': config.get('prompt_idx', 0) < config.get('num_baseline', 0),
+        'is_baseline': is_baseline,
         'status': 'OK',
+        'transport_status': 'pass',
+        'assertion_status': assertion_status,
+        'overall_status': 'fail' if assertion_failures else 'pass',
+        'assertion_failures': assertion_failures,
         'load_time_s': load_time,
         'gen_time_s': round(gen_time, 2),
         'prompt_tokens': prompt_tokens,
@@ -1201,6 +1232,8 @@ try:
                 'stop', 'response_format', 'media', 'tools'):
         if config.get(key) is not None:
             result[key] = config[key]
+    if expectation:
+        result['expect'] = expectation
 
     print(json.dumps(result))
 
@@ -1208,10 +1241,13 @@ except Exception as e:
     gen_end = time.time()
     error_msg = str(e)[:500]
     result = {
-        'model': display_name,
+        'model': model,
         'label': label,
         'prompt': prompt_text,
         'status': 'FAIL',
+        'transport_status': 'fail',
+        'assertion_status': 'not_run',
+        'overall_status': 'fail',
         'error': error_msg,
         'load_time_s': load_time,
         'temperature': temperature,
@@ -1226,6 +1262,8 @@ except Exception as e:
                 'stop', 'response_format', 'media', 'tools'):
         if config.get(key) is not None:
             result[key] = config[key]
+    if expectation:
+        result['expect'] = expectation
     print(json.dumps(result))
 SEND_PYEOF
   )
@@ -1236,7 +1274,7 @@ SEND_PYEOF
 import json, os
 config = json.loads(os.environ['_SEND_CONFIG'])
 print(json.dumps({
-    'model': config.get('display_name', config.get('model', '')),
+    'model': config.get('model', ''),
     'label': config.get('label', ''),
     'prompt': config.get('prompt_text', ''),
     'status': 'FAIL',
@@ -1248,14 +1286,14 @@ PYEOF
   printf '%s\n' "$METRICS" >> "$RESULTS_FILE"
 
   # Extract status for display
-  local status=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','?'))")
-  if [ "$status" = "OK" ]; then
+  local status=$(echo "$METRICS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('overall_status', 'pass' if d.get('status') == 'OK' else 'fail'))")
+  if [ "$status" = "pass" ]; then
     local tps=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tokens_per_sec',0))")
     local ctok=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('completion_tokens',0))")
     local gtime=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('gen_time_s',0))")
     echo "    OK: ${ctok} tokens in ${gtime}s (${tps} tok/s)"
   else
-    local error_msg=$(echo "$METRICS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error','unknown')[:200])")
+    local error_msg=$(echo "$METRICS" | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('error') or '; '.join(d.get('assertion_failures', [])) or 'unknown')[:200])")
     echo "    FAIL: $error_msg"
     OVERALL_STATUS=1
   fi
@@ -1359,7 +1397,7 @@ print(f'API: {api}' if api else 'API: (none)')
       fi
     fi
     echo "  FAIL: $error_msg"
-    echo "{\"model\":$(escape_json "$display_name"),\"label\":$(escape_json "$label"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time,\"temperature\":$temperature,\"max_tokens\":$max_tokens,\"system_prompt\":$(escape_json "$sys_prompt"),\"afm_args\":$(escape_json "$afm_args")}" >> "$RESULTS_FILE"
+    echo "{\"model\":$(escape_json "$model"),\"label\":$(escape_json "$label"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time,\"temperature\":$temperature,\"max_tokens\":$max_tokens,\"system_prompt\":$(escape_json "$sys_prompt"),\"afm_args\":$(escape_json "$afm_args")}" >> "$RESULTS_FILE"
     OVERALL_STATUS=1
     kill_server $SERVER_PID
     SERVER_PID=0
@@ -1533,7 +1571,7 @@ result = {
 for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
             'presence_penalty', 'repetition_penalty', 'frequency_penalty',
             'stop', 'response_format', 'media', 'max_completion_tokens',
-            'developer', 'tools'):
+            'developer', 'tools', 'expect'):
     if key in defaults:
         result[key] = defaults[key]
 print(json.dumps(result))
@@ -1650,8 +1688,11 @@ IMPORTANT scoring notes:
 - Reserve score 1 strictly for: status=FAIL, server crashes, load failures.
 - FORMAT COMPLIANCE: For tests with response_format=json_object or guided-json (afm: --guided-json),
   the variant-specific prompt output MUST be valid JSON. Plain text output = score 2.
-  The [all] baseline prompt may produce unconstrained text under these variants — that is expected,
-  score it normally on text quality. Only apply format checks to variant-specific prompts.
+- BASELINE ROUTING: A result with "is_baseline": true is the global [all] prompt executed
+  under a variant's active settings. Judge that result only against its own prompt and general
+  response quality. Do NOT apply the enclosing label's variant-specific # AI intent, executable
+  expectations, expected tool names/arguments, formatting requirements, or stop behavior.
+  For example, a primary-colors baseline labeled tool-call-auto is not expected to call weather.
 - STOP COMPLIANCE: For stop sequence tests, output must NOT contain the stop string past the
   expected truncation point. If it does, score 2.
 
@@ -1678,7 +1719,7 @@ $(cat "$PROMPTS_FILE")"
   fi
 
   # Build combined prompt+data for tools that need it in one stream
-  SMART_INPUT="$(mktemp /tmp/smart-input-XXXXXX.txt)"
+  SMART_INPUT="$(mktemp /tmp/smart-input-XXXXXX)"
   { echo "$ANALYSIS_PROMPT"; echo "$SMART_TEST_FILE_SECTION"; echo ""; echo "--- JSONL DATA ---"; cat "$RESULTS_FILE"; } > "$SMART_INPUT"
 
   # ── Per-test prompt (used in SMART_BATCH=1 mode) ─────────────────────────
@@ -1707,9 +1748,10 @@ Scoring rules:
 - For tool call tests: verify finish_reason="tool_calls" and valid function/args.
 - For response_format=json_object tests: output MUST be valid JSON. Plain text = score 2.
 - For guided-json tests (afm: --guided-json): output MUST be valid JSON matching the schema. Plain text = score 2.
-- For [all] baseline prompts running under a guided-json or response_format variant:
-  the baseline may produce unconstrained text — this is expected. Score the text quality
-  normally but note that format constraints only apply to variant-specific prompts.
+- If "is_baseline" is true, ignore the enclosing label's TEST SPEC and all variant-specific
+  expectations. Judge only whether the response handles its own prompt coherently. Variant
+  settings remain active, but a primary-colors baseline under tool-call-auto is not a Tokyo
+  weather test and must not be scored as one.
 
 Respond with EXACTLY one line of JSON, nothing else:
 {"score": N, "reason": "brief explanation referencing expected outcome"}
@@ -1724,10 +1766,12 @@ PER_TEST_PROMPT_END
 
     # ── SMART_BATCH=1: per-test mode ──────────────────────────────────────
     if [ "$SMART_BATCH" = "1" ]; then
-      echo "  Per-test scoring with $tool ($( wc -l < "$RESULTS_FILE" | tr -d ' ') results)..."
-
       PERTEST_SCORES_DIR="$(mktemp -d /tmp/smart-pertest-XXXXXX)"
-      total_lines=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
+      total_lines=$(python3 -c "
+import json, sys
+print(sum(1 for line in open(sys.argv[1]) if line.strip() and not json.loads(line).get('_meta')))
+" "$RESULTS_FILE")
+      echo "  Per-test scoring with $tool ($total_lines results)..."
 
       # Extract test spec blocks from the test file (label → comment block mapping)
       PERTEST_SPECS=""
@@ -1781,13 +1825,18 @@ print(json.dumps(specs))
         model_label=$(echo "$jsonl_line" | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('label','') or d.get('model','?'))[:40])")
         echo -n "$model_label... "
 
-        # Look up test spec for this label
+        # Look up the variant spec only for the variant-specific prompt. Every
+        # section also runs the global [all] prompt, which shares the label but
+        # must not inherit that section's semantic expectations.
         test_spec=""
         if [ -n "$PERTEST_SPECS" ]; then
           test_spec=$(echo "$jsonl_line" | python3 -c "
 import json, sys
 specs = json.loads(sys.argv[1])
 d = json.load(sys.stdin)
+if d.get('is_baseline'):
+    print('Global [all] baseline. Judge only the actual prompt and response quality; ignore the enclosing variant-specific intent and expectations.')
+    raise SystemExit
 label = d.get('label', '')
 print(specs.get(label, ''))
 " "$PERTEST_SPECS" 2>/dev/null)
@@ -1811,9 +1860,9 @@ $jsonl_line"
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr-$$.log)
             ;;
           codex)
-            CODEX_TMP="$(mktemp /tmp/smart-codex-pertest-XXXXXX.txt)"
+            CODEX_TMP="$(mktemp /tmp/smart-codex-pertest-XXXXXX)"
             echo "$PERTEST_INPUT" > "$CODEX_TMP"
-            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" 2>/tmp/smart-${tool}-stderr-$$.log)
+            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" </dev/null 2>/tmp/smart-${tool}-stderr-$$.log)
             rm -f "$CODEX_TMP"
             ;;
           afm)
@@ -1825,12 +1874,12 @@ $jsonl_line"
         esac
 
         echo "$PERTEST_SCORE" > "$PERTEST_SCORES_DIR/score_${line_idx}.txt"
-        score_val=$(echo "$PERTEST_SCORE" | python3 -c "
-import json, sys, re
+        score_val=$(echo "$PERTEST_SCORE" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import sys
+from mlx_model_test_oracle import extract_score_payload
 text = sys.stdin.read().strip()
-m = re.search(r'\{[^}]*\"score\"\s*:\s*(\d+)[^}]*\}', text)
-if m: print(m.group(1))
-else: print('?')
+payload = extract_score_payload(text)
+print(payload['score'] if payload else '?')
 " 2>/dev/null)
         echo "score=$score_val"
         line_idx=$((line_idx + 1))
@@ -1839,55 +1888,52 @@ else: print('?')
       echo "  Assembling per-test report..."
 
       # Build scores JSON + per-test markdown report
-      python3 -c "
-import json, sys, os, re
+      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import json, sys, os
+from mlx_model_test_oracle import extract_score_payload
 
 scores_dir = sys.argv[1]
 results_file = sys.argv[2]
 
 scores = []
 report_lines = ['# Per-Test AI Analysis', '']
+result_idx = 0
 with open(results_file) as f:
-    for idx, line in enumerate(f):
+    for line in f:
         line = line.strip()
         if not line: continue
         r = json.loads(line)
+        if r.get('_meta'):
+            continue
 
-        score_file = os.path.join(scores_dir, f'score_{idx}.txt')
+        score_file = os.path.join(scores_dir, f'score_{result_idx}.txt')
         score_text = ''
         score_val = 3
         reason = ''
         if os.path.exists(score_file):
             with open(score_file) as sf:
                 score_text = sf.read().strip()
-            m = re.search(r'\{[^}]*\"score\"\s*:\s*(\d+)[^}]*\"reason\"\s*:\s*\"([^\"]*?)\"[^}]*\}', score_text)
-            if not m:
-                m = re.search(r'\{[^}]*\"reason\"\s*:\s*\"([^\"]*?)\"[^}]*\"score\"\s*:\s*(\d+)[^}]*\}', score_text)
-                if m:
-                    score_val = int(m.group(2))
-                    reason = m.group(1)
-            else:
-                score_val = int(m.group(1))
-                reason = m.group(2)
-            if not reason:
-                sm = re.search(r'\"score\"\s*:\s*(\d+)', score_text)
-                if sm:
-                    score_val = int(sm.group(1))
+            payload = extract_score_payload(score_text)
+            if payload:
+                score_val = payload['score']
+                reason = str(payload.get('reason', ''))
 
-        scores.append({'i': idx, 's': score_val})
+        scores.append({'i': result_idx, 's': score_val})
 
         model = r.get('model', '')
         label = r.get('label', '')
-        name = f'{model} @ {label}' if label else model
+        label_suffix = f' @ {label}' if label else ''
+        name = model if not label_suffix or model.endswith(label_suffix) else model + label_suffix
         tps = r.get('tokens_per_sec', 0)
         status = r.get('status', '')
         emoji = {5:'✅', 4:'👍', 3:'⚠️', 2:'❌', 1:'💥'}.get(score_val, '❓')
 
-        report_lines.append(f'### {idx}. {name}')
+        report_lines.append(f'### {result_idx}. {name}')
         report_lines.append(f'**Score: {score_val}/5** {emoji} | Status: {status} | {tps:.1f} tok/s')
         if reason:
             report_lines.append(f'> {reason}')
         report_lines.append('')
+        result_idx += 1
 
 # Summary
 total = len(scores)
@@ -1917,7 +1963,7 @@ $SMART_TEST_FILE_SECTION
         codex)
           # codex exec: use temp file to avoid ARG_MAX limit on command line
           # (91+ test results with full responses easily exceed OS argument length)
-          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
+          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
           ;;
         afm)
           # afm uses Apple Foundation Models — context window is limited (~4K tokens).
@@ -2049,7 +2095,8 @@ with open(results_file) as f:
 
         model = r.get('model', '')
         label = r.get('label', '')
-        name = f'{model} @ {label}' if label else model
+        label_suffix = f' @ {label}' if label else ''
+        name = model if not label_suffix or model.endswith(label_suffix) else model + label_suffix
         tps = r.get('tokens_per_sec', 0)
         status = r.get('status', '')
         compact_lines.append(f'{idx}: {name} | {status} score={score_val} tps={tps}')
