@@ -106,7 +106,7 @@ class ${class} < Formula
 
   def install
     bin.install "afm"
-    ["MacLocalAPI_AFMKit.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
       if File.directory?(bundle_name)
         (libexec/bundle_name).install Dir["#{bundle_name}/*"]
       end
@@ -117,7 +117,7 @@ class ${class} < Formula
   end
 
   def post_install
-    ["MacLocalAPI_AFMKit.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
       bundle_src = libexec/bundle_name
       bundle_dst = HOMEBREW_PREFIX/"bin"/bundle_name
       bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
@@ -165,7 +165,7 @@ class ${class} < Formula
 
   def install
     libexec.install "afm"
-    libexec.install "MacLocalAPI_AFMKit.bundle"
+    libexec.install "MacLocalAPI_AFMEvaluationHost.bundle"
     libexec.install "AFMKit_AFMKitMLX.bundle"
     libexec.install "AFMKit_AFMKitDwarfStar.bundle"
     (bin/"afm").write_env_script libexec/"afm", AFM_BUILD_VERSION: "v#{version}"

@@ -345,9 +345,9 @@ trap - EXIT
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
 
-# AFMKit owns the bundled, no-judge evaluation suites. Keep its SwiftPM
-# resource bundle beside the executable in every install layout.
-EVAL_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMKit.bundle"
+# The AFM evaluation host owns the bundled, no-judge evaluation suites. Keep
+# its SwiftPM resource bundle beside the executable in every install layout.
+EVAL_BUNDLE_DIR="$FINAL_DIR/MacLocalAPI_AFMEvaluationHost.bundle"
 if [ -f "$EVAL_BUNDLE_DIR/Evals/comprehensive.json" ]; then
   EVAL_SUITE="$EVAL_BUNDLE_DIR/Evals/comprehensive.json"
 elif [ -f "$EVAL_BUNDLE_DIR/Contents/Resources/Evals/comprehensive.json" ]; then
@@ -458,10 +458,10 @@ if $DO_INSTALL; then
       "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
   done
 
-  run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
-  run_install_command cp -R "$EVAL_BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
-  run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle" \
-    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"
+  run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle"
+  run_install_command cp -R "$EVAL_BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle"
+  run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" \
+    "$INSTALL_PREFIX/bin/MacLocalAPI_AFMEvaluationHost.bundle"
 
   if [ -f "$WEBUI_SRC" ]; then
     run_install_command install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"

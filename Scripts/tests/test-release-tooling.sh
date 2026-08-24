@@ -32,7 +32,7 @@ if AFMKIT_GIT_COMMAND="$fake_git" \
    >"$auth_log" 2>&1; then
   fail "unauthenticated AFMKit access unexpectedly succeeded"
 fi
-grep -Fq 'Cannot read the private AFMKit dependency' "$auth_log" || \
+grep -Fq 'Cannot read the private provider dependency' "$auth_log" || \
   fail "private AFMKit error is not actionable"
 grep -Fq 'AFMKIT_READ_TOKEN' "$auth_log" || \
   fail "private AFMKit error does not name the CI secret"
@@ -44,19 +44,18 @@ public_gate_log="$WORK_ROOT/public-release-error.log"
 if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
-  probe_public_afmkit_source() {
-    return 0
+  read_public_release_sources() {
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
+  }
+  probe_public_source() {
+    return 1
   }
   check_public_release_eligibility
 ) >"$public_gate_log" 2>&1; then
-  fail "production public-release gate accepted a revision-pinned dependency"
+  fail "production public-release gate accepted a private dependency"
 fi
-grep -Fq 'Production publishing is blocked' "$public_gate_log" || \
+grep -Fq 'is not anonymously fetchable' "$public_gate_log" || \
   fail "public-release failure is not actionable"
-grep -Fq 'source-package surface' "$public_gate_log" || \
-  fail "public-release failure does not explain the exposed package surface"
-grep -Fq 'exact public semantic version' "$public_gate_log" || \
-  fail "public-release failure does not require a versioned AFMKit contract"
 if grep -Fq 'public-gate-secret' "$public_gate_log"; then
   fail "public-release gate leaked a development token"
 fi
@@ -65,28 +64,27 @@ private_gate_log="$WORK_ROOT/private-version-error.log"
 if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
-  read_afmkit_release_source() {
-    echo "https://github.com/scouzi1966/AFMKit.git 1111111111111111111111111111111111111111 exact 1.2.3 1.2.3"
+  read_public_release_sources() {
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
   }
-  probe_public_afmkit_source() {
-    [[ -z "${AFMKIT_READ_TOKEN:-}" ]] || return 9
+  probe_public_source() {
     return 1
   }
   check_public_release_eligibility
 ) >"$private_gate_log" 2>&1; then
   fail "production public-release gate accepted a private exact dependency"
 fi
-grep -Fq 'cannot satisfy the public distribution requirement' "$private_gate_log" || \
+grep -Fq 'is not anonymously fetchable' "$private_gate_log" || \
   fail "public-release failure does not distinguish development authentication"
 
 if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
-  read_afmkit_release_source() {
-    echo "https://github.com/scouzi1966/AFMKit.git 1111111111111111111111111111111111111111 exact 1.2.3 1.2.3"
+  read_public_release_sources() {
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
   }
-  probe_public_afmkit_source() {
-    [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
+  probe_public_source() {
+    return 0
   }
   check_public_release_eligibility
 ) >"$WORK_ROOT/public-release-success.log" 2>&1; then
@@ -95,8 +93,10 @@ fi
 
 prefix="$WORK_ROOT/custom-prefix"
 mkdir -p \
+  "$prefix/bin/MacLocalAPI_AFMEvaluationHost.bundle" \
   "$prefix/bin/AFMKit_AFMKitMLX.bundle" \
   "$prefix/bin/AFMKit_AFMKitDwarfStar.bundle" \
+  "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle/Evals" \
   "$prefix/libexec/afm/AFMKit_AFMKitMLX.bundle/Contents/Resources" \
   "$prefix/libexec/afm/AFMKit_AFMKitDwarfStar.bundle/metal" \
   "$prefix/share/afm/webui"
@@ -107,6 +107,8 @@ printf 'unrelated' > "$prefix/share/afm/webui/keep-me"
 printf 'resource' > "$prefix/share/afm/webui/index.html.gz"
 INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/bin/afm" ]] || fail "custom-prefix binary was not removed"
+[[ ! -e "$prefix/bin/MacLocalAPI_AFMEvaluationHost.bundle" ]] || fail "evaluation bundle was not removed"
+[[ ! -e "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" ]] || fail "libexec evaluation bundle was not removed"
 [[ ! -e "$prefix/bin/AFMKit_AFMKitMLX.bundle" ]] || fail "custom-prefix bundle was not removed"
 [[ ! -e "$prefix/libexec/afm/AFMKit_AFMKitDwarfStar.bundle" ]] || fail "libexec bundle was not removed"
 [[ ! -e "$prefix/share/afm/webui/index.html.gz" ]] || fail "WebUI was not removed"

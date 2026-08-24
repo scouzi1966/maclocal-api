@@ -240,6 +240,26 @@ if grep -ERn \
   fail "release packaging still references a maclocal-api-owned provider bundle"
 fi
 
+evaluation_bundle_consumers=(
+  build.sh
+  .github/workflows/nightly.yml
+  .github/workflows/release.yml
+  Scripts/build-native-wheel.sh
+  Scripts/build-nightly-wheel.sh
+  Scripts/create-tarball.sh
+  Scripts/generate-tap-versioned.sh
+  Scripts/publish-next.sh
+  Scripts/publish-stable.sh
+  Scripts/verify-native-wheel.sh
+)
+if grep -En 'MacLocalAPI_AFMKit\.bundle' "${evaluation_bundle_consumers[@]}" >/dev/null; then
+  fail "release packaging still references the pre-extraction evaluation bundle"
+fi
+for consumer in "${evaluation_bundle_consumers[@]}"; do
+  grep -Fq 'MacLocalAPI_AFMEvaluationHost.bundle' "$consumer" || \
+    fail "$consumer does not package the AFMEvaluationHost resource bundle"
+done
+
 for workflow in .github/workflows/nightly.yml .github/workflows/release.yml; do
   grep -Fq 'AFMKit_AFMKitMLX.bundle' "$workflow" || \
     fail "$workflow does not package the AFMKit MLX resource bundle"
