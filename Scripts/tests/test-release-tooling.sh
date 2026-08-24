@@ -71,6 +71,26 @@ IFS=$'\t' read -r release_identity release_url release_revision release_version 
 [[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
 [[ "$release_version" == "0.1.1" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.1"
 
+private_gate_log="$WORK_ROOT/private-version-error.log"
+if (
+  export AFMKIT_READ_TOKEN="private-gate-secret"
+  source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
+  read_public_release_sources() {
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
+  }
+  probe_public_source() {
+    [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
+  }
+  check_public_release_eligibility
+) >"$private_gate_log" 2>&1; then
+  fail "production public-release gate accepted an authenticated-only exact dependency"
+fi
+grep -Fq 'is not anonymously fetchable' "$private_gate_log" || \
+  fail "public-release gate did not reject the authenticated-only exact dependency"
+if grep -Fq 'private-gate-secret' "$private_gate_log"; then
+  fail "public-release gate leaked a development token"
+fi
+
 if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
