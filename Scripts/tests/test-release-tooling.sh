@@ -45,7 +45,7 @@ if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
   }
   probe_public_source() {
     return 1
@@ -69,14 +69,14 @@ IFS=$'\t' read -r release_identity release_url release_revision release_version 
 [[ "$release_url" == "https://github.com/scouzi1966/AFMKit.git" ]] || \
   fail "release source is not the canonical public HTTPS repository"
 [[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
-[[ "$release_version" == "0.1.1" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.1"
+[[ "$release_version" == "0.1.2" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.2"
 
 private_gate_log="$WORK_ROOT/private-version-error.log"
 if (
   export AFMKIT_READ_TOKEN="private-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
   }
   probe_public_source() {
     [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
@@ -95,7 +95,7 @@ if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
   }
   probe_public_source() {
     return 0
