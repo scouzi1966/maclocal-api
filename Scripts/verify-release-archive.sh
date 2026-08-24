@@ -28,6 +28,13 @@ for required in "${ROOT_ENTRY}Resources/webui/index.html.gz"; do
   }
 done
 
+FLAT_EVAL="${ROOT_ENTRY}MacLocalAPI_AFMEvaluationHost.bundle/Evals/comprehensive.json"
+NESTED_EVAL="${ROOT_ENTRY}MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/comprehensive.json"
+if ! grep -Fqx "$FLAT_EVAL" <<<"$CONTENTS" && \
+   ! grep -Fqx "$NESTED_EVAL" <<<"$CONTENTS"; then
+  echo "[archive] missing bundled comprehensive evaluation suite" >&2
+  exit 1
+fi
 
 FLAT_DWARF_METAL="${ROOT_ENTRY}AFMKit_AFMKitDwarfStar.bundle/metal/moe.metal"
 NESTED_DWARF_METAL="${ROOT_ENTRY}AFMKit_AFMKitDwarfStar.bundle/Contents/Resources/metal/moe.metal"

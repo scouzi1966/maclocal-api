@@ -240,6 +240,48 @@ if grep -ERn \
   fail "release packaging still references a maclocal-api-owned provider bundle"
 fi
 
+evaluation_bundle_consumers=(
+  build.sh
+  .github/workflows/nightly.yml
+  .github/workflows/release.yml
+  Scripts/build-native-wheel.sh
+  Scripts/build-nightly-wheel.sh
+  Scripts/create-tarball.sh
+  Scripts/generate-tap-versioned.sh
+  Scripts/publish-next.sh
+  Scripts/publish-stable.sh
+  Scripts/verify-native-wheel.sh
+  Scripts/verify-release-archive.sh
+  Scripts/uninstall.sh
+)
+evaluation_bundle_no_legacy_consumers=(
+  .github/workflows/nightly.yml
+  .github/workflows/release.yml
+  Scripts/build-native-wheel.sh
+  Scripts/build-nightly-wheel.sh
+  Scripts/create-tarball.sh
+  Scripts/generate-tap-versioned.sh
+  Scripts/verify-native-wheel.sh
+  Scripts/verify-release-archive.sh
+)
+if grep -En 'MacLocalAPI_AFMKit\.bundle' "${evaluation_bundle_no_legacy_consumers[@]}" >/dev/null; then
+  fail "release packaging still references the pre-extraction evaluation bundle"
+fi
+for consumer in "${evaluation_bundle_consumers[@]}"; do
+  grep -Fq 'MacLocalAPI_AFMEvaluationHost.bundle' "$consumer" || \
+    fail "$consumer does not package the AFMEvaluationHost resource bundle"
+done
+grep -Fq 'rm -rf "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"' build.sh || \
+  fail "build.sh does not remove the legacy evaluation bundle from bin on upgrade"
+grep -Fq 'rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"' build.sh || \
+  fail "build.sh does not remove the legacy evaluation bundle from libexec on upgrade"
+grep -Fq 'MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMEvaluationHost.bundle' Scripts/uninstall.sh || \
+  fail "uninstall.sh does not remove both legacy and current evaluation bundles"
+for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
+  grep -Fq "s/libexec\\.install \"MacLocalAPI_AFMKit\\.bundle\"/libexec.install \"MacLocalAPI_AFMEvaluationHost.bundle\"/" "$publisher" || \
+    fail "$publisher does not migrate an existing Homebrew formula to the current evaluation bundle"
+done
+
 for workflow in .github/workflows/nightly.yml .github/workflows/release.yml; do
   grep -Fq 'AFMKit_AFMKitMLX.bundle' "$workflow" || \
     fail "$workflow does not package the AFMKit MLX resource bundle"

@@ -8,9 +8,12 @@ SOURCE_DIR="$(dirname "$SOURCE_BIN")"
 
 rm -rf "$WORK_ROOT"
 mkdir -p \
+  "$WORK_ROOT/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals" \
   "$WORK_ROOT/AFMKit_AFMKitMLX.bundle/Contents/Resources"
 cp "$SOURCE_BIN" "$WORK_ROOT/afm"
 cp -R "$SOURCE_DIR/AFMKit_AFMKitDwarfStar.bundle" "$WORK_ROOT/"
+cp "$ROOT_DIR/Sources/AFMEvaluationHost/Resources/Evals/comprehensive.json" \
+  "$WORK_ROOT/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/"
 
 SOURCE_METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --metallib "$SOURCE_DIR")"
 cp "$SOURCE_METALLIB" \
@@ -20,5 +23,7 @@ AFM_RELEASE_BIN="$WORK_ROOT/afm" "$ROOT_DIR/Scripts/build-stable-wheel.sh"
 WHEEL="$(ls -t "$ROOT_DIR"/dist/macafm-*.whl | head -1)"
 unzip -Z1 "$WHEEL" | grep -Fqx \
   'macafm/bin/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib'
+unzip -Z1 "$WHEEL" | grep -Fqx \
+  'macafm/bin/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/comprehensive.json'
 
 echo "[xcode27-wheel-test] nested bundle archive and installed launch verified"

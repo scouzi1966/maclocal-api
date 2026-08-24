@@ -56,8 +56,8 @@ for required in \
   }
 done
 
-FLAT_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMKit.bundle/Evals/comprehensive.json"
-NESTED_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMKit.bundle/Contents/Resources/Evals/comprehensive.json"
+FLAT_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Evals/comprehensive.json"
+NESTED_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/comprehensive.json"
 if ! grep -Fqx "$FLAT_EVAL" <<<"$CONTENTS" && \
    ! grep -Fqx "$NESTED_EVAL" <<<"$CONTENTS"; then
   echo "[wheel] missing bundled comprehensive evaluation suite" >&2

@@ -53,7 +53,7 @@ jobs:
         cp Resources/webui/index.html.gz release-package/Resources/webui/
         Scripts/verify-webui.sh release-package/Resources/webui/index.html.gz
 
-        for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+        for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

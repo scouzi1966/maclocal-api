@@ -118,7 +118,7 @@ sed -i '' "s/^version = .*/version = \"${PYTHON_VERSION}\"/" pyproject-next.toml
 echo "[INFO] Staging assets into macafm_next/"
 mkdir -p macafm_next/bin
 cp "$BIN" macafm_next/bin/
-for BUNDLE_NAME in MacLocalAPI_AFMKit.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
     BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
     if [ ! -d "$BUNDLE_DIR" ]; then
         echo "[ERROR] Required runtime bundle missing: $BUNDLE_DIR"
@@ -227,7 +227,7 @@ rm -rf "$WHEEL_SMOKE"
 echo "[INFO] Verified wheel metadata version: $ACTUAL_PYTHON_VERSION"
 echo "[INFO] Verified wheel runtime version: $ACTUAL_VERSION"
 if ! unzip -Z1 "$WHL" | grep -E \
-    '(^|/)macafm_next/bin/MacLocalAPI_AFMKit\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
+    '(^|/)macafm_next/bin/MacLocalAPI_AFMEvaluationHost\.bundle/(Evals/|Contents/Resources/Evals/)comprehensive\.json$' \
     >/dev/null; then
     echo "[ERROR] Wheel is missing the bundled comprehensive evaluation suite"
     exit 1
