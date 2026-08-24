@@ -60,22 +60,16 @@ if grep -Fq 'public-gate-secret' "$public_gate_log"; then
   fail "public-release gate leaked a development token"
 fi
 
-private_gate_log="$WORK_ROOT/private-version-error.log"
-if (
-  export AFMKIT_READ_TOKEN="public-gate-secret"
+release_source="$(
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
-  read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.1'
-  }
-  probe_public_source() {
-    return 1
-  }
-  check_public_release_eligibility
-) >"$private_gate_log" 2>&1; then
-  fail "production public-release gate accepted a private exact dependency"
-fi
-grep -Fq 'is not anonymously fetchable' "$private_gate_log" || \
-  fail "public-release failure does not distinguish development authentication"
+  read_public_release_sources
+)"
+IFS=$'\t' read -r release_identity release_url release_revision release_version <<<"$release_source"
+[[ "$release_identity" == "afmkit" ]] || fail "release source identity is not AFMKit"
+[[ "$release_url" == "https://github.com/scouzi1966/AFMKit.git" ]] || \
+  fail "release source is not the canonical public HTTPS repository"
+[[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
+[[ "$release_version" == "0.1.1" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.1"
 
 if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
@@ -93,9 +87,11 @@ fi
 
 prefix="$WORK_ROOT/custom-prefix"
 mkdir -p \
+  "$prefix/bin/MacLocalAPI_AFMKit.bundle" \
   "$prefix/bin/MacLocalAPI_AFMEvaluationHost.bundle" \
   "$prefix/bin/AFMKit_AFMKitMLX.bundle" \
   "$prefix/bin/AFMKit_AFMKitDwarfStar.bundle" \
+  "$prefix/libexec/afm/MacLocalAPI_AFMKit.bundle/Evals" \
   "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle/Evals" \
   "$prefix/libexec/afm/AFMKit_AFMKitMLX.bundle/Contents/Resources" \
   "$prefix/libexec/afm/AFMKit_AFMKitDwarfStar.bundle/metal" \
@@ -107,6 +103,8 @@ printf 'unrelated' > "$prefix/share/afm/webui/keep-me"
 printf 'resource' > "$prefix/share/afm/webui/index.html.gz"
 INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/bin/afm" ]] || fail "custom-prefix binary was not removed"
+[[ ! -e "$prefix/bin/MacLocalAPI_AFMKit.bundle" ]] || fail "legacy evaluation bundle was not removed"
+[[ ! -e "$prefix/libexec/afm/MacLocalAPI_AFMKit.bundle" ]] || fail "legacy libexec evaluation bundle was not removed"
 [[ ! -e "$prefix/bin/MacLocalAPI_AFMEvaluationHost.bundle" ]] || fail "evaluation bundle was not removed"
 [[ ! -e "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" ]] || fail "libexec evaluation bundle was not removed"
 [[ ! -e "$prefix/bin/AFMKit_AFMKitMLX.bundle" ]] || fail "custom-prefix bundle was not removed"

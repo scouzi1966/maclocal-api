@@ -458,6 +458,11 @@ if $DO_INSTALL; then
       "$INSTALL_PREFIX/bin/$BUNDLE_NAME"
   done
 
+  # Remove the pre-extraction evaluation bundle when upgrading an existing
+  # installation. It is no longer used, but older releases installed it in
+  # both locations.
+  run_install_command rm -rf "$INSTALL_PREFIX/bin/MacLocalAPI_AFMKit.bundle"
+  run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMKit.bundle"
   run_install_command rm -rf "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle"
   run_install_command cp -R "$EVAL_BUNDLE_SRC" "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle"
   run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" \

@@ -59,7 +59,7 @@ remove_owned_path() {
 }
 
 remove_owned_path "$INSTALL_PREFIX/bin/afm"
-for bundle in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+for bundle in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
   remove_owned_path "$INSTALL_PREFIX/bin/$bundle"
   remove_owned_path "$INSTALL_PREFIX/libexec/afm/$bundle"
 done
