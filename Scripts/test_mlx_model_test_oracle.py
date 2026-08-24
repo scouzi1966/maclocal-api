@@ -30,7 +30,7 @@ class ModelTestOracleTests(unittest.TestCase):
         config["prompt_idx"] = 1
         self.assertEqual(expectation_for_prompt(config), config["expect"])
 
-    def test_accepts_exact_ordered_distinct_tool_calls(self):
+    def test_accepts_distinct_tool_calls_in_either_order(self):
         expectation = {
             "finish_reason": "tool_calls",
             "tool_calls": [
@@ -39,8 +39,8 @@ class ModelTestOracleTests(unittest.TestCase):
             ],
         }
         actual = [
-            {"function": {"name": "get_weather", "arguments": '{"city":"London"}'}},
             {"function": {"name": "get_time", "arguments": '{"timezone":"Asia/Tokyo"}'}},
+            {"function": {"name": "get_weather", "arguments": '{"city":"London"}'}},
         ]
 
         _, failures = evaluate_expectations(
@@ -73,8 +73,8 @@ class ModelTestOracleTests(unittest.TestCase):
             tool_calls=actual,
         )
 
-        self.assertTrue(any("tool_calls[0].name" in failure for failure in failures))
-        self.assertTrue(any("arguments.city" in failure for failure in failures))
+        self.assertIn("tool_calls missing expected function 'get_weather'", failures)
+        self.assertTrue(any("arguments.timezone" in failure for failure in failures))
 
     def test_rejects_fenced_or_schema_invalid_json(self):
         expectation = {

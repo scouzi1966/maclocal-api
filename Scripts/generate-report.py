@@ -199,12 +199,16 @@ def config_panel(r):
         ("frequency_penalty", "freq_pen", "#f0883e"),
         ("logprobs", "logprobs", "#a371f7"),
         ("top_logprobs", "top_logprobs", "#a371f7"),
-        ("stop", "stop", "#d29922"),
+        ("stop", "stop (raw JSON)", "#d29922"),
         ("response_format", "resp_fmt", "#d29922"),
     ]:
         val = r.get(key)
         if val is not None:
-            if isinstance(val, list):
+            if key == "stop":
+                # Preserve exact request semantics, including list boundaries,
+                # quotes, escapes, control characters, and Unicode values.
+                val = json.dumps(val, ensure_ascii=False)
+            elif isinstance(val, list):
                 val = ", ".join(str(v) for v in val)
             api_badges.append(config_badge(label_text, val, color))
 

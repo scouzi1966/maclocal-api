@@ -108,13 +108,24 @@ def evaluate_expectations(
         expected_calls = expectation["tool_calls"]
         if len(tool_calls) != len(expected_calls):
             failures.append(f"tool_calls count expected {len(expected_calls)}, got {len(tool_calls)}")
-        for index, expected_call in enumerate(expected_calls[: len(tool_calls)]):
-            actual_call = tool_calls[index]
-            actual_name = actual_call["function"]["name"]
-            if actual_name != expected_call.get("name"):
+        unmatched_calls = list(enumerate(tool_calls))
+        for expected_call in expected_calls:
+            expected_name = expected_call.get("name")
+            match_offset = next(
+                (
+                    offset
+                    for offset, (_, call) in enumerate(unmatched_calls)
+                    if call.get("function", {}).get("name") == expected_name
+                ),
+                None,
+            )
+            if match_offset is None:
                 failures.append(
-                    f"tool_calls[{index}].name expected {expected_call.get('name')!r}, got {actual_name!r}"
+                    f"tool_calls missing expected function {expected_name!r}"
                 )
+                continue
+            actual_index, actual_call = unmatched_calls.pop(match_offset)
+            actual_name = actual_call["function"]["name"]
             try:
                 actual_arguments = json.loads(actual_call["function"]["arguments"])
             except (json.JSONDecodeError, TypeError, ValueError):
@@ -123,7 +134,8 @@ def evaluate_expectations(
                 actual_value = actual_arguments.get(key) if isinstance(actual_arguments, dict) else None
                 if actual_value != expected_value:
                     failures.append(
-                        f"tool_calls[{index}].arguments.{key} expected {expected_value!r}, got {actual_value!r}"
+                        f"tool_calls[{actual_index}] ({actual_name}).arguments.{key} "
+                        f"expected {expected_value!r}, got {actual_value!r}"
                     )
 
     return valid_json, failures

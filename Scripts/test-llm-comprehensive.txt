@@ -29,16 +29,13 @@
 # NOTES
 # -----
 # - Uses [@ label] template mode — supply --model on the command line
-# - The [all] section prompt runs for every test variant as a baseline
+# - Every variant owns its prompt; there is no duplicated global baseline
 # - For model-specific tests, see test-<ModelName>.txt files
 # ══════════════════════════════════════════════════════════════════════
 
 max_tokens: 20000
 temperature: 0.7
 afm: --no-think
-
-[all]
-Name three primary colors and explain why they matter in design. Answer concisely.
 
 
 # ══════════════════════════════════════════════════════════════════════
