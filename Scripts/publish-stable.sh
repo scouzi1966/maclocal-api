@@ -254,6 +254,9 @@ if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.
   log_error "Homebrew stable formula does not install the required WebUI"
   exit 1
 fi
+if grep -Fq 'libexec.install "MacLocalAPI_AFMKit.bundle"' afm.rb; then
+  sed -i '' 's/libexec\.install "MacLocalAPI_AFMKit\.bundle"/libexec.install "MacLocalAPI_AFMEvaluationHost.bundle"/' afm.rb
+fi
 if ! grep -Fq 'libexec.install "MacLocalAPI_AFMEvaluationHost.bundle"' afm.rb; then
   sed -i '' '/libexec.install "afm"/a\
     libexec.install "MacLocalAPI_AFMEvaluationHost.bundle"
