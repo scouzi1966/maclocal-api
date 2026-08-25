@@ -280,7 +280,7 @@ struct MlxCommand: ParsableCommand {
           --dspark-confidence: DSpark confidence-pruning threshold (default: 0.7)
           --dspark-strict: Load DSpark support but use target-only decoding
           --eagle3: EAGLE3 drafter directory for compatible dense Gemma4 models
-          --tool-call-parser: Override tool call format (none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
+          --tool-call-parser: Override tool call format (none, afm_adaptive_xml, deepseek_dsml, hermes, llama3_json, gemma, mistral, qwen3_xml). Omit for default native mode and MLX Python-style parity; use "none" for raw output; use "afm_adaptive_xml" for opt-in repair mode.
           --fix-tool-args: Opt-in repair-mode helper that post-processes tool call arg names to match original tool schema
           --enable-grammar-constraints: Enable grammar-constrained decoding engine. When active, API requests with strict: true on tools or response_format.json_schema use xgrammar for token-level enforcement. Without this flag, strict: true is silently downgraded to best-effort.
           --no-think: Disable thinking/reasoning when supported; for Muse, requests the lowest reasoning strength
@@ -326,6 +326,7 @@ struct MlxCommand: ParsableCommand {
             hermes: JSON format with Hermes chat template (Llama, Qwen, most models)
             llama3_json: JSON format with Llama-3 chat template
             mistral: JSON format with Mistral chat template
+            deepseek_dsml: Native DeepSeek V4 DSML tool-call format
             qwen3_xml: XML function format with Qwen3-Coder chat template
             gemma: Gemma function call format (uses model's built-in template)
           benchmark_guidance: Use default native mode for MLX Python parity and VulcanBench comparisons. Treat afm_adaptive_xml / --fix-tool-args results as AFM repair-layer results, not plain-vanilla parity.
@@ -495,7 +496,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Require a specific prefix for Telegram messages, for example '/afm' (default: no prefix required)")
     var telegramRequirePrefix: String?
 
-    @Option(name: .long, help: "Tool call parser override: none, afm_adaptive_xml, hermes, llama3_json, gemma, mistral, qwen3_xml. Omit for default native mode and MLX Python-style parity; Qwen XML models default to qwen3_xml. Use none for raw output with no AFM extraction. Use afm_adaptive_xml for opt-in repair behavior with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding.")
+    @Option(name: .long, help: "Tool call parser override: none, afm_adaptive_xml, deepseek_dsml, hermes, llama3_json, gemma, mistral, qwen3_xml. Omit for default native mode and MLX Python-style parity; Qwen XML models default to qwen3_xml and DeepSeek V4 models use deepseek_dsml. Use none for raw output with no AFM extraction. Use afm_adaptive_xml for opt-in repair behavior with JSON-in-XML fallback, type coercion, and optional xgrammar EBNF constrained decoding.")
     var toolCallParser: String?
 
     @Option(name: .long, help: "OpenAI-compatible tools array JSON for single-prompt mode")
@@ -637,6 +638,18 @@ struct MlxCommand: ParsableCommand {
         }
         if tui && (raw || json || openclawConfig) {
             throw ValidationError("--tui cannot be combined with --raw, --json, or --openclaw-config")
+        }
+        if let toolCallParser {
+            let normalizedParser = toolCallParser.trimmingCharacters(in: .whitespacesAndNewlines)
+            let supportedParsers: Set<String> = [
+                "none", "afm_adaptive_xml", "deepseek_dsml", "hermes", "llama3_json",
+                "gemma", "mistral", "qwen3_xml",
+            ]
+            guard supportedParsers.contains(normalizedParser) else {
+                throw ValidationError(
+                    "--tool-call-parser must be one of: \(supportedParsers.sorted().joined(separator: ", "))"
+                )
+            }
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created

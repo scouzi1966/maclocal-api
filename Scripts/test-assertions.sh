@@ -520,54 +520,42 @@ if should_run_section 2; then
 echo ""
 echo "🛑 Section 2: Stop Sequences"
 
-# Test: stop string absent from output
+# Test: deterministic stop prefix. A natural EOS cannot satisfy this oracle unless
+# the model ignores an explicit exact-output instruction at precisely the marker.
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Count from 1 to 20, one number per line."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["5"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly this text with no quotes or extra whitespace: AFM_PREFIX<AFM_STOP>AFM_SUFFIX"}],"max_tokens":200,"stream":false,"temperature":0,"stop":["<AFM_STOP>"]}')
 content=$(echo "$resp" | extract_visible_content)
 finish=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0].get('finish_reason',''))" 2>/dev/null || echo "error")
 dur=$(( $(now_ms) - t0 ))
-if ! echo "$content" | grep -q "5"; then
-  run_test "Stop" "Stop string '5' absent from output" "no '5' in content" "PASS" "$dur"
+if [ "$content" = "AFM_PREFIX" ]; then
+  run_test "Stop" "Deterministic stop returns exact prefix" "AFM_PREFIX only" "PASS" "$dur"
 else
-  run_test "Stop" "Stop string '5' absent from output" "no '5' in content" "FAIL: found '5' in: $content" "$dur"
+  run_test "Stop" "Deterministic stop returns exact prefix" "AFM_PREFIX only" "FAIL: got '$content'" "$dur"
 fi
 
 t0=$(now_ms)
-# finish_reason should be "stop" when the stop sequence fired, or "length" if the model
-# exhausted max_tokens on thinking without producing visible content (model behavior, not a bug).
-content_empty=$(echo "$resp" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    c = d['choices'][0]['message'].get('content') or ''
-    print('yes' if not c.strip() else 'no')
-except: print('no')
-" 2>/dev/null || echo "no")
+# The deterministic prefix oracle above proves the stop marker was reached, while
+# this checks OpenAI-compatible public response mapping.
 if [ "$finish" = "stop" ]; then
-  run_test "Stop" "finish_reason is 'stop' with stop sequence" "stop" "PASS" "$(( $(now_ms) - t0 ))"
-elif [ "$finish" = "length" ] && [ "$content_empty" = "yes" ]; then
-  # Model spent entire budget on thinking — stop never fired on visible content. Correct behavior.
   run_test "Stop" "finish_reason is 'stop' with stop sequence" "stop" "PASS" "$(( $(now_ms) - t0 ))"
 else
   run_test "Stop" "finish_reason is 'stop' with stop sequence" "stop" "FAIL: got '$finish'" "$(( $(now_ms) - t0 ))"
 fi
 
-# Test: multi-word stop
+# Test: multi-character stop
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Write a short paragraph about cats."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["and"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly this text with no quotes or extra whitespace: AFM_MULTI_PREFIX<AFM_MULTI_STOP>AFM_MULTI_SUFFIX"}],"max_tokens":200,"stream":false,"temperature":0,"stop":["<AFM_MULTI_STOP>"]}')
 content=$(echo "$resp" | extract_visible_content)
 dur=$(( $(now_ms) - t0 ))
-# "and" should not appear in output (case sensitive)
-if ! echo "$content" | grep -qw "and"; then
-  run_test "Stop" "Multi-word stop 'and' truncates correctly" "no 'and' in output" "PASS" "$dur"
+if [ "$content" = "AFM_MULTI_PREFIX" ]; then
+  run_test "Stop" "Multi-character stop truncates exactly" "AFM_MULTI_PREFIX only" "PASS" "$dur"
 else
-  # Check if it's just in a word like "understand" — that's fine, we check word boundary
-  run_test "Stop" "Multi-word stop 'and' truncates correctly" "no 'and' in output" "FAIL: found in: $(echo "$content" | head -1)" "$dur"
+  run_test "Stop" "Multi-character stop truncates exactly" "AFM_MULTI_PREFIX only" "FAIL: got '$content'" "$dur"
 fi
 
 # Test: stop with newline
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Say hello world"}],"max_tokens":500,"stream":false,"temperature":0,"stop":["\\n"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly two lines: AFM_LINE_ONE on the first line and AFM_LINE_TWO on the second. Output nothing else."}],"max_tokens":500,"stream":false,"temperature":0,"stop":["\\n"]}')
 dur=$(( $(now_ms) - t0 ))
 stop_nl_ok=$(echo "$resp" | python3 -c "
 import sys, json
@@ -575,14 +563,10 @@ try:
     d = json.load(sys.stdin)
     msg = d['choices'][0]['message']
     c = msg.get('content') or ''
-    # Visible content should have no newlines (stop fired before any newline)
-    if '\n' not in c:
-        print('PASS')
-    elif not c.strip():
-        # Empty content is OK — thinking model used all tokens on reasoning
+    if c == 'AFM_LINE_ONE':
         print('PASS')
     else:
-        print(f'FAIL: multi-line: {repr(c[:80])}')
+        print(f'FAIL: expected exact prefix, got {repr(c[:80])}')
 except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
@@ -594,13 +578,13 @@ fi
 
 # Test: multiple stop sequences
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Count from 1 to 20."}],"max_tokens":200,"stream":false,"temperature":0,"stop":["7","12"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly this text with no quotes or extra whitespace: AFM_FIRST<AFM_STOP_ONE>AFM_MIDDLE<AFM_STOP_TWO>AFM_LAST"}],"max_tokens":200,"stream":false,"temperature":0,"stop":["<AFM_STOP_ONE>","<AFM_STOP_TWO>"]}')
 content=$(echo "$resp" | extract_visible_content)
 dur=$(( $(now_ms) - t0 ))
-if ! echo "$content" | grep -q "7" && ! echo "$content" | grep -q "12"; then
-  run_test "Stop" "Multiple stop sequences [7, 12]" "neither found" "PASS" "$dur"
+if [ "$content" = "AFM_FIRST" ]; then
+  run_test "Stop" "Multiple stop sequences choose first marker" "AFM_FIRST only" "PASS" "$dur"
 else
-  run_test "Stop" "Multiple stop sequences [7, 12]" "neither found" "FAIL: content=$content" "$dur"
+  run_test "Stop" "Multiple stop sequences choose first marker" "AFM_FIRST only" "FAIL: content=$content" "$dur"
 fi
 
 # Test: empty stop array is no-op
@@ -616,7 +600,7 @@ fi
 
 # Test: streaming stop sequence parity
 t0=$(now_ms)
-stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Count from 1 to 20, one number per line."}],"max_tokens":200,"stream":true,"temperature":0,"stop":["5"]}')
+stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Output exactly this text with no quotes or extra whitespace: AFM_STREAM_PREFIX<AFM_STREAM_STOP>AFM_STREAM_SUFFIX"}],"max_tokens":200,"stream":true,"temperature":0,"stop":["<AFM_STREAM_STOP>"]}')
 stream_content=$(echo "$stream_resp" | grep "^data: {" | grep -v '"[DONE]"' | python3 -c "
 import sys, json
 content = ''
@@ -636,11 +620,11 @@ for line in sys.stdin:
 print(content)
 " 2>/dev/null || echo "__ERROR__")
 dur=$(( $(now_ms) - t0 ))
-if ! echo "$stream_content" | grep -q "5"; then
-  run_test "Stop" "Streaming: stop string '5' absent" "no '5' in stream" "PASS" "$dur"
+if [ "$stream_content" = "AFM_STREAM_PREFIX" ]; then
+  run_test "Stop" "Streaming: deterministic exact stop prefix" "AFM_STREAM_PREFIX only" "PASS" "$dur"
 else
   stream_preview=$(printf '%s' "$stream_content" | head -c 240)
-  run_test "Stop" "Streaming: stop string '5' absent" "no '5' in stream" "FAIL: found '5' in: $stream_preview" "$dur"
+  run_test "Stop" "Streaming: deterministic exact stop prefix" "AFM_STREAM_PREFIX only" "FAIL: got '$stream_preview'" "$dur"
 fi
 
 if min_tier standard; then
@@ -648,13 +632,13 @@ if min_tier standard; then
   # Additional stop tests for standard+ tiers
   # Test: stop sequence with JSON array format
   t0=$(now_ms)
-  resp=$(api_call '{"messages":[{"role":"user","content":"List 5 fruits, one per line."}],"max_tokens":100,"stream":false,"temperature":0,"stop":["3."]}')
+  resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly this text with no quotes or extra whitespace: AFM_ARRAY_PREFIX<AFM_ARRAY_STOP>AFM_ARRAY_SUFFIX"}],"max_tokens":100,"stream":false,"temperature":0,"stop":["<AFM_ARRAY_STOP>"]}')
   content=$(echo "$resp" | extract_visible_content)
   dur=$(( $(now_ms) - t0 ))
-  if ! echo "$content" | grep -q "3\."; then
-    run_test "Stop" "Stop sequence '3.' truncates list" "no '3.' in output" "PASS" "$dur"
+  if [ "$content" = "AFM_ARRAY_PREFIX" ]; then
+    run_test "Stop" "Stop array format truncates exactly" "AFM_ARRAY_PREFIX only" "PASS" "$dur"
   else
-    run_test "Stop" "Stop sequence '3.' truncates list" "no '3.' in output" "FAIL" "$dur"
+    run_test "Stop" "Stop array format truncates exactly" "AFM_ARRAY_PREFIX only" "FAIL: got '$content'" "$dur"
   fi
 
   # Test: stop doesn't fire on partial match

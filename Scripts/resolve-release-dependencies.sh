@@ -98,20 +98,25 @@ run_authenticated() {
 
 for source in "${AFMKIT_RELEASE_SOURCES[@]}"; do
   IFS=$'\t' read -r AFMKIT_IDENTITY AFMKIT_URL AFMKIT_REVISION AFMKIT_VERSION <<< "$source"
-  AFMKIT_REMOTE_REFS="$(run_authenticated "$GIT_COMMAND" ls-remote --tags "$AFMKIT_URL" "refs/tags/$AFMKIT_VERSION*" 2>/dev/null || true)"
+  AFMKIT_REMOTE_REFS="$(
+    run_authenticated "$GIT_COMMAND" ls-remote --tags "$AFMKIT_URL" \
+      "refs/tags/$AFMKIT_VERSION" \
+      "refs/tags/$AFMKIT_VERSION^{}" \
+      "refs/tags/v$AFMKIT_VERSION" \
+      "refs/tags/v$AFMKIT_VERSION^{}" \
+      2>/dev/null || true
+  )"
   if grep -Fq "$AFMKIT_REVISION" <<<"$AFMKIT_REMOTE_REFS"; then
     echo "[afmkit-auth] Access verified for $AFMKIT_IDENTITY ${AFMKIT_REVISION:0:12}."
     continue
   fi
   cat >&2 <<EOF
-[afmkit-auth] Cannot read the private provider dependency at $AFMKIT_URL.
-[afmkit-auth] Local builds: authenticate a GitHub account with repository read access
-[afmkit-auth] using 'gh auth login' followed by 'gh auth setup-git'.
-[afmkit-auth] CI/releases: provide a masked AFMKIT_READ_TOKEN secret with read access
-[afmkit-auth] to the AFMKit repository. The default cross-repository GITHUB_TOKEN is
-[afmkit-auth] not sufficient. No production release is permitted until AFMKit and
-[afmkit-auth] every dependency in its root graph are public or an approved
-[afmkit-auth] public immutable artifact replaces this private dependency.
+[afmkit-auth] Cannot read the exact provider dependency at $AFMKIT_URL.
+[afmkit-auth] Confirm network access and that tag $AFMKIT_VERSION resolves to
+[afmkit-auth] ${AFMKIT_REVISION:0:12}. For an explicitly private development source,
+[afmkit-auth] authenticate with 'gh auth login' and 'gh auth setup-git', or provide a
+[afmkit-auth] masked AFMKIT_READ_TOKEN with repository read access. Production release
+[afmkit-auth] eligibility always requires anonymous access and never relies on a token.
 EOF
   exit 1
 done

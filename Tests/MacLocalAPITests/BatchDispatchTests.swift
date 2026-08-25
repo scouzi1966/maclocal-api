@@ -1765,6 +1765,7 @@ struct StreamCollectorTests {
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(collected.stoppedBySequence)
         #expect(collected.finishReason == "stop")
     }
 
@@ -1790,6 +1791,7 @@ struct StreamCollectorTests {
         ])
 
         let collected = try await StreamCollector.collect(from: result, extractThinking: false)
+        #expect(!collected.stoppedBySequence)
         #expect(collected.finishReason == "stop")
     }
 

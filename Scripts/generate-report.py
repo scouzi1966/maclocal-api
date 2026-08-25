@@ -1,6 +1,34 @@
 #!/usr/bin/env python3
 import json, html, datetime, re, os, sys, shutil, subprocess
 
+
+def extract_ai_scores(content):
+    """Decode the final AI_SCORES array while tolerating harmless marker drift."""
+    marker = "AI_SCORES"
+    marker_pos = content.rfind(marker)
+    if marker_pos < 0:
+        return []
+    array_pos = content.find("[", marker_pos + len(marker))
+    if array_pos < 0:
+        return []
+    try:
+        scores, _ = json.JSONDecoder().raw_decode(content[array_pos:])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(scores, list):
+        return []
+    return scores
+
+
+def strip_ai_scores(content):
+    """Remove the machine-readable score trailer from displayed analysis."""
+    marker_pos = content.rfind("AI_SCORES")
+    if marker_pos < 0:
+        return content.strip()
+    comment_pos = content.rfind("<!--", 0, marker_pos)
+    trailer_pos = comment_pos if comment_pos >= 0 else marker_pos
+    return content[:trailer_pos].strip()
+
 # Read JSONL path from env (set by mlx-model-test.sh) or fall back to hardcoded path
 RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/mlx-test-results.jsonl")
 
@@ -20,8 +48,13 @@ with open(RESULTS_FILE) as f:
 for idx, r in enumerate(results):
     r["_jsonl_idx"] = idx
 
-ok = [r for r in results if r["status"] == "OK"]
-fail = [r for r in results if r["status"] == "FAIL"]
+def result_passed(result):
+    if "overall_status" in result:
+        return result["overall_status"] == "pass"
+    return result.get("status") == "OK"
+
+ok = [r for r in results if result_passed(r)]
+fail = [r for r in results if not result_passed(r)]
 ok_sorted = sorted(ok, key=lambda r: r.get("tokens_per_sec", 0), reverse=True)
 
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -64,10 +97,13 @@ if os.path.isdir(report_dir):
                     with open(os.path.join(report_dir, fname)) as sf:
                         content = sf.read()
                     scores = {}
-                    m_scores = re.search(r'<!-- AI_SCORES (\[.*?\]) -->', content)
-                    if m_scores:
-                        for entry in json.loads(m_scores.group(1)):
-                            scores[entry["i"]] = entry["s"]
+                    for entry in extract_ai_scores(content):
+                        if not isinstance(entry, dict):
+                            continue
+                        idx = entry.get("i")
+                        score = entry.get("s")
+                        if isinstance(idx, int) and isinstance(score, int) and 1 <= score <= 5:
+                            scores[idx] = score
                     smart_analyses.append({"tool": tool_name, "content": content, "scores": scores})
                 except:
                     pass
@@ -127,7 +163,7 @@ if prompts_file and os.path.isfile(prompts_file):
                                        'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
                                        'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
                                        'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                       'frequency_penalty:', 'media:')):
+                                       'frequency_penalty:', 'media:', 'expect:')):
                 comment_buf = []
 
 # ── Parse per-test reasons from smart analysis .md files ─────────────────────
@@ -194,12 +230,16 @@ def config_panel(r):
         ("frequency_penalty", "freq_pen", "#f0883e"),
         ("logprobs", "logprobs", "#a371f7"),
         ("top_logprobs", "top_logprobs", "#a371f7"),
-        ("stop", "stop", "#d29922"),
+        ("stop", "stop (raw JSON)", "#d29922"),
         ("response_format", "resp_fmt", "#d29922"),
     ]:
         val = r.get(key)
         if val is not None:
-            if isinstance(val, list):
+            if key == "stop":
+                # Preserve exact request semantics, including list boundaries,
+                # quotes, escapes, control characters, and Unicode values.
+                val = json.dumps(val, ensure_ascii=False)
+            elif isinstance(val, list):
                 val = ", ".join(str(v) for v in val)
             api_badges.append(config_badge(label_text, val, color))
 
@@ -216,6 +256,11 @@ def config_panel(r):
         perf_badges.append(config_badge("json", "valid", "#3fb950"))
     elif vjson is False:
         perf_badges.append(config_badge("json", "INVALID", "#f85149"))
+    assertion = r.get("assertion_status")
+    if assertion == "pass":
+        perf_badges.append(config_badge("assert", "pass", "#3fb950"))
+    elif assertion == "fail":
+        perf_badges.append(config_badge("assert", "FAIL", "#f85149"))
     perf_badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
@@ -234,9 +279,15 @@ def config_panel(r):
 
 # Build per-model response sections
 model_responses = ""
-for i, r in enumerate(ok_sorted):
+response_results = results
+response_index_by_jsonl_idx = {
+    r["_jsonl_idx"]: i for i, r in enumerate(response_results)
+}
+for i, r in enumerate(response_results):
     content = r.get("content", "") or r.get("content_preview", "")
     reasoning = r.get("reasoning_content", "")
+    completion_tokens = r.get("completion_tokens", 0)
+    tokens_per_sec = r.get("tokens_per_sec", 0)
     # Show reasoning if content is empty, or prepend it if both exist
     if not content and reasoning:
         content = f"<details open><summary><strong>🧠 Reasoning</strong> <em>(model used all tokens thinking — no response emitted)</em></summary>\n\n{reasoning}\n\n</details>"
@@ -244,13 +295,24 @@ for i, r in enumerate(ok_sorted):
         content = f"<details><summary><strong>🧠 Reasoning</strong></summary>\n\n{reasoning}\n\n</details>\n\n{content}"
     content_js = json.dumps(content)
     prompt_text = r.get("prompt", "")
-    prompt_html = html.escape(prompt_text[:500]) + ("..." if len(prompt_text) > 500 else "")
+    prompt_html = html.escape(prompt_text)
     panel = config_panel(r)
 
     # ── Build AI Intent section ──
     intent_html = ""
     label = r.get("label", "")
-    if label and label in ai_intents:
+    if r.get("is_baseline"):
+        intent_lines = (
+            "Global [all] baseline: judge this ordinary prompt on its own response quality. "
+            "The enclosing variant's settings remain active, but its variant-specific test "
+            "intent and expectations do not apply to this record."
+        )
+        intent_html = f"""
+    <details class="ai-detail">
+      <summary class="ai-detail-summary">🎯 Baseline Intent</summary>
+      <div class="ai-detail-body">{html.escape(intent_lines)}</div>
+    </details>"""
+    elif label and label in ai_intents:
         intent_lines = "<br>".join(html.escape(line) for line in ai_intents[label])
         intent_html = f"""
     <details class="ai-detail">
@@ -261,14 +323,16 @@ for i, r in enumerate(ok_sorted):
     # ── Build AI Smart Scores section ──
     smart_html = ""
     jsonl_idx = r.get("_jsonl_idx")
-    if has_per_test_smart and jsonl_idx is not None:
+    if has_ai_scores and jsonl_idx is not None:
         smart_items = []
-        for tool, scores_map in smart_per_test.items():
-            if jsonl_idx in scores_map:
-                entry = scores_map[jsonl_idx]
-                s = entry["score"]
+        for sa in smart_analyses:
+            tool = sa["tool"]
+            detail = smart_per_test.get(tool, {}).get(jsonl_idx)
+            s = detail["score"] if detail else sa["scores"].get(jsonl_idx)
+            if s is not None:
                 emoji = {5: "✅", 4: "👍", 3: "⚠️", 2: "❌", 1: "💥"}.get(s, "❓")
-                reason_esc = html.escape(entry["reason"]) if entry["reason"] else ""
+                reason = detail["reason"] if detail else ""
+                reason_esc = html.escape(reason) if reason else ""
                 score_color = {5: "#3fb950", 4: "#58a6ff", 3: "#d29922", 2: "#f0883e", 1: "#f85149"}.get(s, "#8b949e")
                 line_html = f'<span style="color:{score_color};font-weight:700">{s}/5 {emoji}</span> <strong>{html.escape(tool)}</strong>'
                 if reason_esc:
@@ -288,7 +352,7 @@ for i, r in enumerate(ok_sorted):
     <span class="toggle-icon" id="icon-{i}">&#9654;</span>
     <span class="test-num" style="min-width:2rem;text-align:center">#{resp_test_num}</span>
     <span class="mono">{html.escape(r["model"])}</span>
-    <span class="response-meta">{r["completion_tokens"]} tokens &middot; {r["tokens_per_sec"]:.1f} tok/s</span>
+    <span class="response-meta">{completion_tokens} tokens &middot; {tokens_per_sec:.1f} tok/s</span>
   </h3>
   <div class="response-body" id="body-{i}" style="display:none">
     <div class="config-panel">{panel}</div>{intent_html}{smart_html}
@@ -312,7 +376,7 @@ def ai_score_cell(score):
 fail_rows = ""
 if fail:
     for r in fail:
-        error = r.get("error", "Unknown error")
+        error = r.get("error") or "; ".join(r.get("assertion_failures", [])) or "Unknown error"
         error_clean = error.replace("\\n", " ").replace('\\"', '"').strip()
         if "loadFailed" in error_clean:
             m = re.search(r'loadFailed\("([^"]+)"\)', error_clean)
@@ -375,7 +439,8 @@ for i, r in enumerate(ok_sorted):
             score_tds += ai_score_cell(s)
 
     test_num = r.get("_jsonl_idx", i) + 1
-    perf_rows += f"""<tr onclick="scrollToResponse({i})" style="cursor:pointer" title="Click to view full response">
+    response_idx = response_index_by_jsonl_idx[r["_jsonl_idx"]]
+    perf_rows += f"""<tr onclick="scrollToResponse({response_idx})" style="cursor:pointer" title="Click to view full response">
   <td class="rank">{i+1}</td>
   <td class="test-num">{test_num}</td>
   <td class="mono">{html.escape(r["model"])}{label_html}{afm_html}</td>
@@ -408,8 +473,9 @@ if smart_analyses:
     smart_section += '<h2>AI Analysis (--smart)</h2>\n'
     for si, sa in enumerate(smart_analyses):
         tool = html.escape(sa["tool"])
-        # Strip the AI_SCORES line from displayed content
-        display_content = re.sub(r'<!-- AI_SCORES \[.*?\] -->\s*$', '', sa["content"]).strip()
+        # Strip the AI_SCORES trailer from displayed content, including minor
+        # formatting drift from CLI judges (missing/multiline comment close).
+        display_content = strip_ai_scores(sa["content"])
         content_js = json.dumps(display_content)
         num_tools = len(smart_analyses)
         tool_label = f"{tool} Analysis" if num_tools > 1 else "Quality, Anomalies &amp; Recommendations"
@@ -684,20 +750,22 @@ function renderContent(idx) {{
 
 os.makedirs(report_dir, exist_ok=True)
 
-timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+timestamp = os.environ.get("REPORT_TIMESTAMP") or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 html_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.html")
 jsonl_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.jsonl")
 
 with open(html_path, "w") as f:
     f.write(report)
 
-# Copy results JSONL alongside the HTML report with matching timestamp
-shutil.copy2(RESULTS_FILE, jsonl_path)
+# Copy results JSONL alongside the HTML report with matching timestamp. A
+# deterministic regeneration may already be reading that exact destination.
+if os.path.abspath(RESULTS_FILE) != os.path.abspath(jsonl_path):
+    shutil.copy2(RESULTS_FILE, jsonl_path)
 
 print(f"Report: {html_path}")
 print(f"  Data: {jsonl_path}")
 print(f"  {len(ok)} passed, {len(fail)} failed out of {len(results)} models")
 
 # Auto-open the HTML report on macOS
-if sys.platform == "darwin":
+if sys.platform == "darwin" and os.environ.get("AFM_REPORT_NO_OPEN") != "1":
     subprocess.run(["open", html_path])
