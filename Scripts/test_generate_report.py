@@ -57,6 +57,34 @@ class GenerateReportTests(unittest.TestCase):
             self.assertIn("2/5 ❌", report)
             self.assertEqual(report.count('class="response-section" id="resp-'), 2)
 
+    def test_full_prompt_is_rendered_without_truncation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            report_dir = root / "test-reports"
+            report_dir.mkdir()
+            results_path = root / "results.jsonl"
+            long_prompt = "A" * 600 + " FULL_PROMPT_TAIL"
+            record = self.record("long-prompt", "pass", "OK")
+            record["prompt"] = long_prompt
+            results_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "RESULTS_FILE": str(results_path),
+                    "REPORT_OUTPUT_DIR": str(root),
+                    "REPORT_TIMESTAMP": "20260825_050607",
+                    "AFM_REPORT_NO_OPEN": "1",
+                }
+            )
+            subprocess.run([sys.executable, str(SCRIPT)], env=env, check=True)
+
+            report = (
+                report_dir / "mlx-model-report-20260825_050607.html"
+            ).read_text(encoding="utf-8")
+            self.assertIn(long_prompt, report)
+            self.assertNotIn("A" * 500 + "...", report)
+
     @staticmethod
     def record(label, overall_status, status):
         return {

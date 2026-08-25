@@ -295,7 +295,7 @@ for i, r in enumerate(response_results):
         content = f"<details><summary><strong>🧠 Reasoning</strong></summary>\n\n{reasoning}\n\n</details>\n\n{content}"
     content_js = json.dumps(content)
     prompt_text = r.get("prompt", "")
-    prompt_html = html.escape(prompt_text[:500]) + ("..." if len(prompt_text) > 500 else "")
+    prompt_html = html.escape(prompt_text)
     panel = config_panel(r)
 
     # ── Build AI Intent section ──
