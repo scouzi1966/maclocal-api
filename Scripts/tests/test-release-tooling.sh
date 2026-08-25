@@ -32,12 +32,47 @@ if AFMKIT_GIT_COMMAND="$fake_git" \
    >"$auth_log" 2>&1; then
   fail "unauthenticated AFMKit access unexpectedly succeeded"
 fi
-grep -Fq 'Cannot read the private provider dependency' "$auth_log" || \
-  fail "private AFMKit error is not actionable"
+grep -Fq 'Cannot read the exact provider dependency' "$auth_log" || \
+  fail "AFMKit access error is not actionable"
 grep -Fq 'AFMKIT_READ_TOKEN' "$auth_log" || \
   fail "private AFMKit error does not name the CI secret"
 if grep -Fq 'must-not-appear' "$auth_log"; then
   fail "private AFMKit token leaked into diagnostics"
+fi
+
+expected_afmkit_revision="$(python3 - "$ROOT_DIR/Package.resolved" <<'PY'
+import json
+import sys
+
+lock = json.load(open(sys.argv[1]))
+pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
+print(pin["state"]["revision"])
+PY
+)"
+fake_public_git="$WORK_ROOT/git-public"
+cat > "$fake_public_git" <<'SH'
+#!/usr/bin/env bash
+arguments=" $* "
+for ref in \
+  refs/tags/0.1.3 \
+  'refs/tags/0.1.3^{}' \
+  refs/tags/v0.1.3 \
+  'refs/tags/v0.1.3^{}'; do
+  [[ "$arguments" == *" $ref "* ]] || exit 2
+done
+printf '%s\t%s\n' "$EXPECTED_AFMKIT_REVISION" 'refs/tags/v0.1.3^{}'
+SH
+chmod 700 "$fake_public_git"
+if ! EXPECTED_AFMKIT_REVISION="$expected_afmkit_revision" \
+   AFMKIT_GIT_COMMAND="$fake_public_git" \
+   "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" --check-access \
+   >"$WORK_ROOT/public-access.log" 2>&1; then
+  fail "v-prefixed public AFMKit release was not recognized"
+fi
+
+if grep -Fq '.github/workflows' "$ROOT_DIR/Scripts/check-afmkit-consumer-boundary.sh" || \
+   grep -Fq 'AFMKIT_READ_TOKEN' "$ROOT_DIR/Scripts/check-afmkit-consumer-boundary.sh"; then
+  fail "local consumer boundary still depends on hosted workflow configuration"
 fi
 
 public_gate_log="$WORK_ROOT/public-release-error.log"
@@ -45,7 +80,7 @@ if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.3'
   }
   probe_public_source() {
     return 1
@@ -69,14 +104,14 @@ IFS=$'\t' read -r release_identity release_url release_revision release_version 
 [[ "$release_url" == "https://github.com/scouzi1966/AFMKit.git" ]] || \
   fail "release source is not the canonical public HTTPS repository"
 [[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
-[[ "$release_version" == "0.1.2" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.2"
+[[ "$release_version" == "0.1.3" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.3"
 
 private_gate_log="$WORK_ROOT/private-version-error.log"
 if (
   export AFMKIT_READ_TOKEN="private-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.3'
   }
   probe_public_source() {
     [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
@@ -95,7 +130,7 @@ if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.2'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.3'
   }
   probe_public_source() {
     return 0

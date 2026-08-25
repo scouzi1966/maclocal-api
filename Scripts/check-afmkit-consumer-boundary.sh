@@ -145,8 +145,8 @@ for identity, (expected_location, checkout_name) in provider_packages.items():
     pin = pins_by_identity[identity]
     if pin["location"] != expected_location:
         fail(f"{identity} release lock points at an unexpected source")
-    if pin["state"].get("version") != "0.1.2":
-        fail(f"{identity} must resolve the exact 0.1.2 release")
+    if pin["state"].get("version") != "0.1.3":
+        fail(f"{identity} must resolve the exact 0.1.3 release")
 
     checkout = Path(".build/checkouts") / checkout_name
     if not checkout.is_dir():
@@ -233,7 +233,7 @@ fi
 
 if grep -ERn \
   'MacLocalAPI_AFMKit(MLX|DwarfStar)\.bundle' \
-  .github/workflows Scripts/build-native-wheel.sh Scripts/build-nightly-wheel.sh \
+  Scripts/build-native-wheel.sh Scripts/build-nightly-wheel.sh \
   Scripts/build-stable-wheel.sh Scripts/create-tarball.sh \
   Scripts/generate-tap-versioned.sh Scripts/publish-next.sh Scripts/publish-stable.sh \
   Scripts/verify-native-wheel.sh Scripts/verify-release-archive.sh >/dev/null; then
@@ -242,8 +242,6 @@ fi
 
 evaluation_bundle_consumers=(
   build.sh
-  .github/workflows/nightly.yml
-  .github/workflows/release.yml
   Scripts/build-native-wheel.sh
   Scripts/build-nightly-wheel.sh
   Scripts/create-tarball.sh
@@ -255,8 +253,6 @@ evaluation_bundle_consumers=(
   Scripts/uninstall.sh
 )
 evaluation_bundle_no_legacy_consumers=(
-  .github/workflows/nightly.yml
-  .github/workflows/release.yml
   Scripts/build-native-wheel.sh
   Scripts/build-nightly-wheel.sh
   Scripts/create-tarball.sh
@@ -282,33 +278,10 @@ for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
     fail "$publisher does not migrate an existing Homebrew formula to the current evaluation bundle"
 done
 
-for workflow in .github/workflows/nightly.yml .github/workflows/release.yml; do
-  grep -Fq 'AFMKit_AFMKitMLX.bundle' "$workflow" || \
-    fail "$workflow does not package the AFMKit MLX resource bundle"
-  grep -Fq 'AFMKit_AFMKitDwarfStar.bundle' "$workflow" || \
-    fail "$workflow does not package the AFMKit DwarfStar resource bundle"
-  grep -Fq 'Scripts/validate-release.sh' "$workflow" || \
-    fail "$workflow does not run the complete local release gate"
-  grep -Fq 'AFMKIT_READ_TOKEN' "$workflow" || \
-    fail "$workflow does not declare authenticated private AFMKit access"
-  grep -Fq 'Scripts/check-public-release-eligibility.sh' "$workflow" || \
-    fail "$workflow can publish without proving anonymous dependency access"
-done
-
 for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
   grep -Fq 'check-public-release-eligibility.sh' "$publisher" || \
     fail "$publisher can publish without proving anonymous dependency access"
 done
-
-grep -Fq 'Scripts/resolve-release-dependencies.sh' .github/workflows/codeql-analysis.yml || \
-  fail "CodeQL does not use the authenticated transition resolver"
-grep -Fq 'AFMKIT_READ_TOKEN' .github/workflows/codeql-analysis.yml || \
-  fail "CodeQL does not declare private AFMKit authentication"
-grep -Fq 'head.repo.fork' .github/workflows/codeql-analysis.yml || \
-  fail "CodeQL does not isolate private credentials from fork pull requests"
-if grep -Eq '^[[:space:]]*swift package resolve[[:space:]]*$' .github/workflows/codeql-analysis.yml; then
-  fail "CodeQL still performs a bare unauthenticated dependency resolve"
-fi
 
 example_manifest=Examples/AFMKitCoreOnlyConsumer/Package.swift
 grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" || \
@@ -316,7 +289,7 @@ grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" |
 if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
   fail "independent core consumer still relies on a removed maclocal compatibility product"
 fi
-grep -Fq 'exact: "0.1.2"' "$example_manifest" || \
+grep -Fq 'exact: "0.1.3"' "$example_manifest" || \
   fail "independent core consumer must use the exact AFMKit release"
 
 for project in pyproject.toml pyproject-next.toml; do

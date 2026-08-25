@@ -6,7 +6,7 @@ one exact release and selects every provider product from it:
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    exact: "0.1.2"
+    exact: "0.1.3"
 )
 ```
 
@@ -14,23 +14,19 @@ Do not use a branch or revision requirement for release builds.
 
 ## Production Blocker
 
-This branch deliberately stops before making repositories public or publishing
-tags. AFM release publication remains fail-closed until AFMKit and every
-dependency in its root graph are anonymously readable, AFMKit exposes `0.1.2`,
-and the tracked lock resolves that exact tag. Making a repository public is an explicit human checkpoint,
-not part of the reversible code cutover.
+AFMKit is public and exposes `0.1.3`. AFM release publication remains
+fail-closed unless AFMKit and every dependency in its root graph are
+anonymously readable and the tracked lock resolves that exact tag.
 
-Rollback before that checkpoint is a normal branch deletion. After merging but
-before publishing a new AFM version, revert the merge commit. After an AFM
-release, restore the previous AFM version and revert the dependency bump; the
-old implementation remains preserved in the pre-cutover branch and tag.
+Before publishing a new AFM version, rollback means restoring the previous
+exact AFMKit version and its reviewed lock revision. After an AFM release, make
+the same dependency rollback in a new patch release; never move an existing
+version tag.
 
-The current policy chooses the first option and fails closed. Private CI access
-and an anonymously fetchable revision are development mechanisms, not evidence
-of versioned SwiftPM readiness. As observed on 2026-08-20, GitHub Actions are
-also disabled for the maclocal-api repository. The workflow definitions are
-complete, but hosted enforcement requires a repository administrator to
-re-enable Actions.
+The current policy chooses the first option and fails closed. An anonymously
+fetchable revision alone is not evidence of versioned SwiftPM readiness: the
+exact release tag and tracked lock must agree. Local qualification and
+publication do not depend on GitHub Actions; hosted workflows are optional.
 
 Every tag, nightly, and manual publishing entry point runs
 `Scripts/check-public-release-eligibility.sh` before building or uploading. The
@@ -40,26 +36,18 @@ can be fetched anonymously. Authentication can keep development CI working,
 but neither authentication nor a public bare revision makes this source-package
 surface publishable.
 
-## Authenticated Resolution
+## Dependency Resolution
 
-Local developers must authenticate a GitHub identity with read access:
+AFMKit 0.1.3 is public, so normal resolution requires no GitHub credential:
 
 ```bash
-gh auth login
-gh auth setup-git
 Scripts/resolve-release-dependencies.sh
 ```
 
-CI and release jobs provide a masked `AFMKIT_READ_TOKEN` secret with repository
-read access. The resolver uses an ephemeral `GIT_ASKPASS` helper containing no
-credential material, never writes the token to the manifest or lock, and emits
-an actionable error when access is missing. GitHub's default repository token
-does not grant cross-repository access to a separate private dependency.
-
-The Swift CodeQL job uses that same authenticated resolver on trusted branches.
-Fork and Dependabot pull requests never receive the secret: their analysis job
-is skipped with an explicit transition notice, and maintainers must run CodeQL
-from a trusted branch until AFMKit is publicly resolvable.
+The resolver retains optional `AFMKIT_READ_TOKEN` support only for explicitly
+private development sources. Its `GIT_ASKPASS` helper contains no credential
+material, the token is never written to the manifest or lock, and production
+eligibility removes ambient credentials before proving anonymous access.
 
 ## Immutable Release Graph
 
@@ -67,7 +55,7 @@ The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
 | Dependency | Requirement | Purpose |
 | --- | --- | --- |
-| `AFMKit` | exact `0.1.2` | Core, services, evaluation, MLX, DwarfStar, Apple, Foundation Models bridges, and the vendored MLX runtime |
+| `AFMKit` | exact `0.1.3` | Core, services, evaluation, MLX, DwarfStar, Apple, Foundation Models bridges, and the vendored MLX runtime |
 
 The MLX, mlx-c, Swift bindings, and mlx-swift-lm sources are snapshots inside
 AFMKit's `vendor/MLX` tree. They are not separate SwiftPM dependencies of
