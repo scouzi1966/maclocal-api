@@ -1,6 +1,34 @@
 #!/usr/bin/env python3
 import json, html, datetime, re, os, sys, shutil, subprocess
 
+
+def extract_ai_scores(content):
+    """Decode the final AI_SCORES array while tolerating harmless marker drift."""
+    marker = "AI_SCORES"
+    marker_pos = content.rfind(marker)
+    if marker_pos < 0:
+        return []
+    array_pos = content.find("[", marker_pos + len(marker))
+    if array_pos < 0:
+        return []
+    try:
+        scores, _ = json.JSONDecoder().raw_decode(content[array_pos:])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(scores, list):
+        return []
+    return scores
+
+
+def strip_ai_scores(content):
+    """Remove the machine-readable score trailer from displayed analysis."""
+    marker_pos = content.rfind("AI_SCORES")
+    if marker_pos < 0:
+        return content.strip()
+    comment_pos = content.rfind("<!--", 0, marker_pos)
+    trailer_pos = comment_pos if comment_pos >= 0 else marker_pos
+    return content[:trailer_pos].strip()
+
 # Read JSONL path from env (set by mlx-model-test.sh) or fall back to hardcoded path
 RESULTS_FILE = os.environ.get("RESULTS_FILE", "/tmp/mlx-test-results.jsonl")
 
@@ -69,10 +97,13 @@ if os.path.isdir(report_dir):
                     with open(os.path.join(report_dir, fname)) as sf:
                         content = sf.read()
                     scores = {}
-                    m_scores = re.search(r'<!-- AI_SCORES (\[.*?\]) -->', content)
-                    if m_scores:
-                        for entry in json.loads(m_scores.group(1)):
-                            scores[entry["i"]] = entry["s"]
+                    for entry in extract_ai_scores(content):
+                        if not isinstance(entry, dict):
+                            continue
+                        idx = entry.get("i")
+                        score = entry.get("s")
+                        if isinstance(idx, int) and isinstance(score, int) and 1 <= score <= 5:
+                            scores[idx] = score
                     smart_analyses.append({"tool": tool_name, "content": content, "scores": scores})
                 except:
                     pass
@@ -248,9 +279,15 @@ def config_panel(r):
 
 # Build per-model response sections
 model_responses = ""
-for i, r in enumerate(ok_sorted):
+response_results = results
+response_index_by_jsonl_idx = {
+    r["_jsonl_idx"]: i for i, r in enumerate(response_results)
+}
+for i, r in enumerate(response_results):
     content = r.get("content", "") or r.get("content_preview", "")
     reasoning = r.get("reasoning_content", "")
+    completion_tokens = r.get("completion_tokens", 0)
+    tokens_per_sec = r.get("tokens_per_sec", 0)
     # Show reasoning if content is empty, or prepend it if both exist
     if not content and reasoning:
         content = f"<details open><summary><strong>🧠 Reasoning</strong> <em>(model used all tokens thinking — no response emitted)</em></summary>\n\n{reasoning}\n\n</details>"
@@ -286,14 +323,16 @@ for i, r in enumerate(ok_sorted):
     # ── Build AI Smart Scores section ──
     smart_html = ""
     jsonl_idx = r.get("_jsonl_idx")
-    if has_per_test_smart and jsonl_idx is not None:
+    if has_ai_scores and jsonl_idx is not None:
         smart_items = []
-        for tool, scores_map in smart_per_test.items():
-            if jsonl_idx in scores_map:
-                entry = scores_map[jsonl_idx]
-                s = entry["score"]
+        for sa in smart_analyses:
+            tool = sa["tool"]
+            detail = smart_per_test.get(tool, {}).get(jsonl_idx)
+            s = detail["score"] if detail else sa["scores"].get(jsonl_idx)
+            if s is not None:
                 emoji = {5: "✅", 4: "👍", 3: "⚠️", 2: "❌", 1: "💥"}.get(s, "❓")
-                reason_esc = html.escape(entry["reason"]) if entry["reason"] else ""
+                reason = detail["reason"] if detail else ""
+                reason_esc = html.escape(reason) if reason else ""
                 score_color = {5: "#3fb950", 4: "#58a6ff", 3: "#d29922", 2: "#f0883e", 1: "#f85149"}.get(s, "#8b949e")
                 line_html = f'<span style="color:{score_color};font-weight:700">{s}/5 {emoji}</span> <strong>{html.escape(tool)}</strong>'
                 if reason_esc:
@@ -313,7 +352,7 @@ for i, r in enumerate(ok_sorted):
     <span class="toggle-icon" id="icon-{i}">&#9654;</span>
     <span class="test-num" style="min-width:2rem;text-align:center">#{resp_test_num}</span>
     <span class="mono">{html.escape(r["model"])}</span>
-    <span class="response-meta">{r["completion_tokens"]} tokens &middot; {r["tokens_per_sec"]:.1f} tok/s</span>
+    <span class="response-meta">{completion_tokens} tokens &middot; {tokens_per_sec:.1f} tok/s</span>
   </h3>
   <div class="response-body" id="body-{i}" style="display:none">
     <div class="config-panel">{panel}</div>{intent_html}{smart_html}
@@ -400,7 +439,8 @@ for i, r in enumerate(ok_sorted):
             score_tds += ai_score_cell(s)
 
     test_num = r.get("_jsonl_idx", i) + 1
-    perf_rows += f"""<tr onclick="scrollToResponse({i})" style="cursor:pointer" title="Click to view full response">
+    response_idx = response_index_by_jsonl_idx[r["_jsonl_idx"]]
+    perf_rows += f"""<tr onclick="scrollToResponse({response_idx})" style="cursor:pointer" title="Click to view full response">
   <td class="rank">{i+1}</td>
   <td class="test-num">{test_num}</td>
   <td class="mono">{html.escape(r["model"])}{label_html}{afm_html}</td>
@@ -433,8 +473,9 @@ if smart_analyses:
     smart_section += '<h2>AI Analysis (--smart)</h2>\n'
     for si, sa in enumerate(smart_analyses):
         tool = html.escape(sa["tool"])
-        # Strip the AI_SCORES line from displayed content
-        display_content = re.sub(r'<!-- AI_SCORES \[.*?\] -->\s*$', '', sa["content"]).strip()
+        # Strip the AI_SCORES trailer from displayed content, including minor
+        # formatting drift from CLI judges (missing/multiline comment close).
+        display_content = strip_ai_scores(sa["content"])
         content_js = json.dumps(display_content)
         num_tools = len(smart_analyses)
         tool_label = f"{tool} Analysis" if num_tools > 1 else "Quality, Anomalies &amp; Recommendations"
@@ -709,20 +750,22 @@ function renderContent(idx) {{
 
 os.makedirs(report_dir, exist_ok=True)
 
-timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+timestamp = os.environ.get("REPORT_TIMESTAMP") or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 html_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.html")
 jsonl_path = os.path.join(report_dir, f"mlx-model-report-{timestamp}.jsonl")
 
 with open(html_path, "w") as f:
     f.write(report)
 
-# Copy results JSONL alongside the HTML report with matching timestamp
-shutil.copy2(RESULTS_FILE, jsonl_path)
+# Copy results JSONL alongside the HTML report with matching timestamp. A
+# deterministic regeneration may already be reading that exact destination.
+if os.path.abspath(RESULTS_FILE) != os.path.abspath(jsonl_path):
+    shutil.copy2(RESULTS_FILE, jsonl_path)
 
 print(f"Report: {html_path}")
 print(f"  Data: {jsonl_path}")
 print(f"  {len(ok)} passed, {len(fail)} failed out of {len(results)} models")
 
 # Auto-open the HTML report on macOS
-if sys.platform == "darwin":
+if sys.platform == "darwin" and os.environ.get("AFM_REPORT_NO_OPEN") != "1":
     subprocess.run(["open", html_path])
