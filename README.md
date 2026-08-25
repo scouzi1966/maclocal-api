@@ -9,6 +9,25 @@
 
 [Website](https://maclocal.ai) · [Documentation](https://maclocal.ai/docs) · [GitHub releases](https://github.com/scouzi1966/maclocal-api/releases)
 
+> [!IMPORTANT]
+> **AFM is moving to a two-layer architecture built on AFMKit.**
+>
+> [AFMKit](https://github.com/scouzi1966/AFMKit) is the reusable Swift foundation
+> for building native AI apps and agents on Apple platforms. It owns the shared
+> model contracts and provider runtimes for Apple Foundation Models, MLX, and
+> DwarfStar, including generation, streaming, tool calling, structured output,
+> and multimodal services.
+>
+> **maclocal-api remains the complete AFM product**: the `afm` CLI, local
+> OpenAI-compatible server, WebUI, packaging, and operational tooling. It now
+> consumes one exact-versioned AFMKit dependency instead of carrying parallel
+> provider implementations. This separation lets apps and agents embed AFMKit
+> directly while server users continue to install and run AFM as before.
+>
+> The migration is being delivered incrementally. Existing AFM commands and API
+> compatibility remain the product contract while provider ownership moves into
+> AFMKit and maclocal-api becomes a focused application layer on top of it.
+
 ## What's new
 
 ### [AFM v0.9.17](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17)
