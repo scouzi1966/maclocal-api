@@ -162,6 +162,7 @@ public struct GenerationConfig: Sendable {
     public var stop: [String]?
     public var tools: [RequestTool]?
     public var responseFormat: ResponseFormat?
+    public var ignoreEndOfSequence: Bool
     public var metadata: [String: AFMJSONValue]
 
     public init(
@@ -179,6 +180,7 @@ public struct GenerationConfig: Sendable {
         stop: [String]? = nil,
         tools: [RequestTool]? = nil,
         responseFormat: ResponseFormat? = nil,
+        ignoreEndOfSequence: Bool = false,
         metadata: [String: AFMJSONValue] = [:]
     ) {
         self.temperature = temperature
@@ -195,6 +197,7 @@ public struct GenerationConfig: Sendable {
         self.stop = stop
         self.tools = tools
         self.responseFormat = responseFormat
+        self.ignoreEndOfSequence = ignoreEndOfSequence
         self.metadata = metadata
     }
 }
@@ -802,6 +805,7 @@ extension GenerationConfig {
             stop: stop,
             tools: tools,
             responseFormat: responseFormat,
+            ignoreEndOfSequence: ignoreEndOfSequence,
             metadata: metadata
         )
     }

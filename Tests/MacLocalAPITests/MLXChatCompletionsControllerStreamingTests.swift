@@ -1,6 +1,7 @@
 import XCTest
 import Vapor
 import XCTVapor
+import OSLog
 
 @testable import AFMKit
 import AFMKitMLX
@@ -1080,8 +1081,17 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     }
 
     func testMediaPreflightFailureReleasesReservedSlot() async throws {
+        let releases = OSAllocatedUnfairLock(initialState: 0)
+        let admitter = AnyAFMGenerationAdmitter { _ in
+            AFMGenerationLease(
+                telemetryToken: AFMInferenceRequestToken(rawValue: UUID()),
+                release: { releases.withLock { $0 += 1 } }
+            )
+        }
         let service = FakeMLXChatService(
+            maxConcurrent: 2,
             mediaPreflightError: .invalidMediaInput("preflight rejected"),
+            providerGenerationAdmitter: admitter,
             streamingResult: makeStreamingResult(chunks: [])
         )
         try MLXChatCompletionsController(
@@ -1099,7 +1109,8 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertEqual(res.status, .badRequest)
             XCTAssertContains(res.body.string, #""code":"invalid_media_input""#)
             XCTAssertEqual(service.mediaPreflightCount, 1)
-            XCTAssertEqual(service.releaseSlotCount, 1)
+            XCTAssertEqual(releases.withLock { $0 }, 1)
+            XCTAssertEqual(service.releaseSlotCount, 0)
         }
     }
 
@@ -1186,9 +1197,17 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 
     func testCancellationDuringConcurrentCollectionReleasesSlotAndRegistry() async throws {
         let probe = CancellationProbe()
+        let releases = OSAllocatedUnfairLock(initialState: 0)
+        let admitter = AnyAFMGenerationAdmitter { _ in
+            AFMGenerationLease(
+                telemetryToken: AFMInferenceRequestToken(rawValue: UUID()),
+                release: { releases.withLock { $0 += 1 } }
+            )
+        }
         let service = FakeMLXChatService(
             maxConcurrent: 2,
             streamCollectionProbe: probe,
+            providerGenerationAdmitter: admitter,
             streamingResult: makeStreamingResult(chunks: [])
         )
         app.middleware.use(RequestIDMiddleware())
@@ -1216,9 +1235,9 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 
         let providerObservedCancellation = await probe.waitUntilCancelled()
         XCTAssertTrue(providerObservedCancellation)
-        let released = await waitUntil { service.releaseSlotCount == 1 }
+        let released = await waitUntil { releases.withLock { $0 } == 1 }
         XCTAssertTrue(released)
-        XCTAssertEqual(service.releaseSlotCount, 1)
+        XCTAssertEqual(releases.withLock { $0 }, 1)
         let registryCleaned = await waitUntil { await registry.count == 0 }
         XCTAssertTrue(registryCleaned)
     }
@@ -1312,6 +1331,82 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertContains(res.body.string, "data: [DONE]")
             XCTAssertFalse(res.body.string.contains("⚠️"))
         }
+    }
+
+    func testProviderOwnedLeaseIsReleasedAfterConcurrentNonStreamingCollection() async throws {
+        let releases = OSAllocatedUnfairLock(initialState: 0)
+        let admitter = AnyAFMGenerationAdmitter { _ in
+            AFMGenerationLease(
+                telemetryToken: AFMInferenceRequestToken(rawValue: UUID()),
+                release: { releases.withLock { $0 += 1 } }
+            )
+        }
+        let service = FakeMLXChatService(
+            maxConcurrent: 2,
+            providerGenerationAdmitter: admitter,
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(
+                    text: "ok",
+                    promptTokens: 2,
+                    completionTokens: 1
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        for _ in 0..<2 {
+            let body = ByteBuffer(string: #"{"model":"test-model","stream":false,"ignore_eos":true,"messages":[{"role":"user","content":"hello"}]}"#)
+            try await app.testable().test(
+                .POST,
+                "/v1/chat/completions",
+                headers: requestHeaders(for: body),
+                body: body
+            ) { response async in
+                XCTAssertEqual(response.status, .ok)
+            }
+        }
+        XCTAssertEqual(releases.withLock { $0 }, 2)
+        XCTAssertEqual(service.recordedIgnoreEndOfSequence, [true, true])
+    }
+
+    func testProviderOwnedLeaseIsReleasedAfterStreamingBodyTerminates() async throws {
+        let releases = OSAllocatedUnfairLock(initialState: 0)
+        let admitter = AnyAFMGenerationAdmitter { _ in
+            AFMGenerationLease(
+                telemetryToken: AFMInferenceRequestToken(rawValue: UUID()),
+                release: { releases.withLock { $0 += 1 } }
+            )
+        }
+        let service = FakeMLXChatService(
+            maxConcurrent: 2,
+            providerGenerationAdmitter: admitter,
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: "ok", promptTokens: 2, completionTokens: 1),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = ByteBuffer(string: #"{"model":"test-model","stream":true,"messages":[{"role":"user","content":"hello"}]}"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertTrue(response.body.string.contains("data: [DONE]"))
+        }
+        XCTAssertEqual(releases.withLock { $0 }, 1)
     }
 
     private func requestBody(
@@ -1551,7 +1646,9 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     """
 }
 
-private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServing, @unchecked Sendable {
+private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServing,
+    AFMGenerationAdmitterProviding, @unchecked Sendable
+{
     let maxConcurrent: Int
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
@@ -1560,6 +1657,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
     let responseChannelFormat: AFMResponseChannelFormat
     let fixToolArgs: Bool
     let enableGrammarConstraints: Bool = false
+    let providerGenerationAdmitter: AnyAFMGenerationAdmitter?
     var servingConfiguration: AFMChatServingConfiguration {
         AFMChatServingConfiguration(
             toolCallParser: toolCallParser,
@@ -1588,10 +1686,12 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
     private var _mediaPreflightCount = 0
     private var _withPreflightedMediaCount = 0
     private var _releaseSlotCount = 0
+    private var _recordedIgnoreEndOfSequence: [Bool] = []
     private(set) var recordedGenerateMediaPartCounts: [Int] = []
     var mediaPreflightCount: Int { stateLock.withLock { _mediaPreflightCount } }
     var withPreflightedMediaCount: Int { stateLock.withLock { _withPreflightedMediaCount } }
     var releaseSlotCount: Int { stateLock.withLock { _releaseSlotCount } }
+    var recordedIgnoreEndOfSequence: [Bool] { stateLock.withLock { _recordedIgnoreEndOfSequence } }
 
     init(
         maxConcurrent: Int = 1,
@@ -1606,6 +1706,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         mediaPreflightProbe: CancellationProbe? = nil,
         generateProbe: CancellationProbe? = nil,
         streamCollectionProbe: CancellationProbe? = nil,
+        providerGenerationAdmitter: AnyAFMGenerationAdmitter? = nil,
         generateResult: AFMChatGenerationResult? = nil,
         streamingResult: AFMChatStreamingResult
     ) {
@@ -1621,6 +1722,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         self.mediaPreflightProbe = mediaPreflightProbe
         self.generateProbe = generateProbe
         self.streamCollectionProbe = streamCollectionProbe
+        self.providerGenerationAdmitter = providerGenerationAdmitter
         self.generateResult = generateResult ?? (
             modelID: "test-model",
             content: "",
@@ -1650,6 +1752,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         mediaPreflightProbe: CancellationProbe? = nil,
         generateProbe: CancellationProbe? = nil,
         streamCollectionProbe: CancellationProbe? = nil,
+        providerGenerationAdmitter: AnyAFMGenerationAdmitter? = nil,
         streamingHandler: @escaping ([Message]) -> AFMChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
@@ -1664,6 +1767,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         self.mediaPreflightProbe = mediaPreflightProbe
         self.generateProbe = generateProbe
         self.streamCollectionProbe = streamCollectionProbe
+        self.providerGenerationAdmitter = providerGenerationAdmitter
         self.generateResult = (
             modelID: "test-model",
             content: "",
@@ -1749,6 +1853,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMChatGenerationResult {
+        stateLock.withLock { _recordedIgnoreEndOfSequence.append(AFMGenerationContext.ignoreEndOfSequence) }
         recordGenerateTools(tools)
         if let generateProbe {
             try await generateProbe.suspendUntilCancelled()
@@ -1822,6 +1927,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMChatStreamingResult {
+        stateLock.withLock { _recordedIgnoreEndOfSequence.append(AFMGenerationContext.ignoreEndOfSequence) }
         recordStreamingTools(tools)
         if let streamCollectionProbe {
             let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in

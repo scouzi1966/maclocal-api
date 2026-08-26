@@ -180,6 +180,42 @@ struct OpenAPIController: RouteCollection {
               "usage": { "type": "object" }
             }
           },
+          "CompletionRequest": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+              "model": { "type": "string" },
+              "prompt": { "type": "string" },
+              "max_tokens": { "type": "integer", "minimum": 0 },
+              "temperature": { "type": "number" },
+              "top_p": { "type": "number" },
+              "top_k": { "type": "integer" },
+              "min_p": { "type": "number" },
+              "repetition_penalty": { "type": "number" },
+              "presence_penalty": { "type": "number" },
+              "seed": { "type": "integer" },
+              "stop": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+              "stream": { "type": "boolean" },
+              "ignore_eos": { "type": "boolean" },
+              "stream_options": {
+                "type": "object",
+                "properties": {
+                  "include_usage": { "type": "boolean", "description": "Emit one exact final usage chunk." },
+                  "continuous_usage_stats": { "type": "boolean", "const": false, "description": "Continuous usage is not supported." }
+                }
+              }
+            }
+          },
+          "CompletionResponse": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "object": { "type": "string", "const": "text_completion" },
+              "model": { "type": "string" },
+              "choices": { "type": "array" },
+              "usage": { "type": "object" }
+            }
+          },
           "OpenAIError": {
             "type": "object",
             "properties": {
@@ -254,6 +290,30 @@ struct OpenAPIController: RouteCollection {
               },
               "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
               "503": { "description": "Server full / queue saturated; carries Retry-After: 2", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
+        "/v1/completions": {
+          "post": {
+            "tags": ["chat"],
+            "summary": "Create a raw-prompt text completion",
+            "parameters": [{ "$ref": "#/components/parameters/RequestIdHeader" }],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": { "schema": { "$ref": "#/components/schemas/CompletionRequest" } }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Text completion (or SSE stream when `stream:true`).",
+                "content": {
+                  "application/json": { "schema": { "$ref": "#/components/schemas/CompletionResponse" } },
+                  "text/event-stream": { "schema": { "type": "string" } }
+                }
+              },
+              "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "503": { "description": "Server full / queue saturated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
             }
           }
         },

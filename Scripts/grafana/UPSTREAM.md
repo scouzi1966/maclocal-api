@@ -48,23 +48,31 @@ mirroring:
 
 ```sh
 gh api repos/vllm-project/vllm/contents/examples/observability/prometheus_grafana/grafana.json \
-   --jq '.content' | base64 -d > /tmp/vllm-grafana-new.json
+   --jq '.content' | base64 -d > /Volumes/edata/vllm-grafana-new.json
 
 # Diff to see what's new:
 diff <(jq -S . Scripts/grafana/afm-dashboard.json) \
-     <(jq -S . /tmp/vllm-grafana-new.json) | head -60
+     <(jq -S . /Volumes/edata/vllm-grafana-new.json) | head -60
 
 # Re-apply the 7 transformations above against the new file, replace
 # Scripts/grafana/afm-dashboard.json, update this file's "Repo HEAD",
 # "Source blob hash", and "Port date" rows.
 ```
 
-## Related: bucket boundaries in `Sources/MacLocalAPI/Models/StatsAggregator.swift`
+## Related: vLLM exposition contract
 
-The histogram bucket arrays in `StatsAggregator.Buckets` are also
-copied verbatim from upstream vLLM. The provenance comment is
-attached directly to the `Buckets` enum in that file and references
-this document.
+AFM also emits unmodified `vllm:*` metric families from the same immutable
+snapshot as `afm:*`. Their pinned HELP, TYPE, labels, buckets, and Grafana
+query coverage are recorded by fixtures under
+`Tests/MacLocalAPITests/Fixtures/` for vLLM
+`9633933dd81228fbcae07969f20881ad0b7cb766`. Updating this AFM-branded
+dashboard does not by itself move that compatibility pin.
+
+## Related: histogram bucket boundaries
+
+The histogram bucket arrays used by the AFMKit telemetry collector are copied
+from upstream vLLM. AFMKit owns the collector; this consumer owns the HTTP
+exposition and its pinned wire fixtures.
 
 | Field | Value |
 |---|---|
