@@ -7,7 +7,7 @@ import MLXLMCommon
 import Tokenizers
 
 /// Creates a function that decodes configuration data and instantiates a model with the proper configuration
-private func create<C: Codable, M>(
+private func create<C: Decodable, M>(
     _ configurationType: C.Type, _ modelInit: @escaping (C) -> M
 ) -> (Data) throws -> M {
     { data in
@@ -33,16 +33,22 @@ public enum LLMTypeRegistry {
         "gemma3": create(Gemma3TextConfiguration.self, Gemma3TextModel.init),
         "gemma3_text": create(Gemma3TextConfiguration.self, Gemma3TextModel.init),
         "gemma3n": create(Gemma3nTextConfiguration.self, Gemma3nTextModel.init),
+        "gemma4": create(Gemma4Configuration.self, Gemma4Model.init),
+        "gemma4_text": create(Gemma4Configuration.self, Gemma4Model.init),
         "qwen2": create(Qwen2Configuration.self, Qwen2Model.init),
         "qwen3": create(Qwen3Configuration.self, Qwen3Model.init),
         "qwen3_moe": create(Qwen3MoEConfiguration.self, Qwen3MoEModel.init),
         "qwen3_next": create(Qwen3NextConfiguration.self, Qwen3NextModel.init),
+        "qwen3_5": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
         "qwen3_5_moe": create(Qwen3_5MoEConfiguration.self, Qwen3_5MoEModel.init),
+        "qwen4_exp": create(Qwen4ExpConfiguration.self, Qwen4ExpModel.init),
         "starcoder2": create(Starcoder2Configuration.self, Starcoder2Model.init),
         "cohere": create(CohereConfiguration.self, CohereModel.init),
+        "cohere2_moe": create(Cohere2MoeConfiguration.self, Cohere2MoeModel.init),
         "openelm": create(OpenElmConfiguration.self, OpenELMModel.init),
         "internlm2": create(InternLM2Configuration.self, InternLM2Model.init),
         "deepseek_v3": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
+        "deepseek_v4": create(DeepseekV4Configuration.self, DeepseekV4Model.init),
         "kimi_k2": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
         "kimi_k25": create(KimiK25Configuration.self, KimiK25Model.init),
         "joyai_llm_flash": create(DeepseekV3Configuration.self, DeepseekV3Model.init),
@@ -191,6 +197,8 @@ public class LLMRegistry: AbstractModelRegistry, @unchecked Sendable {
         // https://ai.google.dev/gemma/docs/core/prompt-structure
         extraEOSTokens: ["<end_of_turn>"]
     )
+
+
 
     static public let qwen205b4bit = ModelConfiguration(
         id: "mlx-community/Qwen1.5-0.5B-Chat-4bit",
@@ -434,10 +442,23 @@ private struct LLMUserInputProcessor: UserInputProcessor {
     }
 
     func prepare(input: UserInput) throws -> LMInput {
+        if case .text(let prompt) = input.prompt {
+            return LMInput(tokens: MLXArray(tokenizer.encode(text: prompt)))
+        }
+
         let messages = messageGenerator.generate(from: input)
         do {
+            // Check for chat template override in additionalContext
+            let chatTemplateArg: ChatTemplateArgument?
+            if let override = input.additionalContext?["chatTemplateOverride"] as? String {
+                chatTemplateArg = .literal(override)
+            } else {
+                chatTemplateArg = nil
+            }
             let promptTokens = try tokenizer.applyChatTemplate(
-                messages: messages, tools: input.tools, additionalContext: input.additionalContext)
+                messages: messages, chatTemplate: chatTemplateArg, addGenerationPrompt: true,
+                truncation: false, maxLength: nil,
+                tools: input.tools, additionalContext: input.additionalContext)
 
             return LMInput(tokens: MLXArray(promptTokens))
         } catch TokenizerError.missingChatTemplate {
@@ -536,6 +557,13 @@ public final class LLMModelFactory: ModelFactory {
         // Create mutable configuration with loaded EOS token IDs
         var mutableConfiguration = configuration
         mutableConfiguration.eosTokenIds = eosTokenIds
+
+        // Preserve upstream parser selection when the caller did not request a format.
+        // This is required for GLM4, LFM2, and the other model-type mappings defined by
+        // ToolCallFormat.infer(from:).
+        if mutableConfiguration.toolCallFormat == nil {
+            mutableConfiguration.toolCallFormat = ToolCallFormat.infer(from: baseConfig.modelType)
+        }
 
         // Load tokenizer and weights in parallel using async let.
         async let tokenizerTask = loadTokenizer(configuration: configuration, hub: hub)

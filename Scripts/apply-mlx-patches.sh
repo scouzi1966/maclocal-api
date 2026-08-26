@@ -2,13 +2,17 @@
 # Applies Vesta MLX patch set to local vendor/mlx-swift-lm checkout.
 # Usage:
 #   ./Scripts/apply-mlx-patches.sh [--check] [--revert]
+# Optional environment overrides:
+#   MACAFM_MLX_SWIFT_LM_PATCH_TARGET=/path/to/mlx-swift-lm
+#   MACAFM_MLX_SWIFT_LM_PATCH_ONLY=File.swift,OtherTests.swift
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="$SCRIPT_DIR/patches"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-MLX_LM_DIR="$PROJECT_ROOT/vendor/mlx-swift-lm"
+MLX_LM_DIR="${MACAFM_MLX_SWIFT_LM_PATCH_TARGET:-$PROJECT_ROOT/vendor/mlx-swift-lm}"
+PATCH_ONLY="${MACAFM_MLX_SWIFT_LM_PATCH_ONLY:-}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,6 +40,8 @@ PATCH_FILES=(
   "GLM5MoeDsa.swift"
   "KimiK25.swift"
   "Qwen3_5MoEVL.swift"
+  "Qwen4Exp.swift"
+  "Qwen4ExpTests.swift"
   "SamplerTests.swift"
 )
 TARGET_PATHS=(
@@ -55,9 +61,11 @@ TARGET_PATHS=(
   "Libraries/MLXLLM/Models/GLM5MoeDsa.swift"
   "Libraries/MLXLLM/Models/KimiK25.swift"
   "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift"
+  "Libraries/MLXLLM/Models/Qwen4Exp.swift"
+  "Tests/MLXLMTests/Qwen4ExpTests.swift"
   "Tests/MLXLMTests/SamplerTests.swift"
 )
-NEW_FILES=("GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "SamplerTests.swift")
+NEW_FILES=("GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "Qwen4Exp.swift" "Qwen4ExpTests.swift" "SamplerTests.swift")
 
 is_new_file() {
   local filename="$1"
@@ -67,6 +75,11 @@ is_new_file() {
     fi
   done
   return 1
+}
+
+should_process() {
+  local filename="$1"
+  [ -z "$PATCH_ONLY" ] || [[ ",$PATCH_ONLY," == *",$filename,"* ]]
 }
 
 is_file_patched() {
@@ -132,6 +145,7 @@ check_patches() {
 
   for i in "${!PATCH_FILES[@]}"; do
     local patch_name="${PATCH_FILES[$i]}"
+    should_process "$patch_name" || continue
     local rel_path="${TARGET_PATHS[$i]}"
     local patch_file="$PATCHES_DIR/$patch_name"
     local target_file="$mlx_dir/$rel_path"
@@ -184,6 +198,7 @@ main() {
       ;;
     revert)
       for i in "${!PATCH_FILES[@]}"; do
+        should_process "${PATCH_FILES[$i]}" || continue
         revert_file "$MLX_LM_DIR/${TARGET_PATHS[$i]}"
       done
       log_info ""
@@ -192,6 +207,7 @@ main() {
     apply)
       for i in "${!PATCH_FILES[@]}"; do
         local patch_name="${PATCH_FILES[$i]}"
+        should_process "$patch_name" || continue
         local patch_file="$PATCHES_DIR/$patch_name"
         local target_file="$MLX_LM_DIR/${TARGET_PATHS[$i]}"
 
