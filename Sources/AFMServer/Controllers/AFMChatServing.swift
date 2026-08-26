@@ -1,4 +1,5 @@
 import Foundation
+import AFMKitCore
 import AFMOpenAICompat
 
 /// Server-owned response channel modes used while rendering OpenAI responses.
@@ -138,6 +139,7 @@ protocol AFMChatServing: Sendable {
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 
     func normalizeModel(_ raw: String) -> String
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor?
     func resolvedToolCallParser(logBypass: Bool) -> String?
 
     func tryReserveSlot() -> Bool
@@ -264,6 +266,8 @@ extension AFMChatServing {
     var fixToolArgs: Bool { servingConfiguration.fixToolArguments }
     var enableGrammarConstraints: Bool { servingConfiguration.grammarConstraintsEnabled }
     var defaultGuidedJsonSchema: ResponseFormat? { nil }
+
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor? { nil }
 
     func resetRequestPeakMemory() {}
     func currentRequestPeakMemoryGib() -> Double? { nil }

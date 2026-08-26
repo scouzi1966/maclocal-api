@@ -35,8 +35,8 @@ struct InflightCancelTests {
         let registry = InflightRequestRegistry()
         let fired = TestFlag()
 
-        await registry.register(id: "req_xyz", cancel: { fired.set() })
-        await registry.release(id: "req_xyz")
+        let registration = await registry.register(id: "req_xyz", cancel: { fired.set() })
+        await registry.release(id: "req_xyz", registration: registration)
 
         #expect(fired.value == false)
         let cancelled = await registry.cancel(id: "req_xyz")
@@ -50,16 +50,37 @@ struct InflightCancelTests {
         #expect(cancelled == false)
     }
 
-    @Test("re-registering same id replaces prior cancel closure")
-    func reregisterReplaces() async {
+    @Test("duplicate ids retain both cancellation owners")
+    func duplicateIDsRetainBothOwners() async {
         let registry = InflightRequestRegistry()
         let firedOld = TestFlag()
         let firedNew = TestFlag()
 
-        await registry.register(id: "req_dup", cancel: { firedOld.set() })
-        await registry.register(id: "req_dup", cancel: { firedNew.set() })
+        let oldRegistration = await registry.register(id: "req_dup", cancel: { firedOld.set() })
+        let newRegistration = await registry.register(id: "req_dup", cancel: { firedNew.set() })
+
+        #expect(oldRegistration != nil)
+        #expect(newRegistration != nil)
+        #expect(oldRegistration != newRegistration)
+        #expect(await registry.count == 2)
 
         _ = await registry.cancel(id: "req_dup")
+        #expect(firedOld.value == true)
+        #expect(firedNew.value == true)
+    }
+
+    @Test("one duplicate owner cannot release another")
+    func duplicateReleaseIsOwnershipScoped() async {
+        let registry = InflightRequestRegistry()
+        let firedOld = TestFlag()
+        let firedNew = TestFlag()
+
+        let oldRegistration = await registry.register(id: "req_shared", cancel: { firedOld.set() })
+        _ = await registry.register(id: "req_shared", cancel: { firedNew.set() })
+        await registry.release(id: "req_shared", registration: oldRegistration)
+
+        #expect(await registry.count == 1)
+        #expect(await registry.cancel(id: "req_shared"))
         #expect(firedOld.value == false)
         #expect(firedNew.value == true)
     }
@@ -71,7 +92,7 @@ struct InflightCancelTests {
         await registry.register(id: "", cancel: { fired.set() })
         let count = await registry.count
         #expect(count == 0)
-        await registry.release(id: "")
+        await registry.release(id: "", registration: nil)
         let cancelled = await registry.cancel(id: "")
         #expect(cancelled == false)
         #expect(fired.value == false)
