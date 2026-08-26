@@ -1,6 +1,7 @@
 import AFMKit
 import AFMKitCore
 import AFMKitDwarfStar
+import AFMKitMLX
 import AFMServer
 import AFMTerminalUI
 import ArgumentParser
@@ -1449,7 +1450,14 @@ struct MlxCommand: ParsableCommand {
                     var parts: [ContentPart] = [ContentPart(type: "text", text: prompt, image_url: nil)]
                     for path in mediaPaths {
                         let fileURL = URL(fileURLWithPath: path)
-                        parts.append(ContentPart(type: "image_url", text: nil, image_url: ImageURL(url: fileURL.absoluteString, detail: nil)))
+                        parts.append(ContentPart(
+                            type: "image_url",
+                            text: nil,
+                            image_url: ImageURL(
+                                url: try AFMMLXMediaSecurityPolicy.trustedLocalMediaDataURL(fileURL),
+                                detail: nil
+                            )
+                        ))
                     }
                     messages.append(Message(role: "user", content: .parts(parts)))
                 }

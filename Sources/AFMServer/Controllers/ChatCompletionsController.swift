@@ -357,8 +357,14 @@ struct ChatCompletionsController: RouteCollection {
         // Register the cancel hook BEFORE the asyncStream closure spawns the
         // body Task — closes the cancel-arrives-too-early race. (T1.4/T1.5 fix)
         let cancelHandle = CancellableTaskHandle()
+        let requestRegistration: InflightRequestRegistry.Registration?
         if !streamReqId.isEmpty {
-            await inflightRegistry.register(id: streamReqId, cancel: { cancelHandle.cancel() })
+            requestRegistration = await inflightRegistry.register(
+                id: streamReqId,
+                cancel: { cancelHandle.cancel() }
+            )
+        } else {
+            requestRegistration = nil
         }
 
         httpResponse.body = .init(asyncStream: { writer in
@@ -567,7 +573,10 @@ struct ChatCompletionsController: RouteCollection {
             cancelHandle.assign(bodyTask)
             _ = await bodyTask.value
             if !streamReqId.isEmpty {
-                await inflightRegistry.release(id: streamReqId)
+                await inflightRegistry.release(
+                    id: streamReqId,
+                    registration: requestRegistration
+                )
             }
         })
 

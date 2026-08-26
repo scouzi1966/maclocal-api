@@ -15,33 +15,48 @@ import Vapor
 /// itself so callers can compose multiple cancellation effects (e.g. cancel
 /// the asyncStream task plus the underlying model generator) under one id.
 actor InflightRequestRegistry {
-    private var inflight: [String: @Sendable () -> Void] = [:]
+    typealias Registration = UUID
+
+    private var inflight: [String: [Registration: @Sendable () -> Void]] = [:]
 
     /// Number of currently-tracked requests. Useful for tests / metrics.
-    var count: Int { inflight.count }
+    var count: Int { inflight.values.reduce(0) { $0 + $1.count } }
 
-    /// Register a cancel closure for `id`. Replaces any prior registration
-    /// with the same id (e.g. when a controller re-registers after slot wait).
+    /// Register a cancel closure for `id` and return its ownership token.
+    /// Multiple requests may share a client-provided id without overwriting
+    /// each other's cancellation state.
     /// No-op for empty ids — callers that don't run behind RequestIDMiddleware
     /// won't have one.
-    func register(id: String, cancel: @escaping @Sendable () -> Void) {
-        guard !id.isEmpty else { return }
-        inflight[id] = cancel
+    @discardableResult
+    func register(
+        id: String,
+        cancel: @escaping @Sendable () -> Void
+    ) -> Registration? {
+        guard !id.isEmpty else { return nil }
+        let registration = Registration()
+        inflight[id, default: [:]][registration] = cancel
+        return registration
     }
 
     /// Remove `id` from the registry without firing the cancel closure.
     /// Called from `defer` in the request handler when work completes normally.
-    func release(id: String) {
+    func release(id: String, registration: Registration?) {
         guard !id.isEmpty else { return }
-        inflight.removeValue(forKey: id)
+        guard let registration else { return }
+        inflight[id]?.removeValue(forKey: registration)
+        if inflight[id]?.isEmpty == true {
+            inflight.removeValue(forKey: id)
+        }
     }
 
     /// Cancel `id` and return whether it was found. Removes the entry as a
     /// side effect so subsequent cancels are no-ops.
     @discardableResult
     func cancel(id: String) -> Bool {
-        guard let cancel = inflight.removeValue(forKey: id) else { return false }
-        cancel()
+        guard let cancellations = inflight.removeValue(forKey: id) else { return false }
+        for cancel in cancellations.values {
+            cancel()
+        }
         return true
     }
 }
@@ -58,16 +73,17 @@ actor InflightRequestRegistry {
 /// body Task — a cancel arriving in that window would 404 silently.
 final class CancellableTaskHandle: @unchecked Sendable {
     private let lock = NSLock()
-    private var task: Task<Void, Never>?
+    private var cancelCurrentTask: (@Sendable () -> Void)?
     private var cancelledEarly: Bool = false
 
-    /// Called from the asyncStream closure once the body Task is created.
-    func assign(_ t: Task<Void, Never>) {
+    /// Assign the current request phase. Admission, media preflight, ordinary
+    /// generation, and streaming body tasks can have different result types.
+    func assign<Success: Sendable, Failure: Error>(_ task: Task<Success, Failure>) {
         lock.lock(); defer { lock.unlock() }
         if cancelledEarly {
-            t.cancel()
+            task.cancel()
         }
-        task = t
+        cancelCurrentTask = { task.cancel() }
     }
 
     /// Called from the registry's cancel closure (typically from another HTTP
@@ -75,7 +91,7 @@ final class CancellableTaskHandle: @unchecked Sendable {
     func cancel() {
         lock.lock(); defer { lock.unlock() }
         cancelledEarly = true
-        task?.cancel()
+        cancelCurrentTask?()
     }
 }
 

@@ -50,7 +50,7 @@ private final class GenericAFMAdmissionGate: @unchecked Sendable {
 /// Bridges the OpenAI-compatible HTTP controllers onto AFMKit's neutral model
 /// and event contracts. Provider scheduler and parser internals stay inside
 /// AFMKitMLX.
-final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unchecked Sendable {
+final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, AFMMLXMediaRequestServing, @unchecked Sendable {
     private let fixedModel: AnyAFMModel
     private let fixedModelID: String
     private let fixedServingConfiguration: AFMChatServingConfiguration
@@ -59,6 +59,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
     private let forceDisableThinking: Bool
     private let fixedMaxConcurrent: Int
     private let mlxServing: (any AFMMLXOpenAIChatServing)?
+    private let mlxMediaServing: (any AFMMLXMediaRequestServing)?
     private let genericAdmission: GenericAFMAdmissionGate?
 
     init(
@@ -75,6 +76,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         self.forceDisableThinking = forceDisableThinking
         fixedMaxConcurrent = model.maxConcurrent
         mlxServing = model
+        mlxMediaServing = model
         genericAdmission = nil
     }
 
@@ -94,6 +96,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
         let maxConcurrent = Self.maximumConcurrency(for: model.descriptor)
         fixedMaxConcurrent = maxConcurrent
         mlxServing = nil
+        mlxMediaServing = nil
         genericAdmission = GenericAFMAdmissionGate(limit: maxConcurrent)
     }
 
@@ -111,6 +114,44 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, @unc
 
     func normalizeModel(_ raw: String) -> String {
         fixedModelID
+    }
+
+    func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {
+        guard normalizeModel(model) == fixedModelID else { return nil }
+        if let mlxMediaServing {
+            return mlxMediaServing.loadedModelDescriptor(model: model)
+        }
+        return fixedModel.descriptor
+    }
+
+    func validateMediaRequestCapabilities(model: String, messages: [Message]) throws {
+        guard let mlxMediaServing else {
+            throw MLXServiceError.unsupportedMediaInput(model: fixedModelID, kind: "media")
+        }
+        try mlxMediaServing.validateMediaRequestCapabilities(model: model, messages: messages)
+    }
+
+    func preflightMediaRequest(
+        model: String,
+        messages: [Message]
+    ) async throws -> AFMMLXResolvedMediaRequest {
+        guard let mlxMediaServing else {
+            throw MLXServiceError.unsupportedMediaInput(model: fixedModelID, kind: "media")
+        }
+        return try await mlxMediaServing.preflightMediaRequest(model: model, messages: messages)
+    }
+
+    func withPreflightedMediaRequest<Result: Sendable>(
+        _ request: AFMMLXResolvedMediaRequest,
+        operation: ([Message]) async throws -> Result
+    ) async throws -> Result {
+        guard let mlxMediaServing else {
+            throw MLXServiceError.unsupportedMediaInput(model: fixedModelID, kind: "media")
+        }
+        return try await mlxMediaServing.withPreflightedMediaRequest(
+            request,
+            operation: operation
+        )
     }
 
     func resolvedToolCallParser(logBypass: Bool) -> String? {
