@@ -24,6 +24,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 PATCH_FILES=(
+  "MLXSwiftLMPackage.swift"
   "LLMModelFactory.swift"
   "DeepseekV3.swift"
   "GLM4MoeLite.swift"
@@ -41,10 +42,12 @@ PATCH_FILES=(
   "KimiK25.swift"
   "Qwen3_5MoEVL.swift"
   "Qwen4Exp.swift"
+  "Qwen4ExpVL.swift"
   "Qwen4ExpTests.swift"
   "SamplerTests.swift"
 )
 TARGET_PATHS=(
+  "Package.swift"
   "Libraries/MLXLLM/LLMModelFactory.swift"
   "Libraries/MLXLLM/Models/DeepseekV3.swift"
   "Libraries/MLXLLM/Models/GLM4MOELite.swift"
@@ -62,10 +65,11 @@ TARGET_PATHS=(
   "Libraries/MLXLLM/Models/KimiK25.swift"
   "Libraries/MLXVLM/Models/Qwen3_5MoEVL.swift"
   "Libraries/MLXLLM/Models/Qwen4Exp.swift"
+  "Libraries/MLXVLM/Models/Qwen4ExpVL.swift"
   "Tests/MLXLMTests/Qwen4ExpTests.swift"
   "Tests/MLXLMTests/SamplerTests.swift"
 )
-NEW_FILES=("GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "Qwen4Exp.swift" "Qwen4ExpTests.swift" "SamplerTests.swift")
+NEW_FILES=("GatedDelta.swift" "Qwen3_5MoE.swift" "MiniMaxM2.swift" "GLM5MoeDsa.swift" "KimiK25.swift" "Qwen3_5MoEVL.swift" "Qwen4Exp.swift" "Qwen4ExpVL.swift" "Qwen4ExpTests.swift" "SamplerTests.swift")
 
 is_new_file() {
   local filename="$1"

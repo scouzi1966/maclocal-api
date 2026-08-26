@@ -52,7 +52,7 @@ public struct BaseProcessorConfiguration: Codable, Sendable {
 }
 
 /// Creates a function that loads a configuration file and instantiates a model with the proper configuration
-private func create<C: Codable, M>(
+private func create<C: Decodable, M>(
     _ configurationType: C.Type, _ modelInit: @escaping (C) -> M
 ) -> (Data) throws -> M {
     { data in
@@ -81,7 +81,8 @@ private func create<C: Codable, P>(
 public enum VLMTypeRegistry {
 
     /// Shared instance with default model types.
-    public static let shared: ModelTypeRegistry = .init(creators: [
+    public static let shared: ModelTypeRegistry = {
+        let creators: [String: (Data) throws -> any LanguageModel] = [
         "paligemma": create(PaliGemmaConfiguration.self, PaliGemma.init),
         "qwen2_vl": create(Qwen2VLConfiguration.self, Qwen2VL.init),
         "qwen2_5_vl": create(Qwen25VLConfiguration.self, Qwen25VL.init),
@@ -97,7 +98,10 @@ public enum VLMTypeRegistry {
         "lfm2_vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "qwen3_5_moe": create(Qwen3_5MoEVLConfiguration.self, Qwen3_5MoEVL.init),
-    ])
+        "qwen4_exp": create(Qwen4ExpVLConfiguration.self, Qwen4ExpVL.init),
+        ]
+        return .init(creators: creators)
+    }()
 }
 
 public enum VLMProcessorTypeRegistry {

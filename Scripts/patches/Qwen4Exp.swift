@@ -57,6 +57,7 @@ public struct Qwen4ExpTextConfiguration: Decodable, Sendable {
     var eosTokenID: Int
     var ropeTheta: Float
     var partialRotaryFactor: Float
+    var mropeSection: [Int]
 
     enum CodingKeys: String, CodingKey {
         case modelType = "model_type"
@@ -105,10 +106,12 @@ public struct Qwen4ExpTextConfiguration: Decodable, Sendable {
     private struct RopeParameters: Codable {
         var ropeTheta: Float?
         var partialRotaryFactor: Float?
+        var mropeSection: [Int]?
 
         enum CodingKeys: String, CodingKey {
             case ropeTheta = "rope_theta"
             case partialRotaryFactor = "partial_rotary_factor"
+            case mropeSection = "mrope_section"
         }
     }
 
@@ -157,6 +160,7 @@ public struct Qwen4ExpTextConfiguration: Decodable, Sendable {
         let rope = try c.decodeIfPresent(RopeParameters.self, forKey: .ropeParameters)
         ropeTheta = rope?.ropeTheta ?? 10_000_000
         partialRotaryFactor = rope?.partialRotaryFactor ?? 0.25
+        mropeSection = rope?.mropeSection ?? [11, 11, 10]
     }
 }
 
@@ -167,6 +171,11 @@ public struct Qwen4ExpConfiguration: Decodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case modelType = "model_type"
         case textConfig = "text_config"
+    }
+
+    public init(modelType: String = "qwen4_exp", textConfig: Qwen4ExpTextConfiguration) {
+        self.modelType = modelType
+        self.textConfig = textConfig
     }
 }
 
@@ -260,6 +269,63 @@ private final class Qwen4ExpGatedResidual: Module {
 
 // MARK: - Attention
 
+private final class Qwen4ExpMultimodalRoPE {
+    private let invFreq: MLXArray
+    private let mropeSection: [Int]
+
+    init(dimensions: Int, base: Float, mropeSection: [Int]) {
+        let frequency = MLXArray(stride(from: 0, to: dimensions, by: 2)).asType(.float32)
+            / Float(dimensions)
+        invFreq = 1 / pow(MLXArray(base), frequency)
+        self.mropeSection = mropeSection
+    }
+
+    private func interleave(_ frequencies: MLXArray) -> MLXArray {
+        let dimensions = frequencies.dim(-1)
+        let triplets = min(
+            min(mropeSection[1] * 3, dimensions),
+            min(mropeSection[2] * 3, dimensions)) / 3
+        guard triplets > 0 else { return frequencies[0, 0..., 0..., 0...] }
+
+        let temporal = MLXArray(stride(from: 0, to: triplets * 3, by: 3).map(Int32.init))
+        let height = MLXArray(stride(from: 1, to: triplets * 3, by: 3).map(Int32.init))
+        let width = MLXArray(stride(from: 2, to: triplets * 3, by: 3).map(Int32.init))
+        let selected = stacked([
+            take(frequencies[0, 0..., 0..., 0...], temporal, axis: -1),
+            take(frequencies[1, 0..., 0..., 0...], height, axis: -1),
+            take(frequencies[2, 0..., 0..., 0...], width, axis: -1),
+        ], axis: -1).reshaped(frequencies.dim(1), frequencies.dim(2), triplets * 3)
+
+        let consumed = triplets * 3
+        guard consumed < dimensions else { return selected }
+        return concatenated([selected, frequencies[0, 0..., 0..., consumed...]], axis: -1)
+    }
+
+    private func frequencies(positionIDs: MLXArray, dtype: DType) -> (MLXArray, MLXArray) {
+        var positions = positionIDs
+        if positions.ndim == 2 {
+            positions = tiled(positions[.newAxis, 0..., 0...], repetitions: [3, 1, 1])
+        }
+        let frequency = positions.asType(.float32)[0..., 0..., 0..., .newAxis]
+            * invFreq[.newAxis, .newAxis, .newAxis, 0...]
+        let interleaved = interleave(frequency)
+        let embedding = concatenated([interleaved, interleaved], axis: -1)
+        return (cos(embedding).asType(dtype), sin(embedding).asType(dtype))
+    }
+
+    func apply(_ tensor: MLXArray, positionIDs: MLXArray) -> MLXArray {
+        let dimensions = invFreq.dim(0) * 2
+        let rotated = tensor[0..., 0..., 0..., ..<dimensions]
+        let tail = tensor[0..., 0..., 0..., dimensions...]
+        let halves = MLX.split(rotated, parts: 2, axis: -1)
+        let rotatedHalf = concatenated([-halves[1], halves[0]], axis: -1)
+        let (cosine, sine) = frequencies(positionIDs: positionIDs, dtype: tensor.dtype)
+        let result = rotated * cosine[0..., .newAxis, 0..., 0...]
+            + rotatedHalf * sine[0..., .newAxis, 0..., 0...]
+        return tail.size == 0 ? result : concatenated([result, tail], axis: -1)
+    }
+}
+
 private final class Qwen4ExpAttentionCache: KVCache {
     var offset = 0
     var offsetArray: MLXArray? { nil }
@@ -267,10 +333,15 @@ private final class Qwen4ExpAttentionCache: KVCache {
     private var keys: MLXArray?
     private var values: MLXArray?
     private var indexKeys: MLXArray?
+    private var indexPositionIDs: MLXArray?
 
-    func updateIndexKeys(_ newKeys: MLXArray) -> MLXArray {
+    func updateIndexKeys(_ newKeys: MLXArray, positionIDs: MLXArray) -> (MLXArray, MLXArray) {
         indexKeys = indexKeys.map { concatenated([$0, newKeys], axis: 1) } ?? newKeys
-        return indexKeys!
+        let axis = positionIDs.ndim - 1
+        indexPositionIDs = indexPositionIDs.map {
+            concatenated([$0, positionIDs], axis: axis)
+        } ?? positionIDs
+        return (indexKeys!, indexPositionIDs!)
     }
 
     func update(keys newKeys: MLXArray, values newValues: MLXArray)
@@ -283,12 +354,13 @@ private final class Qwen4ExpAttentionCache: KVCache {
     }
 
     var state: [MLXArray] {
-        get { [keys, values, indexKeys].compactMap { $0 } }
+        get { [keys, values, indexKeys, indexPositionIDs].compactMap { $0 } }
         set {
-            precondition(newValue.count == 2 || newValue.count == 3)
+            precondition((2 ... 4).contains(newValue.count))
             keys = newValue[0]
             values = newValue[1]
-            indexKeys = newValue.count == 3 ? newValue[2] : nil
+            indexKeys = newValue.count >= 3 ? newValue[2] : nil
+            indexPositionIDs = newValue.count == 4 ? newValue[3] : nil
             offset = newValue[0].dim(2)
         }
     }
@@ -307,6 +379,11 @@ private final class Qwen4ExpAttentionCache: KVCache {
         if let keys { self.keys = keys[.ellipsis, ..<offset, 0...] }
         if let values { self.values = values[.ellipsis, ..<offset, 0...] }
         if let indexKeys { self.indexKeys = indexKeys[0..., ..<offset, 0...] }
+        if let positions = indexPositionIDs {
+            indexPositionIDs = positions.ndim == 2
+                ? positions[0..., ..<offset]
+                : positions[0..., 0..., ..<offset]
+        }
         return amount
     }
 
@@ -323,7 +400,7 @@ private final class Qwen4ExpAttentionCache: KVCache {
     }
 
     func innerState() -> [MLXArray] {
-        [keys, values, indexKeys].compactMap { $0 }
+        [keys, values, indexKeys, indexPositionIDs].compactMap { $0 }
     }
 }
 
@@ -334,8 +411,7 @@ private final class Qwen4ExpQSAIndexer: Module {
     let tokenBudget: Int
     let compressRatio: Int
     let blockTopK: Int
-    let queryRoPE: RoPE
-    let blockRoPE: RoPE
+    let rope: Qwen4ExpMultimodalRoPE
     @ModuleInfo(key: "index_qk_proj") var indexQKProj: Linear
     @ModuleInfo(key: "q_layernorm") var qLayerNorm: Qwen4ExpZeroCenteredRMSNorm
     @ModuleInfo(key: "k_layernorm") var kLayerNorm: Qwen4ExpZeroCenteredRMSNorm
@@ -356,28 +432,31 @@ private final class Qwen4ExpQSAIndexer: Module {
         _kLayerNorm.wrappedValue = Qwen4ExpZeroCenteredRMSNorm(
             dimensions: config.indexerHeadDim, eps: config.rmsNormEps)
         let rotaryDimensions = Int(Float(config.indexerHeadDim) * config.partialRotaryFactor)
-        queryRoPE = RoPE(
-            dimensions: rotaryDimensions, traditional: false, base: config.ropeTheta)
-        blockRoPE = RoPE(
-            dimensions: rotaryDimensions, traditional: false, base: config.ropeTheta,
-            scale: Float(config.indexerCompressRatio))
+        rope = Qwen4ExpMultimodalRoPE(
+            dimensions: rotaryDimensions, base: config.ropeTheta,
+            mropeSection: config.mropeSection)
     }
 
     func callAsFunction(
         _ hidden: MLXArray,
+        positionIDs providedPositionIDs: MLXArray?,
         cache: Qwen4ExpAttentionCache?
     ) -> MLXArray? {
         let (batch, length) = (hidden.dim(0), hidden.dim(1))
         let previousOffset = cache?.offset ?? 0
+        let positionIDs = providedPositionIDs ?? tiled(
+            MLXArray(Int32(previousOffset) ..< Int32(previousOffset + length))[.newAxis, 0...],
+            repetitions: [batch, 1])
         let qk = indexQKProj(hidden)
         let splitPoint = heads * headDim
         let parts = MLX.split(qk, indices: [splitPoint], axis: -1)
         var queries = qLayerNorm(parts[0].reshaped(batch, length, heads, headDim))
             .transposed(0, 2, 1, 3)
-        queries = queryRoPE(queries, offset: previousOffset)
+        queries = rope.apply(queries, positionIDs: positionIDs)
         let currentKeys = parts[1].reshaped(batch, length, kvHeads, headDim)
             .mean(axis: 2)
-        let allKeys = cache?.updateIndexKeys(currentKeys) ?? currentKeys
+        let (allKeys, allPositionIDs) = cache?.updateIndexKeys(
+            currentKeys, positionIDs: positionIDs) ?? (currentKeys, positionIDs)
         let totalLength = allKeys.dim(1)
 
         guard totalLength > tokenBudget else { return nil }
@@ -385,9 +464,15 @@ private final class Qwen4ExpQSAIndexer: Module {
         let completeBlocks = totalLength / compressRatio
         let pooled = allKeys[0..., ..<(completeBlocks * compressRatio), 0...]
             .reshaped(batch, completeBlocks, compressRatio, headDim)
-            .mean(axis: 2)
+            .asType(.float32).mean(axis: 2).asType(allKeys.dtype)
         var blockKeys = kLayerNorm(pooled)
-        blockKeys = blockRoPE(expandedDimensions(blockKeys, axis: 1)).squeezed(axis: 1)
+        let blockIndices = MLXArray(
+            stride(from: 0, to: completeBlocks * compressRatio, by: compressRatio).map(Int32.init))
+        let positionAxis = allPositionIDs.ndim - 1
+        let blockPositionIDs = take(allPositionIDs, blockIndices, axis: positionAxis)
+        blockKeys = rope.apply(
+            expandedDimensions(blockKeys, axis: 1), positionIDs: blockPositionIDs
+        ).squeezed(axis: 1)
         let tokenPositions = MLXArray(Int32(0) ..< Int32(totalLength))
         let tokenBlockIDs = tokenPositions.floorDivide(compressRatio)
         var rows = [MLXArray]()
@@ -428,7 +513,7 @@ private final class Qwen4ExpAttention: Module {
     let kvHeads: Int
     let headDim: Int
     let scale: Float
-    let rope: RoPE
+    let rope: Qwen4ExpMultimodalRoPE
     @ModuleInfo(key: "q_proj") var qProj: Linear
     @ModuleInfo(key: "k_proj") var kProj: Linear
     @ModuleInfo(key: "v_proj") var vProj: Linear
@@ -449,31 +534,31 @@ private final class Qwen4ExpAttention: Module {
         _qNorm.wrappedValue = Qwen4ExpZeroCenteredRMSNorm(dimensions: headDim, eps: config.rmsNormEps)
         _kNorm.wrappedValue = Qwen4ExpZeroCenteredRMSNorm(dimensions: headDim, eps: config.rmsNormEps)
         _indexer.wrappedValue = Qwen4ExpQSAIndexer(config)
-        rope = RoPE(
+        rope = Qwen4ExpMultimodalRoPE(
             dimensions: Int(Float(headDim) * config.partialRotaryFactor),
-            traditional: false,
-            base: config.ropeTheta)
+            base: config.ropeTheta, mropeSection: config.mropeSection)
     }
 
     func callAsFunction(
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
+        positionIDs providedPositionIDs: MLXArray?,
         cache: KVCache?
     ) -> MLXArray {
         let (b, l) = (x.dim(0), x.dim(1))
-        let qsaMask = indexer(x, cache: cache as? Qwen4ExpAttentionCache)
+        let offset = cache?.offset ?? 0
+        let positionIDs = providedPositionIDs ?? tiled(
+            MLXArray(Int32(offset) ..< Int32(offset + l))[.newAxis, 0...],
+            repetitions: [b, 1])
+        let qsaMask = indexer(
+            x, positionIDs: positionIDs, cache: cache as? Qwen4ExpAttentionCache)
         let qParts = MLX.split(qProj(x).reshaped(b, l, heads, headDim * 2), parts: 2, axis: -1)
         var q = qNorm(qParts[0]).transposed(0, 2, 1, 3)
         let gate = qParts[1].reshaped(b, l, -1)
         var k = kNorm(kProj(x).reshaped(b, l, kvHeads, headDim)).transposed(0, 2, 1, 3)
         let v = vProj(x).reshaped(b, l, kvHeads, headDim).transposed(0, 2, 1, 3)
-        if let cache {
-            q = rope(q, offset: cache.offset)
-            k = rope(k, offset: cache.offset)
-        } else {
-            q = rope(q)
-            k = rope(k)
-        }
+        q = rope.apply(q, positionIDs: positionIDs)
+        k = rope.apply(k, positionIDs: positionIDs)
         var output = attentionWithCacheUpdate(
             queries: q, keys: k, values: v, cache: cache, scale: scale,
             mask: qsaMask.map { .array($0) } ?? mask)
@@ -830,6 +915,7 @@ private final class Qwen4ExpDecoderLayer: Module {
         _ input: MLXArray,
         inputIDs: MLXArray,
         attentionMask: MLXFast.ScaledDotProductAttentionMaskMode,
+        positionIDs: MLXArray?,
         cache: KVCache?
     ) -> MLXArray {
         let arrayCache = cache as? ArraysCache
@@ -841,7 +927,8 @@ private final class Qwen4ExpDecoderLayer: Module {
         (mixed, residual, injection) = attentionHyperConnection.mix(hidden)
         let attended = isLinear
             ? linearAttention!(mixed, cache: arrayCache)
-            : selfAttention!(mixed, mask: attentionMask, cache: cache)
+            : selfAttention!(
+                mixed, mask: attentionMask, positionIDs: positionIDs, cache: cache)
         hidden = attentionHyperConnection.inject(attended, residual: residual, weights: injection)
         (mixed, residual, injection) = mlpHyperConnection.mix(hidden)
         return mlpHyperConnection.inject(mlp(mixed), residual: residual, weights: injection)
@@ -862,16 +949,22 @@ private final class Qwen4ExpModelInner: Module {
         _hyperConnectionMixer.wrappedValue = Qwen4ExpGatedResidual(config, useCombine: false)
     }
 
-    func callAsFunction(_ inputIDs: MLXArray, cache: [KVCache]?) -> MLXArray {
+    func callAsFunction(
+        _ inputIDs: MLXArray,
+        inputEmbeddings: MLXArray? = nil,
+        positionIDs: MLXArray? = nil,
+        cache: [KVCache]?
+    ) -> MLXArray {
         var hidden = MLX.tiled(
-            embedTokens(inputIDs), repetitions: [1, 1, hyperConnectionMixer.hcCount])
+            inputEmbeddings ?? embedTokens(inputIDs),
+            repetitions: [1, 1, hyperConnectionMixer.hcCount])
         let layerCaches: [KVCache?] = cache ?? Array(repeating: nil, count: layers.count)
         let attentionIndex = layers.firstIndex { !$0.isLinear }
         let mask = attentionIndex.map { createAttentionMask(h: hidden, cache: layerCaches[$0]) } ?? .none
         for (index, layer) in layers.enumerated() {
             hidden = layer(
                 hidden, inputIDs: inputIDs,
-                attentionMask: mask, cache: layerCaches[index])
+                attentionMask: mask, positionIDs: positionIDs, cache: layerCaches[index])
         }
         return hyperConnectionMixer.combine(hidden)
     }
@@ -897,6 +990,22 @@ public final class Qwen4ExpModel: Module, LLMModel, KVCacheDimensionProvider {
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         let hidden = model(inputs, cache: cache)
+        return lmHead?(hidden) ?? model.embedTokens.asLinear(hidden)
+    }
+
+    public func embedTokens(_ inputIDs: MLXArray) -> MLXArray {
+        model.embedTokens(inputIDs)
+    }
+
+    public func forward(
+        inputIDs: MLXArray,
+        inputEmbeddings: MLXArray? = nil,
+        positionIDs: MLXArray? = nil,
+        cache: [KVCache]?
+    ) -> MLXArray {
+        let hidden = model(
+            inputIDs, inputEmbeddings: inputEmbeddings,
+            positionIDs: positionIDs, cache: cache)
         return lmHead?(hidden) ?? model.embedTokens.asLinear(hidden)
     }
 
