@@ -962,7 +962,7 @@ Translate "Hello, how are you?" into French, Spanish, Japanese, and Arabic. Form
 # AI: valid Python, use correct algorithm, and handle edge cases (n < 2).
 [@ code-python]
 temperature: 0.0
-max_tokens: 32768
+max_tokens: 20000
 system: You are a Python expert. Write clean code with no explanation.
 Write a function that finds all prime numbers up to n using the Sieve of Eratosthenes.
 
@@ -971,7 +971,7 @@ Write a function that finds all prime numbers up to n using the Sieve of Eratost
 # AI: and Result type for error handling. Relevant to this project (afm is written in Swift).
 [@ code-swift]
 temperature: 0.0
-max_tokens: 32768
+max_tokens: 20000
 system: You are a Swift expert. Write clean code with no explanation.
 Write a Swift async function that fetches JSON from a URL using URLSession, decodes it into a Codable struct, and handles errors with Result type.
 
@@ -981,7 +981,7 @@ Write a Swift async function that fetches JSON from a URL using URLSession, deco
 # AI: discount, subtotal, and tax steps correctly. Tests reasoning without <think> support.
 [@ math]
 temperature: 0.0
-max_tokens: 32768
+max_tokens: 20000
 A store sells notebooks for $3.50 each. If you buy 5 or more, you get a 20% discount. Sales tax is 8.5%. How much do 7 notebooks cost after tax? Show your work.
 
 # AI: Tests long-form coherent writing. Feature: model quality — extended generation.
