@@ -1,7 +1,8 @@
 import Foundation
 import MLX
-import MLXLLM
+@testable import MLXLLM
 import MLXLMCommon
+import MLXVLM
 import XCTest
 
 final class Qwen4ExpTests: XCTestCase {
@@ -61,6 +62,34 @@ final class Qwen4ExpTests: XCTestCase {
         XCTAssertEqual(qwen.newCache(parameters: nil).count, 2)
     }
 
+    func testVLMRegistryCreatesQwen4ExpModelFromNestedConfig() async throws {
+        var configuration = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(minimalConfiguration.utf8))
+                as? [String: Any]
+        )
+        configuration["vision_config"] = [
+            "model_type": "qwen3_vl",
+            "depth": 1,
+            "hidden_size": 128,
+            "intermediate_size": 256,
+            "out_hidden_size": 128,
+            "num_heads": 2,
+            "patch_size": 14,
+            "spatial_merge_size": 2,
+            "temporal_patch_size": 2,
+            "num_position_embeddings": 16,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: configuration)
+
+        let model = try await VLMTypeRegistry.shared.createModel(
+            configuration: data,
+            modelType: "qwen4_exp"
+        )
+
+        let qwen = try XCTUnwrap(model as? Qwen4ExpVL)
+        XCTAssertEqual(qwen.vocabularySize, 32)
+    }
+
     func testSanitizeKeepsTextWeightsAndRenamesPLEShards() async throws {
         let model = try await LLMTypeRegistry.shared.createModel(
             configuration: Data(minimalConfiguration.utf8),
@@ -72,6 +101,10 @@ final class Qwen4ExpTests: XCTestCase {
             "language_model.model.layers.0.attn_hyper_connection.hc_norm.weight":
                 MLXArray([Float(1.25)]),
             "language_model.model.layers.0.linear_attn.norm.weight": MLXArray([Float(1.25)]),
+            "language_model.model.layers.1.self_attn.indexer.q_layernorm.weight":
+                MLXArray([Float(1.25)]),
+            "language_model.model.layers.1.self_attn.indexer.k_layernorm.weight":
+                MLXArray([Float(1.25)]),
             "language_model.model.layers.1.ple.ple_embedding.ngram_embedding.shard_7.weight":
                 MLXArray.zeros([1]),
             "language_model.model.layers.1.ple.ple_embedding.ngram_heads_offsets":
@@ -93,6 +126,16 @@ final class Qwen4ExpTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(sanitized["model.layers.0.linear_attn.norm.weight"]).item(Float.self),
             1.25, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(sanitized[
+                "model.layers.1.self_attn.indexer.q_layernorm.weight"
+            ]).item(Float.self),
+            0.25, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(sanitized[
+                "model.layers.1.self_attn.indexer.k_layernorm.weight"
+            ]).item(Float.self),
+            0.25, accuracy: 0.0001)
         XCTAssertNotNil(sanitized[
             "model.layers.1.ple.ple_embedding.ngram_embedding.shards.7.weight"
         ])
@@ -100,6 +143,29 @@ final class Qwen4ExpTests: XCTestCase {
         XCTAssertNil(sanitized["visual.patch_embed.weight"])
         XCTAssertNil(sanitized["model.layers.1.ple.ple_embedding.ngram_heads_offsets"])
         XCTAssertNil(sanitized["model.layers.1.ple.ple_embedding.ngram_heads_vocab_sizes"])
+    }
+
+    func testMultimodalRoPEInterleavesUnequalSectionsIndependently() {
+        let rope = Qwen4ExpMultimodalRoPE(
+            dimensions: 64,
+            base: 10_000_000,
+            mropeSection: [11, 11, 10]
+        )
+        let frequencies = stacked([
+            MLXArray(Array(repeating: Float(0), count: 32)).reshaped(1, 1, 32),
+            MLXArray(Array(repeating: Float(1), count: 32)).reshaped(1, 1, 32),
+            MLXArray(Array(repeating: Float(2), count: 32)).reshaped(1, 1, 32),
+        ])
+
+        let interleaved = rope.interleave(frequencies)
+        eval(interleaved)
+
+        var expected = (0 ..< 32).map { $0 % 3 == 1 ? Float(1) : Float(0) }
+        for index in stride(from: 2, to: 30, by: 3) {
+            expected[index] = 2
+        }
+        XCTAssertEqual(interleaved.asArray(Float.self), expected)
+        XCTAssertEqual(interleaved[0, 0, 31].item(Float.self), 1)
     }
 
     func testTinyModelRunsPromptAndCachedToken() async throws {

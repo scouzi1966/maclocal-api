@@ -269,7 +269,7 @@ private final class Qwen4ExpGatedResidual: Module {
 
 // MARK: - Attention
 
-private final class Qwen4ExpMultimodalRoPE {
+final class Qwen4ExpMultimodalRoPE {
     private let invFreq: MLXArray
     private let mropeSection: [Int]
 
@@ -280,25 +280,15 @@ private final class Qwen4ExpMultimodalRoPE {
         self.mropeSection = mropeSection
     }
 
-    private func interleave(_ frequencies: MLXArray) -> MLXArray {
+    func interleave(_ frequencies: MLXArray) -> MLXArray {
         let dimensions = frequencies.dim(-1)
-        let triplets = min(
-            min(mropeSection[1] * 3, dimensions),
-            min(mropeSection[2] * 3, dimensions)) / 3
-        guard triplets > 0 else { return frequencies[0, 0..., 0..., 0...] }
-
-        let temporal = MLXArray(stride(from: 0, to: triplets * 3, by: 3).map(Int32.init))
-        let height = MLXArray(stride(from: 1, to: triplets * 3, by: 3).map(Int32.init))
-        let width = MLXArray(stride(from: 2, to: triplets * 3, by: 3).map(Int32.init))
-        let selected = stacked([
-            take(frequencies[0, 0..., 0..., 0...], temporal, axis: -1),
-            take(frequencies[1, 0..., 0..., 0...], height, axis: -1),
-            take(frequencies[2, 0..., 0..., 0...], width, axis: -1),
-        ], axis: -1).reshaped(frequencies.dim(1), frequencies.dim(2), triplets * 3)
-
-        let consumed = triplets * 3
-        guard consumed < dimensions else { return selected }
-        return concatenated([selected, frequencies[0, 0..., 0..., consumed...]], axis: -1)
+        let indices = MLXArray(0 ..< dimensions)
+        let temporal = frequencies[0, 0..., 0..., 0...]
+        let height = frequencies[1, 0..., 0..., 0...]
+        let width = frequencies[2, 0..., 0..., 0...]
+        let heightMask = (indices % 3 .== 1) .&& (indices .< mropeSection[1] * 3)
+        let widthMask = (indices % 3 .== 2) .&& (indices .< mropeSection[2] * 3)
+        return MLX.where(widthMask, width, MLX.where(heightMask, height, temporal))
     }
 
     private func frequencies(positionIDs: MLXArray, dtype: DType) -> (MLXArray, MLXArray) {
@@ -1027,6 +1017,8 @@ public final class Qwen4ExpModel: Module, LLMModel, KVCacheDimensionProvider {
             ".norm_key.weight",
             ".norm_query.weight",
             ".norm_conv.weight",
+            ".q_layernorm.weight",
+            ".k_layernorm.weight",
         ]
         for (originalKey, value) in weights {
             guard originalKey.hasPrefix("language_model.") else { continue }
