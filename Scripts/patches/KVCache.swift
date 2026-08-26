@@ -746,6 +746,10 @@ private struct TurboQuantMSECodec {
         return hadamardTransform(array, scale: scale) * signs
     }
 
+    func prepareQueries(_ queries: MLXArray) -> MLXArray {
+        rotateForward(queries.asType(.float32))
+    }
+
     func quantize(_ vectors: MLXArray) -> TurboQuantMSEState {
         let vectorsF32 = vectors.asType(.float32)
         let norms = sqrt(sum(square(vectorsF32), axis: -1))
@@ -786,6 +790,111 @@ private struct TurboQuantMSECodec {
         let unitVectors = rotateInverse(rotated)
         return state.norms[.ellipsis, .newAxis].asType(.float32) * unitVectors
     }
+}
+
+private func makeTurboQuantMSEScoreKernel() -> MLXFast.MLXFastKernel? {
+    let source = """
+        auto lane = thread_position_in_grid.x;
+        auto repeat_idx = thread_position_in_grid.y;
+        auto n = thread_position_in_grid.z;
+
+        auto token_count = norms_shape[2];
+        auto kv_heads = norms_shape[1];
+        auto bh = n / token_count;
+        auto t = n % token_count;
+        auto b = bh / kv_heads;
+        auto h = bh % kv_heads;
+
+        auto query_ptr = queries + ((b * kv_heads + h) * RepeatCount + repeat_idx) * Dim;
+        auto norms_ptr = norms + (b * kv_heads + h) * token_count;
+        auto packed_ptr = packed + ((b * kv_heads + h) * token_count + t) * PackedWidth;
+
+        float acc = 0.0f;
+        for (int dim_idx = lane; dim_idx < Dim; dim_idx += 32) {
+            int bit_offset = dim_idx * Bits;
+            int word_idx = bit_offset / 32;
+            int offset = bit_offset % 32;
+
+            uint value = packed_ptr[word_idx] >> offset;
+            int spill = offset + Bits - 32;
+            if (spill > 0) {
+                value |= packed_ptr[word_idx + 1] << (Bits - spill);
+            }
+            value &= ((1u << Bits) - 1u);
+
+            float code = static_cast<float>(codebook[value]);
+            acc += static_cast<float>(query_ptr[dim_idx]) * code;
+        }
+
+        acc = simd_sum(acc);
+        if (thread_index_in_simdgroup == 0) {
+            auto out_idx = ((b * kv_heads + h) * RepeatCount + repeat_idx) * token_count + t;
+            scores[out_idx] = acc * static_cast<float>(norms_ptr[t]);
+        }
+    """
+
+    return MLXFast.metalKernel(
+        name: "turboquant_mse_decode_score",
+        inputNames: ["queries", "norms", "packed", "codebook"],
+        outputNames: ["scores"],
+        source: source
+    )
+}
+
+private final class TurboQuantMSEKernelManager: @unchecked Sendable {
+    static let shared = TurboQuantMSEKernelManager()
+
+    let scoreKernel: MLXFast.MLXFastKernel?
+
+    private init() {
+        scoreKernel = makeTurboQuantMSEScoreKernel()
+    }
+}
+
+private func turboQuantMSEDecodeScores(
+    queries: MLXArray,
+    state: TurboQuantMSEState,
+    bits: Int,
+    codebook: MLXArray
+) -> MLXArray? {
+    guard
+        bits > 0,
+        queries.ndim == 4,
+        state.norms.dim(2) > 0,
+        let kernel = TurboQuantMSEKernelManager.shared.scoreKernel
+    else {
+        return nil
+    }
+
+    let B = queries.dim(0)
+    let H = queries.dim(1)
+    let R = queries.dim(2)
+    let D = queries.dim(3)
+    let T = state.norms.dim(2)
+    guard
+        state.norms.ndim == 3,
+        state.indices.ndim == 4,
+        B == state.norms.dim(0),
+        H == state.norms.dim(1),
+        T == state.indices.dim(2),
+        state.indices.dim(3) > 0
+    else {
+        return nil
+    }
+
+    return kernel(
+        [queries, state.norms, state.indices, codebook],
+        template: [
+            ("Dim", D),
+            ("RepeatCount", R),
+            ("Bits", bits),
+            ("PackedWidth", state.indices.dim(3)),
+        ],
+        grid: (32, R, B * H * T),
+        threadGroup: (32, 1, 1),
+        outputShapes: [[B, H, R, T]],
+        outputDTypes: [.float32]
+    )[0]
 }
 
 /// Base cache implementation providing default behaviors
@@ -1546,6 +1655,10 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
     }
 
     private func appendShadow(keys: MLXArray, values: MLXArray, previous: Int) {
+        if previous > 0 && (shadowKeys == nil || shadowValues == nil) {
+            rehydrateShadowFromPackedState()
+        }
+
         let newTokens = keys.dim(2)
         let needed = previous + newTokens
 
@@ -1689,23 +1802,29 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
                 shadowValues[.ellipsis, ..<offset, 0...]
             } else {
                 MLXArray.zeros([keys.dim(0), shadowValues.dim(1), offset, 0], dtype: shadowValues.dtype)
-            }
+        }
         return (keys, values)
     }
 
-    public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
-        let previous = offset
+    @discardableResult
+    private func ingest(keys: MLXArray, values: MLXArray) -> (TurboQuantMSEState, TurboQuantMSEState) {
+        let previousOffset = offset
         ensureCodecs(keyDim: keys.dim(3), valueDim: values.dim(3))
 
         let quantizedKeys = keyCodec!.quantize(keys)
         let quantizedValues = valueCodec!.quantize(values)
 
-        appendPackedState(current: &keyState, update: quantizedKeys, previous: previous)
-        appendPackedState(current: &valueState, update: quantizedValues, previous: previous)
-        appendShadow(keys: keys, values: values, previous: previous)
+        appendPackedState(current: &keyState, update: quantizedKeys, previous: previousOffset)
+        appendPackedState(current: &valueState, update: quantizedValues, previous: previousOffset)
+        appendShadow(keys: keys, values: values, previous: previousOffset)
         legacyDenseState = nil
         offset += keys.dim(2)
 
+        return (quantizedKeys, quantizedValues)
+    }
+
+    public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+        _ = ingest(keys: keys, values: values)
         return denseState()
     }
 
@@ -1726,6 +1845,69 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
         )
     }
 
+    private func groupedDecodeQueries(_ queries: MLXArray) -> MLXArray? {
+        guard
+            queries.ndim == 4,
+            queries.dim(2) == 1,
+            let keyState,
+            keyState.norms.dim(1) > 0
+        else {
+            return nil
+        }
+
+        let kvHeads = keyState.norms.dim(1)
+        let queryHeads = queries.dim(1)
+        guard queryHeads % kvHeads == 0 else { return nil }
+
+        let repeatCount = queryHeads / kvHeads
+        return queries
+            .squeezed(axis: 2)
+            .reshaped(queries.dim(0), kvHeads, repeatCount, queries.dim(3))
+    }
+
+    private func fastDecodeAttention(
+        queries: MLXArray,
+        scale: Float,
+        mask: MLXFast.ScaledDotProductAttentionMaskMode
+    ) -> MLXArray? {
+        guard case .none = mask else { return nil }
+        guard
+            let keyState,
+            let valueState,
+            let keyCodec,
+            let valueCodec,
+            let valueDimension,
+            valueDimension > 0
+        else {
+            return nil
+        }
+
+        guard let groupedQueries = groupedDecodeQueries(queries) else { return nil }
+
+        let preparedQueries = keyCodec.prepareQueries(groupedQueries)
+        let trimmedKeyState = turboQuantSliceState(keyState, end: offset)
+        let trimmedValueState = turboQuantSliceState(valueState, end: offset)
+
+        guard let scores = turboQuantMSEDecodeScores(
+            queries: preparedQueries,
+            state: trimmedKeyState,
+            bits: keyCodec.bits,
+            codebook: keyCodec.codebook
+        ) else {
+            return nil
+        }
+
+        let scaledScores = scale == 1.0 ? scores : scores * scale
+        let weights = softmax(scaledScores, axis: -1)
+
+        let denseValues = valueCodec.dequantize(trimmedValueState)
+        let decoded = matmul(weights, denseValues)
+            .reshaped(queries.dim(0), queries.dim(1), valueDimension)
+            .expandedDimensions(axis: 2)
+
+        return decoded.asType(queries.dtype)
+    }
+
     public func decodeAttention(
         queries: MLXArray,
         keys: MLXArray,
@@ -1733,10 +1915,15 @@ public class TurboQuantKVCache: BaseKVCache, TurboQuantKVCacheProtocol, CustomDe
         scale: Float,
         mask: MLXFast.ScaledDotProductAttentionMaskMode = .none
     ) -> MLXArray {
-        fallbackAttention(
+        _ = ingest(keys: keys, values: values)
+        if let fast = fastDecodeAttention(queries: queries, scale: scale, mask: mask) {
+            return fast
+        }
+        let (cachedKeys, cachedValues) = denseState()
+        return MLXFast.scaledDotProductAttention(
             queries: queries,
-            keys: keys,
-            values: values,
+            keys: cachedKeys,
+            values: cachedValues,
             scale: scale,
             mask: mask
         )
