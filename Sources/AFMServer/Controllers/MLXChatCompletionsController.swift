@@ -105,6 +105,7 @@ struct MLXChatCompletionsController: RouteCollection {
     private let trace: Bool
     private let rawOutput: Bool
     private let stop: String?
+    private let telemetry: AFMServerTelemetryAdapter
 
     init(
         streamingEnabled: Bool = true,
@@ -122,7 +123,8 @@ struct MLXChatCompletionsController: RouteCollection {
         veryVerbose: Bool = false,
         trace: Bool = false,
         rawOutput: Bool = false,
-        stop: String? = nil
+        stop: String? = nil,
+        telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {
         self.streamingEnabled = streamingEnabled
         self.modelID = modelID
@@ -140,6 +142,7 @@ struct MLXChatCompletionsController: RouteCollection {
         self.trace = trace
         self.rawOutput = rawOutput
         self.stop = stop
+        self.telemetry = telemetry
     }
 
     /// Merge CLI --stop sequences with API-level stop sequences, deduplicating.
@@ -153,6 +156,35 @@ struct MLXChatCompletionsController: RouteCollection {
         guard !merged.isEmpty else { return nil }
         var seen = Set<String>()
         return merged.filter { seen.insert($0).inserted }
+    }
+
+    private func withGenerationContext<Result>(
+        lease: AFMGenerationLease?,
+        acceptedAt: Double,
+        maximumOutputTokens: Int,
+        ignoreEndOfSequence: Bool,
+        operation: () async throws -> Result
+    ) async rethrows -> Result {
+        guard let lease else {
+            return try await AFMGenerationContext.$ignoreEndOfSequence.withValue(ignoreEndOfSequence) {
+                try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                    maximumOutputTokens,
+                    operation: operation
+                )
+            }
+        }
+        return try await AFMGenerationContext.$admissionLease.withValue(lease) {
+            try await AFMGenerationContext.$telemetryToken.withValue(lease.telemetryToken) {
+                try await AFMGenerationContext.$acceptedAt.withValue(acceptedAt) {
+                    try await AFMGenerationContext.$ignoreEndOfSequence.withValue(ignoreEndOfSequence) {
+                        try await AFMGenerationContext.$requestedMaximumOutputTokens.withValue(
+                            maximumOutputTokens,
+                            operation: operation
+                        )
+                    }
+                }
+            }
+        }
     }
 
     func boot(routes: RoutesBuilder) throws {
@@ -330,10 +362,25 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             }
 
-            let admissionTask = Task<(reserved: Bool, media: AFMMLXResolvedMediaRequest?), Error> {
-                guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
-                    try Task.checkCancellation()
-                    return (false, nil)
+            let acceptedAt = ProcessInfo.processInfo.systemUptime
+            let providerAdmitter = (service as? any AFMGenerationAdmitterProviding)?
+                .providerGenerationAdmitter
+            let admissionTask = Task<(
+                reserved: Bool,
+                lease: AFMGenerationLease?,
+                media: AFMMLXResolvedMediaRequest?
+            ), Error> {
+                let lease: AFMGenerationLease?
+                if let providerAdmitter {
+                    lease = try await providerAdmitter.admitGeneration(
+                        timeout: .seconds(Self.slotQueueTimeout)
+                    )
+                } else {
+                    guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+                        try Task.checkCancellation()
+                        return (false, nil, nil)
+                    }
+                    lease = nil
                 }
                 do {
                     let preflighted = try await mediaServing?.preflightMediaRequest(
@@ -341,9 +388,13 @@ struct MLXChatCompletionsController: RouteCollection {
                         messages: chatRequest.messages
                     )
                     try Task.checkCancellation()
-                    return (true, preflighted)
+                    return (true, lease, preflighted)
                 } catch {
-                    service.releaseSlot()
+                    if let lease {
+                        lease.release()
+                    } else {
+                        service.releaseSlot()
+                    }
                     throw error
                 }
             }
@@ -372,6 +423,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 ))
                 return response
             }
+            let generationLease = admission.lease
             let preflightedMedia = admission.media
 
             // Reset peak memory before each request so usage.peak_memory_gib
@@ -390,17 +442,20 @@ struct MLXChatCompletionsController: RouteCollection {
                     extractThinking: extractThinking,
                     effectiveResponseFormat: effectiveResponseFormat,
                     grammarDowngraded: grammarDowngraded,
+                    generationLease: generationLease,
+                    acceptedAt: acceptedAt,
                     requestId: reqId,
                     requestRegistration: requestRegistration
                 )
             }
 
-            // The controller owns the reservation until generation either uses
-            // the serial path or successfully returns a stream. A returned
-            // stream releases its transferred reservation on termination.
-            var reservationTransferredToStream = false
+            // Provider leases remain caller-owned unless the provider explicitly
+            // transfers release ownership. Calling release after an MLX transfer
+            // is a no-op, while DwarfStar still needs the caller-side release.
+            var fallbackReservationTransferredToStream = false
             defer {
-                if !reservationTransferredToStream {
+                generationLease?.release()
+                if generationLease == nil && !fallbackReservationTransferredToStream {
                     service.releaseSlot()
                 }
             }
@@ -440,42 +495,50 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Keep batch generation and stream collection under the same
                 // cancellable task so the registry owns GPU work, not merely
                 // the already-completed admission phase.
-                reservationTransferredToStream = true
+                fallbackReservationTransferredToStream = true
                 let generationTask = Task<CancellableGenerationResult, Error> {
-                    var streamOwnsReservation = false
+                    var fallbackStreamOwnsReservation = false
                     defer {
-                        if !streamOwnsReservation {
+                        generationLease?.release()
+                        if generationLease == nil && !fallbackStreamOwnsReservation {
                             service.releaseSlot()
                         }
                     }
-                    let streamResult: AFMChatStreamingResult = try await withPreflightedMedia(
-                        preflightedMedia,
-                        messages: chatRequest.messages
-                    ) { trustedMessages in
-                        try await service.generateStreaming(
-                        model: modelID,
-                        messages: trustedMessages,
-                        temperature: effectiveTemp,
-                        maxTokens: effectiveMaxTokens,
-                        topP: effectiveTopP,
-                        repetitionPenalty: effectiveRepetitionPenalty,
-                        topK: effectiveTopK,
-                        minP: effectiveMinP,
-                        presencePenalty: effectivePresencePenalty,
-                        seed: effectiveSeed,
-                        logprobs: chatRequest.logprobs,
-                        topLogprobs: chatRequest.topLogprobs,
-                        tools: effectiveTools,
-                        toolChoice: chatRequest.toolChoice,
-                        parallelToolCalls: chatRequest.parallelToolCalls,
-                        stop: effectiveStop,
-                        responseFormat: effectiveResponseFormat,
-                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                        preserveStructuralTags: !extractThinking,
-                        requestId: reqId
-                        )
+                    let streamResult: AFMChatStreamingResult = try await withGenerationContext(
+                        lease: generationLease,
+                        acceptedAt: acceptedAt,
+                        maximumOutputTokens: effectiveMaxTokens,
+                        ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                    ) {
+                        try await withPreflightedMedia(
+                            preflightedMedia,
+                            messages: chatRequest.messages
+                        ) { trustedMessages in
+                            try await service.generateStreaming(
+                                model: modelID,
+                                messages: trustedMessages,
+                                temperature: effectiveTemp,
+                                maxTokens: effectiveMaxTokens,
+                                topP: effectiveTopP,
+                                repetitionPenalty: effectiveRepetitionPenalty,
+                                topK: effectiveTopK,
+                                minP: effectiveMinP,
+                                presencePenalty: effectivePresencePenalty,
+                                seed: effectiveSeed,
+                                logprobs: chatRequest.logprobs,
+                                topLogprobs: chatRequest.topLogprobs,
+                                tools: effectiveTools,
+                                toolChoice: chatRequest.toolChoice,
+                                parallelToolCalls: chatRequest.parallelToolCalls,
+                                stop: effectiveStop,
+                                responseFormat: effectiveResponseFormat,
+                                chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                                preserveStructuralTags: !extractThinking,
+                                requestId: reqId
+                            )
+                        }
                     }
-                    streamOwnsReservation = true
+                    fallbackStreamOwnsReservation = true
 
                 // Collect stream into complete response
                 var fullText = ""
@@ -543,30 +606,37 @@ struct MLXChatCompletionsController: RouteCollection {
             } else {
                 // Serial mode: use existing generate() path
                 let generationTask = Task<AFMChatGenerationResult, Error> {
-                    try await withPreflightedMedia(
-                        preflightedMedia,
-                        messages: chatRequest.messages
-                    ) { trustedMessages in
-                        try await service.generate(
-                            model: modelID,
-                            messages: trustedMessages,
-                            temperature: effectiveTemp,
-                            maxTokens: effectiveMaxTokens,
-                            topP: effectiveTopP,
-                            repetitionPenalty: effectiveRepetitionPenalty,
-                            topK: effectiveTopK,
-                            minP: effectiveMinP,
-                            presencePenalty: effectivePresencePenalty,
-                            seed: effectiveSeed,
-                            logprobs: chatRequest.logprobs,
-                            topLogprobs: chatRequest.topLogprobs,
-                            tools: effectiveTools,
-                            toolChoice: chatRequest.toolChoice,
-                            parallelToolCalls: chatRequest.parallelToolCalls,
-                            stop: effectiveStop,
-                            responseFormat: effectiveResponseFormat,
-                            chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
-                        )
+                    try await withGenerationContext(
+                        lease: generationLease,
+                        acceptedAt: acceptedAt,
+                        maximumOutputTokens: effectiveMaxTokens,
+                        ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                    ) {
+                        try await withPreflightedMedia(
+                            preflightedMedia,
+                            messages: chatRequest.messages
+                        ) { trustedMessages in
+                            try await service.generate(
+                                model: modelID,
+                                messages: trustedMessages,
+                                temperature: effectiveTemp,
+                                maxTokens: effectiveMaxTokens,
+                                topP: effectiveTopP,
+                                repetitionPenalty: effectiveRepetitionPenalty,
+                                topK: effectiveTopK,
+                                minP: effectiveMinP,
+                                presencePenalty: effectivePresencePenalty,
+                                seed: effectiveSeed,
+                                logprobs: chatRequest.logprobs,
+                                topLogprobs: chatRequest.topLogprobs,
+                                tools: effectiveTools,
+                                toolChoice: chatRequest.toolChoice,
+                                parallelToolCalls: chatRequest.parallelToolCalls,
+                                stop: effectiveStop,
+                                responseFormat: effectiveResponseFormat,
+                                chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs
+                            )
+                        }
                     }
                 }
                 cancelHandle.assign(generationTask)
@@ -696,6 +766,41 @@ struct MLXChatCompletionsController: RouteCollection {
                 requestRegistered = false
             }
             return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+        } catch let decodingError as DecodingError {
+            if requestRegistered {
+                await inflightRegistry.release(id: reqId, registration: requestRegistration)
+            }
+            telemetry.recordRejection(.decode)
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: "Invalid request body: \(decodingError.localizedDescription)",
+                    type: "invalid_request_error"
+                ),
+                status: .badRequest
+            )
+        } catch let admissionError as AFMGenerationAdmissionError {
+            if requestRegistered {
+                await inflightRegistry.release(id: reqId, registration: requestRegistration)
+            }
+            let status: HTTPStatus
+            let message: String
+            switch admissionError {
+            case .capacity, .timedOut:
+                status = .serviceUnavailable
+                message = "Server at capacity. Please retry shortly."
+            case .cancelled:
+                status = .custom(code: 499, reasonPhrase: "Client Closed Request")
+                message = "Request cancelled while waiting for generation capacity."
+            case .internalFailure:
+                status = .internalServerError
+                message = "Generation admission failed."
+            }
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(message: message, type: "server_busy"),
+                status: status
+            )
         } catch let serviceError as MLXServiceError {
             if requestRegistered {
                 await inflightRegistry.release(id: reqId, registration: requestRegistration)
@@ -769,6 +874,8 @@ struct MLXChatCompletionsController: RouteCollection {
         extractThinking: Bool,
         effectiveResponseFormat: ResponseFormat?,
         grammarDowngraded: Bool = false,
+        generationLease: AFMGenerationLease?,
+        acceptedAt: Double,
         requestId: String = "",
         requestRegistration: InflightRequestRegistry.Registration? = nil
     ) async throws -> Response {
@@ -807,18 +914,17 @@ struct MLXChatCompletionsController: RouteCollection {
             // its `onTermination` fires `task.cancel()` on the underlying model
             // generator (BatchScheduler / MLX serial path), stopping GPU work.
             let bodyTask = Task<Void, Never> {
-            var reservationTransferredToStream = false
+            var fallbackReservationTransferredToStream = false
             defer {
-                if !reservationTransferredToStream {
+                generationLease?.release()
+                if generationLease == nil && !fallbackReservationTransferredToStream {
                     self.service.releaseSlot()
                 }
             }
-            // PR #122: Streaming routes account for their own
-            // afm:num_active_connections — ActiveConnectionsMiddleware filters
-            // them because its defer fires when the controller returns, not
-            // when the SSE body finishes.
-            ActiveConnectionTracker.shared.connectionStarted()
-            defer { ActiveConnectionTracker.shared.connectionEnded() }
+            // The middleware returns before an SSE body completes, so the body
+            // owns its connection telemetry for the full stream lifetime.
+            let connectionToken = self.telemetry.connectionOpened()
+            defer { self.telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
             var fullContent = ""
             let started = Date()
@@ -852,34 +958,41 @@ struct MLXChatCompletionsController: RouteCollection {
                         "\(Self.orange)[\(Self.timestamp())] MLX start: stream=true\n  prompt_chars=\(promptChars) max_tokens=\(effectiveMaxTokens)\n  temperature=\(effectiveTemp?.description ?? "default") top_p=\(effectiveTopP?.description ?? "default") rep_penalty=\(effectiveRepetitionPenalty?.description ?? "none")\n  top_k=\(effectiveTopK?.description ?? "none") min_p=\(effectiveMinP?.description ?? "none") presence_penalty=\(effectivePresencePenalty?.description ?? "none")\n  seed=\(effectiveSeed?.description ?? "none") stop=\(stopDesc ?? "none")\(Self.reset)"
                     ); fflush(stdout)
                 }
-                let res = try await self.withPreflightedMedia(
-                    preflightedMedia,
-                    messages: chatRequest.messages
-                ) { trustedMessages in
-                    try await service.generateStreaming(
-                        model: modelID,
-                        messages: trustedMessages,
-                        temperature: effectiveTemp,
-                        maxTokens: effectiveMaxTokens,
-                        topP: effectiveTopP,
-                        repetitionPenalty: effectiveRepetitionPenalty,
-                        topK: effectiveTopK,
-                        minP: effectiveMinP,
-                        presencePenalty: effectivePresencePenalty,
-                        seed: effectiveSeed,
-                        logprobs: chatRequest.logprobs,
-                        topLogprobs: chatRequest.topLogprobs,
-                        tools: effectiveTools,
-                        toolChoice: chatRequest.toolChoice,
-                        parallelToolCalls: chatRequest.parallelToolCalls,
-                        stop: effectiveStop,
-                        responseFormat: effectiveResponseFormat,
-                        chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
-                        preserveStructuralTags: !extractThinking,
-                        requestId: streamReqId
-                    )
+                let res = try await self.withGenerationContext(
+                    lease: generationLease,
+                    acceptedAt: acceptedAt,
+                    maximumOutputTokens: effectiveMaxTokens,
+                    ignoreEndOfSequence: chatRequest.ignoreEOS ?? false
+                ) {
+                    try await self.withPreflightedMedia(
+                        preflightedMedia,
+                        messages: chatRequest.messages
+                    ) { trustedMessages in
+                        try await service.generateStreaming(
+                            model: modelID,
+                            messages: trustedMessages,
+                            temperature: effectiveTemp,
+                            maxTokens: effectiveMaxTokens,
+                            topP: effectiveTopP,
+                            repetitionPenalty: effectiveRepetitionPenalty,
+                            topK: effectiveTopK,
+                            minP: effectiveMinP,
+                            presencePenalty: effectivePresencePenalty,
+                            seed: effectiveSeed,
+                            logprobs: chatRequest.logprobs,
+                            topLogprobs: chatRequest.topLogprobs,
+                            tools: effectiveTools,
+                            toolChoice: chatRequest.toolChoice,
+                            parallelToolCalls: chatRequest.parallelToolCalls,
+                            stop: effectiveStop,
+                            responseFormat: effectiveResponseFormat,
+                            chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs,
+                            preserveStructuralTags: !extractThinking,
+                            requestId: streamReqId
+                        )
+                    }
                 }
-                reservationTransferredToStream = true
+                fallbackReservationTransferredToStream = true
                 // Emit an initial assistant delta so clients always open a response container.
                 let initialChunk = ChatCompletionStreamResponse(
                     id: streamId,

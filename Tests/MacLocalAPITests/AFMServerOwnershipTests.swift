@@ -6,36 +6,16 @@ import os
 import XCTest
 
 final class AFMServerOwnershipTests: XCTestCase {
-    func testActiveConnectionTrackerMaintainsCurrentAndPeakCounts() {
-        let tracker = ActiveConnectionTracker()
-
-        DispatchQueue.concurrentPerform(iterations: 32) { _ in
-            tracker.connectionStarted()
-        }
-
-        var snapshot = tracker.snapshot()
-        XCTAssertEqual(snapshot.activeConnections, 32)
-        XCTAssertEqual(snapshot.activeConnectionsPeak, 32)
-
-        DispatchQueue.concurrentPerform(iterations: 32) { _ in
-            tracker.connectionEnded()
-        }
-        tracker.connectionEnded()
-
-        snapshot = tracker.snapshot()
-        XCTAssertEqual(snapshot.activeConnections, 0)
-        XCTAssertEqual(snapshot.activeConnectionsPeak, 32)
-    }
-
     func testPrometheusRenderingUsesServerOwnedConnectionSnapshot() {
-        let tracker = ActiveConnectionTracker()
-        tracker.connectionStarted()
-        tracker.connectionStarted()
-
-        let body = MetricsController.renderPrometheus(
-            StatsAggregator.shared.snapshot(),
-            connections: tracker.snapshot()
+        let telemetry = AFMServerTelemetryAdapter.standalone()
+        telemetry.configure(
+            modelName: "test-model",
+            maximumConcurrentRequests: 2
         )
+        let first = telemetry.connectionOpened()
+        let second = telemetry.connectionOpened()
+
+        let body = MetricsController.renderPrometheus(telemetry.metricsSnapshot())
         let lines = body.split(separator: "\n").map(String.init)
 
         XCTAssertTrue(lines.contains {
@@ -44,6 +24,9 @@ final class AFMServerOwnershipTests: XCTestCase {
         XCTAssertTrue(lines.contains {
             $0.hasPrefix("afm:active_connections_peak{") && $0.hasSuffix("} 2")
         })
+
+        telemetry.connectionClosed(first)
+        telemetry.connectionClosed(second)
     }
 
     func testGenericAdapterEnforcesConfiguredAdmissionLimitConcurrently() {

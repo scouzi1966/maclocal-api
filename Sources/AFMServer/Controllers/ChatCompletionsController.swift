@@ -14,6 +14,7 @@ struct ChatCompletionsController: RouteCollection {
     private let veryVerbose: Bool
     private let stop: String?
     private let defaultGuidedJsonSchema: ResponseFormat?
+    private let telemetry: AFMServerTelemetryAdapter
 
     init(
         streamingEnabled: Bool = true,
@@ -24,7 +25,8 @@ struct ChatCompletionsController: RouteCollection {
         permissiveGuardrails: Bool,
         veryVerbose: Bool = false,
         stop: String? = nil,
-        defaultGuidedJsonSchema: ResponseFormat? = nil
+        defaultGuidedJsonSchema: ResponseFormat? = nil,
+        telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {
         self.streamingEnabled = streamingEnabled
         self.instructions = instructions
@@ -35,6 +37,7 @@ struct ChatCompletionsController: RouteCollection {
         self.veryVerbose = veryVerbose
         self.stop = stop
         self.defaultGuidedJsonSchema = defaultGuidedJsonSchema
+        self.telemetry = telemetry
     }
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
@@ -65,6 +68,7 @@ struct ChatCompletionsController: RouteCollection {
             }
 
             guard !chatRequest.messages.isEmpty else {
+                telemetry.recordRejection(.validation)
                 let error = OpenAIError(message: "At least one message is required")
                 return try await createErrorResponse(req: req, error: error, status: .badRequest)
             }
@@ -86,6 +90,7 @@ struct ChatCompletionsController: RouteCollection {
                         return try await proxy.proxyRequest(to: backendModel.baseURL, originalModelId: backendModel.originalId, backendName: backendModel.backendName, request: req)
                     }
                 } else {
+                    telemetry.recordRejection(.validation)
                     let error = OpenAIError(
                         message: "Model '\(requestedModel)' not found. Use GET /v1/models to list available models.",
                         type: "model_not_found",
@@ -210,6 +215,7 @@ struct ChatCompletionsController: RouteCollection {
             return try await createSuccessResponse(req: req, response: response)
 
         } catch let decodingError as DecodingError {
+            telemetry.recordRejection(.decode)
             req.logger.warning("Invalid chat completion request: \(decodingError)")
             let error = OpenAIError(
                 message: "Invalid request body: \(Self.describeDecodingError(decodingError))",
@@ -369,11 +375,8 @@ struct ChatCompletionsController: RouteCollection {
 
         httpResponse.body = .init(asyncStream: { writer in
             let bodyTask = Task<Void, Never> {
-            // PR #122: Streaming routes account for their own
-            // afm:num_active_connections. See MLXChatCompletionsController
-            // for the rationale.
-            ActiveConnectionTracker.shared.connectionStarted()
-            defer { ActiveConnectionTracker.shared.connectionEnded() }
+            let connectionToken = telemetry.connectionOpened()
+            defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
             var fullStreamedContent = ""
 
@@ -598,10 +601,8 @@ struct ChatCompletionsController: RouteCollection {
         let model = chatRequest.model ?? "foundation"
 
         httpResponse.body = .init(asyncStream: { writer in
-            // Bypass streaming (vision OCR / speech) — same active-connections
-            // bracket as the regular chat path. (PR #122 review fix)
-            ActiveConnectionTracker.shared.connectionStarted()
-            defer { ActiveConnectionTracker.shared.connectionEnded() }
+            let connectionToken = telemetry.connectionOpened()
+            defer { telemetry.connectionClosed(connectionToken) }
             let encoder = JSONEncoder()
 
             do {
@@ -939,7 +940,8 @@ struct ChatCompletionsController: RouteCollection {
         permissiveGuardrails: Bool,
         veryVerbose: Bool = false,
         stop: String? = nil,
-        defaultGuidedJsonSchema: ResponseFormat? = nil
+        defaultGuidedJsonSchema: ResponseFormat? = nil,
+        telemetry: AFMServerTelemetryAdapter = .standalone()
     ) {}
 
     func boot(routes: RoutesBuilder) throws {
@@ -960,7 +962,8 @@ struct ChatCompletionsController: RouteCollection {
     private func unavailable(req: Request) async throws -> Response {
         throw Abort(
             .serviceUnavailable,
-            reason: "Apple Foundation Models require the Swift 6.4 toolchain or newer.")
+            reason: "Apple Foundation Models require the Swift 6.4 toolchain or newer."
+        )
     }
 }
 #endif

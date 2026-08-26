@@ -3,6 +3,10 @@ import AFMKit
 import AFMKitMLX
 import os
 
+protocol AFMGenerationAdmitterProviding: Sendable {
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter? { get }
+}
+
 private final class GenericAFMAdmissionGate: @unchecked Sendable {
     private let limit: Int
     private let activeReservations = OSAllocatedUnfairLock(initialState: 0)
@@ -50,7 +54,9 @@ private final class GenericAFMAdmissionGate: @unchecked Sendable {
 /// Bridges the OpenAI-compatible HTTP controllers onto AFMKit's neutral model
 /// and event contracts. Provider scheduler and parser internals stay inside
 /// AFMKitMLX.
-final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, AFMMLXMediaRequestServing, @unchecked Sendable {
+final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMGenerationAdmitterProviding,
+    AFMTextTokenizing, AFMMLXMediaRequestServing, @unchecked Sendable
+{
     private let fixedModel: AnyAFMModel
     private let fixedModelID: String
     private let fixedServingConfiguration: AFMChatServingConfiguration
@@ -101,6 +107,9 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, AFMM
     }
 
     var maxConcurrent: Int { mlxServing?.maxConcurrent ?? fixedMaxConcurrent }
+    var providerGenerationAdmitter: AnyAFMGenerationAdmitter? {
+        fixedModel.generationAdmitter
+    }
     var servingConfiguration: AFMChatServingConfiguration { fixedServingConfiguration }
     var defaultGuidedJsonSchema: ResponseFormat? {
         serverDefaultGuidedJsonSchema ?? mlxServing?.defaultGuidedJsonSchema
@@ -671,6 +680,7 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMTextTokenizing, AFMM
             stop: stop,
             tools: tools,
             responseFormat: responseFormat,
+            ignoreEndOfSequence: AFMGenerationContext.ignoreEndOfSequence,
             metadata: metadata
         )
     }

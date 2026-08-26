@@ -231,6 +231,7 @@ let package = Package(
             dependencies: [
                 "AFMKit",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Vapor", package: "vapor")
             ],
             swiftSettings: [

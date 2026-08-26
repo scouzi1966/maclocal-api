@@ -87,6 +87,7 @@ struct TokenizeAndOpenAPITests {
         let paths = parsed?["paths"] as? [String: Any] ?? [:]
         let expected = [
             "/v1/chat/completions",
+            "/v1/completions",
             "/v1/chat/completions/{id}/cancel",
             "/v1/tokenize",
             "/v1/count_tokens",

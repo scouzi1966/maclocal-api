@@ -9,6 +9,9 @@ import Vapor
 import AFMKit
 
 extension ChatCompletionRequest: Content {}
+extension CompletionPrompt: Content {}
+extension CompletionStop: Content {}
+extension CompletionRequest: Content {}
 extension StreamOptions: Content {}
 extension ResponseFormat: Content {}
 extension ResponseJsonSchema: Content {}
@@ -27,6 +30,8 @@ extension AFMProfile: Content {}
 extension AFMProfileSample: Content {}
 extension AFMProfileExtended: Content {}
 extension ChatCompletionResponse: Content {}
+extension CompletionChoice: Content {}
+extension CompletionResponse: Content {}
 extension Choice: Content {}
 extension ChoiceLogprobs: Content {}
 extension TokenLogprobContent: Content {}
