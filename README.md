@@ -352,13 +352,11 @@ This maclocal-api consumer package separately defines its application adapters:
 - `AFMServer` — Vapor HTTP layer
 - `afm` — CLI executable
 
-AFMKit is revision-pinned while its API is under development. That checkpoint
-is valid for authenticated development, but it is not a versioned SwiftPM
-publication contract even if the revision is anonymously fetchable. See
+AFMKit is pinned to one exact public SwiftPM release so provider source,
+runtime resources, and the consumer contract advance together. See
 [AFMKit URL consumption](docs/afmkit-url-consumption.md) for the dependency and
-publication policy. Release workflows fail closed until AFMKit is required by
-an exact public semantic version, or the source-package release surface is
-explicitly excluded.
+publication policy. Release tooling fails closed unless the manifest, lock,
+public tag, and anonymously fetchable revision all agree.
 
 `AFMKitFoundationModels27DwarfStar` remains as a source-compatible re-export;
 the implementation and runtime lifetime management now live in AFMKit's
@@ -373,17 +371,14 @@ Start with the [AFMKit public API guide](docs/afmkit-public-api.md) and the
 ```bash
 git clone https://github.com/scouzi1966/maclocal-api.git
 cd maclocal-api
-gh auth login
-gh auth setup-git
 ./build.sh
 ```
 
-The authenticated build resolves only the revisions in the tracked
-`Package.resolved`, initializes pinned submodules, builds the locked WebUI, and
-packages AFMKit-owned runtime resources without mutating dependency sources. CI
-uses a masked `AFMKIT_READ_TOKEN` with read access to the private AFMKit
-repository. Add `--install` to install under `INSTALL_PREFIX` (default
-`/usr/local`).
+The build resolves only the revisions in the tracked `Package.resolved`,
+initializes pinned submodules, builds the locked WebUI, and packages AFMKit-owned
+runtime resources without mutating dependency sources. AFMKit is public, so the
+normal build needs no repository token. Add `--install` to install under
+`INSTALL_PREFIX` (default `/usr/local`).
 
 ## Requirements
 
