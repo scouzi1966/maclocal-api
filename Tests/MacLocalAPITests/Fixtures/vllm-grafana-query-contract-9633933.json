@@ -1,0 +1,23 @@
+{
+  "source": "vLLM 9633933dd81228fbcae07969f20881ad0b7cb766 examples/observability/prometheus_grafana/grafana.json",
+  "required_queries": [
+    "vllm:num_requests_running{model_name=\"$model_name\"}",
+    "vllm:num_requests_waiting{model_name=\"$model_name\"}",
+    "vllm:kv_cache_usage_perc{model_name=\"$model_name\"}",
+    "rate(vllm:prompt_tokens_total{model_name=\"$model_name\"}[$__rate_interval])",
+    "rate(vllm:generation_tokens_total{model_name=\"$model_name\"}[$__rate_interval])",
+    "sum by(finished_reason) (increase(vllm:request_success_total{model_name=\"$model_name\"}[$__rate_interval]))",
+    "histogram_quantile(0.99, sum by(le) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=\"$model_name\"}[$__rate_interval])))",
+    "histogram_quantile(0.99, sum by(le) (rate(vllm:time_to_first_token_seconds_bucket{model_name=\"$model_name\"}[$__rate_interval])))",
+    "histogram_quantile(0.99, sum by(le) (rate(vllm:inter_token_latency_seconds_bucket{model_name=\"$model_name\"}[$__rate_interval])))",
+    "rate(vllm:request_queue_time_seconds_sum{model_name=\"$model_name\"}[$__rate_interval])",
+    "rate(vllm:request_prefill_time_seconds_sum{model_name=\"$model_name\"}[$__rate_interval])",
+    "rate(vllm:request_decode_time_seconds_sum{model_name=\"$model_name\"}[$__rate_interval])",
+    "sum by(le) (increase(vllm:request_prompt_tokens_bucket{model_name=\"$model_name\"}[$__rate_interval]))",
+    "sum by(le) (increase(vllm:request_generation_tokens_bucket{model_name=\"$model_name\"}[$__rate_interval]))",
+    "rate(vllm:request_max_num_generation_tokens_sum{model_name=\"$model_name\"}[$__rate_interval])"
+  ],
+  "unsupported_queries": [
+    "rate(vllm:iteration_tokens_total_count[$__interval])"
+  ]
+}

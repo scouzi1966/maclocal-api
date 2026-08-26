@@ -126,17 +126,6 @@ struct CompletionsController: RouteCollection {
                 param: "logprobs"
             )
         }
-        guard request.streamOptions?.continuousUsageStats != true else {
-            telemetry.recordRejection(.validation)
-            return try errorResponse(
-                request: req,
-                status: .badRequest,
-                message: "stream_options.continuous_usage_stats is not supported; use include_usage for exact final usage",
-                code: "unsupported_parameter",
-                param: "stream_options.continuous_usage_stats"
-            )
-        }
-
         let providerRequest = AFMRawTextGenerationRequest(
             prompt: prompt,
             modelID: AFMModelID(rawValue: modelID),

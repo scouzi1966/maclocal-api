@@ -354,9 +354,15 @@ let package = Package(
                 "AFMKitServicesCompatibility",
                 "AFMServer",
                 "AFMTerminalUI",
+                .product(name: "AFMKitCore", package: "AFMKit"),
+                .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "VaporTesting", package: "vapor")
+            ],
+            resources: [
+                .copy("Fixtures")
             ],
             swiftSettings: [
                 // Xcode 27 Beta 3 reports a false circular reference while
