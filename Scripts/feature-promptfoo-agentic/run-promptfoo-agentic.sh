@@ -11,8 +11,14 @@ afm_binary="${AFM_BINARY:-.build/arm64-apple-macosx/release/afm}"
 out_dir="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/current}"
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
+no_think="${AFM_NO_THINK:-0}"
 server_pid=""
 overall_status=0
+
+if [[ "$no_think" != "0" && "$no_think" != "1" ]]; then
+  echo "AFM_NO_THINK must be 0 or 1" >&2
+  exit 1
+fi
 
 mkdir -p "$out_dir"
 
@@ -123,6 +129,12 @@ start_server() {
   # MTP path without accepting an arbitrary string of shell arguments.
   if [[ "${AFM_MTP:-0}" == "1" ]]; then
     extra_args+=(--mtp)
+  fi
+
+  # Keep reasoning-mode qualification explicit and shell-safe across every
+  # Promptfoo profile without accepting an arbitrary string of CLI arguments.
+  if [[ "$no_think" == "1" ]]; then
+    extra_args+=(--no-think)
   fi
 
   cleanup
