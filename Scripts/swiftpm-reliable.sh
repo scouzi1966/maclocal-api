@@ -124,8 +124,10 @@ stage_xctest_metallib() {
 
     # MLX's C++ runtime searches for mlx.metallib beside the loaded test
     # executable. SwiftPM 6.3 does not always emit mlx-swift_Cmlx.bundle for
-    # XCTest, so create the colocated resource before linking/running tests.
-    # The linker preserves sibling resources in the .xctest bundle.
+    # XCTest, so create the colocated resource in SwiftPM's package-test layout
+    # before linking/running tests. Do not mutate existing Xcode native-driver
+    # .xctest bundles: adding an unsigned file after their previous CodeSign
+    # makes the next incremental CodeSign fail before tests can run.
     local architecture
     architecture="$(uname -m)"
     local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/MacLocalAPIPackageTests.xctest/Contents/MacOS"
@@ -140,12 +142,6 @@ stage_xctest_metallib() {
     }
 
     stage_metallib "$predicted_dir" || return $?
-
-    local executable_dir
-    while IFS= read -r executable_dir; do
-        [[ "$executable_dir" == "$predicted_dir" ]] && continue
-        stage_metallib "$executable_dir" || return $?
-    done < <(find "$scratch_path" -type d -path '*.xctest/Contents/MacOS' -print 2>/dev/null)
 
     echo "[swiftpm-reliable] Staged MLX metallib for XCTest: $predicted_dir/mlx.metallib" >&2
 }

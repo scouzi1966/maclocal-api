@@ -555,7 +555,7 @@ fi
 
 # Test: stop with newline
 t0=$(now_ms)
-resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly two lines: AFM_LINE_ONE on the first line and AFM_LINE_TWO on the second. Output nothing else."}],"max_tokens":500,"stream":false,"temperature":0,"stop":["\\n"]}')
+resp=$(api_call '{"messages":[{"role":"user","content":"Output exactly two lines: AFM_LINE_ONE on the first line and AFM_LINE_TWO on the second. Output nothing else."}],"max_tokens":500,"stream":false,"temperature":0,"stop":["\n"]}')
 dur=$(( $(now_ms) - t0 ))
 stop_nl_ok=$(echo "$resp" | python3 -c "
 import sys, json
