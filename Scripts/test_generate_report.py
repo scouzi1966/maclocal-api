@@ -56,6 +56,91 @@ class GenerateReportTests(unittest.TestCase):
             self.assertIn("5/5 ✅", report)
             self.assertIn("2/5 ❌", report)
             self.assertEqual(report.count('class="response-section" id="resp-'), 2)
+            self.assertIn("Separated Evaluation Totals", report)
+            self.assertIn("Native Protocol Conformance", report)
+            self.assertIn("Model / Agent Behavior Quality", report)
+            self.assertIn("Forced-Parser Compatibility Experiments", report)
+            self.assertIn(">1/2<", report)
+            self.assertGreaterEqual(report.count(">N/A<"), 2)
+
+    def test_separated_totals_do_not_mix_quality_and_protocol_lanes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            report_dir = root / "test-reports"
+            report_dir.mkdir()
+            results_path = root / "results.jsonl"
+            protocol = self.record("protocol", "pass", "OK")
+            protocol["evaluation_lane"] = "native_protocol"
+            quality = self.record("quality", "pass", "OK")
+            quality["evaluation_lane"] = "model_agent_behavior"
+            forced = self.record("forced", "fail", "OK")
+            forced["evaluation_lane"] = "forced_parser_compatibility"
+            results_path.write_text(
+                "".join(json.dumps(record) + "\n" for record in [protocol, quality, forced]),
+                encoding="utf-8",
+            )
+            smart_timestamp = "20260825_030405"
+            (report_dir / f"smart-analysis-codex-{smart_timestamp}.md").write_text(
+                '<!-- AI_SCORES [{"i":0,"s":2},{"i":1,"s":5},{"i":2,"s":5}] -->\n',
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "RESULTS_FILE": str(results_path),
+                    "REPORT_OUTPUT_DIR": str(root),
+                    "REPORT_TIMESTAMP": "20260825_070809",
+                    "SMART_TIMESTAMP": smart_timestamp,
+                    "AFM_REPORT_NO_OPEN": "1",
+                }
+            )
+            subprocess.run([sys.executable, str(SCRIPT)], env=env, check=True)
+            report = (
+                report_dir / "mlx-model-report-20260825_070809.html"
+            ).read_text(encoding="utf-8")
+            totals = report.split("<h2>Separated Evaluation Totals</h2>", 1)[1].split(
+                "<h2>Performance Ranking", 1
+            )[0]
+            self.assertIn("Native Protocol Conformance</div><div class=\"value green\">1/1", totals)
+            self.assertIn("Model / Agent Behavior Quality</div><div class=\"value blue\">1/1", totals)
+            self.assertIn("Forced-Parser Compatibility Experiments</div><div class=\"value yellow\">0/1", totals)
+
+    def test_skipped_result_has_intent_and_not_scored_ai_section(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            report_dir = root / "test-reports"
+            report_dir.mkdir()
+            results_path = root / "results.jsonl"
+            skipped = self.record("batch-case", "skip", "SKIP")
+            skipped.update(
+                {
+                    "skip_reason": "missing required capabilities: batch",
+                    "failure_classification": "capability unavailable",
+                    "required_capabilities": ["batch"],
+                }
+            )
+            results_path.write_text(json.dumps(skipped) + "\n", encoding="utf-8")
+            smart_timestamp = "20260825_020304"
+            (report_dir / f"smart-analysis-codex-{smart_timestamp}.md").write_text(
+                "# Analysis\n\n<!-- AI_SCORES [] -->\n", encoding="utf-8"
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "RESULTS_FILE": str(results_path),
+                    "REPORT_OUTPUT_DIR": str(root),
+                    "REPORT_TIMESTAMP": "20260825_060708",
+                    "SMART_TIMESTAMP": smart_timestamp,
+                    "AFM_REPORT_NO_OPEN": "1",
+                }
+            )
+            subprocess.run([sys.executable, str(SCRIPT)], env=env, check=True)
+            report = (
+                report_dir / "mlx-model-report-20260825_060708.html"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Not AI-scored", report)
+            self.assertIn("capability unavailable", report)
+            self.assertIn("missing required capabilities: batch", report)
 
     def test_full_prompt_is_rendered_without_truncation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -84,6 +169,45 @@ class GenerateReportTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
             self.assertIn(long_prompt, report)
             self.assertNotIn("A" * 500 + "...", report)
+
+    def test_reused_label_keeps_model_specific_intent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            report_dir = root / "test-reports"
+            report_dir.mkdir()
+            prompts_path = root / "prompts.txt"
+            prompts_path.write_text(
+                "# AI: Intent only for model A.\n"
+                "[a/model @ shared]\nPrompt A\n"
+                "# AI: Intent only for model B.\n"
+                "[b/model @ shared]\nPrompt B\n",
+                encoding="utf-8",
+            )
+            records = [
+                dict(self.record("shared", "pass", "OK"), model="a/model", prompt="Prompt A"),
+                dict(self.record("shared", "pass", "OK"), model="b/model", prompt="Prompt B"),
+            ]
+            results_path = root / "results.jsonl"
+            results_path.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "RESULTS_FILE": str(results_path),
+                    "REPORT_OUTPUT_DIR": str(root),
+                    "REPORT_TIMESTAMP": "20260825_080910",
+                    "PROMPTS_FILE": str(prompts_path),
+                    "AFM_REPORT_NO_OPEN": "1",
+                }
+            )
+            subprocess.run([sys.executable, str(SCRIPT)], env=env, check=True)
+            report = (
+                report_dir / "mlx-model-report-20260825_080910.html"
+            ).read_text(encoding="utf-8")
+            self.assertEqual(report.count("Intent only for model A."), 1)
+            self.assertEqual(report.count("Intent only for model B."), 1)
 
     @staticmethod
     def record(label, overall_status, status):

@@ -1,6 +1,54 @@
 """Deterministic response assertions for mlx-model-test.sh."""
 
 import json
+import re
+
+
+def evaluation_lane(*, model, afm_args="", is_baseline=False, has_expectation=True):
+    """Separate native protocol checks from explicit cross-family parser experiments."""
+    if is_baseline:
+        return "model_agent_behavior"
+    match = re.search(r"(?:^|\s)--tool-call-parser\s+(\S+)", afm_args or "")
+    if match:
+        parser = match.group(1).lower()
+        model_name = (model or "").lower()
+        native_family = (
+            (parser.startswith("qwen") and "qwen" in model_name)
+            or (parser.startswith("deepseek") and "deepseek" in model_name)
+            or (parser.startswith("nemotron") and "nemotron" in model_name)
+            or (parser.startswith("muse") and "muse" in model_name)
+        )
+        if not native_family:
+            return "forced_parser_compatibility"
+    if not has_expectation:
+        return "model_agent_behavior"
+    return "native_protocol"
+
+
+def classify_result_likelihood(
+    *, model, label, afm_args="", is_baseline=False, status="OK", failures=None
+):
+    """Return a conservative failure bucket without claiming component ownership."""
+    failures = failures or []
+    if status == "SKIP":
+        return "capability unavailable"
+    if status != "OK":
+        return "engine/runtime likely"
+    if not failures:
+        return "conformant"
+    lane = evaluation_lane(model=model, afm_args=afm_args, is_baseline=is_baseline)
+    if lane == "forced_parser_compatibility":
+        return "forced-parser compatibility experiment"
+    normalized_label = (label or "").lower()
+    engine_prefixes = (
+        "stop-", "logprobs", "agent-cached", "cache-", "batch-", "kv-",
+        "guided-", "grammar-", "structured-", "seed-",
+    )
+    if normalized_label.startswith(engine_prefixes):
+        return "engine/runtime likely"
+    if normalized_label.startswith("tool-call"):
+        return "parser/model boundary needs triage"
+    return "model behavior likely"
 
 
 def extract_score_payload(text):
@@ -25,7 +73,134 @@ def expectation_for_prompt(config):
         # The global baseline is deliberately unrelated to every supplied tool.
         # A tool-enabled variant must therefore answer normally, not guess a call.
         return {"tool_calls": []} if config.get("tools") else {}
+    prompt_expectations = config.get("expect_by_prompt") or []
+    relative_index = config.get("prompt_idx", 0) - config.get("num_baseline", 0)
+    if 0 <= relative_index < len(prompt_expectations):
+        return prompt_expectations[relative_index] or {}
     return config.get("expect") or {}
+
+
+def request_configuration_fields(config, *, expectation=None):
+    """Return the request configuration that must survive every result path."""
+    fields = {
+        "temperature": config.get("temperature"),
+        "max_tokens": config.get("max_tokens"),
+        "max_completion_tokens": config.get("max_completion_tokens"),
+        "system_prompt": config.get("system", ""),
+        "developer_prompt": config.get("developer", ""),
+        "server_instructions": config.get("instructions", ""),
+        "required_capabilities": config.get("requires") or [],
+        "afm_args": config.get("afm_args", ""),
+    }
+    for key in (
+        "top_p",
+        "top_k",
+        "min_p",
+        "seed",
+        "logprobs",
+        "top_logprobs",
+        "presence_penalty",
+        "repetition_penalty",
+        "frequency_penalty",
+        "stop",
+        "response_format",
+        "media",
+        "tools",
+        "stream",
+    ):
+        if key in config and config[key] is not None:
+            fields[key] = config[key]
+    if expectation:
+        fields["expect"] = expectation
+    return fields
+
+
+def transport_failure_record(config, *, prompt, error, load_time_s):
+    """Build a complete result for a request/client/transport failure."""
+    is_baseline = config.get("prompt_idx", 0) < config.get("num_baseline", 0)
+    expectation = expectation_for_prompt(config)
+    model = config.get("model", "")
+    label = config.get("label", "")
+    afm_args = config.get("afm_args", "")
+    record = {
+        "model": model,
+        "label": label,
+        "prompt": prompt,
+        "is_baseline": is_baseline,
+        "status": "FAIL",
+        "transport_status": "fail",
+        "assertion_status": "not_run",
+        "overall_status": "fail",
+        "evaluation_lane": "native_protocol",
+        "failure_classification": classify_result_likelihood(
+            model=model,
+            label=label,
+            afm_args=afm_args,
+            is_baseline=is_baseline,
+            status="FAIL",
+        ),
+        "error": error,
+        "load_time_s": load_time_s,
+    }
+    record.update(request_configuration_fields(config, expectation=expectation))
+    return record
+
+
+def failed_run_records(config, *, error, load_time_s):
+    """Build one classified transport-failure record for each planned prompt."""
+    prompts = config.get("prompts") or [""]
+    records = []
+    for prompt_index, prompt in enumerate(prompts):
+        prompt_config = dict(config, prompt_idx=prompt_index)
+        records.append(
+            transport_failure_record(
+                prompt_config,
+                prompt=prompt,
+                error=error,
+                load_time_s=load_time_s,
+            )
+        )
+    return records
+
+
+def skipped_run_records(config, *, reason):
+    """Build complete capability-skip records without losing request metadata."""
+    prompts = config.get("prompts") or [""]
+    records = []
+    for prompt_index, prompt in enumerate(prompts):
+        prompt_config = dict(config, prompt_idx=prompt_index)
+        is_baseline = prompt_index < config.get("num_baseline", 0)
+        expectation = expectation_for_prompt(prompt_config)
+        model = config.get("model", "")
+        label = config.get("label", "")
+        afm_args = config.get("afm_args", "")
+        record = {
+            "model": model,
+            "label": label,
+            "prompt": prompt,
+            "is_baseline": is_baseline,
+            "status": "SKIP",
+            "transport_status": "not_run",
+            "assertion_status": "not_run",
+            "overall_status": "skip",
+            "skip_reason": reason,
+            "evaluation_lane": evaluation_lane(
+                model=model,
+                afm_args=afm_args,
+                is_baseline=is_baseline,
+                has_expectation=bool(expectation),
+            ),
+            "failure_classification": classify_result_likelihood(
+                model=model,
+                label=label,
+                afm_args=afm_args,
+                is_baseline=is_baseline,
+                status="SKIP",
+            ),
+        }
+        record.update(request_configuration_fields(config, expectation=expectation))
+        records.append(record)
+    return records
 
 
 def _validate_schema(value, schema, path="$"):
@@ -62,6 +237,7 @@ def evaluate_expectations(
     finish_reason,
     logprobs_count,
     tool_calls,
+    cached_input_tokens=0,
 ):
     """Return (valid_json, failures) for a response and declarative expectation."""
     parsed_json = None
@@ -83,6 +259,22 @@ def evaluate_expectations(
     if expectation.get("logprobs_min") is not None and logprobs_count < int(expectation["logprobs_min"]):
         failures.append(
             f"logprobs_count expected >= {expectation['logprobs_min']}, got {logprobs_count}"
+        )
+    if (
+        expectation.get("cached_input_tokens_min") is not None
+        and cached_input_tokens < int(expectation["cached_input_tokens_min"])
+    ):
+        failures.append(
+            "cached_input_tokens expected >= "
+            f"{expectation['cached_input_tokens_min']}, got {cached_input_tokens}"
+        )
+    if (
+        expectation.get("cached_input_tokens_max") is not None
+        and cached_input_tokens > int(expectation["cached_input_tokens_max"])
+    ):
+        failures.append(
+            "cached_input_tokens expected <= "
+            f"{expectation['cached_input_tokens_max']}, got {cached_input_tokens}"
         )
 
     if expectation.get("content_equals") is not None and content != expectation["content_equals"]:

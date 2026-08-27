@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import json, html, datetime, re, os, sys, shutil, subprocess
+from mlx_model_test_config import ai_intent_for_result, parse_ai_intent_specs
+from mlx_model_test_oracle import classify_result_likelihood, evaluation_lane
 
 
 def extract_ai_scores(content):
@@ -47,6 +49,27 @@ with open(RESULTS_FILE) as f:
 # Tag each result with its original JSONL line index
 for idx, r in enumerate(results):
     r["_jsonl_idx"] = idx
+    transport_failed = r.get("transport_status") == "fail" or r.get("status") == "FAIL"
+    r.setdefault(
+        "evaluation_lane",
+        "native_protocol" if transport_failed else evaluation_lane(
+            model=r.get("model", ""),
+            afm_args=r.get("afm_args", ""),
+            is_baseline=bool(r.get("is_baseline")),
+            has_expectation=r.get("assertion_status") not in (None, "not_configured"),
+        ),
+    )
+    r.setdefault(
+        "failure_classification",
+        classify_result_likelihood(
+            model=r.get("model", ""),
+            label=r.get("label", ""),
+            afm_args=r.get("afm_args", ""),
+            is_baseline=bool(r.get("is_baseline")),
+            status="FAIL" if transport_failed else r.get("status", "OK"),
+            failures=r.get("assertion_failures") or [],
+        ),
+    )
 
 def result_passed(result):
     if "overall_status" in result:
@@ -54,7 +77,11 @@ def result_passed(result):
     return result.get("status") == "OK"
 
 ok = [r for r in results if result_passed(r)]
-fail = [r for r in results if not result_passed(r)]
+skipped = [
+    r for r in results
+    if r.get("overall_status") == "skip" or r.get("status") == "SKIP"
+]
+fail = [r for r in results if not result_passed(r) and r not in skipped]
 ok_sorted = sorted(ok, key=lambda r: r.get("tokens_per_sec", 0), reverse=True)
 
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -124,8 +151,31 @@ if os.path.isdir(report_dir):
 
 has_ai_scores = len(ai_scores) > 0
 
+native_protocol_results = [
+    r for r in results
+    if r.get("evaluation_lane") == "native_protocol" and r not in skipped
+]
+forced_parser_results = [
+    r for r in results
+    if r.get("evaluation_lane") == "forced_parser_compatibility" and r not in skipped
+]
+quality_scores = {
+    idx: score
+    for idx, score in ai_scores.items()
+    if idx < len(results)
+    and results[idx] not in skipped
+    and results[idx].get("evaluation_lane") == "model_agent_behavior"
+}
+native_protocol_passed = sum(result_passed(r) for r in native_protocol_results)
+forced_parser_passed = sum(result_passed(r) for r in forced_parser_results)
+quality_passed = sum(score >= 4 for score in quality_scores.values())
+
+
+def ratio_text(passed, candidates, *, unavailable="N/A"):
+    return f"{passed}/{len(candidates)}" if candidates else unavailable
+
 # ── Parse AI intent comments from test file ──────────────────────────────────
-# Maps label -> list of "# AI:" comment lines from the prompts file
+# Maps model + label to the "# AI:" comment lines from the prompts file.
 ai_intents = {}
 prompts_file = ""
 # Try to find prompts file from run metadata or environment
@@ -136,35 +186,7 @@ if m_prompts:
 if not prompts_file:
     prompts_file = os.environ.get("PROMPTS_FILE", "")
 if prompts_file and os.path.isfile(prompts_file):
-    with open(prompts_file) as pf:
-        pf_lines = pf.readlines()
-    comment_buf = []
-    for pf_line in pf_lines:
-        stripped = pf_line.strip()
-        if stripped.startswith('#'):
-            comment_buf.append(stripped)
-        elif re.match(r'^\[.+\]$', stripped):
-            # Handle both [model @ label] and [@ label] (template) formats
-            m_template = re.match(r'^\[@\s*(.+?)\]$', stripped)
-            m_label = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
-            if m_template:
-                label = m_template.group(1).strip()
-            elif m_label:
-                label = (m_label.group(2) or '').strip()
-            else:
-                label = ''
-            if label:
-                ai_lines = [c for c in comment_buf if '# AI:' in c]
-                if ai_lines:
-                    ai_intents[label] = [c.replace('# AI:', '').strip() for c in ai_lines]
-            comment_buf = []
-        else:
-            if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                       'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                       'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
-                                       'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                       'frequency_penalty:', 'media:', 'expect:')):
-                comment_buf = []
+    ai_intents = parse_ai_intent_specs(prompts_file)
 
 # ── Parse per-test reasons from smart analysis .md files ─────────────────────
 # Maps (tool, jsonl_idx) -> {"score": int, "reason": str}
@@ -203,17 +225,36 @@ def config_panel(r):
     afm = r.get("afm_args", "")
     if afm:
         cli_badges.append(config_badge("afm", afm, "#f0883e"))
+    instructions = r.get("server_instructions", "")
+    if instructions:
+        short_instructions = instructions[:80] + ("..." if len(instructions) > 80 else "")
+        cli_badges.append(config_badge("instructions", short_instructions, "#f0883e"))
+
+    # --- API params (request-level) ---
     sp = r.get("system_prompt", "")
     if sp:
         short_sp = sp[:80] + ("..." if len(sp) > 80 else "")
-        cli_badges.append(config_badge("system", short_sp, "#3fb950"))
-
-    # --- API params (request-level) ---
+        api_badges.append(config_badge("system", short_sp, "#3fb950"))
+    developer = r.get("developer_prompt", "")
+    if developer:
+        short_developer = developer[:80] + ("..." if len(developer) > 80 else "")
+        api_badges.append(config_badge("developer", short_developer, "#3fb950"))
+    required = r.get("required_capabilities") or []
+    if required:
+        api_badges.append(config_badge("requires", ", ".join(required), "#a371f7"))
     label = r.get("label", "")
     if label:
         api_badges.append(config_badge("variant", label, "#a371f7"))
     if r.get("is_baseline"):
         api_badges.append(config_badge("baseline", "yes", "#8b949e"))
+    lane_labels = {
+        "native_protocol": "native protocol",
+        "model_agent_behavior": "model/agent behavior",
+        "forced_parser_compatibility": "forced-parser experiment",
+    }
+    lane = r.get("evaluation_lane")
+    if lane:
+        api_badges.append(config_badge("evaluation", lane_labels.get(lane, lane), "#58a6ff"))
     temp = r.get("temperature", "")
     if temp != "":
         api_badges.append(config_badge("temp", temp, "#d29922"))
@@ -261,9 +302,17 @@ def config_panel(r):
         perf_badges.append(config_badge("assert", "pass", "#3fb950"))
     elif assertion == "fail":
         perf_badges.append(config_badge("assert", "FAIL", "#f85149"))
+    if r.get("overall_status") == "skip" or r.get("status") == "SKIP":
+        perf_badges.append(config_badge("status", "SKIP", "#d29922"))
+    classification = r.get("failure_classification")
+    if classification and classification != "conformant":
+        perf_badges.append(config_badge("classification", classification, "#f0883e"))
     perf_badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
+    cached_tokens = r.get("cached_input_tokens", 0)
+    if cached_tokens:
+        perf_badges.append(config_badge("cached_tok", cached_tokens, "#58a6ff"))
     perf_badges.append(config_badge("comp_tok", r.get("completion_tokens", "?"), "#8b949e"))
     tps = r.get("tokens_per_sec", 0)
     if tps:
@@ -285,6 +334,8 @@ response_index_by_jsonl_idx = {
 }
 for i, r in enumerate(response_results):
     content = r.get("content", "") or r.get("content_preview", "")
+    if r.get("overall_status") == "skip" or r.get("status") == "SKIP":
+        content = f"**Skipped:** {r.get('skip_reason', 'required capability unavailable')}"
     reasoning = r.get("reasoning_content", "")
     completion_tokens = r.get("completion_tokens", 0)
     tokens_per_sec = r.get("tokens_per_sec", 0)
@@ -312,8 +363,12 @@ for i, r in enumerate(response_results):
       <summary class="ai-detail-summary">🎯 Baseline Intent</summary>
       <div class="ai-detail-body">{html.escape(intent_lines)}</div>
     </details>"""
-    elif label and label in ai_intents:
-        intent_lines = "<br>".join(html.escape(line) for line in ai_intents[label])
+    else:
+        matched_intent = ai_intent_for_result(
+            ai_intents, r.get("model", ""), label
+        )
+        intent_lines = "<br>".join(html.escape(line) for line in matched_intent)
+    if not r.get("is_baseline") and intent_lines:
         intent_html = f"""
     <details class="ai-detail">
       <summary class="ai-detail-summary">🎯 Test Intent</summary>
@@ -323,8 +378,14 @@ for i, r in enumerate(response_results):
     # ── Build AI Smart Scores section ──
     smart_html = ""
     jsonl_idx = r.get("_jsonl_idx")
-    if has_ai_scores and jsonl_idx is not None:
+    if smart_analyses and jsonl_idx is not None:
         smart_items = []
+        if r.get("overall_status") == "skip" or r.get("status") == "SKIP":
+            smart_items.append(
+                "<div style='margin:4px 0;color:#d29922'>"
+                "⏭️ <strong>Not AI-scored</strong>: required capability was unavailable, so no model response was generated."
+                "</div>"
+            )
         for sa in smart_analyses:
             tool = sa["tool"]
             detail = smart_per_test.get(tool, {}).get(jsonl_idx)
@@ -407,6 +468,19 @@ if fail:
   {score_tds}
   <td>{temp_html} {afm_html}</td>
   <td>{r.get("load_time_s", "?")}</td>
+</tr>
+"""
+
+skip_rows = ""
+for r in skipped:
+    label = r.get("label", "")
+    label_html = f' <span class="variant-tag">{html.escape(label)}</span>' if label else ""
+    reason = html.escape(r.get("skip_reason", "capability-aware skip"))
+    test_num = r.get("_jsonl_idx", 0) + 1
+    skip_rows += f"""<tr>
+  <td class="test-num">{test_num}</td>
+  <td class="mono">{html.escape(r.get("model", "").strip())}{label_html}</td>
+  <td style="color:#d29922">{reason}</td>
 </tr>
 """
 
@@ -637,8 +711,19 @@ MathJax = {{
   <div class="card"><div class="label">Test Runs</div><div class="value blue">{len(results)}</div></div>
   <div class="card"><div class="label">Passed</div><div class="value green">{len(ok)}</div></div>
   <div class="card"><div class="label">Failed</div><div class="value red">{len(fail)}</div></div>
+  <div class="card"><div class="label">Skipped</div><div class="value yellow">{len(skipped)}</div></div>
   <div class="card"><div class="label">Best tok/s</div><div class="value yellow">{best_tps}</div></div>
   <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">{best_model}</div></div>
+</div>
+
+<h2>Separated Evaluation Totals</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">
+  Protocol and parser totals use deterministic assertions. Model/agent quality uses Codex scores of 4–5 only for the model/agent behavior lane.
+</p>
+<div class="summary">
+  <div class="card"><div class="label">Native Protocol Conformance</div><div class="value green">{ratio_text(native_protocol_passed, native_protocol_results)}</div></div>
+  <div class="card"><div class="label">Model / Agent Behavior Quality</div><div class="value blue">{ratio_text(quality_passed, quality_scores)}</div></div>
+  <div class="card"><div class="label">Forced-Parser Compatibility Experiments</div><div class="value yellow">{ratio_text(forced_parser_passed, forced_parser_results)}</div></div>
 </div>
 
 <h2>Performance Ranking (by tokens/sec)</h2>
@@ -661,6 +746,8 @@ MathJax = {{
 </table>
 
 {"<h2>Failed Runs</h2>" + chr(10) + "<table>" + chr(10) + "<tr><th>Test</th><th>Model</th><th>Error</th>" + (ai_score_header) + "<th>Config</th><th>Load (s)</th></tr>" + chr(10) + fail_rows + "</table>" if fail else ""}
+
+{"<h2>Capability-Aware Skips</h2>" + chr(10) + "<table>" + chr(10) + "<tr><th>Test</th><th>Model</th><th>Reason</th></tr>" + chr(10) + skip_rows + "</table>" if skipped else ""}
 
 {smart_section}
 
@@ -764,7 +851,10 @@ if os.path.abspath(RESULTS_FILE) != os.path.abspath(jsonl_path):
 
 print(f"Report: {html_path}")
 print(f"  Data: {jsonl_path}")
-print(f"  {len(ok)} passed, {len(fail)} failed out of {len(results)} models")
+print(
+    f"  {len(ok)} passed, {len(fail)} failed, {len(skipped)} skipped "
+    f"out of {len(results)} tests"
+)
 
 # Auto-open the HTML report on macOS
 if sys.platform == "darwin" and os.environ.get("AFM_REPORT_NO_OPEN") != "1":

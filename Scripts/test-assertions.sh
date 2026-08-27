@@ -27,6 +27,9 @@ STRICT_TOOL_GRAMMAR_CAPABILITY="${AFM_ASSERTIONS_STRICT_TOOL_GRAMMAR:-auto}"
 MODEL_SUPPORTS_TOOL_CALLING=true
 MODEL_SUPPORTS_STRUCTURED_OUTPUT=true
 MODEL_SUPPORTS_THINKING_TOGGLE=true
+ENGINE_SUPPORTS_LOGPROBS=true
+ENGINE_SUPPORTS_BATCH=true
+RUNTIME_IS_DWARFSTAR=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
@@ -70,6 +73,38 @@ TEST_START_TIME=$(date +%s)
 declare -a RESULTS=()
 CURRENT_TIER="smoke"
 
+classify_result() {
+  local group="$1"
+  local status="$2"
+  local actual="$3"
+  if [ "$status" = "PASS" ]; then
+    echo "conformant"
+    return
+  fi
+  if [ "$status" = "SKIP" ]; then
+    echo "capability unavailable"
+    return
+  fi
+  if echo "$actual" | grep -Eqi 'curl|HTTP|parse error|server|crash|timeout|invalid JSON|no choices'; then
+    echo "engine/runtime likely"
+    return
+  fi
+  case "$group" in
+    Preflight|Lifecycle|Stop|Logprobs|Cache|Concurrent|Error|Structured|Grammar|Batch|StrictWiring|UnitTest|PairwiseSmoke)
+      echo "engine/runtime likely"
+      ;;
+    Tools|XMLTools|AdaptiveXML|NullableSchema)
+      echo "parser/model boundary needs triage"
+      ;;
+    Think)
+      echo "model behavior likely"
+      ;;
+    *)
+      echo "needs triage"
+      ;;
+  esac
+}
+
 run_test() {
   local group="$1"
   local name="$2"
@@ -92,14 +127,15 @@ run_test() {
   fi
   local esc_expected=$(echo "$expected" | tr '|' '/')
   local esc_actual=$(echo "$actual" | tr '|' '/')
-  RESULTS+=("${actual}|${group}|${name}|${esc_expected}|${esc_actual}|${duration}|${CURRENT_TIER}|${TOTAL}")
-
-  # JSONL record
   local status_val="PASS"
-  [[ "$actual" = "PASS" ]] && status_val="PASS"
   [[ "$actual" = "SKIP" ]] && status_val="SKIP"
   [[ "$actual" != "PASS" && "$actual" != "SKIP" ]] && status_val="FAIL"
-  _GROUP="$group" _NAME="$name" _STATUS="$status_val" _DUR="$duration" _TIER="$CURRENT_TIER" _IDX="$TOTAL" python3 -c "
+  local category
+  category=$(classify_result "$group" "$status_val" "$actual")
+  RESULTS+=("${actual}|${group}|${name}|${esc_expected}|${esc_actual}|${duration}|${CURRENT_TIER}|${TOTAL}|${category}")
+
+  # JSONL record
+  _GROUP="$group" _NAME="$name" _STATUS="$status_val" _DUR="$duration" _TIER="$CURRENT_TIER" _IDX="$TOTAL" _CATEGORY="$category" python3 -c "
 import json, os
 print(json.dumps({
     'index': int(os.environ['_IDX']),
@@ -107,7 +143,8 @@ print(json.dumps({
     'name': os.environ['_NAME'],
     'status': os.environ['_STATUS'],
     'duration_ms': int(os.environ['_DUR']),
-    'tier': os.environ['_TIER']
+    'tier': os.environ['_TIER'],
+    'classification': os.environ['_CATEGORY']
 }))
 " >> "$JSONL_FILE"
 }
@@ -352,6 +389,46 @@ if [ -z "$MODEL" ]; then
 fi
 echo "  Model: $MODEL"
 
+capability_lines=$(python3 - "$MODEL" "$PORT" <<'PY' 2>/dev/null || true
+import json
+import sys
+import urllib.request
+
+model, port = sys.argv[1:]
+with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=5) as response:
+    payload = json.load(response)
+details = payload.get("models") or []
+selected = next((item for item in details if item.get("model") == model), None)
+if selected is None:
+    selected = next(
+        (item for item in details if "embeddings" not in (item.get("capabilities") or [])),
+        None,
+    )
+caps = set((selected or {}).get("capabilities") or [])
+if "dwarfstar_runtime" in caps:
+    print("RUNTIME_IS_DWARFSTAR=true")
+    print("ENGINE_SUPPORTS_LOGPROBS=false")
+    print("ENGINE_SUPPORTS_BATCH=false")
+    print("MODEL_SUPPORTS_STRUCTURED_OUTPUT=false")
+elif "mlx_runtime" in caps:
+    print("ENGINE_SUPPORTS_LOGPROBS=" + ("true" if "logprobs" in caps else "false"))
+    print("ENGINE_SUPPORTS_BATCH=" + ("true" if "batch" in caps else "false"))
+print("ADVERTISED_CAPABILITIES=" + ",".join(sorted(caps)))
+PY
+)
+while IFS='=' read -r cap_name cap_value; do
+  case "$cap_name" in
+    ENGINE_SUPPORTS_LOGPROBS) ENGINE_SUPPORTS_LOGPROBS="$cap_value" ;;
+    ENGINE_SUPPORTS_BATCH) ENGINE_SUPPORTS_BATCH="$cap_value" ;;
+    RUNTIME_IS_DWARFSTAR) RUNTIME_IS_DWARFSTAR="$cap_value" ;;
+    MODEL_SUPPORTS_STRUCTURED_OUTPUT) MODEL_SUPPORTS_STRUCTURED_OUTPUT="$cap_value" ;;
+    ADVERTISED_CAPABILITIES) ADVERTISED_CAPABILITIES="$cap_value" ;;
+  esac
+done <<< "$capability_lines"
+if [ -n "${ADVERTISED_CAPABILITIES:-}" ]; then
+  echo "  Capabilities: $ADVERTISED_CAPABILITIES"
+fi
+
 # Recurrent/linear-attention state cannot be rewound like a KV cache. For
 # hybrid models, rejecting a descendant cache state and reporting a cold
 # prefill is the correctness-preserving behavior.
@@ -484,6 +561,11 @@ print("false" if model_type in {"deepseek_v4", "deepseekv4", "muse_glimmer", "mu
 PY
     )
   fi
+fi
+if [ "$RUNTIME_IS_DWARFSTAR" = "true" ]; then
+  ENGINE_SUPPORTS_LOGPROBS=false
+  ENGINE_SUPPORTS_BATCH=false
+  MODEL_SUPPORTS_STRUCTURED_OUTPUT=false
 fi
 if [ "$SAFE_PARTIAL_CACHE_MISS" = "true" ]; then
   echo "  Cache policy: recurrent hybrid; safe cold fallback is valid"
@@ -678,6 +760,11 @@ if should_run_section 3; then
 echo ""
 echo "📊 Section 3: Logprobs"
 
+if [ "$ENGINE_SUPPORTS_LOGPROBS" != "true" ]; then
+  echo "  (Engine does not advertise logprobs — skipping logprob assertions)"
+  run_test "Logprobs" "Logprobs contract (engine capability unavailable)" "skip" "SKIP" "0"
+else
+
 # Test: logprobs structure
 t0=$(now_ms)
 resp=$(api_call '{"messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"stream":false,"temperature":0,"logprobs":true,"top_logprobs":3}')
@@ -821,6 +908,7 @@ except Exception as e:
   else
     run_test "Logprobs" "top_logprobs=0 returns empty arrays" "empty top_logprobs" "$zero_valid" "$dur"
   fi
+fi
 fi
 CURRENT_TIER="smoke"
 fi # section 3
@@ -4043,6 +4131,11 @@ if should_run_section 15 && min_tier standard; then
   echo ""
   echo "📦 Section 15: Batch Dispatch API"
 
+  if [ "$ENGINE_SUPPORTS_BATCH" != "true" ]; then
+    echo "  (Engine does not advertise batch dispatch — skipping batch assertions)"
+    run_test "Batch" "Batch dispatch contract (engine capability unavailable)" "skip" "SKIP" "0"
+  else
+
   # ── Test 15.1: POST /v1/files upload ───────────────────────────────────
   BATCH_JSONL_LINE='{"custom_id":"assert-1","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say hello in 3 words"}],"max_tokens":20}}'
   BATCH_JSONL_LINE2='{"custom_id":"assert-2","method":"POST","url":"/v1/chat/completions","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"What is 2+2? Just the number"}],"max_tokens":10}}'
@@ -4273,6 +4366,7 @@ else:
   fi
 
   rm -f "$BATCH_TMPFILE"
+  fi
 fi
 
 fi  # end: min_tier smoke (server-dependent sections)
@@ -4291,6 +4385,10 @@ if should_run_section 16 && min_tier standard; then
   CURRENT_TIER="standard"
   echo ""
   echo "🧪 Section 16: Pairwise Smoke — High-Risk Interactions"
+
+  if [ "$ENGINE_SUPPORTS_BATCH" != "true" ]; then
+    run_test "PairwiseSmoke" "MLX batched-dimension interactions" "engine supports MLX batch scheduler" "SKIP" "0"
+  else
 
   # Test 16.1: batch + top_k + streaming (was crashing: #72)
   t0=$(now_ms)
@@ -4334,6 +4432,7 @@ if should_run_section 16 && min_tier standard; then
     run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "PASS" "$dur"
   else
     run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "FAIL" "$dur"
+  fi
   fi
 
   # Test 16.5: streaming parity — same seed must produce same content
@@ -4496,16 +4595,17 @@ cat >> "$REPORT_FILE" <<EOF
 <div class="progress-bar"><div class="progress-fill" style="width:${PCT}%;background:${BAR_COLOR};"></div></div>
 <table>
 <thead>
-<tr><th>#</th><th>Test</th><th>Group</th><th>Coverage</th><th>Status</th><th>Duration</th><th>Details</th></tr>
+<tr><th>#</th><th>Test</th><th>Group</th><th>Coverage</th><th>Status</th><th>Classification</th><th>Duration</th><th>Details</th></tr>
 </thead>
 <tbody>
 EOF
 
 # Emit all rows in execution order with coverage tier badges
 for entry in "${RESULTS[@]}"; do
-  IFS='|' read -r status group name expected actual duration tier test_idx <<< "$entry"
+  IFS='|' read -r status group name expected actual duration tier test_idx classification <<< "$entry"
   tier="${tier:-smoke}"
   test_idx="${test_idx:-0}"
+  classification="${classification:-needs triage}"
 
   if [ "$status" = "PASS" ]; then
     badge='<span class="badge pass">PASS</span>'
@@ -4519,6 +4619,7 @@ for entry in "${RESULTS[@]}"; do
   fi
   detail_text=$(echo "$detail_text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
   name_esc=$(echo "$name" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+  classification_esc=$(echo "$classification" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
 
   dur_s=""
   if [ -n "$duration" ] && [ "$duration" -gt 0 ] 2>/dev/null; then
@@ -4542,6 +4643,7 @@ for entry in "${RESULTS[@]}"; do
   <td><span class="group-badge $group">$group</span></td>
   <td>${tier_badges}</td>
   <td>$badge</td>
+  <td>${classification_esc}</td>
   <td><span class="duration">$dur_s</span></td>
   <td><div class="detail">$detail_text</div></td>
 </tr>

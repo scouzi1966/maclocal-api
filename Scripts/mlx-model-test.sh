@@ -37,13 +37,18 @@
 #   stop:                Comma-separated stop sequences (e.g. stop: </s>,<|end|>)
 #   response_format:     text | json_object
 #   system:              System prompt text
+#   system_json:         System prompt encoded as a JSON string (decodes \n, \t, etc.)
 #   developer:           OpenAI developer-role message text
+#   developer_json:      Developer message encoded as a JSON string
+#   instructions:        Server-level default instructions (passed to afm -i)
+#   instructions_json:   Server instructions encoded as a JSON string
 #   tools:               OpenAI tools array as JSON
 #   expect:              Executable result oracle as JSON, e.g.:
 #                         {"valid_json":true,"finish_reason":"stop"}
 #                         {"tool_calls":[{"name":"get_weather","arguments":{"city":"Paris"}}]}
 #                         {"logprobs_min":1}
 #                         {"content_equals":"prefix","content_not_contains":["STOP","suffix"]}
+#   expect_by_prompt:    JSON array of executable oracles for prompts in one run
 #   afm:                 CLI flags passed to the afm server process, e.g.:
 #                          --verbose / --very-verbose
 #                          --no-streaming
@@ -52,6 +57,7 @@
 #                          --tool-call-parser <hermes|llama3_json|gemma|mistral|qwen3_xml>
 #                          --fix-tool-args
 #   media:               Comma-separated media paths for VLM (auto-injects --vlm)
+#   requires:            Comma-separated /v1/models capabilities required by this test
 #   skip                 Skip this model entirely
 #
 # ANY OTHER LINE in a section is treated as a prompt.
@@ -336,14 +342,20 @@ PROMPTS FILE FORMAT
     stop:                Comma-separated stop sequences (e.g. stop: </s>,<|end|>)
     response_format:     Response format (e.g. response_format: json_object)
     system:              System prompt (e.g. system: You are a helpful assistant)
+    system_json:         JSON string form for exact escapes and multiline content
     developer:           OpenAI developer-role message
                          (e.g. developer: Return code only)
+    developer_json:      JSON string form of the developer message
+    instructions:        Server-level default instructions passed to afm -i
+    instructions_json:   JSON string form of server-level instructions
     tools:               OpenAI tools array encoded as JSON
     afm:                 Extra CLI flags passed to afm server
                          (e.g. afm: --verbose --enable-prefix-caching)
     media:               Comma-separated media file paths for VLM testing
                          (e.g. media: media/puppy.png)
                          Auto-injects --vlm into afm args.
+    requires:            Comma-separated capability labels required by the test
+                         (e.g. requires: structured, streaming)
     skip                 Skip this model/variant entirely (no value needed)
 
   Everything else in a section is treated as a prompt.
@@ -489,194 +501,28 @@ fi
 
 mkdir -p "$(dirname "$RESULTS_FILE")" "$SERVER_LOG_DIR"
 > "$RESULTS_FILE"
+CAPABILITY_CACHE_DIR="$SERVER_LOG_DIR/capabilities"
+mkdir -p "$CAPABILITY_CACHE_DIR"
 
 # ── Capture test run metadata (version, command) ─────────────────────────────
 AFM_VERSION=$("$AFM" --version 2>/dev/null || echo "unknown")
+AFM_RESOLVED_PATH=$(command -v "$AFM" 2>/dev/null || printf '%s' "$AFM")
+AFM_BINARY_DIGEST=$(shasum -a 256 "$AFM_RESOLVED_PATH" | awk '{print $1}')
 TEST_COMMAND="mlx-model-test.sh $*"
-export AFM_VERSION TEST_COMMAND
+export AFM_VERSION AFM_RESOLVED_PATH AFM_BINARY_DIGEST TEST_COMMAND
 
 # Write metadata record as first JSONL line
-echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$(which "$AFM" 2>/dev/null || echo "$AFM")\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
+echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$AFM_RESOLVED_PATH\",\"afm_binary_sha256\":\"$AFM_BINARY_DIGEST\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
 
 # ── Parse prompts file into JSON config ───────────────────────────────────────
 
 PARSED_CONFIG=""
 if [ -n "$PROMPTS_FILE" ]; then
-  PARSED_CONFIG=$(python3 - "$PROMPTS_FILE" <<'PYEOF'
-import sys, json, re
-
-filepath = sys.argv[1]
-config = {
-    "defaults": {},
-    "all": [],
-    "runs": []   # ordered list of {model, label, prompts, params, skip, afm}
-}
-
-# Track model sections for merging into runs at the end
-model_sections = {}  # key = "model" or "model @ label"
-
-current_section = None  # None = defaults, "all", or section key
-
-with open(filepath) as f:
-    for raw_line in f:
-        line = raw_line.strip()
-
-        # Skip comments and blank lines
-        if not line or line.startswith('#'):
-            continue
-
-        # Section header: [all] or [org/model] or [org/model @ label]
-        m = re.match(r'^\[(.+)\]$', line)
-        if m:
-            section_name = m.group(1).strip()
-            if section_name == 'all':
-                current_section = 'all'
-            else:
-                current_section = section_name
-                if section_name not in model_sections:
-                    # Parse "@ label" (template), "org/model @ label", or "org/model"
-                    if section_name.startswith('@ '):
-                        # Template mode: [@ label] — model injected at runtime
-                        model_id = ""
-                        label = section_name[2:].strip()
-                    elif ' @ ' in section_name:
-                        model_id, label = section_name.split(' @ ', 1)
-                        model_id = model_id.strip()
-                        label = label.strip()
-                    else:
-                        model_id = section_name
-                        label = ""
-                    model_sections[section_name] = {
-                        'model': model_id,
-                        'label': label,
-                        'prompts': [],
-                        'params': {},
-                        'afm': '',
-                        'skip': False
-                    }
-            continue
-
-        # Before any section = defaults
-        if current_section is None:
-            if line.startswith('max_tokens:'):
-                config['defaults']['max_tokens'] = int(line.split(':', 1)[1].strip())
-            elif line.startswith('max_completion_tokens:'):
-                config['defaults']['max_completion_tokens'] = int(line.split(':', 1)[1].strip())
-            elif line.startswith('temperature:'):
-                config['defaults']['temperature'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('top_p:'):
-                config['defaults']['top_p'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('top_k:'):
-                config['defaults']['top_k'] = int(line.split(':', 1)[1].strip())
-            elif line.startswith('min_p:'):
-                config['defaults']['min_p'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('seed:'):
-                config['defaults']['seed'] = int(line.split(':', 1)[1].strip())
-            elif line.startswith('logprobs:'):
-                config['defaults']['logprobs'] = line.split(':', 1)[1].strip().lower() == 'true'
-            elif line.startswith('top_logprobs:'):
-                config['defaults']['top_logprobs'] = int(line.split(':', 1)[1].strip())
-            elif line.startswith('presence_penalty:'):
-                config['defaults']['presence_penalty'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('repetition_penalty:'):
-                config['defaults']['repetition_penalty'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('frequency_penalty:'):
-                config['defaults']['frequency_penalty'] = float(line.split(':', 1)[1].strip())
-            elif line.startswith('stop:'):
-                raw = line.split(':', 1)[1].strip()
-                try:
-                    parsed = json.loads(raw)
-                    config['defaults']['stop'] = parsed if isinstance(parsed, list) else [str(parsed)]
-                except (json.JSONDecodeError, ValueError):
-                    config['defaults']['stop'] = [s.strip() for s in raw.split(',')]
-            elif line.startswith('response_format:'):
-                raw = line.split(':', 1)[1].strip()
-                try:
-                    config['defaults']['response_format'] = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    config['defaults']['response_format'] = raw
-            elif line.startswith('system:'):
-                config['defaults']['system'] = line.split(':', 1)[1].strip()
-            elif line.startswith('developer:'):
-                config['defaults']['developer'] = line.split(':', 1)[1].strip()
-            elif line.startswith('tools:'):
-                config['defaults']['tools'] = json.loads(line.split(':', 1)[1].strip())
-            elif line.startswith('expect:'):
-                config['defaults']['expect'] = json.loads(line.split(':', 1)[1].strip())
-            elif line.startswith('afm:'):
-                config['defaults']['afm'] = line.split(':', 1)[1].strip()
-            elif line.startswith('media:'):
-                config['defaults']['media'] = [p.strip() for p in line.split(':', 1)[1].strip().split(',')]
-            continue
-
-        # [all] section: every line is a prompt
-        if current_section == 'all':
-            config['all'].append(line)
-            continue
-
-        # Model/variant section: parse params or treat as prompt
-        sec = model_sections[current_section]
-        if line == 'skip':
-            sec['skip'] = True
-        elif line.startswith('max_tokens:'):
-            sec['params']['max_tokens'] = int(line.split(':', 1)[1].strip())
-        elif line.startswith('max_completion_tokens:'):
-            sec['params']['max_completion_tokens'] = int(line.split(':', 1)[1].strip())
-        elif line.startswith('temperature:'):
-            sec['params']['temperature'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('top_p:'):
-            sec['params']['top_p'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('top_k:'):
-            sec['params']['top_k'] = int(line.split(':', 1)[1].strip())
-        elif line.startswith('min_p:'):
-            sec['params']['min_p'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('seed:'):
-            sec['params']['seed'] = int(line.split(':', 1)[1].strip())
-        elif line.startswith('logprobs:'):
-            sec['params']['logprobs'] = line.split(':', 1)[1].strip().lower() == 'true'
-        elif line.startswith('top_logprobs:'):
-            sec['params']['top_logprobs'] = int(line.split(':', 1)[1].strip())
-        elif line.startswith('presence_penalty:'):
-            sec['params']['presence_penalty'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('repetition_penalty:'):
-            sec['params']['repetition_penalty'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('frequency_penalty:'):
-            sec['params']['frequency_penalty'] = float(line.split(':', 1)[1].strip())
-        elif line.startswith('stop:'):
-            raw = line.split(':', 1)[1].strip()
-            try:
-                parsed = json.loads(raw)
-                sec['params']['stop'] = parsed if isinstance(parsed, list) else [str(parsed)]
-            except (json.JSONDecodeError, ValueError):
-                sec['params']['stop'] = [s.strip() for s in raw.split(',')]
-        elif line.startswith('response_format:'):
-            raw = line.split(':', 1)[1].strip()
-            try:
-                sec['params']['response_format'] = json.loads(raw)
-            except (json.JSONDecodeError, ValueError):
-                sec['params']['response_format'] = raw
-        elif line.startswith('system:'):
-            sec['params']['system'] = line.split(':', 1)[1].strip()
-        elif line.startswith('developer:'):
-            sec['params']['developer'] = line.split(':', 1)[1].strip()
-        elif line.startswith('tools:'):
-            sec['params']['tools'] = json.loads(line.split(':', 1)[1].strip())
-        elif line.startswith('expect:'):
-            sec['params']['expect'] = json.loads(line.split(':', 1)[1].strip())
-        elif line.startswith('afm:'):
-            sec['afm'] = line.split(':', 1)[1].strip()
-        elif line.startswith('media:'):
-            sec['params']['media'] = [p.strip() for p in line.split(':', 1)[1].strip().split(',')]
-        else:
-            sec['prompts'].append(line)
-
-# Build ordered runs list (preserves file order)
-for key in model_sections:
-    config['runs'].append(model_sections[key])
-
-print(json.dumps(config))
-PYEOF
-  )
+  PARSED_CONFIG=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import json, sys
+from mlx_model_test_config import parse_prompts_file
+print(json.dumps(parse_prompts_file(sys.argv[1])))
+' "$PROMPTS_FILE")
 
   if [ $? -ne 0 ]; then
     echo "Error: Failed to parse prompts file: $PROMPTS_FILE" >&2
@@ -885,8 +731,11 @@ result = {
     'temperature': temperature,
     'system': system,
     'developer': merge_param('developer'),
+    'instructions': merge_param('instructions'),
+    'requires': merge_param('requires') or [],
     'tools': merge_param('tools'),
     'expect': merge_param('expect'),
+    'expect_by_prompt': merge_param('expect_by_prompt'),
     'afm_args': afm_args,
     'top_p': merge_param('top_p'),
     'top_k': merge_param('top_k'),
@@ -930,6 +779,8 @@ print(json.dumps({
     'max_tokens': $max_tokens,
     'temperature': $temperature,
     'system': '$sys_prompt',
+    'instructions': '',
+    'requires': [],
     'afm_args': '$CLI_AFM_ARGS'
 }))
 "
@@ -982,6 +833,86 @@ escape_json() {
   python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))" <<< "$1"
 }
 
+capability_cache_file() {
+  local run_config="$1"
+  local digest
+  digest=$(printf '%s\0%s\0%s\0%s' "$AFM_RESOLVED_PATH" "$AFM_VERSION" "$AFM_BINARY_DIGEST" "$run_config" | shasum -a 256 | awk '{print $1}')
+  printf '%s/%s.json\n' "$CAPABILITY_CACHE_DIR" "$digest"
+}
+
+capture_server_capabilities() {
+  local model="$1"
+  local destination="$2"
+  python3 - "$model" "$destination" "$PORT" <<'PYEOF'
+import json
+import pathlib
+import sys
+import urllib.request
+
+requested_model, destination, port = sys.argv[1:]
+with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=5) as response:
+    payload = json.load(response)
+details = payload.get("models") or []
+selected = next((item for item in details if item.get("model") == requested_model), None)
+if selected is None:
+    selected = next(
+        (item for item in details if "embeddings" not in (item.get("capabilities") or [])),
+        None,
+    )
+capabilities = sorted(set((selected or {}).get("capabilities") or []))
+pathlib.Path(destination).write_text(json.dumps(capabilities), encoding="utf-8")
+print(json.dumps(capabilities))
+PYEOF
+}
+
+missing_required_capabilities() {
+  local run_config="$1"
+  local capability_file="$2"
+  _RUN_CONFIG="$run_config" python3 - "$capability_file" <<'PYEOF'
+import json
+import os
+import pathlib
+import sys
+
+required = set(json.loads(os.environ["_RUN_CONFIG"]).get("requires") or [])
+available = set(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")))
+print(", ".join(sorted(required - available)))
+PYEOF
+}
+
+record_skipped_run() {
+  local run_config="$1"
+  local reason="$2"
+  _RUN_CONFIG="$run_config" _SKIP_REASON="$reason" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF' >> "$RESULTS_FILE"
+import json
+import os
+from mlx_model_test_oracle import skipped_run_records
+
+config = json.loads(os.environ["_RUN_CONFIG"])
+for record in skipped_run_records(config, reason=os.environ["_SKIP_REASON"]):
+    print(json.dumps(record))
+PYEOF
+}
+
+record_failed_run() {
+  local run_config="$1"
+  local error_message="$2"
+  local load_time="$3"
+  _RUN_CONFIG="$run_config" _ERROR_MESSAGE="$error_message" _LOAD_TIME="$load_time" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF' >> "$RESULTS_FILE"
+import json
+import os
+from mlx_model_test_oracle import failed_run_records
+
+config = json.loads(os.environ["_RUN_CONFIG"])
+for record in failed_run_records(
+    config,
+    error=os.environ["_ERROR_MESSAGE"],
+    load_time_s=int(os.environ["_LOAD_TIME"]),
+):
+    print(json.dumps(record))
+PYEOF
+}
+
 # ── Send a single prompt and record result ────────────────────────────────────
 
 send_prompt() {
@@ -1011,7 +942,14 @@ print(json.dumps(c))
   # Single python3 block: builds OpenAI SDK call, sends request, outputs JSONL result
   METRICS=$(_SEND_CONFIG="$send_config" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - "$PORT" "$load_time" "$TIMEOUT_GENERATE" <<'SEND_PYEOF'
 import json, sys, time, os
-from mlx_model_test_oracle import evaluate_expectations, expectation_for_prompt
+from mlx_model_test_oracle import (
+    classify_result_likelihood,
+    evaluate_expectations,
+    evaluation_lane,
+    expectation_for_prompt,
+    request_configuration_fields,
+    transport_failure_record,
+)
 
 # Read config from env var (stdin used by heredoc)
 config = json.loads(os.environ['_SEND_CONFIG'])
@@ -1033,6 +971,7 @@ label = config.get('label', '')
 prompt_text = config['prompt_text']
 system_prompt = config.get('system', '')
 developer_prompt = config.get('developer', '')
+server_instructions = config.get('instructions', '')
 max_tokens = config['max_tokens']
 max_completion_tokens = config.get('max_completion_tokens')
 temperature = config['temperature']
@@ -1152,6 +1091,11 @@ try:
     prompt_tokens = usage.prompt_tokens if usage else 0
     completion_tokens = usage.completion_tokens if usage else 0
     total_tokens = usage.total_tokens if usage else 0
+    prompt_token_details = getattr(usage, 'prompt_tokens_details', None) if usage else None
+    cached_input_tokens = (
+        getattr(prompt_token_details, 'cached_tokens', 0) or 0
+        if prompt_token_details is not None else 0
+    )
     tps = completion_tokens / gen_time if gen_time > 0 else 0
     tps_note = 'calculated'  # wall-clock / reported tokens (not engine-provided)
     content_preview = full_content[:300].replace('\n', ' ')
@@ -1184,6 +1128,7 @@ try:
         finish_reason=finish_reason,
         logprobs_count=logprobs_count,
         tool_calls=tool_calls,
+        cached_input_tokens=cached_input_tokens,
     )
     if is_valid_json is None:
         is_valid_json = oracle_valid_json
@@ -1199,10 +1144,25 @@ try:
         'transport_status': 'pass',
         'assertion_status': assertion_status,
         'overall_status': 'fail' if assertion_failures else 'pass',
+        'evaluation_lane': evaluation_lane(
+            model=model,
+            afm_args=afm_args,
+            is_baseline=is_baseline,
+            has_expectation=bool(expectation),
+        ),
+        'failure_classification': classify_result_likelihood(
+            model=model,
+            label=label,
+            afm_args=afm_args,
+            is_baseline=is_baseline,
+            status='OK',
+            failures=assertion_failures,
+        ),
         'assertion_failures': assertion_failures,
         'load_time_s': load_time,
         'gen_time_s': round(gen_time, 2),
         'prompt_tokens': prompt_tokens,
+        'cached_input_tokens': cached_input_tokens,
         'completion_tokens': completion_tokens,
         'total_tokens': total_tokens,
         'tokens_per_sec': round(tps, 2),
@@ -1212,6 +1172,8 @@ try:
         'max_completion_tokens': max_completion_tokens,
         'system_prompt': system_prompt,
         'developer_prompt': developer_prompt,
+        'server_instructions': server_instructions,
+        'required_capabilities': config.get('requires') or [],
         'afm_args': afm_args,
         'content_preview': content_preview,
         'content': msg,
@@ -1227,59 +1189,35 @@ try:
         result['is_valid_json'] = is_valid_json
 
     # Record all optional params that were set
-    for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
-                'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media', 'tools'):
-        if config.get(key) is not None:
-            result[key] = config[key]
-    if expectation:
-        result['expect'] = expectation
+    result.update(request_configuration_fields(config, expectation=expectation))
 
     print(json.dumps(result))
 
 except Exception as e:
     gen_end = time.time()
     error_msg = str(e)[:500]
-    result = {
-        'model': model,
-        'label': label,
-        'prompt': prompt_text,
-        'status': 'FAIL',
-        'transport_status': 'fail',
-        'assertion_status': 'not_run',
-        'overall_status': 'fail',
-        'error': error_msg,
-        'load_time_s': load_time,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
-        'max_completion_tokens': max_completion_tokens,
-        'system_prompt': system_prompt,
-        'developer_prompt': developer_prompt,
-        'afm_args': afm_args,
-    }
-    for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
-                'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media', 'tools'):
-        if config.get(key) is not None:
-            result[key] = config[key]
-    if expectation:
-        result['expect'] = expectation
+    result = transport_failure_record(
+        config,
+        prompt=prompt_text,
+        error=error_msg,
+        load_time_s=load_time,
+    )
     print(json.dumps(result))
 SEND_PYEOF
   )
 
   if ! printf '%s' "$METRICS" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
     local raw_metrics="$METRICS"
-    METRICS=$(_RAW_METRICS="$raw_metrics" _SEND_CONFIG="$send_config" python3 - <<'PYEOF'
+    METRICS=$(_RAW_METRICS="$raw_metrics" _SEND_CONFIG="$send_config" _LOAD_TIME="$load_time" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF'
 import json, os
+from mlx_model_test_oracle import transport_failure_record
 config = json.loads(os.environ['_SEND_CONFIG'])
-print(json.dumps({
-    'model': config.get('model', ''),
-    'label': config.get('label', ''),
-    'prompt': config.get('prompt_text', ''),
-    'status': 'FAIL',
-    'error': 'Test client did not return valid JSON: ' + os.environ.get('_RAW_METRICS', '')[:400],
-}))
+print(json.dumps(transport_failure_record(
+    config,
+    prompt=config.get('prompt_text', ''),
+    error='Test client did not return valid JSON: ' + os.environ.get('_RAW_METRICS', '')[:400],
+    load_time_s=float(os.environ['_LOAD_TIME']),
+)))
 PYEOF
     )
   fi
@@ -1315,6 +1253,7 @@ print(f'local label={shlex.quote(c.get(\"label\", \"\"))}')
 print(f'local max_tokens={c[\"max_tokens\"]}')
 print(f'local temperature={c[\"temperature\"]}')
 print(f'local sys_prompt={shlex.quote(c.get(\"system\", \"\"))}')
+print(f'local server_instructions={shlex.quote(c.get(\"instructions\", \"\") or \"\")}')
 print(f'local afm_args={shlex.quote(c.get(\"afm_args\", \"\"))}')
 ")"
 
@@ -1349,6 +1288,8 @@ if c.get('stop') is not None: api_parts.append(f'stop={json.dumps(c[\"stop\"])}'
 if c.get('response_format') is not None: api_parts.append(f'response_format={c[\"response_format\"]}')
 if c.get('system'): api_parts.append(f'system=\"{c[\"system\"][:60]}...\"' if len(c.get('system',''))>60 else f'system=\"{c[\"system\"]}\"')
 if c.get('developer'): api_parts.append(f'developer=\"{c[\"developer\"][:60]}...\"' if len(c.get('developer',''))>60 else f'developer=\"{c[\"developer\"]}\"')
+if c.get('instructions'): api_parts.append(f'server_instructions=\"{c[\"instructions\"][:60]}...\"' if len(c.get('instructions',''))>60 else f'server_instructions=\"{c[\"instructions\"]}\"')
+if c.get('requires'): api_parts.append(f'requires={c[\"requires\"]}')
 if c.get('tools') is not None: api_parts.append(f'tools={len(c[\"tools\"])}')
 if c.get('stream') is not None: api_parts.append(f'stream={c[\"stream\"]}')
 api = ', '.join(api_parts)
@@ -1359,10 +1300,28 @@ print(f'API: {api}' if api else 'API: (none)')
     echo "$params_info" | while IFS= read -r line; do echo "  $line"; done
   fi
 
+  local capability_file
+  # Capabilities can vary with runtime and CLI flags, so cache them by the
+  # complete run configuration rather than only by model identity.
+  capability_file=$(capability_cache_file "$run_config")
+  local required_count
+  required_count=$(echo "$run_config" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('requires') or []))")
+  if [ "$required_count" -gt 0 ] && [ -f "$capability_file" ]; then
+    local missing
+    missing=$(missing_required_capabilities "$run_config" "$capability_file")
+    if [ -n "$missing" ]; then
+      local skip_reason="engine does not advertise required capabilities: $missing"
+      echo "  SKIP: $skip_reason"
+      record_skipped_run "$run_config" "$skip_reason"
+      echo ""
+      return
+    fi
+  fi
+
   # Build server args
   SERVER_EXTRA_ARGS=()
-  if [ -n "$sys_prompt" ]; then
-    SERVER_EXTRA_ARGS+=(-i "$sys_prompt")
+  if [ -n "$server_instructions" ]; then
+    SERVER_EXTRA_ARGS+=(-i "$server_instructions")
   fi
   # Append custom afm CLI args (shell-aware split to handle quoted values)
   if [ -n "$afm_args" ]; then
@@ -1397,7 +1356,7 @@ print(f'API: {api}' if api else 'API: (none)')
       fi
     fi
     echo "  FAIL: $error_msg"
-    echo "{\"model\":$(escape_json "$model"),\"label\":$(escape_json "$label"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time,\"temperature\":$temperature,\"max_tokens\":$max_tokens,\"system_prompt\":$(escape_json "$sys_prompt"),\"afm_args\":$(escape_json "$afm_args")}" >> "$RESULTS_FILE"
+    record_failed_run "$run_config" "$error_msg" "$load_time"
     OVERALL_STATUS=1
     kill_server $SERVER_PID
     SERVER_PID=0
@@ -1408,6 +1367,25 @@ print(f'API: {api}' if api else 'API: (none)')
 
   load_time=$((SECONDS - load_start))
   echo "  Server ready in ${load_time}s"
+
+  local advertised_capabilities
+  if advertised_capabilities=$(capture_server_capabilities "$model" "$capability_file" 2>/dev/null); then
+    echo "  Capabilities: $advertised_capabilities"
+  fi
+  if [ "$required_count" -gt 0 ] && [ -f "$capability_file" ]; then
+    local missing
+    missing=$(missing_required_capabilities "$run_config" "$capability_file")
+    if [ -n "$missing" ]; then
+      local skip_reason="engine does not advertise required capabilities: $missing"
+      echo "  SKIP: $skip_reason"
+      record_skipped_run "$run_config" "$skip_reason"
+      kill_server $SERVER_PID
+      SERVER_PID=0
+      sleep 2
+      echo ""
+      return
+    fi
+  fi
 
   # Get prompts list
   local prompt_list
@@ -1566,12 +1544,14 @@ result = {
     'max_tokens': defaults.get('max_tokens', $DEFAULT_MAX_TOKENS),
     'temperature': defaults.get('temperature', $DEFAULT_TEMPERATURE),
     'system': defaults.get('system', ''),
+    'instructions': defaults.get('instructions', ''),
+    'requires': defaults.get('requires', []),
     'afm_args': defaults.get('afm', ''),
 }
 for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
             'presence_penalty', 'repetition_penalty', 'frequency_penalty',
             'stop', 'response_format', 'media', 'max_completion_tokens',
-            'developer', 'tools', 'expect'):
+            'developer', 'tools', 'expect', 'expect_by_prompt'):
     if key in defaults:
         result[key] = defaults[key]
 print(json.dumps(result))
@@ -1665,7 +1645,8 @@ report concise and scannable.
 
 CRITICAL — MACHINE-READABLE SCORES:
 At the very end of your output, you MUST include a scores block for the HTML report.
-Score EVERY JSONL line (by 0-based line index) on a 1-5 scale:
+Score every executed JSONL result (by 0-based result index) on a 1-5 scale.
+Do not score metadata records or capability-aware records whose status is SKIP:
   5 = excellent (correct, coherent, addresses prompt well)
   4 = good (minor issues but solid response)
   3 = acceptable (noticeable issues but usable)
@@ -1700,8 +1681,10 @@ Output the block EXACTLY like this (one line, valid JSON array):
 <!-- AI_SCORES [{"i":0,"s":5},{"i":1,"s":3},{"i":2,"s":1}] -->
 
 Rules:
-- Include an entry for EVERY line in the JSONL input, including failed ones (score 1)
-- The "i" field is the 0-based line index in the JSONL
+- Include an entry for every executed result, including failed ones (score 1)
+- Omit status=SKIP records from AI_SCORES; they were not executed and have no model output
+- The "i" field is the 0-based result index after metadata records are removed
+- SKIP records retain their result index but have no AI_SCORES entry
 - The "s" field is the integer score 1-5
 - This line must be the LAST line of your output
 - Do NOT wrap it in a code block
@@ -1773,44 +1756,13 @@ print(sum(1 for line in open(sys.argv[1]) if line.strip() and not json.loads(lin
 " "$RESULTS_FILE")
       echo "  Per-test scoring with $tool ($total_lines results)..."
 
-      # Extract test spec blocks from the test file (label → comment block mapping)
+      # Extract test specs by model + label, with template sections as fallback.
       PERTEST_SPECS=""
       if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
-        PERTEST_SPECS=$(python3 -c "
-import sys, re
-
-# Parse test file to extract the # AI: comment block preceding each [section @ label]
-lines = open(sys.argv[1]).readlines()
-specs = {}
-comment_buf = []
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('#'):
-        comment_buf.append(stripped)
-    elif re.match(r'^\[.+\]$', stripped):
-        # Extract label from [org/model @ label] OR [@ label] (template mode)
-        m_template = re.match(r'^\[@\s*(.+?)\s*\]$', stripped)
-        m_named = re.match(r'^\[(.+?)\s*@\s*(.+?)\]$', stripped)
-        label = ''
-        if m_template:
-            label = m_template.group(1).strip()
-        elif m_named:
-            label = m_named.group(2).strip()
-        if label:
-            # Keep the AI: comments + section header
-            spec_lines = [c for c in comment_buf if '# AI:' in c or c.startswith('# ---')]
-            specs[label] = '\n'.join(spec_lines) if spec_lines else ''
-        comment_buf = []
-    else:
-        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                    'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
-                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                    'frequency_penalty:', 'media:')):
-            comment_buf = []  # reset on non-param, non-comment lines
-
-import json
-print(json.dumps(specs))
+        PERTEST_SPECS=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import json, sys
+from mlx_model_test_config import parse_ai_intent_specs
+print(json.dumps(parse_ai_intent_specs(sys.argv[1])))
 " "$PROMPTS_FILE" 2>/dev/null)
       fi
 
@@ -1819,6 +1771,11 @@ print(json.dumps(specs))
         [ -z "$jsonl_line" ] && continue
         # Skip metadata lines
         if echo "$jsonl_line" | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('_meta') else 1)" 2>/dev/null; then
+          continue
+        fi
+        if echo "$jsonl_line" | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('status') == 'SKIP' else 1)" 2>/dev/null; then
+          echo "    [$((line_idx + 1))] skipped (capability unavailable; not AI-scored)"
+          line_idx=$((line_idx + 1))
           continue
         fi
         echo -n "    [$((line_idx + 1))/$total_lines] "
@@ -1830,15 +1787,16 @@ print(json.dumps(specs))
         # must not inherit that section's semantic expectations.
         test_spec=""
         if [ -n "$PERTEST_SPECS" ]; then
-          test_spec=$(echo "$jsonl_line" | python3 -c "
+          test_spec=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import json, sys
+from mlx_model_test_config import ai_intent_for_result
 specs = json.loads(sys.argv[1])
 d = json.load(sys.stdin)
 if d.get('is_baseline'):
     print('Global [all] baseline. Judge only the actual prompt and response quality; ignore the enclosing variant-specific intent and expectations.')
     raise SystemExit
-label = d.get('label', '')
-print(specs.get(label, ''))
+lines = ai_intent_for_result(specs, d.get('model', ''), d.get('label', ''))
+print('\n'.join('# AI: ' + line for line in lines))
 " "$PERTEST_SPECS" 2>/dev/null)
         fi
 
@@ -1887,65 +1845,9 @@ print(payload['score'] if payload else '?')
 
       echo "  Assembling per-test report..."
 
-      # Build scores JSON + per-test markdown report
-      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
-import json, sys, os
-from mlx_model_test_oracle import extract_score_payload
-
-scores_dir = sys.argv[1]
-results_file = sys.argv[2]
-
-scores = []
-report_lines = ['# Per-Test AI Analysis', '']
-result_idx = 0
-with open(results_file) as f:
-    for line in f:
-        line = line.strip()
-        if not line: continue
-        r = json.loads(line)
-        if r.get('_meta'):
-            continue
-
-        score_file = os.path.join(scores_dir, f'score_{result_idx}.txt')
-        score_text = ''
-        score_val = 3
-        reason = ''
-        if os.path.exists(score_file):
-            with open(score_file) as sf:
-                score_text = sf.read().strip()
-            payload = extract_score_payload(score_text)
-            if payload:
-                score_val = payload['score']
-                reason = str(payload.get('reason', ''))
-
-        scores.append({'i': result_idx, 's': score_val})
-
-        model = r.get('model', '')
-        label = r.get('label', '')
-        label_suffix = f' @ {label}' if label else ''
-        name = model if not label_suffix or model.endswith(label_suffix) else model + label_suffix
-        tps = r.get('tokens_per_sec', 0)
-        status = r.get('status', '')
-        emoji = {5:'✅', 4:'👍', 3:'⚠️', 2:'❌', 1:'💥'}.get(score_val, '❓')
-
-        report_lines.append(f'### {result_idx}. {name}')
-        report_lines.append(f'**Score: {score_val}/5** {emoji} | Status: {status} | {tps:.1f} tok/s')
-        if reason:
-            report_lines.append(f'> {reason}')
-        report_lines.append('')
-        result_idx += 1
-
-# Summary
-total = len(scores)
-pass_count = sum(1 for s in scores if s['s'] >= 4)
-fail_count = sum(1 for s in scores if s['s'] <= 2)
-report_lines.append('---')
-report_lines.append(f'**Summary**: {pass_count}/{total} passed (score ≥ 4), {fail_count} failed (score ≤ 2)')
-report_lines.append('')
-report_lines.append('<!-- AI_SCORES ' + json.dumps(scores) + ' -->')
-
-print('\n'.join(report_lines))
-" "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
+      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 "$SCRIPT_DIR/assemble_smart_report.py" \
+        "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
 
       rm -rf "$PERTEST_SCORES_DIR"
 
@@ -1963,7 +1865,7 @@ $SMART_TEST_FILE_SECTION
         codex)
           # codex exec: use temp file to avoid ARG_MAX limit on command line
           # (91+ test results with full responses easily exceed OS argument length)
-          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every JSONL entry and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
+          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every executed JSONL result, omit metadata and status=SKIP records, and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
           ;;
         afm)
           # afm uses Apple Foundation Models — context window is limited (~4K tokens).
@@ -1975,31 +1877,10 @@ $SMART_TEST_FILE_SECTION
           # Extract test spec blocks for per-result context
           AFM_SPECS=""
           if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
-            AFM_SPECS=$(python3 -c "
-import sys, re, json
-lines = open(sys.argv[1]).readlines()
-specs = {}
-comment_buf = []
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('#'):
-        comment_buf.append(stripped)
-    elif re.match(r'^\[.+\]$', stripped):
-        m = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
-        if m:
-            label = (m.group(2) or '').strip()
-            if label:
-                spec_lines = [c for c in comment_buf if '# AI:' in c]
-                specs[label] = ' '.join(spec_lines)[:200] if spec_lines else ''
-        comment_buf = []
-    else:
-        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                    'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
-                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                    'frequency_penalty:', 'media:')):
-            comment_buf = []
-print(json.dumps(specs))
+            AFM_SPECS=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import json, sys
+from mlx_model_test_config import parse_ai_intent_specs
+print(json.dumps(parse_ai_intent_specs(sys.argv[1])))
 " "$PROMPTS_FILE" 2>/dev/null)
           fi
 
@@ -2013,12 +1894,13 @@ print(json.dumps(specs))
             # Get test spec for this label (truncated for afm's limited context)
             afm_spec=""
             if [ -n "$AFM_SPECS" ]; then
-              afm_spec=$(echo "$jsonl_line" | python3 -c "
+              afm_spec=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import json, sys
+from mlx_model_test_config import ai_intent_for_result
 specs = json.loads(sys.argv[1])
 d = json.load(sys.stdin)
-label = d.get('label', '')
-print(specs.get(label, ''))
+lines = ai_intent_for_result(specs, d.get('model', ''), d.get('label', ''))
+print(' '.join(lines)[:200])
 " "$AFM_SPECS" 2>/dev/null)
             fi
 

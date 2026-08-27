@@ -822,6 +822,10 @@ struct MlxCommand: ParsableCommand {
             }
             try runDwarfStar(
                 checkpointPath: localModelPath(resolvedModel),
+                advertisedModelID: AFMDwarfStarModelIdentity.advertisedModelID(
+                    requestedModel: rawModel,
+                    checkpointPath: localModelPath(resolvedModel)
+                ),
                 modelStore: modelStore,
                 chatTemplateKwargs: parsedKwargs,
                 forceDisableThinking: noThink,
@@ -1195,6 +1199,7 @@ struct MlxCommand: ParsableCommand {
 
     private func runDwarfStar(
         checkpointPath: String,
+        advertisedModelID: String,
         modelStore: AFMMLXModelStore,
         chatTemplateKwargs: [String: Any],
         forceDisableThinking: Bool,
@@ -1220,7 +1225,7 @@ struct MlxCommand: ParsableCommand {
         let residentSessions = max(1, concurrent ?? 1)
         let resolvedDSparkPath = dsparkSupportPath.map(localModelPath)
 
-        let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
+        let modelID = advertisedModelID
         if openclawConfig {
             printOpenClawConfig(
                 model: modelID,
