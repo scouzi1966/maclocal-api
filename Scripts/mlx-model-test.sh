@@ -1845,77 +1845,9 @@ print(payload['score'] if payload else '?')
 
       echo "  Assembling per-test report..."
 
-      # Build scores JSON + per-test markdown report
-      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
-import json, sys, os
-from mlx_model_test_oracle import extract_score_payload
-
-scores_dir = sys.argv[1]
-results_file = sys.argv[2]
-
-scores = []
-report_lines = ['# Per-Test AI Analysis', '']
-result_idx = 0
-with open(results_file) as f:
-    for line in f:
-        line = line.strip()
-        if not line: continue
-        r = json.loads(line)
-        if r.get('_meta'):
-            continue
-
-        if r.get('status') == 'SKIP' or r.get('overall_status') == 'skip':
-            model = r.get('model', '')
-            label = r.get('label', '')
-            label_suffix = f' @ {label}' if label else ''
-            name = model if not label_suffix or model.endswith(label_suffix) else model + label_suffix
-            report_lines.append(f'### {result_idx}. {name}')
-            report_lines.append(f'**Not scored** ⏭️ | Status: SKIP')
-            report_lines.append(f'> {r.get("skip_reason", "Required capability unavailable")}.')
-            report_lines.append('')
-            result_idx += 1
-            continue
-
-        score_file = os.path.join(scores_dir, f'score_{result_idx}.txt')
-        score_text = ''
-        score_val = 3
-        reason = ''
-        if os.path.exists(score_file):
-            with open(score_file) as sf:
-                score_text = sf.read().strip()
-            payload = extract_score_payload(score_text)
-            if payload:
-                score_val = payload['score']
-                reason = str(payload.get('reason', ''))
-
-        scores.append({'i': result_idx, 's': score_val})
-
-        model = r.get('model', '')
-        label = r.get('label', '')
-        label_suffix = f' @ {label}' if label else ''
-        name = model if not label_suffix or model.endswith(label_suffix) else model + label_suffix
-        tps = r.get('tokens_per_sec', 0)
-        status = r.get('status', '')
-        emoji = {5:'✅', 4:'👍', 3:'⚠️', 2:'❌', 1:'💥'}.get(score_val, '❓')
-
-        report_lines.append(f'### {result_idx}. {name}')
-        report_lines.append(f'**Score: {score_val}/5** {emoji} | Status: {status} | {tps:.1f} tok/s')
-        if reason:
-            report_lines.append(f'> {reason}')
-        report_lines.append('')
-        result_idx += 1
-
-# Summary
-total = len(scores)
-pass_count = sum(1 for s in scores if s['s'] >= 4)
-fail_count = sum(1 for s in scores if s['s'] <= 2)
-report_lines.append('---')
-report_lines.append(f'**Summary**: {pass_count}/{total} passed (score ≥ 4), {fail_count} failed (score ≤ 2)')
-report_lines.append('')
-report_lines.append('<!-- AI_SCORES ' + json.dumps(scores) + ' -->')
-
-print('\n'.join(report_lines))
-" "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
+      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 "$SCRIPT_DIR/assemble_smart_report.py" \
+        "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
 
       rm -rf "$PERTEST_SCORES_DIR"
 

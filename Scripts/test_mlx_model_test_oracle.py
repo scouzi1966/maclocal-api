@@ -1,5 +1,9 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
+from assemble_smart_report import assemble_per_test_report
 from mlx_model_test_oracle import (
     classify_result_likelihood,
     evaluate_expectations,
@@ -13,6 +17,49 @@ from mlx_model_test_oracle import (
 
 
 class ModelTestOracleTests(unittest.TestCase):
+    def test_per_test_report_assembler_handles_metadata_skip_and_score_reasons(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results.jsonl"
+            scores = root / "scores"
+            scores.mkdir()
+            results.write_text(
+                "\n".join(
+                    json.dumps(record)
+                    for record in (
+                        {"_meta": True},
+                        {
+                            "model": "model/a",
+                            "label": "skipped",
+                            "status": "SKIP",
+                            "overall_status": "skip",
+                            "skip_reason": "tools unavailable",
+                        },
+                        {
+                            "model": "model/a",
+                            "label": "working",
+                            "status": "OK",
+                            "tokens_per_sec": 12.34,
+                        },
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (scores / "score_1.txt").write_text(
+                'noise\n{"score":5,"reason":"meets intent"}\n',
+                encoding="utf-8",
+            )
+
+            report = assemble_per_test_report(scores, results)
+
+        self.assertIn("### 0. model/a @ skipped", report)
+        self.assertIn("> tools unavailable.", report)
+        self.assertIn("### 1. model/a @ working", report)
+        self.assertIn("**Score: 5/5**", report)
+        self.assertIn("> meets intent", report)
+        self.assertIn('<!-- AI_SCORES [{"i": 1, "s": 5}] -->', report)
+
     def test_evaluation_lane_distinguishes_native_and_cross_family_parser_use(self):
         self.assertEqual(
             evaluation_lane(
