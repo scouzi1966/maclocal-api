@@ -886,51 +886,11 @@ record_skipped_run() {
   _RUN_CONFIG="$run_config" _SKIP_REASON="$reason" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF' >> "$RESULTS_FILE"
 import json
 import os
-from mlx_model_test_oracle import (
-    classify_result_likelihood,
-    evaluation_lane,
-    expectation_for_prompt,
-)
+from mlx_model_test_oracle import skipped_run_records
 
 config = json.loads(os.environ["_RUN_CONFIG"])
-prompts = config.get("prompts") or [""]
-for prompt_index, prompt in enumerate(prompts):
-    is_baseline = prompt_index < config.get("num_baseline", 0)
-    prompt_config = dict(config, prompt_idx=prompt_index)
-    expectation = expectation_for_prompt(prompt_config)
-    model = config.get("model", "")
-    afm_args = config.get("afm_args", "")
-    print(json.dumps({
-        "model": model,
-        "label": config.get("label", ""),
-        "prompt": prompt,
-        "is_baseline": is_baseline,
-        "status": "SKIP",
-        "transport_status": "not_run",
-        "assertion_status": "not_run",
-        "overall_status": "skip",
-        "skip_reason": os.environ["_SKIP_REASON"],
-        "evaluation_lane": evaluation_lane(
-            model=model,
-            afm_args=afm_args,
-            is_baseline=is_baseline,
-            has_expectation=bool(expectation),
-        ),
-        "failure_classification": classify_result_likelihood(
-            model=model,
-            label=config.get("label", ""),
-            afm_args=afm_args,
-            is_baseline=is_baseline,
-            status="SKIP",
-        ),
-        "temperature": config.get("temperature"),
-        "max_tokens": config.get("max_tokens"),
-        "system_prompt": config.get("system", ""),
-        "developer_prompt": config.get("developer", ""),
-        "server_instructions": config.get("instructions", ""),
-        "required_capabilities": config.get("requires") or [],
-        "afm_args": afm_args,
-    }))
+for record in skipped_run_records(config, reason=os.environ["_SKIP_REASON"]):
+    print(json.dumps(record))
 PYEOF
 }
 
@@ -987,6 +947,8 @@ from mlx_model_test_oracle import (
     evaluate_expectations,
     evaluation_lane,
     expectation_for_prompt,
+    request_configuration_fields,
+    transport_failure_record,
 )
 
 # Read config from env var (stdin used by heredoc)
@@ -1227,92 +1189,35 @@ try:
         result['is_valid_json'] = is_valid_json
 
     # Record all optional params that were set
-    for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
-                'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media', 'tools'):
-        if config.get(key) is not None:
-            result[key] = config[key]
-    if expectation:
-        result['expect'] = expectation
+    result.update(request_configuration_fields(config, expectation=expectation))
 
     print(json.dumps(result))
 
 except Exception as e:
     gen_end = time.time()
     error_msg = str(e)[:500]
-    result = {
-        'model': model,
-        'label': label,
-        'prompt': prompt_text,
-        'status': 'FAIL',
-        'transport_status': 'fail',
-        'assertion_status': 'not_run',
-        'overall_status': 'fail',
-        'evaluation_lane': evaluation_lane(
-            model=model,
-            afm_args=afm_args,
-            is_baseline=is_baseline,
-            has_expectation=bool(expectation),
-        ),
-        'failure_classification': classify_result_likelihood(
-            model=model,
-            label=label,
-            afm_args=afm_args,
-            is_baseline=is_baseline,
-            status='FAIL',
-        ),
-        'error': error_msg,
-        'load_time_s': load_time,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
-        'max_completion_tokens': max_completion_tokens,
-        'system_prompt': system_prompt,
-        'developer_prompt': developer_prompt,
-        'server_instructions': server_instructions,
-        'required_capabilities': config.get('requires') or [],
-        'afm_args': afm_args,
-    }
-    for key in ('top_p', 'top_k', 'min_p', 'seed', 'logprobs', 'top_logprobs',
-                'presence_penalty', 'repetition_penalty', 'frequency_penalty',
-                'stop', 'response_format', 'media', 'tools'):
-        if config.get(key) is not None:
-            result[key] = config[key]
-    if expectation:
-        result['expect'] = expectation
+    result = transport_failure_record(
+        config,
+        prompt=prompt_text,
+        error=error_msg,
+        load_time_s=load_time,
+    )
     print(json.dumps(result))
 SEND_PYEOF
   )
 
   if ! printf '%s' "$METRICS" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
     local raw_metrics="$METRICS"
-    METRICS=$(_RAW_METRICS="$raw_metrics" _SEND_CONFIG="$send_config" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF'
+    METRICS=$(_RAW_METRICS="$raw_metrics" _SEND_CONFIG="$send_config" _LOAD_TIME="$load_time" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF'
 import json, os
-from mlx_model_test_oracle import classify_result_likelihood, evaluation_lane
+from mlx_model_test_oracle import transport_failure_record
 config = json.loads(os.environ['_SEND_CONFIG'])
-model = config.get('model', '')
-afm_args = config.get('afm_args', '')
-is_baseline = config.get('prompt_idx', 0) < config.get('num_baseline', 0)
-print(json.dumps({
-    'model': model,
-    'label': config.get('label', ''),
-    'prompt': config.get('prompt_text', ''),
-    'status': 'FAIL',
-    'overall_status': 'fail',
-    'evaluation_lane': evaluation_lane(
-        model=model,
-        afm_args=afm_args,
-        is_baseline=is_baseline,
-        has_expectation=bool(config.get('expect')),
-    ),
-    'failure_classification': classify_result_likelihood(
-        model=model,
-        label=config.get('label', ''),
-        afm_args=afm_args,
-        is_baseline=is_baseline,
-        status='FAIL',
-    ),
-    'error': 'Test client did not return valid JSON: ' + os.environ.get('_RAW_METRICS', '')[:400],
-}))
+print(json.dumps(transport_failure_record(
+    config,
+    prompt=config.get('prompt_text', ''),
+    error='Test client did not return valid JSON: ' + os.environ.get('_RAW_METRICS', '')[:400],
+    load_time_s=float(os.environ['_LOAD_TIME']),
+)))
 PYEOF
     )
   fi

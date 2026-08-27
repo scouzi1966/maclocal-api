@@ -7,6 +7,8 @@ from mlx_model_test_oracle import (
     expectation_for_prompt,
     extract_score_payload,
     failed_run_records,
+    skipped_run_records,
+    transport_failure_record,
 )
 
 
@@ -237,7 +239,10 @@ class ModelTestOracleTests(unittest.TestCase):
                 "instructions": "instructions",
                 "requires": ["tools"],
                 "afm_args": "--no-think",
+                "media": ["fixture.png"],
+                "stop": ["END"],
                 "expect": {"tool_calls": [{"name": "weather"}]},
+                "tools": [{"type": "function", "function": {"name": "weather"}}],
             },
             error="server died",
             load_time_s=7,
@@ -250,6 +255,58 @@ class ModelTestOracleTests(unittest.TestCase):
         )
         self.assertTrue(all(record["evaluation_lane"] == "native_protocol" for record in records))
         self.assertTrue(all(record["required_capabilities"] == ["tools"] for record in records))
+        self.assertTrue(all(record["media"] == ["fixture.png"] for record in records))
+        self.assertTrue(all(record["stop"] == ["END"] for record in records))
+        self.assertTrue(all(record["tools"][0]["function"]["name"] == "weather" for record in records))
+        self.assertTrue(all(record["expect"]["tool_calls"][0]["name"] == "weather" for record in records))
+
+    def test_client_failure_for_baseline_is_always_native_protocol(self):
+        record = transport_failure_record(
+            {
+                "model": "test/model",
+                "label": "behavior-quality",
+                "prompt_idx": 0,
+                "num_baseline": 1,
+                "temperature": 0.7,
+                "max_tokens": 20,
+                "tools": [{"type": "function", "function": {"name": "weather"}}],
+                "expect_by_prompt": [{"content_equals": "unused"}],
+            },
+            prompt="ordinary baseline",
+            error="client JSON invalid",
+            load_time_s=2.5,
+        )
+
+        self.assertTrue(record["is_baseline"])
+        self.assertEqual(record["transport_status"], "fail")
+        self.assertEqual(record["assertion_status"], "not_run")
+        self.assertEqual(record["evaluation_lane"], "native_protocol")
+        self.assertEqual(record["failure_classification"], "engine/runtime likely")
+        self.assertEqual(record["expect"], {"tool_calls": []})
+        self.assertEqual(record["load_time_s"], 2.5)
+
+    def test_capability_skip_preserves_per_prompt_configuration(self):
+        records = skipped_run_records(
+            {
+                "model": "test/model",
+                "label": "structured",
+                "prompts": ["first", "second"],
+                "temperature": 0.0,
+                "max_tokens": 20,
+                "response_format": {"type": "json_schema"},
+                "media": ["fixture.png"],
+                "expect_by_prompt": [
+                    {"content_equals": "one"},
+                    {"content_equals": "two"},
+                ],
+            },
+            reason="structured unavailable",
+        )
+
+        self.assertEqual([record["expect"]["content_equals"] for record in records], ["one", "two"])
+        self.assertTrue(all(record["transport_status"] == "not_run" for record in records))
+        self.assertTrue(all(record["response_format"] == {"type": "json_schema"} for record in records))
+        self.assertTrue(all(record["media"] == ["fixture.png"] for record in records))
 
 
 if __name__ == "__main__":

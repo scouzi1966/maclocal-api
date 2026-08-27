@@ -80,12 +80,97 @@ def expectation_for_prompt(config):
     return config.get("expect") or {}
 
 
+def request_configuration_fields(config, *, expectation=None):
+    """Return the request configuration that must survive every result path."""
+    fields = {
+        "temperature": config.get("temperature"),
+        "max_tokens": config.get("max_tokens"),
+        "max_completion_tokens": config.get("max_completion_tokens"),
+        "system_prompt": config.get("system", ""),
+        "developer_prompt": config.get("developer", ""),
+        "server_instructions": config.get("instructions", ""),
+        "required_capabilities": config.get("requires") or [],
+        "afm_args": config.get("afm_args", ""),
+    }
+    for key in (
+        "top_p",
+        "top_k",
+        "min_p",
+        "seed",
+        "logprobs",
+        "top_logprobs",
+        "presence_penalty",
+        "repetition_penalty",
+        "frequency_penalty",
+        "stop",
+        "response_format",
+        "media",
+        "tools",
+        "stream",
+    ):
+        if key in config and config[key] is not None:
+            fields[key] = config[key]
+    if expectation:
+        fields["expect"] = expectation
+    return fields
+
+
+def transport_failure_record(config, *, prompt, error, load_time_s):
+    """Build a complete result for a request/client/transport failure."""
+    is_baseline = config.get("prompt_idx", 0) < config.get("num_baseline", 0)
+    expectation = expectation_for_prompt(config)
+    model = config.get("model", "")
+    label = config.get("label", "")
+    afm_args = config.get("afm_args", "")
+    record = {
+        "model": model,
+        "label": label,
+        "prompt": prompt,
+        "is_baseline": is_baseline,
+        "status": "FAIL",
+        "transport_status": "fail",
+        "assertion_status": "not_run",
+        "overall_status": "fail",
+        "evaluation_lane": "native_protocol",
+        "failure_classification": classify_result_likelihood(
+            model=model,
+            label=label,
+            afm_args=afm_args,
+            is_baseline=is_baseline,
+            status="FAIL",
+        ),
+        "error": error,
+        "load_time_s": load_time_s,
+    }
+    record.update(request_configuration_fields(config, expectation=expectation))
+    return record
+
+
 def failed_run_records(config, *, error, load_time_s):
     """Build one classified transport-failure record for each planned prompt."""
     prompts = config.get("prompts") or [""]
     records = []
     for prompt_index, prompt in enumerate(prompts):
+        prompt_config = dict(config, prompt_idx=prompt_index)
+        records.append(
+            transport_failure_record(
+                prompt_config,
+                prompt=prompt,
+                error=error,
+                load_time_s=load_time_s,
+            )
+        )
+    return records
+
+
+def skipped_run_records(config, *, reason):
+    """Build complete capability-skip records without losing request metadata."""
+    prompts = config.get("prompts") or [""]
+    records = []
+    for prompt_index, prompt in enumerate(prompts):
+        prompt_config = dict(config, prompt_idx=prompt_index)
         is_baseline = prompt_index < config.get("num_baseline", 0)
+        expectation = expectation_for_prompt(prompt_config)
         model = config.get("model", "")
         label = config.get("label", "")
         afm_args = config.get("afm_args", "")
@@ -94,46 +179,26 @@ def failed_run_records(config, *, error, load_time_s):
             "label": label,
             "prompt": prompt,
             "is_baseline": is_baseline,
-            "status": "FAIL",
-            "transport_status": "fail",
+            "status": "SKIP",
+            "transport_status": "not_run",
             "assertion_status": "not_run",
-            "overall_status": "fail",
-            # Loading/transport failures are engine protocol failures even when
-            # the prompt would otherwise belong to the behavior-quality lane.
-            "evaluation_lane": "native_protocol",
+            "overall_status": "skip",
+            "skip_reason": reason,
+            "evaluation_lane": evaluation_lane(
+                model=model,
+                afm_args=afm_args,
+                is_baseline=is_baseline,
+                has_expectation=bool(expectation),
+            ),
             "failure_classification": classify_result_likelihood(
                 model=model,
                 label=label,
                 afm_args=afm_args,
                 is_baseline=is_baseline,
-                status="FAIL",
+                status="SKIP",
             ),
-            "error": error,
-            "load_time_s": load_time_s,
-            "temperature": config.get("temperature"),
-            "max_tokens": config.get("max_tokens"),
-            "max_completion_tokens": config.get("max_completion_tokens"),
-            "system_prompt": config.get("system", ""),
-            "developer_prompt": config.get("developer", ""),
-            "server_instructions": config.get("instructions", ""),
-            "required_capabilities": config.get("requires") or [],
-            "afm_args": afm_args,
         }
-        for key in (
-            "top_p",
-            "top_k",
-            "min_p",
-            "seed",
-            "logprobs",
-            "top_logprobs",
-            "presence_penalty",
-            "repetition_penalty",
-            "frequency_penalty",
-            "stop",
-            "response_format",
-        ):
-            if key in config:
-                record[key] = config[key]
+        record.update(request_configuration_fields(config, expectation=expectation))
         records.append(record)
     return records
 
