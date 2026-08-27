@@ -30,6 +30,7 @@ MODEL_SUPPORTS_THINKING_TOGGLE=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
+REQUEST_TIMEOUT="${AFM_ASSERTIONS_REQUEST_TIMEOUT:-60}"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -45,6 +46,10 @@ done
 
 if [[ ! "$TIER" =~ ^(unit|smoke|standard|full)$ ]]; then
   echo "ERROR: --tier must be unit, smoke, standard, or full"
+  exit 1
+fi
+if [[ ! "$REQUEST_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: AFM_ASSERTIONS_REQUEST_TIMEOUT must be a positive integer" >&2
   exit 1
 fi
 
@@ -110,7 +115,7 @@ print(json.dumps({
 # Helper: call API and return full JSON response
 api_call() {
   local body="$1"
-  curl -sf --max-time 60 "$BASE_URL/v1/chat/completions" \
+  curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d "$body" 2>/dev/null || echo '{"error":"curl_failed"}'
 }
@@ -118,7 +123,7 @@ api_call() {
 # Helper: call API and return response headers (one per line)
 api_call_headers() {
   local body="$1"
-  curl -sf --max-time 60 -D - -o /dev/null "$BASE_URL/v1/chat/completions" \
+  curl -sf --max-time "$REQUEST_TIMEOUT" -D - -o /dev/null "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d "$body" 2>/dev/null || echo 'ERROR'
 }
@@ -126,7 +131,7 @@ api_call_headers() {
 # Helper: call API streaming and return raw SSE
 api_stream() {
   local body="$1"
-  curl -sf --max-time 60 -N "$BASE_URL/v1/chat/completions" \
+  curl -sf --max-time "$REQUEST_TIMEOUT" -N "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -d "$body" 2>/dev/null || echo 'ERROR'
 }
@@ -4181,7 +4186,7 @@ except Exception as e:
 
   # ── Test 15.8: SSE multiplex non-streaming ─────────────────────────────
   t0=$(now_ms)
-  sse_resp=$(curl -sf --max-time 30 -N "$BASE_URL/v1/batch/completions" \
+  sse_resp=$(curl -sf --max-time "$REQUEST_TIMEOUT" -N "$BASE_URL/v1/batch/completions" \
     -H 'Content-Type: application/json' \
     -d '{"requests":[{"custom_id":"sse-a","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say hi"}],"max_tokens":10}},{"custom_id":"sse-b","body":{"model":"'"$MODEL"'","messages":[{"role":"user","content":"Say bye"}],"max_tokens":10}}]}' 2>/dev/null || echo 'ERROR')
   dur=$(( $(now_ms) - t0 ))
@@ -4210,7 +4215,7 @@ else:
 
   # ── Test 15.9: SSE multiplex streaming interleaved ─────────────────────
   t0=$(now_ms)
-  sse_stream_resp=$(curl -sf --max-time 30 -N "$BASE_URL/v1/batch/completions" \
+  sse_stream_resp=$(curl -sf --max-time "$REQUEST_TIMEOUT" -N "$BASE_URL/v1/batch/completions" \
     -H 'Content-Type: application/json' \
     -d '{"requests":[{"custom_id":"str-x","body":{"model":"'"$MODEL"'","stream":true,"messages":[{"role":"user","content":"Count to 3"}],"max_tokens":15}},{"custom_id":"str-y","body":{"model":"'"$MODEL"'","stream":true,"messages":[{"role":"user","content":"Say ok"}],"max_tokens":10}}]}' 2>/dev/null || echo 'ERROR')
   dur=$(( $(now_ms) - t0 ))
@@ -4289,8 +4294,8 @@ if should_run_section 16 && min_tier standard; then
 
   # Test 16.1: batch + top_k + streaming (was crashing: #72)
   t0=$(now_ms)
-  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":50,"stream":true}' 2>&1)
+  R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":50,"stream":true}' 2>&1 || echo 'ERROR')
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"content"'; then
     run_test "PairwiseSmoke" "batch + top_k + streaming" "content present" "PASS" "$dur"
@@ -4300,8 +4305,8 @@ if should_run_section 16 && min_tier standard; then
 
   # Test 16.2: batch + presence_penalty + non-streaming (was crashing: #72)
   t0=$(now_ms)
-  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"presence_penalty":1.0}' 2>&1)
+  R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"presence_penalty":1.0}' 2>&1 || echo 'ERROR')
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + presence_penalty + non-streaming" "finish_reason present" "PASS" "$dur"
@@ -4311,8 +4316,8 @@ if should_run_section 16 && min_tier standard; then
 
   # Test 16.3: batch + repetition_penalty + logprobs (was crashing: #72)
   t0=$(now_ms)
-  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"repetition_penalty":1.5,"logprobs":true,"top_logprobs":3}' 2>&1)
+  R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"repetition_penalty":1.5,"logprobs":true,"top_logprobs":3}' 2>&1 || echo 'ERROR')
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + repetition_penalty + logprobs" "response valid" "PASS" "$dur"
@@ -4322,8 +4327,8 @@ if should_run_section 16 && min_tier standard; then
 
   # Test 16.4: batch + all sampling params combined
   t0=$(now_ms)
-  R=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":40,"min_p":0.05,"presence_penalty":0.5,"repetition_penalty":1.2,"temperature":0.7}' 2>&1)
+  R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":40,"min_p":0.05,"presence_penalty":0.5,"repetition_penalty":1.2,"temperature":0.7}' 2>&1 || echo 'ERROR')
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "PASS" "$dur"
@@ -4336,10 +4341,10 @@ if should_run_section 16 && min_tier standard; then
   if [ "$MODEL_SUPPORTS_THINKING_TOGGLE" != "true" ]; then
     run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "model supports deterministic no-thinking exact output" "SKIP" "$(( $(now_ms) - t0 ))"
   else
-    NS=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":false${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
-    S=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":true${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    NS=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":false${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+    S=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":true${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
     dur=$(($(now_ms) - t0))
     NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
     S_C=$(echo "$S" | python3 -c "
@@ -4369,10 +4374,10 @@ print(content.strip())
     run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "model supports deterministic no-thinking exact output" "SKIP" "$(( $(now_ms) - t0 ))"
   else
     pairwise_cache_token="PAIRWISE-CACHE-CERULEAN"
-    R1=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
-    R2=$(curl -sf --max-time 20 "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1)
+    R1=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+    R2=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
     dur=$(($(now_ms) - t0))
     C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
     C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
