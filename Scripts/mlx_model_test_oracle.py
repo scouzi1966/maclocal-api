@@ -1,6 +1,54 @@
 """Deterministic response assertions for mlx-model-test.sh."""
 
 import json
+import re
+
+
+def evaluation_lane(*, model, afm_args="", is_baseline=False, has_expectation=True):
+    """Separate native protocol checks from explicit cross-family parser experiments."""
+    if is_baseline:
+        return "model_agent_behavior"
+    match = re.search(r"(?:^|\s)--tool-call-parser\s+(\S+)", afm_args or "")
+    if match:
+        parser = match.group(1).lower()
+        model_name = (model or "").lower()
+        native_family = (
+            (parser.startswith("qwen") and "qwen" in model_name)
+            or (parser.startswith("deepseek") and "deepseek" in model_name)
+            or (parser.startswith("nemotron") and "nemotron" in model_name)
+            or (parser.startswith("muse") and "muse" in model_name)
+        )
+        if not native_family:
+            return "forced_parser_compatibility"
+    if not has_expectation:
+        return "model_agent_behavior"
+    return "native_protocol"
+
+
+def classify_result_likelihood(
+    *, model, label, afm_args="", is_baseline=False, status="OK", failures=None
+):
+    """Return a conservative failure bucket without claiming component ownership."""
+    failures = failures or []
+    if status == "SKIP":
+        return "capability unavailable"
+    if status != "OK":
+        return "engine/runtime likely"
+    if not failures:
+        return "conformant"
+    lane = evaluation_lane(model=model, afm_args=afm_args, is_baseline=is_baseline)
+    if lane == "forced_parser_compatibility":
+        return "forced-parser compatibility experiment"
+    normalized_label = (label or "").lower()
+    engine_prefixes = (
+        "stop-", "logprobs", "agent-cached", "cache-", "batch-", "kv-",
+        "guided-", "response-format", "grammar-", "structured-", "seed-",
+    )
+    if normalized_label.startswith(engine_prefixes):
+        return "engine/runtime likely"
+    if normalized_label.startswith("tool-call"):
+        return "parser/model boundary needs triage"
+    return "model behavior likely"
 
 
 def extract_score_payload(text):
@@ -25,6 +73,10 @@ def expectation_for_prompt(config):
         # The global baseline is deliberately unrelated to every supplied tool.
         # A tool-enabled variant must therefore answer normally, not guess a call.
         return {"tool_calls": []} if config.get("tools") else {}
+    prompt_expectations = config.get("expect_by_prompt") or []
+    relative_index = config.get("prompt_idx", 0) - config.get("num_baseline", 0)
+    if 0 <= relative_index < len(prompt_expectations):
+        return prompt_expectations[relative_index] or {}
     return config.get("expect") or {}
 
 
@@ -62,6 +114,7 @@ def evaluate_expectations(
     finish_reason,
     logprobs_count,
     tool_calls,
+    cached_input_tokens=0,
 ):
     """Return (valid_json, failures) for a response and declarative expectation."""
     parsed_json = None
@@ -83,6 +136,14 @@ def evaluate_expectations(
     if expectation.get("logprobs_min") is not None and logprobs_count < int(expectation["logprobs_min"]):
         failures.append(
             f"logprobs_count expected >= {expectation['logprobs_min']}, got {logprobs_count}"
+        )
+    if (
+        expectation.get("cached_input_tokens_min") is not None
+        and cached_input_tokens < int(expectation["cached_input_tokens_min"])
+    ):
+        failures.append(
+            "cached_input_tokens expected >= "
+            f"{expectation['cached_input_tokens_min']}, got {cached_input_tokens}"
         )
 
     if expectation.get("content_equals") is not None and content != expectation["content_equals"]:

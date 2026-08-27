@@ -822,6 +822,10 @@ struct MlxCommand: ParsableCommand {
             }
             try runDwarfStar(
                 checkpointPath: localModelPath(resolvedModel),
+                advertisedModelID: advertisedDwarfStarModelID(
+                    requestedModel: rawModel,
+                    checkpointPath: localModelPath(resolvedModel)
+                ),
                 modelStore: modelStore,
                 chatTemplateKwargs: parsedKwargs,
                 forceDisableThinking: noThink,
@@ -1195,6 +1199,7 @@ struct MlxCommand: ParsableCommand {
 
     private func runDwarfStar(
         checkpointPath: String,
+        advertisedModelID: String,
         modelStore: AFMMLXModelStore,
         chatTemplateKwargs: [String: Any],
         forceDisableThinking: Bool,
@@ -1220,7 +1225,7 @@ struct MlxCommand: ParsableCommand {
         let residentSessions = max(1, concurrent ?? 1)
         let resolvedDSparkPath = dsparkSupportPath.map(localModelPath)
 
-        let modelID = URL(fileURLWithPath: checkpointPath).lastPathComponent
+        let modelID = advertisedModelID
         if openclawConfig {
             printOpenClawConfig(
                 model: modelID,
@@ -1338,6 +1343,22 @@ struct MlxCommand: ParsableCommand {
         signal(SIGTERM, handleShutdown)
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
         print("Server shutdown complete.")
+    }
+
+    private func advertisedDwarfStarModelID(
+        requestedModel: String,
+        checkpointPath: String
+    ) -> String {
+        let trimmed = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = trimmed.split(separator: "/", omittingEmptySubsequences: false)
+        let isRepositoryID = components.count == 2
+            && components.allSatisfy { !$0.isEmpty }
+            && !trimmed.hasPrefix("./")
+            && !trimmed.hasPrefix("../")
+        if isRepositoryID {
+            return trimmed
+        }
+        return URL(fileURLWithPath: checkpointPath).lastPathComponent
     }
 
     private func runSinglePrompt(

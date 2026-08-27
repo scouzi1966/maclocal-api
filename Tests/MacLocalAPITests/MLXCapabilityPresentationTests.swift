@@ -35,6 +35,13 @@ final class MLXCapabilityPresentationTests: XCTestCase {
                 "streaming",
                 "prefix_cache",
                 "speculative_decoding",
+                "mlx_runtime",
+                "batch",
+                "context_window_override",
+                "kv_quantization",
+                "logprobs",
+                "penalties",
+                "prefill_tuning",
             ]
         )
     }
@@ -59,8 +66,32 @@ final class MLXCapabilityPresentationTests: XCTestCase {
         XCTAssertFalse(AFMMLXCapabilityPresentation.supportsVision(descriptor: descriptor))
         XCTAssertEqual(
             Set(AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: descriptor)),
-            ["chat", "completion", "streaming"]
+            [
+                "chat", "completion", "streaming", "mlx_runtime", "batch", "context_window_override", "kv_quantization",
+                "logprobs", "penalties", "prefill_tuning",
+            ]
         )
+    }
+
+    func testDwarfStarDescriptorDoesNotAdvertiseMLXOnlyEngineFeatures() {
+        let descriptor = AFMModelDescriptor(
+            providerID: "dwarfstar",
+            modelID: "deepseek",
+            displayName: "deepseek",
+            capabilities: [.text, .streaming, .reasoning, .toolCalling, .prefixCaching],
+            privacyBoundary: .device
+        )
+
+        let labels = Set(
+            AFMMLXCapabilityPresentation.modelCapabilityLabels(descriptor: descriptor)
+        )
+        XCTAssertTrue(labels.contains("tools"))
+        XCTAssertTrue(labels.contains("prefix_cache"))
+        XCTAssertTrue(labels.contains("dwarfstar_runtime"))
+        XCTAssertFalse(labels.contains("batch"))
+        XCTAssertFalse(labels.contains("logprobs"))
+        XCTAssertFalse(labels.contains("structured"))
+        XCTAssertFalse(labels.contains("penalties"))
     }
 
     func testDeclaredMediaDetectionDoesNotRequirePayloadField() {

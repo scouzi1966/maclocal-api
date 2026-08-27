@@ -1,13 +1,55 @@
 import unittest
 
 from mlx_model_test_oracle import (
+    classify_result_likelihood,
     evaluate_expectations,
+    evaluation_lane,
     expectation_for_prompt,
     extract_score_payload,
 )
 
 
 class ModelTestOracleTests(unittest.TestCase):
+    def test_evaluation_lane_distinguishes_native_and_cross_family_parser_use(self):
+        self.assertEqual(
+            evaluation_lane(
+                model="mlx-community/Qwen3.8-27B-4bit",
+                afm_args="--tool-call-parser qwen3_xml",
+            ),
+            "native_protocol",
+        )
+        self.assertEqual(
+            evaluation_lane(
+                model="mlx-community/Muse-Glimmer-30B-4bit",
+                afm_args="--tool-call-parser qwen3_xml",
+            ),
+            "forced_parser_compatibility",
+        )
+        self.assertEqual(
+            evaluation_lane(model="test/model", has_expectation=False),
+            "model_agent_behavior",
+        )
+
+    def test_failure_classification_is_likelihood_not_component_ownership(self):
+        self.assertEqual(
+            classify_result_likelihood(
+                model="test/model",
+                label="stop-single",
+                status="OK",
+                failures=["content mismatch"],
+            ),
+            "engine/runtime likely",
+        )
+        self.assertEqual(
+            classify_result_likelihood(
+                model="test/model",
+                label="tool-call-auto",
+                status="OK",
+                failures=["tool call missing"],
+            ),
+            "parser/model boundary needs triage",
+        )
+
     def test_extracts_score_reason_with_escaped_quotes_from_cli_output(self):
         payload = extract_score_payload(
             'analysis noise\n{"score":5,"reason":"finish_reason=\\"tool_calls\\" is correct"}\n'
@@ -132,6 +174,33 @@ class ModelTestOracleTests(unittest.TestCase):
         )
         self.assertTrue(any("content expected exactly" in failure for failure in failures))
         self.assertTrue(any("must not contain 'AFM_SUFFIX'" in failure for failure in failures))
+
+    def test_per_prompt_expectation_and_cache_telemetry(self):
+        config = {
+            "prompt_idx": 2,
+            "num_baseline": 0,
+            "expect_by_prompt": [
+                {},
+                {},
+                {"cached_input_tokens_min": 10},
+            ],
+        }
+        expectation = expectation_for_prompt(config)
+
+        _, failures = evaluate_expectations(
+            expectation,
+            content="ok",
+            finish_reason="stop",
+            logprobs_count=0,
+            tool_calls=[],
+            cached_input_tokens=9,
+        )
+
+        self.assertEqual(expectation, {"cached_input_tokens_min": 10})
+        self.assertEqual(
+            failures,
+            ["cached_input_tokens expected >= 10, got 9"],
+        )
 
 
 if __name__ == "__main__":

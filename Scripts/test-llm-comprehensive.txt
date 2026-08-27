@@ -116,6 +116,7 @@ Write a limerick about a cat.
 # AI: Expected: long essay, may contain some natural repetition of terms like "bread",
 # AI: "civilization", etc. Compare with with-penalty — this is the control.
 [@ no-penalty]
+requires: penalties
 temperature: 0.8
 max_tokens: 20000
 afm: --presence-penalty 0.0
@@ -125,6 +126,7 @@ Write a long essay about the history of bread making across civilizations.
 # AI: Expected: less repetition than no-penalty. Vocabulary should be more varied.
 # AI: If output becomes incoherent or too short, penalty may be too aggressive.
 [@ with-penalty]
+requires: penalties
 temperature: 0.8
 max_tokens: 20000
 afm: --presence-penalty 1.5
@@ -134,6 +136,7 @@ Write a long essay about the history of bread making across civilizations.
 # AI: Expected: reduced phrase-level repetition vs no-penalty. Different mechanism
 # AI: than presence penalty (multiplicative vs additive). Output should stay coherent.
 [@ repetition-penalty]
+requires: penalties
 temperature: 0.8
 max_tokens: 20000
 afm: --repetition-penalty 1.2
@@ -191,6 +194,7 @@ List exactly 5 animals, one per line, numbered 1-5. No other text.
 # AI: Expected: valid JSON matching schema {"name": string, "age": integer}. Output must
 # AI: be valid JSON that conforms to the schema — verify is_valid_json=true.
 [@ guided-json-simple]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 afm: --guided-json '{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}'
@@ -201,6 +205,7 @@ Return a person record for Ada, age 37.
 # AI: Expected: valid JSON with "city", "population" (integer), and "landmarks" (array of
 # AI: 3+ strings). Verify schema conformance and is_valid_json=true.
 [@ guided-json-nested]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 afm: --guided-json '{"type":"object","properties":{"city":{"type":"string"},"population":{"type":"integer"},"landmarks":{"type":"array","items":{"type":"string"}}},"required":["city","population","landmarks"]}'
@@ -214,61 +219,31 @@ Describe Tokyo as a structured record with at least 3 landmarks.
 # should show significantly faster TTFT when caching is enabled.
 # ══════════════════════════════════════════════════════════════════════
 
-# AI: Baseline turn 1 (no caching). Feature: prefix caching disabled.
-# AI: Expected: coherent response about Swift code. Note the TTFT — this is the baseline.
-# AI: Compare TTFT with agent-cached-turn1 to see if caching speeds up prefill.
-[@ agent-no-cache-turn1]
+# AI: No-cache control sequence. All three requests run against one server process with
+# AI: the exact same multiline API system message. Prefix caching is disabled, so each
+# AI: request should report zero cached input tokens while still returning coherent answers.
+[@ agent-no-cache-sequence]
 temperature: 0.0
 max_tokens: 20000
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Read the file Sources/MacLocalAPI/main.swift and explain what it does.
+system_json: "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nWhen modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor for HTTP, MLX for inference, and async/await for concurrency."
+Read the file Sources/AFMCLI/main.swift and summarize how the CLI starts the server.
+Describe a targeted implementation for a --timeout flag that sets request timeout seconds.
+Write an XCTest that verifies the proposed --timeout flag rejects non-positive values.
 
-# AI: Baseline turn 2 (no caching). Feature: prefix caching disabled.
-# AI: Expected: coherent code suggestion. TTFT should be similar to turn 1 since
-# AI: no caching — the system prompt is re-processed from scratch each time.
-[@ agent-no-cache-turn2]
-temperature: 0.0
-max_tokens: 20000
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Now add a --timeout flag to the CLI that sets a request timeout in seconds.
-
-# AI: Baseline turn 3 (no caching). Feature: prefix caching disabled.
-# AI: Expected: unit test code. TTFT should be similar to turns 1-2.
-[@ agent-no-cache-turn3]
-temperature: 0.0
-max_tokens: 20000
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Write a unit test for the timeout feature you just described.
-
-# AI: Cached turn 1 (caching enabled). Feature: --enable-prefix-caching.
-# AI: Expected: same quality as no-cache turn 1. This is the first request with this
-# AI: system prompt, so TTFT may be similar (cache miss). The cache gets populated here.
-[@ agent-cached-turn1]
+# AI: Cached request sequence. All three requests run sequentially against one persistent
+# AI: server process with one identical multiline API system message. Request 1 establishes
+# AI: the prefix; requests 2 and 3 must reuse it and report cached input tokens. Compare
+# AI: response quality with agent-no-cache-sequence, but judge cache reuse from telemetry.
+[@ agent-cached-sequence]
 temperature: 0.0
 max_tokens: 20000
 afm: --enable-prefix-caching
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Read the file Sources/MacLocalAPI/main.swift and explain what it does.
-
-# AI: Cached turn 2 (caching enabled). Feature: --enable-prefix-caching.
-# AI: Expected: same quality as no-cache turn 2, but TTFT should be significantly
-# AI: faster because the system prompt KV cache is reused from turn 1 (cache hit).
-[@ agent-cached-turn2]
-temperature: 0.0
-max_tokens: 20000
-afm: --enable-prefix-caching
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Now add a --timeout flag to the CLI that sets a request timeout in seconds.
-
-# AI: Cached turn 3 (caching enabled). Feature: --enable-prefix-caching.
-# AI: Expected: same quality as no-cache turn 3, TTFT should be fast (cache hit).
-# AI: Compare gen_time_s across all 3 cached turns vs all 3 no-cache turns.
-[@ agent-cached-turn3]
-temperature: 0.0
-max_tokens: 20000
-afm: --enable-prefix-caching
-system: You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nAlways think step by step. When modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor framework for HTTP server, MLX for GPU inference. The codebase uses async/await throughout. All model access goes through SerialAccessContainer for thread safety.
-Write a unit test for the timeout feature you just described.
+requires: prefix_cache
+expect_by_prompt: [{},{"cached_input_tokens_min":1},{"cached_input_tokens_min":1}]
+system_json: "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nWhen modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor for HTTP, MLX for inference, and async/await for concurrency."
+Read the file Sources/AFMCLI/main.swift and summarize how the CLI starts the server.
+Describe a targeted implementation for a --timeout flag that sets request timeout seconds.
+Write an XCTest that verifies the proposed --timeout flag rejects non-positive values.
 
 # ══════════════════════════════════════════════════════════════════════
 # MAX TOKENS / OUTPUT LENGTH
@@ -297,6 +272,7 @@ Write a detailed recipe for chocolate chip cookies with ingredients, steps, tips
 # AI: Expected: correct answer "2", AND logprobs_count > 0 in JSONL. The response should
 # AI: include top-5 token probabilities per generated token. Trivial prompt for easy verification.
 [@ logprobs]
+requires: logprobs
 temperature: 0.0
 max_tokens: 20000
 logprobs: true
@@ -313,6 +289,7 @@ What is 1+1?
 # AI: Expected: coherent ML summary. With 2048 max KV, very long prompts would fail
 # AI: but this prompt is short enough to fit. Verify no truncation or crash.
 [@ small-kv]
+requires: context_window_override
 temperature: 0.7
 max_tokens: 20000
 afm: --max-kv-size 2048
@@ -322,6 +299,7 @@ Summarize the key ideas of machine learning in a few paragraphs.
 # AI: Expected: similar quality to small-kv (same prompt). KV quantization reduces memory
 # AI: but may slightly degrade quality. Compare output quality with small-kv.
 [@ kv-quantized]
+requires: kv_quantization
 temperature: 0.7
 max_tokens: 20000
 afm: --kv-bits 4
@@ -331,6 +309,7 @@ Summarize the key ideas of machine learning in a few paragraphs.
 # AI: Expected: coherent architecture analysis. This is the performance baseline — compare
 # AI: TTFT with prefill-large-4096 and prefill-small-256 (same prompt, different step sizes).
 [@ prefill-default]
+requires: prefill_tuning
 temperature: 0.0
 max_tokens: 20000
 system: You are an expert software architect reviewing a large codebase. The project is a Swift macOS application that serves LLM inference through an OpenAI-compatible API. It uses Vapor for HTTP, MLX for GPU compute, and supports streaming SSE responses. The architecture includes model services, controllers, request/response types, prompt caching, tool call parsing, logprobs computation, and a built-in WebUI. The codebase has vendor dependencies managed through a patch system. There are multiple model formats supported including Qwen, Gemma, Llama, DeepSeek, GLM, and others. Each model may have different tool call formats, chat templates, and tokenizer configurations. The server must handle concurrent requests safely using async/await and serial access containers.
@@ -340,6 +319,7 @@ Given this architecture, what are the top 3 performance bottlenecks you would in
 # AI: Expected: same output quality as prefill-default. TTFT may differ — larger steps
 # AI: process more tokens per GPU pass (faster prefill but more memory per pass).
 [@ prefill-large-4096]
+requires: prefill_tuning
 temperature: 0.0
 max_tokens: 20000
 afm: --prefill-step-size 4096
@@ -350,6 +330,7 @@ Given this architecture, what are the top 3 performance bottlenecks you would in
 # AI: Expected: same output quality. TTFT may be slower — smaller steps mean more
 # AI: GPU passes to process the long system prompt but use less memory per pass.
 [@ prefill-small-256]
+requires: prefill_tuning
 temperature: 0.0
 max_tokens: 20000
 afm: --prefill-step-size 256
@@ -518,6 +499,7 @@ Output exactly the following text, with no quotes or extra whitespace: AFM_NONST
 # AI: Expected: JSON generation stops when "Tokyo" appears in a city name value.
 # AI: Output will be truncated JSON (not valid). finish_reason="stop".
 [@ stop-guided-json-value]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 stop: ["Tokyo"]
@@ -529,6 +511,7 @@ List 5 major world cities as a JSON array. Include Tokyo.
 # AI: Expected: stops at first comma in the JSON. Output will be something like {"name":"Alice"
 # AI: (truncated before the comma). Tests stop on syntax characters within constrained output.
 [@ stop-guided-json-comma]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 stop: [","]
@@ -540,6 +523,7 @@ Generate a person profile for someone named Alice who is 30 and lives in Paris.
 # AI: Expected: stops at first "}" — output is truncated JSON missing the final brace.
 # AI: Tests that stop applies even to schema-constrained structural tokens.
 [@ stop-guided-json-brace]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 stop: ["}"]
@@ -553,6 +537,7 @@ Describe the color blue with its hex code.
 # AI: Expected: JSON output stops when "age" key name appears. Output is truncated JSON.
 # AI: Unlike guided-json, json_object uses prompt injection — stop still applies to raw output.
 [@ stop-json-object-key]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 response_format: json_object
@@ -720,6 +705,7 @@ List 10 mountains, numbered 1 through 10, one per line.
 # AI: "Python", 1991, "Guido van Rossum". Verify is_valid_json=true. Uses prompt injection
 # AI: (not constrained decoding) — output may include markdown fences around JSON.
 [@ response-format-json]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 response_format: {"type":"json_object"}
@@ -729,6 +715,7 @@ Return a JSON object with keys "language", "year_created", and "creator" for Pyt
 # AI: Expected: valid JSON conforming to schema — "name" (string), "age" (integer),
 # AI: "hobbies" (array of strings). Verify is_valid_json=true and schema conformance.
 [@ response-format-schema]
+requires: structured
 temperature: 0.0
 max_tokens: 20000
 response_format: {"type":"json_schema","json_schema":{"name":"person","schema":{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"hobbies":{"type":"array","items":{"type":"string"}}},"required":["name","age","hobbies"]}}}
@@ -848,6 +835,7 @@ Hello, how are you?
 # AI: finish_reason="tool_calls". The parser should auto-detect xmlFunction for Qwen models.
 # AI: Verify tool_calls array in response contains valid function name and arguments.
 [@ tool-call-auto]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"get_weather","arguments":{"city":"Tokyo"}}]}
@@ -858,6 +846,7 @@ Call get_weather exactly once for Tokyo. Call no other tools.
 # AI: Expected: get_weather tool call with city="Paris", unit="celsius".
 # AI: Same as tool-call-auto but explicitly sets the parser — verifies the flag works.
 [@ tool-call-xml]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 afm: --tool-call-parser qwen3_xml
@@ -869,6 +858,7 @@ Call get_weather exactly once for Paris with unit celsius. Call no other tools.
 # AI: Expected: TWO tool calls — get_weather(city="London") AND get_time(timezone="Asia/Tokyo").
 # AI: finish_reason="tool_calls". Tests that the parser handles multiple <tool_call> blocks.
 [@ tool-call-multi]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"get_weather","arguments":{"city":"London"}},{"name":"get_time","arguments":{"timezone":"Asia/Tokyo"}}]}
@@ -879,6 +869,7 @@ Call get_weather exactly once for London and get_time exactly once for Asia/Toky
 # AI: Expected: search_files tool call with path="Sources/", pattern="*.swift",
 # AI: options={recursive: true, max_results: 50}. Tests nested JSON in tool arguments.
 [@ tool-call-complex]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"search_files","arguments":{"path":"Sources/","pattern":"*.swift","options":{"recursive":true,"max_results":50}}}]}
@@ -889,6 +880,7 @@ Call search_files exactly once with path Sources/, pattern *.swift, recursive tr
 # AI: Expected: todowrite tool call with todos parameter as a JSON array ["Buy milk", "Call dentist", "Fix bug #42"],
 # AI: NOT a serialized string. finish_reason="tool_calls". Validates array params survive serialization.
 [@ tool-call-array-param]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"todowrite","arguments":{"todos":["Buy milk","Call dentist","Fix bug #42"]}}]}
@@ -900,6 +892,7 @@ Call todowrite exactly once with these three items in order: Buy milk, Call dent
 # AI: anyOf [string, null] with default null — this must NOT crash Jinja template rendering.
 # AI: finish_reason="tool_calls". Validates nullable schemas don't cause server errors.
 [@ tool-call-nullable-param]
+requires: tools
 temperature: 0.0
 max_tokens: 20000
 expect: {"finish_reason":"tool_calls","tool_calls":[{"name":"get_weather","arguments":{"location":"Chicago"}}]}
