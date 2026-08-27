@@ -81,14 +81,16 @@ The configs expect these environment variables:
   Base URL for AFM started with:
   `--tool-call-parser afm_adaptive_xml --enable-grammar-constraints`.
 
-Optional for CLI structured-output checks:
+Optional runner and CLI structured-output settings:
 
 - `AFM_BINARY`
   Path to the `afm` binary. Defaults to `.build/arm64-apple-macosx/release/afm`.
 - `MACAFM_MLX_MODEL_CACHE`
   Local model cache root.
 - `AFM_NO_THINK`
-  Set to `1` to add `--no-think` in CLI guided-json mode.
+  Set to `1` to add `--no-think` to every server started by
+  `run-promptfoo-agentic.sh` and to CLI guided-json checks. The runner accepts
+  only `0` or `1`; unset and `0` preserve the model's default reasoning mode.
 
 ## Suggested server matrix
 
