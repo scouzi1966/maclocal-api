@@ -12,6 +12,7 @@ out_dir="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/cur
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
 no_think="${AFM_NO_THINK:-0}"
+summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
 overall_status=0
 
@@ -635,5 +636,11 @@ case "$mode" in
     exit 1
     ;;
 esac
+
+cleanup
+node Scripts/feature-promptfoo-agentic/summarize-results.mjs \
+  "$out_dir" "$model" "$summary_minimum_mtime_ms"
+summary_status=$?
+(( overall_status |= summary_status ))
 
 exit "$overall_status"

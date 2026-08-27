@@ -165,6 +165,21 @@ That wrapper:
 - runs the OpenClaw primary-source suite three times
 - runs the Hermes primary-source suite three times
 - writes JSON reports under `/Volumes/edata/promptfoo/data/maclocal-api/current`
+- writes `promptfoo-summary-MODEL.{json,md}` with three deliberately separate
+  result categories:
+  - native protocol conformance
+  - model/agent behavior quality
+  - forced-parser compatibility experiments
+- never rolls forced-parser experiments or behavioral preferences into the
+  native conformance total
+- assigns every failure or error to exactly one broad attribution bucket:
+  `engine/runtime likely`, `model behavior likely`, `test harness`,
+  `forced-parser experiment`, or `unresolved`
+- treats those attributions as triage guidance, not proof of ownership;
+  `engine/runtime likely` identifies an engine-layer defect without deciding
+  whether the fix belongs in AFM, AFMKit, MLXSwift, or another dependency
+- includes only reports written by the current wrapper invocation, so a failed
+  rerun cannot inherit a stale result from the output directory
 - starts and stops one AFM server at a time
 
 Useful variants:

@@ -940,6 +940,8 @@ fi # section 4
 # ═══════════════════════════════════════════════════════════════════════════════
 # Shared tool definition used by sections 5, 11, 12
 TOOL_DEF='[{"type":"function","function":{"name":"get_weather","description":"Get weather for a location","parameters":{"type":"object","properties":{"location":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["location"]}}}]'
+MULTI_TOOLS='[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time","parameters":{"type":"object","properties":{"timezone":{"type":"string"}},"required":["timezone"]}}}]'
+ARRAY_TOOL='[{"type":"function","function":{"name":"todowrite","description":"Write todo items","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"string"},"description":"List of todo items"}},"required":["todos"]}}}]'
 
 if should_run_section 5; then
 echo ""
@@ -1062,7 +1064,6 @@ else:
   fi
 
   # Test: multi-tool call
-  MULTI_TOOLS='[{"type":"function","function":{"name":"get_weather","description":"Get weather","parameters":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}},{"type":"function","function":{"name":"get_time","description":"Get current time","parameters":{"type":"object","properties":{"timezone":{"type":"string"}},"required":["timezone"]}}}]'
   t0=$(now_ms)
   resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"What's the weather in Paris and what time is it in UTC?\"}],\"tools\":$MULTI_TOOLS,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
@@ -1086,7 +1087,6 @@ except Exception as e:
   fi
 
   # Test: tool with array-type parameter (regression PR #37 — array params must not serialize as strings)
-  ARRAY_TOOL='[{"type":"function","function":{"name":"todowrite","description":"Write todo items","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"string"},"description":"List of todo items"}},"required":["todos"]}}}]'
   t0=$(now_ms)
   resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create todos: Buy milk, Call dentist, Fix bug\"}],\"tools\":$ARRAY_TOOL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
