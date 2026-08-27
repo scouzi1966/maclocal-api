@@ -283,6 +283,11 @@ SCRATCH_PATH="$(test_scratch_path "$@")"
 if [[ "$SCRATCH_PATH" != /* ]]; then
     SCRATCH_PATH="$ROOT_DIR/$SCRATCH_PATH"
 fi
+if [[ "$SUBCOMMAND" == "test" ]]; then
+    "$ROOT_DIR/Scripts/migrate-xctest-metallib-layout.sh" \
+        "$SCRATCH_PATH" \
+        "$STATE_DIR" || exit $?
+fi
 OPERATION_STAMP="$STATE_DIR/last-operation-${CONFIGURATION}"
 PREVIOUS_OPERATION="$(cat "$OPERATION_STAMP" 2>/dev/null || true)"
 if [[ "$SUBCOMMAND" == "test" && "$PREVIOUS_OPERATION" == "build" ]]; then
