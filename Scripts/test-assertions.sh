@@ -4295,7 +4295,7 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.1: batch + top_k + streaming (was crashing: #72)
   t0=$(now_ms)
   R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":50,"stream":true}' 2>&1 || echo 'ERROR')
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":50,"stream":true}' 2>&1) || R=""
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"content"'; then
     run_test "PairwiseSmoke" "batch + top_k + streaming" "content present" "PASS" "$dur"
@@ -4306,7 +4306,7 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.2: batch + presence_penalty + non-streaming (was crashing: #72)
   t0=$(now_ms)
   R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"presence_penalty":1.0}' 2>&1 || echo 'ERROR')
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"presence_penalty":1.0}' 2>&1) || R=""
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + presence_penalty + non-streaming" "finish_reason present" "PASS" "$dur"
@@ -4317,7 +4317,7 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.3: batch + repetition_penalty + logprobs (was crashing: #72)
   t0=$(now_ms)
   R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"repetition_penalty":1.5,"logprobs":true,"top_logprobs":3}' 2>&1 || echo 'ERROR')
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"repetition_penalty":1.5,"logprobs":true,"top_logprobs":3}' 2>&1) || R=""
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + repetition_penalty + logprobs" "response valid" "PASS" "$dur"
@@ -4328,7 +4328,7 @@ if should_run_section 16 && min_tier standard; then
   # Test 16.4: batch + all sampling params combined
   t0=$(now_ms)
   R=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":40,"min_p":0.05,"presence_penalty":0.5,"repetition_penalty":1.2,"temperature":0.7}' 2>&1 || echo 'ERROR')
+    -d '{"model":"m","messages":[{"role":"user","content":"Hi"}],"max_tokens":5,"top_k":40,"min_p":0.05,"presence_penalty":0.5,"repetition_penalty":1.2,"temperature":0.7}' 2>&1) || R=""
   dur=$(($(now_ms) - t0))
   if echo "$R" | grep -q '"finish_reason"'; then
     run_test "PairwiseSmoke" "batch + all sampling params combined" "response valid" "PASS" "$dur"
@@ -4342,11 +4342,11 @@ if should_run_section 16 && min_tier standard; then
     run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "model supports deterministic no-thinking exact output" "SKIP" "$(( $(now_ms) - t0 ))"
   else
     NS=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":false${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":false${THINKING_OFF_JSON_FRAGMENT}}" 2>&1) || NS=""
     S=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":true${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly yes in lowercase and nothing else.\"}],\"max_tokens\":3,\"temperature\":0,\"seed\":42,\"stream\":true${THINKING_OFF_JSON_FRAGMENT}}" 2>&1) || S=""
     dur=$(($(now_ms) - t0))
-    NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+    NS_C=$(echo "$NS" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null) || NS_C=""
     S_C=$(echo "$S" | python3 -c "
 import sys
 content=''
@@ -4360,7 +4360,7 @@ for line in sys.stdin:
             content+=c
         except: pass
 print(content.strip())
-" 2>/dev/null)
+" 2>/dev/null) || S_C=""
     if [ -n "$NS_C" ] && [ "$NS_C" = "$S_C" ]; then
       run_test "PairwiseSmoke" "streaming parity (same seed → same output)" "match" "PASS" "$dur"
     else
@@ -4375,12 +4375,12 @@ print(content.strip())
   else
     pairwise_cache_token="PAIRWISE-CACHE-CERULEAN"
     R1=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1) || R1=""
     R2=$(curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" -H "Content-Type: application/json" \
-      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1 || echo 'ERROR')
+      -d "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly $pairwise_cache_token and nothing else.\"}],\"max_tokens\":20,\"temperature\":0,\"seed\":99${THINKING_OFF_JSON_FRAGMENT}}" 2>&1) || R2=""
     dur=$(($(now_ms) - t0))
-    C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
-    C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null)
+    C1=$(echo "$R1" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null) || C1=""
+    C2=$(echo "$R2" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'].strip())" 2>/dev/null) || C2=""
     if [ -n "$C1" ] && [ "$C1" = "$C2" ]; then
       run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "match" "PASS" "$dur"
     else
