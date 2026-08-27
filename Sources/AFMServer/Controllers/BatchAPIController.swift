@@ -4,6 +4,10 @@ import AFMKitMLX
 import Foundation
 
 struct BatchAPIController: RouteCollection {
+    /// Match the ordinary chat endpoint's bounded admission wait. Serial-only
+    /// models must queue batch members instead of rejecting every sibling.
+    private static let slotQueueTimeout: TimeInterval = 240
+
     private let service: any AFMChatServing
     private let store: BatchStore
     private let modelID: String
@@ -186,9 +190,9 @@ struct BatchAPIController: RouteCollection {
         await store.markBatchInProgress(batchId)
 
         // Dispatch all requests in background.
-        // Each request individually reserves a slot via tryReserveSlot() in processOneRequest.
-        // This allows partial batch execution — some requests may get 503 while others succeed,
-        // which is acceptable per OpenAI batch semantics (per-request errors don't fail the batch).
+        // Each request queues for and individually reserves a generation slot
+        // in processOneRequest. Per-request timeout errors do not fail the
+        // enclosing batch.
         let dispatchTask = Task {
             defer { service.releaseBatchReference() }
             await self.dispatchBatchRequests(batchId: batchId, requests: inputLines)
@@ -272,7 +276,8 @@ struct BatchAPIController: RouteCollection {
 
         do {
             // Reserve slot
-            guard service.tryReserveSlot() else {
+            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+                guard !Task.isCancelled else { return }
                 let result = BatchResultLine(
                     id: resultId, customId: inputLine.customId,
                     response: nil,
@@ -287,6 +292,7 @@ struct BatchAPIController: RouteCollection {
                     service.releaseSlot()
                 }
             }
+            try Task.checkCancellation()
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
@@ -313,7 +319,7 @@ struct BatchAPIController: RouteCollection {
                 preserveStructuralTags: false,
                 requestId: requestId
             )
-            reservationTransferred = true
+            reservationTransferred = service.generatedStreamOwnsSlotReservation
 
             // Determine if model supports thinking
             let extractThinking = streamResult.thinkStartTag != nil

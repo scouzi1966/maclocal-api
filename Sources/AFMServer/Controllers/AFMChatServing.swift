@@ -135,6 +135,10 @@ typealias AFMChatStreamingResult = (
 /// intentionally not part of this API.
 protocol AFMChatServing: Sendable {
     var maxConcurrent: Int { get }
+    /// Whether a successfully returned streaming response owns and releases
+    /// the slot reserved by the caller. Controllers use this explicit contract
+    /// instead of inferring ownership from the configured capacity.
+    var generatedStreamOwnsSlotReservation: Bool { get }
     var servingConfiguration: AFMChatServingConfiguration { get }
     var defaultGuidedJsonSchema: ResponseFormat? { get }
 

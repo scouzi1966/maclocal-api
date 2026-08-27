@@ -1650,6 +1650,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
     AFMGenerationAdmitterProviding, @unchecked Sendable
 {
     let maxConcurrent: Int
+    var generatedStreamOwnsSlotReservation: Bool { maxConcurrent >= 2 }
     let toolCallParser: String?
     let supportsStrictToolGrammar: Bool
     let thinkStartTag: String?
