@@ -506,11 +506,13 @@ mkdir -p "$CAPABILITY_CACHE_DIR"
 
 # ── Capture test run metadata (version, command) ─────────────────────────────
 AFM_VERSION=$("$AFM" --version 2>/dev/null || echo "unknown")
+AFM_RESOLVED_PATH=$(command -v "$AFM" 2>/dev/null || printf '%s' "$AFM")
+AFM_BINARY_DIGEST=$(shasum -a 256 "$AFM_RESOLVED_PATH" | awk '{print $1}')
 TEST_COMMAND="mlx-model-test.sh $*"
-export AFM_VERSION TEST_COMMAND
+export AFM_VERSION AFM_RESOLVED_PATH AFM_BINARY_DIGEST TEST_COMMAND
 
 # Write metadata record as first JSONL line
-echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$(which "$AFM" 2>/dev/null || echo "$AFM")\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
+echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$AFM_RESOLVED_PATH\",\"afm_binary_sha256\":\"$AFM_BINARY_DIGEST\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
 
 # ── Parse prompts file into JSON config ───────────────────────────────────────
 
@@ -834,7 +836,7 @@ escape_json() {
 capability_cache_file() {
   local run_config="$1"
   local digest
-  digest=$(printf '%s' "$run_config" | shasum -a 256 | awk '{print $1}')
+  digest=$(printf '%s\0%s\0%s\0%s' "$AFM_RESOLVED_PATH" "$AFM_VERSION" "$AFM_BINARY_DIGEST" "$run_config" | shasum -a 256 | awk '{print $1}')
   printf '%s/%s.json\n' "$CAPABILITY_CACHE_DIR" "$digest"
 }
 
@@ -929,6 +931,25 @@ for prompt_index, prompt in enumerate(prompts):
         "required_capabilities": config.get("requires") or [],
         "afm_args": afm_args,
     }))
+PYEOF
+}
+
+record_failed_run() {
+  local run_config="$1"
+  local error_message="$2"
+  local load_time="$3"
+  _RUN_CONFIG="$run_config" _ERROR_MESSAGE="$error_message" _LOAD_TIME="$load_time" PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PYEOF' >> "$RESULTS_FILE"
+import json
+import os
+from mlx_model_test_oracle import failed_run_records
+
+config = json.loads(os.environ["_RUN_CONFIG"])
+for record in failed_run_records(
+    config,
+    error=os.environ["_ERROR_MESSAGE"],
+    load_time_s=int(os.environ["_LOAD_TIME"]),
+):
+    print(json.dumps(record))
 PYEOF
 }
 
@@ -1430,7 +1451,7 @@ print(f'API: {api}' if api else 'API: (none)')
       fi
     fi
     echo "  FAIL: $error_msg"
-    echo "{\"model\":$(escape_json "$model"),\"label\":$(escape_json "$label"),\"status\":\"FAIL\",\"error\":$(escape_json "$error_msg"),\"load_time_s\":$load_time,\"temperature\":$temperature,\"max_tokens\":$max_tokens,\"system_prompt\":$(escape_json "$sys_prompt"),\"server_instructions\":$(escape_json "$server_instructions"),\"afm_args\":$(escape_json "$afm_args")}" >> "$RESULTS_FILE"
+    record_failed_run "$run_config" "$error_msg" "$load_time"
     OVERALL_STATUS=1
     kill_server $SERVER_PID
     SERVER_PID=0
@@ -1757,7 +1778,8 @@ Output the block EXACTLY like this (one line, valid JSON array):
 Rules:
 - Include an entry for every executed result, including failed ones (score 1)
 - Omit status=SKIP records from AI_SCORES; they were not executed and have no model output
-- The "i" field is the 0-based line index in the JSONL
+- The "i" field is the 0-based result index after metadata records are removed
+- SKIP records retain their result index but have no AI_SCORES entry
 - The "s" field is the integer score 1-5
 - This line must be the LAST line of your output
 - Do NOT wrap it in a code block
@@ -1829,46 +1851,13 @@ print(sum(1 for line in open(sys.argv[1]) if line.strip() and not json.loads(lin
 " "$RESULTS_FILE")
       echo "  Per-test scoring with $tool ($total_lines results)..."
 
-      # Extract test spec blocks from the test file (label → comment block mapping)
+      # Extract test specs by model + label, with template sections as fallback.
       PERTEST_SPECS=""
       if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
-        PERTEST_SPECS=$(python3 -c "
-import sys, re
-
-# Parse test file to extract the # AI: comment block preceding each [section @ label]
-lines = open(sys.argv[1]).readlines()
-specs = {}
-comment_buf = []
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('#'):
-        comment_buf.append(stripped)
-    elif re.match(r'^\[.+\]$', stripped):
-        # Extract label from [org/model @ label] OR [@ label] (template mode)
-        m_template = re.match(r'^\[@\s*(.+?)\s*\]$', stripped)
-        m_named = re.match(r'^\[(.+?)\s*@\s*(.+?)\]$', stripped)
-        label = ''
-        if m_template:
-            label = m_template.group(1).strip()
-        elif m_named:
-            label = m_named.group(2).strip()
-        if label:
-            # Keep the AI: comments + section header
-            spec_lines = [c for c in comment_buf if '# AI:' in c or c.startswith('# ---')]
-            specs[label] = '\n'.join(spec_lines) if spec_lines else ''
-        comment_buf = []
-    else:
-        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                    'system_json:', 'instructions:', 'instructions_json:', 'requires:',
-                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                    'tools:', 'developer:', 'developer_json:', 'expect_by_prompt:',
-                                    'max_completion_tokens:', 'logprobs:',
-                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                    'frequency_penalty:', 'media:')):
-            comment_buf = []  # reset on non-param, non-comment lines
-
-import json
-print(json.dumps(specs))
+        PERTEST_SPECS=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import json, sys
+from mlx_model_test_config import parse_ai_intent_specs
+print(json.dumps(parse_ai_intent_specs(sys.argv[1])))
 " "$PROMPTS_FILE" 2>/dev/null)
       fi
 
@@ -1893,15 +1882,16 @@ print(json.dumps(specs))
         # must not inherit that section's semantic expectations.
         test_spec=""
         if [ -n "$PERTEST_SPECS" ]; then
-          test_spec=$(echo "$jsonl_line" | python3 -c "
+          test_spec=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import json, sys
+from mlx_model_test_config import ai_intent_for_result
 specs = json.loads(sys.argv[1])
 d = json.load(sys.stdin)
 if d.get('is_baseline'):
     print('Global [all] baseline. Judge only the actual prompt and response quality; ignore the enclosing variant-specific intent and expectations.')
     raise SystemExit
-label = d.get('label', '')
-print(specs.get(label, ''))
+lines = ai_intent_for_result(specs, d.get('model', ''), d.get('label', ''))
+print('\n'.join('# AI: ' + line for line in lines))
 " "$PERTEST_SPECS" 2>/dev/null)
         fi
 
@@ -2050,31 +2040,10 @@ $SMART_TEST_FILE_SECTION
           # Extract test spec blocks for per-result context
           AFM_SPECS=""
           if [ -n "$PROMPTS_FILE" ] && [ -f "$PROMPTS_FILE" ]; then
-            AFM_SPECS=$(python3 -c "
-import sys, re, json
-lines = open(sys.argv[1]).readlines()
-specs = {}
-comment_buf = []
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('#'):
-        comment_buf.append(stripped)
-    elif re.match(r'^\[.+\]$', stripped):
-        m = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
-        if m:
-            label = (m.group(2) or '').strip()
-            if label:
-                spec_lines = [c for c in comment_buf if '# AI:' in c]
-                specs[label] = ' '.join(spec_lines)[:200] if spec_lines else ''
-        comment_buf = []
-    else:
-        if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                    'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                    'tools:', 'developer:', 'max_completion_tokens:', 'logprobs:',
-                                    'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                    'frequency_penalty:', 'media:')):
-            comment_buf = []
-print(json.dumps(specs))
+            AFM_SPECS=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import json, sys
+from mlx_model_test_config import parse_ai_intent_specs
+print(json.dumps(parse_ai_intent_specs(sys.argv[1])))
 " "$PROMPTS_FILE" 2>/dev/null)
           fi
 
@@ -2088,12 +2057,13 @@ print(json.dumps(specs))
             # Get test spec for this label (truncated for afm's limited context)
             afm_spec=""
             if [ -n "$AFM_SPECS" ]; then
-              afm_spec=$(echo "$jsonl_line" | python3 -c "
+              afm_spec=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import json, sys
+from mlx_model_test_config import ai_intent_for_result
 specs = json.loads(sys.argv[1])
 d = json.load(sys.stdin)
-label = d.get('label', '')
-print(specs.get(label, ''))
+lines = ai_intent_for_result(specs, d.get('model', ''), d.get('label', ''))
+print(' '.join(lines)[:200])
 " "$AFM_SPECS" 2>/dev/null)
             fi
 

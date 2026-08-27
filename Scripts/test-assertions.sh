@@ -90,13 +90,13 @@ classify_result() {
     return
   fi
   case "$group" in
-    Preflight|Lifecycle|Stop|Logprobs|Cache|Concurrent|Error|Structured|Grammar|Batch|StrictWiring|UnitTest)
+    Preflight|Lifecycle|Stop|Logprobs|Cache|Concurrent|Error|Structured|Grammar|Batch|StrictWiring|UnitTest|PairwiseSmoke)
       echo "engine/runtime likely"
       ;;
     Tools|XMLTools|AdaptiveXML|NullableSchema)
       echo "parser/model boundary needs triage"
       ;;
-    Think|PairwiseSmoke)
+    Think)
       echo "model behavior likely"
       ;;
     *)

@@ -822,7 +822,7 @@ struct MlxCommand: ParsableCommand {
             }
             try runDwarfStar(
                 checkpointPath: localModelPath(resolvedModel),
-                advertisedModelID: advertisedDwarfStarModelID(
+                advertisedModelID: AFMDwarfStarModelIdentity.advertisedModelID(
                     requestedModel: rawModel,
                     checkpointPath: localModelPath(resolvedModel)
                 ),
@@ -1343,22 +1343,6 @@ struct MlxCommand: ParsableCommand {
         signal(SIGTERM, handleShutdown)
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
         print("Server shutdown complete.")
-    }
-
-    private func advertisedDwarfStarModelID(
-        requestedModel: String,
-        checkpointPath: String
-    ) -> String {
-        let trimmed = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let components = trimmed.split(separator: "/", omittingEmptySubsequences: false)
-        let isRepositoryID = components.count == 2
-            && components.allSatisfy { !$0.isEmpty }
-            && !trimmed.hasPrefix("./")
-            && !trimmed.hasPrefix("../")
-        if isRepositoryID {
-            return trimmed
-        }
-        return URL(fileURLWithPath: checkpointPath).lastPathComponent
     }
 
     private func runSinglePrompt(

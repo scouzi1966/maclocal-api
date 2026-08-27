@@ -6,6 +6,7 @@ from mlx_model_test_oracle import (
     evaluation_lane,
     expectation_for_prompt,
     extract_score_payload,
+    failed_run_records,
 )
 
 
@@ -48,6 +49,15 @@ class ModelTestOracleTests(unittest.TestCase):
                 failures=["tool call missing"],
             ),
             "parser/model boundary needs triage",
+        )
+        self.assertEqual(
+            classify_result_likelihood(
+                model="test/model",
+                label="response-format-json",
+                status="OK",
+                failures=["invalid best-effort JSON"],
+            ),
+            "model behavior likely",
         )
 
     def test_extracts_score_reason_with_escaped_quotes_from_cli_output(self):
@@ -201,6 +211,45 @@ class ModelTestOracleTests(unittest.TestCase):
             failures,
             ["cached_input_tokens expected >= 10, got 9"],
         )
+
+        _, failures = evaluate_expectations(
+            {"cached_input_tokens_max": 0},
+            content="ok",
+            finish_reason="stop",
+            logprobs_count=0,
+            tool_calls=[],
+            cached_input_tokens=1,
+        )
+        self.assertEqual(
+            failures,
+            ["cached_input_tokens expected <= 0, got 1"],
+        )
+
+    def test_server_load_failure_records_every_prompt_with_engine_metadata(self):
+        records = failed_run_records(
+            {
+                "model": "test/model",
+                "label": "tool-call-auto",
+                "prompts": ["first", "second"],
+                "temperature": 0.0,
+                "max_tokens": 20,
+                "system": "system",
+                "instructions": "instructions",
+                "requires": ["tools"],
+                "afm_args": "--no-think",
+                "expect": {"tool_calls": [{"name": "weather"}]},
+            },
+            error="server died",
+            load_time_s=7,
+        )
+
+        self.assertEqual([record["prompt"] for record in records], ["first", "second"])
+        self.assertTrue(all(record["overall_status"] == "fail" for record in records))
+        self.assertTrue(
+            all(record["failure_classification"] == "engine/runtime likely" for record in records)
+        )
+        self.assertTrue(all(record["evaluation_lane"] == "native_protocol" for record in records))
+        self.assertTrue(all(record["required_capabilities"] == ["tools"] for record in records))
 
 
 if __name__ == "__main__":

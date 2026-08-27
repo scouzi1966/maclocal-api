@@ -164,3 +164,59 @@ def expand_template_runs(config: dict, models: list[str]) -> dict:
             expanded_runs.append(expanded)
     expanded_config["runs"] = expanded_runs
     return expanded_config
+
+
+def parse_ai_intent_specs(filepath: str | Path) -> dict[str, dict[str, list[str]]]:
+    """Map model + label to the AI intent immediately preceding its section.
+
+    Template sections use an empty model key and serve as the fallback for every
+    expanded model. Named sections remain model-specific even when labels repeat.
+    """
+    specs: dict[str, dict[str, list[str]]] = {}
+    comment_buffer: list[str] = []
+
+    with Path(filepath).open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            stripped = raw_line.strip()
+            if stripped.startswith("#"):
+                comment_buffer.append(stripped)
+                continue
+
+            match = re.match(r"^\[(.+)\]$", stripped)
+            if match:
+                section_name = match.group(1).strip()
+                model = ""
+                label = ""
+                if section_name.startswith("@ "):
+                    label = section_name[2:].strip()
+                elif " @ " in section_name:
+                    model, label = section_name.split(" @ ", 1)
+                    model = model.strip()
+                    label = label.strip()
+                if label:
+                    intent_lines = [
+                        line.replace("# AI:", "", 1).strip()
+                        for line in comment_buffer
+                        if "# AI:" in line
+                    ]
+                    if intent_lines:
+                        specs.setdefault(model, {})[label] = intent_lines
+                comment_buffer = []
+                continue
+
+            if (
+                stripped
+                and stripped != "skip"
+                and _parse_parameter(stripped) is None
+            ):
+                comment_buffer = []
+
+    return specs
+
+
+def ai_intent_for_result(
+    specs: dict[str, dict[str, list[str]]], model: str, label: str
+) -> list[str]:
+    if not label:
+        return []
+    return specs.get(model, {}).get(label) or specs.get("", {}).get(label) or []

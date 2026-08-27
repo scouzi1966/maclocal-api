@@ -170,6 +170,45 @@ class GenerateReportTests(unittest.TestCase):
             self.assertIn(long_prompt, report)
             self.assertNotIn("A" * 500 + "...", report)
 
+    def test_reused_label_keeps_model_specific_intent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            report_dir = root / "test-reports"
+            report_dir.mkdir()
+            prompts_path = root / "prompts.txt"
+            prompts_path.write_text(
+                "# AI: Intent only for model A.\n"
+                "[a/model @ shared]\nPrompt A\n"
+                "# AI: Intent only for model B.\n"
+                "[b/model @ shared]\nPrompt B\n",
+                encoding="utf-8",
+            )
+            records = [
+                dict(self.record("shared", "pass", "OK"), model="a/model", prompt="Prompt A"),
+                dict(self.record("shared", "pass", "OK"), model="b/model", prompt="Prompt B"),
+            ]
+            results_path = root / "results.jsonl"
+            results_path.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "RESULTS_FILE": str(results_path),
+                    "REPORT_OUTPUT_DIR": str(root),
+                    "REPORT_TIMESTAMP": "20260825_080910",
+                    "PROMPTS_FILE": str(prompts_path),
+                    "AFM_REPORT_NO_OPEN": "1",
+                }
+            )
+            subprocess.run([sys.executable, str(SCRIPT)], env=env, check=True)
+            report = (
+                report_dir / "mlx-model-report-20260825_080910.html"
+            ).read_text(encoding="utf-8")
+            self.assertEqual(report.count("Intent only for model A."), 1)
+            self.assertEqual(report.count("Intent only for model B."), 1)
+
     @staticmethod
     def record(label, overall_status, status):
         return {

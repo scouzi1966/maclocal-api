@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json, html, datetime, re, os, sys, shutil, subprocess
-from mlx_model_test_oracle import evaluation_lane
+from mlx_model_test_config import ai_intent_for_result, parse_ai_intent_specs
+from mlx_model_test_oracle import classify_result_likelihood, evaluation_lane
 
 
 def extract_ai_scores(content):
@@ -48,13 +49,25 @@ with open(RESULTS_FILE) as f:
 # Tag each result with its original JSONL line index
 for idx, r in enumerate(results):
     r["_jsonl_idx"] = idx
+    transport_failed = r.get("transport_status") == "fail" or r.get("status") == "FAIL"
     r.setdefault(
         "evaluation_lane",
-        evaluation_lane(
+        "native_protocol" if transport_failed else evaluation_lane(
             model=r.get("model", ""),
             afm_args=r.get("afm_args", ""),
             is_baseline=bool(r.get("is_baseline")),
             has_expectation=r.get("assertion_status") not in (None, "not_configured"),
+        ),
+    )
+    r.setdefault(
+        "failure_classification",
+        classify_result_likelihood(
+            model=r.get("model", ""),
+            label=r.get("label", ""),
+            afm_args=r.get("afm_args", ""),
+            is_baseline=bool(r.get("is_baseline")),
+            status="FAIL" if transport_failed else r.get("status", "OK"),
+            failures=r.get("assertion_failures") or [],
         ),
     )
 
@@ -162,7 +175,7 @@ def ratio_text(passed, candidates, *, unavailable="N/A"):
     return f"{passed}/{len(candidates)}" if candidates else unavailable
 
 # ── Parse AI intent comments from test file ──────────────────────────────────
-# Maps label -> list of "# AI:" comment lines from the prompts file
+# Maps model + label to the "# AI:" comment lines from the prompts file.
 ai_intents = {}
 prompts_file = ""
 # Try to find prompts file from run metadata or environment
@@ -173,37 +186,7 @@ if m_prompts:
 if not prompts_file:
     prompts_file = os.environ.get("PROMPTS_FILE", "")
 if prompts_file and os.path.isfile(prompts_file):
-    with open(prompts_file) as pf:
-        pf_lines = pf.readlines()
-    comment_buf = []
-    for pf_line in pf_lines:
-        stripped = pf_line.strip()
-        if stripped.startswith('#'):
-            comment_buf.append(stripped)
-        elif re.match(r'^\[.+\]$', stripped):
-            # Handle both [model @ label] and [@ label] (template) formats
-            m_template = re.match(r'^\[@\s*(.+?)\]$', stripped)
-            m_label = re.match(r'^\[(.+?)(?:\s*@\s*(.+?))?\]$', stripped)
-            if m_template:
-                label = m_template.group(1).strip()
-            elif m_label:
-                label = (m_label.group(2) or '').strip()
-            else:
-                label = ''
-            if label:
-                ai_lines = [c for c in comment_buf if '# AI:' in c]
-                if ai_lines:
-                    ai_intents[label] = [c.replace('# AI:', '').strip() for c in ai_lines]
-            comment_buf = []
-        else:
-            if not stripped.startswith(('temperature:', 'max_tokens:', 'stop:', 'afm:', 'system:',
-                                       'system_json:', 'instructions:', 'instructions_json:', 'requires:',
-                                       'seed:', 'top_p:', 'top_k:', 'min_p:', 'response_format:',
-                                       'tools:', 'developer:', 'developer_json:', 'expect_by_prompt:',
-                                       'max_completion_tokens:', 'logprobs:',
-                                       'top_logprobs:', 'presence_penalty:', 'repetition_penalty:',
-                                       'frequency_penalty:', 'media:', 'expect:')):
-                comment_buf = []
+    ai_intents = parse_ai_intent_specs(prompts_file)
 
 # ── Parse per-test reasons from smart analysis .md files ─────────────────────
 # Maps (tool, jsonl_idx) -> {"score": int, "reason": str}
@@ -380,8 +363,12 @@ for i, r in enumerate(response_results):
       <summary class="ai-detail-summary">🎯 Baseline Intent</summary>
       <div class="ai-detail-body">{html.escape(intent_lines)}</div>
     </details>"""
-    elif label and label in ai_intents:
-        intent_lines = "<br>".join(html.escape(line) for line in ai_intents[label])
+    else:
+        matched_intent = ai_intent_for_result(
+            ai_intents, r.get("model", ""), label
+        )
+        intent_lines = "<br>".join(html.escape(line) for line in matched_intent)
+    if not r.get("is_baseline") and intent_lines:
         intent_html = f"""
     <details class="ai-detail">
       <summary class="ai-detail-summary">🎯 Test Intent</summary>

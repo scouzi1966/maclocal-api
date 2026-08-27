@@ -42,7 +42,7 @@ def classify_result_likelihood(
     normalized_label = (label or "").lower()
     engine_prefixes = (
         "stop-", "logprobs", "agent-cached", "cache-", "batch-", "kv-",
-        "guided-", "response-format", "grammar-", "structured-", "seed-",
+        "guided-", "grammar-", "structured-", "seed-",
     )
     if normalized_label.startswith(engine_prefixes):
         return "engine/runtime likely"
@@ -78,6 +78,64 @@ def expectation_for_prompt(config):
     if 0 <= relative_index < len(prompt_expectations):
         return prompt_expectations[relative_index] or {}
     return config.get("expect") or {}
+
+
+def failed_run_records(config, *, error, load_time_s):
+    """Build one classified transport-failure record for each planned prompt."""
+    prompts = config.get("prompts") or [""]
+    records = []
+    for prompt_index, prompt in enumerate(prompts):
+        is_baseline = prompt_index < config.get("num_baseline", 0)
+        model = config.get("model", "")
+        label = config.get("label", "")
+        afm_args = config.get("afm_args", "")
+        record = {
+            "model": model,
+            "label": label,
+            "prompt": prompt,
+            "is_baseline": is_baseline,
+            "status": "FAIL",
+            "transport_status": "fail",
+            "assertion_status": "not_run",
+            "overall_status": "fail",
+            # Loading/transport failures are engine protocol failures even when
+            # the prompt would otherwise belong to the behavior-quality lane.
+            "evaluation_lane": "native_protocol",
+            "failure_classification": classify_result_likelihood(
+                model=model,
+                label=label,
+                afm_args=afm_args,
+                is_baseline=is_baseline,
+                status="FAIL",
+            ),
+            "error": error,
+            "load_time_s": load_time_s,
+            "temperature": config.get("temperature"),
+            "max_tokens": config.get("max_tokens"),
+            "max_completion_tokens": config.get("max_completion_tokens"),
+            "system_prompt": config.get("system", ""),
+            "developer_prompt": config.get("developer", ""),
+            "server_instructions": config.get("instructions", ""),
+            "required_capabilities": config.get("requires") or [],
+            "afm_args": afm_args,
+        }
+        for key in (
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "logprobs",
+            "top_logprobs",
+            "presence_penalty",
+            "repetition_penalty",
+            "frequency_penalty",
+            "stop",
+            "response_format",
+        ):
+            if key in config:
+                record[key] = config[key]
+        records.append(record)
+    return records
 
 
 def _validate_schema(value, schema, path="$"):
@@ -144,6 +202,14 @@ def evaluate_expectations(
         failures.append(
             "cached_input_tokens expected >= "
             f"{expectation['cached_input_tokens_min']}, got {cached_input_tokens}"
+        )
+    if (
+        expectation.get("cached_input_tokens_max") is not None
+        and cached_input_tokens > int(expectation["cached_input_tokens_max"])
+    ):
+        failures.append(
+            "cached_input_tokens expected <= "
+            f"{expectation['cached_input_tokens_max']}, got {cached_input_tokens}"
         )
 
     if expectation.get("content_equals") is not None and content != expectation["content_equals"]:

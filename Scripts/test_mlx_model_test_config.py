@@ -3,7 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mlx_model_test_config import expand_template_runs, parse_prompts_file
+from mlx_model_test_config import (
+    ai_intent_for_result,
+    expand_template_runs,
+    parse_ai_intent_specs,
+    parse_prompts_file,
+)
 
 
 class MLXModelTestConfigTests(unittest.TestCase):
@@ -47,6 +52,24 @@ class MLXModelTestConfigTests(unittest.TestCase):
             expanded["runs"][0]["params"]["requires"],
             ["structured", "streaming"],
         )
+
+    def test_ai_intents_are_keyed_by_model_and_fall_back_to_template(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.txt"
+            path.write_text(
+                "# AI: model A intent\n"
+                "[a/model @ shared]\nPrompt A\n"
+                "# AI: model B intent\n"
+                "[b/model @ shared]\nPrompt B\n"
+                "# AI: template intent\n"
+                "[@ common]\nPrompt template\n",
+                encoding="utf-8",
+            )
+            specs = parse_ai_intent_specs(path)
+
+        self.assertEqual(ai_intent_for_result(specs, "a/model", "shared"), ["model A intent"])
+        self.assertEqual(ai_intent_for_result(specs, "b/model", "shared"), ["model B intent"])
+        self.assertEqual(ai_intent_for_result(specs, "any/model", "common"), ["template intent"])
 
 
 if __name__ == "__main__":
