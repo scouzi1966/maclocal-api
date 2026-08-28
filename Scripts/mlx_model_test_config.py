@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import os
 import re
+import shlex
+import stat
+import tempfile
 from pathlib import Path
 
 
@@ -25,6 +30,135 @@ FLOAT_PARAMETERS = {
 }
 BOOLEAN_PARAMETERS = {"logprobs"}
 JSON_PARAMETERS = {"tools", "expect", "expect_by_prompt"}
+
+
+def capture_prompts_snapshot(
+    prompts_file: str | Path, results_file: str | Path
+) -> tuple[Path, str]:
+    """Atomically snapshot the exact prompt bytes that inference will consume."""
+    source_path = Path(prompts_file)
+    results_path = Path(results_file).resolve()
+    destination = (
+        results_path.with_suffix(".prompts.txt")
+        if results_path.suffix == ".jsonl"
+        else Path(f"{results_path}.prompts.txt")
+    )
+    contents = source_path.read_bytes()
+    digest = hashlib.sha256(contents).hexdigest()
+
+    temporary_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(temporary_descriptor, "wb") as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, destination)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+    if destination.is_symlink() or not destination.is_file():
+        raise ValueError("captured prompt snapshot is not a regular file")
+    if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
+        raise ValueError("captured prompt snapshot failed digest verification")
+    return destination, digest
+
+
+def publish_report_atomically(temporary_file: str | Path, report_file: str | Path) -> None:
+    """Publish a completed report without accepting a directory as its target."""
+    temporary_path = Path(temporary_file)
+    report_path = Path(report_file)
+    if report_path.is_dir():
+        raise IsADirectoryError(f"report destination is a directory: {report_path}")
+    os.replace(temporary_path, report_path)
+
+
+def materialize_verified_prompts_snapshot(filepath: str | Path) -> Path | None:
+    """Copy a verified sibling prompt snapshot to a private judge input file."""
+    results_path = Path(filepath).resolve()
+    with Path(filepath).open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            if not raw_line.strip():
+                continue
+            record = json.loads(raw_line)
+            if not record.get("_meta"):
+                return None
+
+            snapshot_name = record.get("prompts_snapshot")
+            expected_digest = record.get("prompts_sha256")
+            if not isinstance(snapshot_name, str) or not isinstance(
+                expected_digest, str
+            ):
+                return None
+            if Path(snapshot_name).name != snapshot_name:
+                raise ValueError("prompt snapshot must be a sibling of the results file")
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+                raise ValueError("prompt snapshot metadata has an invalid SHA-256 digest")
+
+            snapshot_path = results_path.parent / snapshot_name
+            try:
+                descriptor = os.open(snapshot_path, os.O_RDONLY | os.O_NOFOLLOW)
+            except OSError as error:
+                raise ValueError(
+                    f"prompt snapshot is unavailable or unsafe: {snapshot_path}"
+                ) from error
+            try:
+                snapshot_stat = os.fstat(descriptor)
+                if not stat.S_ISREG(snapshot_stat.st_mode):
+                    raise ValueError("prompt snapshot must be a regular file")
+                with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                    contents = handle.read()
+            finally:
+                os.close(descriptor)
+
+            actual_digest = hashlib.sha256(contents).hexdigest()
+            if actual_digest != expected_digest:
+                raise ValueError(
+                    f"prompt snapshot digest mismatch: expected {expected_digest}, "
+                    f"got {actual_digest}"
+                )
+
+            report_directory = results_path.parent / "test-reports"
+            report_directory.mkdir(parents=True, exist_ok=True)
+            copy_descriptor, copy_path = tempfile.mkstemp(
+                prefix=".verified-prompts-",
+                suffix=".txt",
+                dir=report_directory,
+            )
+            with os.fdopen(copy_descriptor, "wb") as copy_handle:
+                copy_handle.write(contents)
+            return Path(copy_path)
+    return None
+
+
+def results_metadata_declares_prompts(filepath: str | Path) -> bool:
+    """Return whether a run metadata record says it used a prompts file."""
+    with Path(filepath).open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            if not raw_line.strip():
+                continue
+            record = json.loads(raw_line)
+            if not record.get("_meta"):
+                return False
+            if record.get("prompts_file") or record.get("prompts_snapshot"):
+                return True
+            command = record.get("test_command", "")
+            if not isinstance(command, str):
+                return False
+            try:
+                arguments = shlex.split(command)
+            except ValueError as error:
+                raise ValueError("legacy test command metadata is malformed") from error
+            return any(
+                argument == "--prompts" or argument.startswith("--prompts=")
+                for argument in arguments
+            )
+    return False
 
 
 def _json_string(value: str, parameter: str) -> str:
