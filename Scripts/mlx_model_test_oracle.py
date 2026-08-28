@@ -32,8 +32,8 @@ def configuration_allows_safe_partial_cache_miss(config):
     )
 
 
-def model_allows_safe_partial_cache_miss(model, environ=None):
-    """Inspect a local checkpoint without depending on a running AFM server."""
+def inspect_model_safe_partial_cache_miss(model, environ=None):
+    """Return a local checkpoint's cache policy, or None when it cannot be inspected."""
     environ = os.environ if environ is None else environ
     model_path = Path(model).expanduser()
     candidates = [model_path / "config.json"]
@@ -74,7 +74,12 @@ def model_allows_safe_partial_cache_miss(model, environ=None):
         except (OSError, json.JSONDecodeError):
             continue
         return configuration_allows_safe_partial_cache_miss(config)
-    return False
+    return None
+
+
+def model_allows_safe_partial_cache_miss(model, environ=None):
+    """Inspect a local checkpoint without depending on a running AFM server."""
+    return inspect_model_safe_partial_cache_miss(model, environ=environ) is True
 
 
 def evaluation_lane(*, model, afm_args="", is_baseline=False, has_expectation=True):

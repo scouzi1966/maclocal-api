@@ -8,6 +8,7 @@ from pathlib import Path
 from mlx_model_test_oracle import (
     classify_result_likelihood,
     evaluate_expectations,
+    inspect_model_safe_partial_cache_miss,
     model_allows_safe_partial_cache_miss,
 )
 
@@ -21,7 +22,12 @@ def paths_refer_to_same_file(input_path, output_path):
         return False
 
 
-def reassess_record(record, *, safe_cache_labels=frozenset()):
+def reassess_record(
+    record,
+    *,
+    safe_cache_labels=frozenset(),
+    reinspect_cache_policy=False,
+):
     if record.get("_meta"):
         updated = dict(record)
         updated["oracle_reassessment"] = "recurrent-cache-aware-v1"
@@ -30,7 +36,26 @@ def reassess_record(record, *, safe_cache_labels=frozenset()):
         return record
 
     updated = dict(record)
-    if "safe_partial_cache_miss" in record:
+    if reinspect_cache_policy:
+        inspected_policy = inspect_model_safe_partial_cache_miss(
+            record.get("model", "")
+        )
+        if inspected_policy is None:
+            if "safe_partial_cache_miss" not in record:
+                raise ValueError(
+                    "cache policy reinspection unavailable and record has no "
+                    f"captured policy for model {record.get('model', '')!r}"
+                )
+            safe_partial_cache_miss = bool(record["safe_partial_cache_miss"])
+            updated["cache_policy_provenance"] = (
+                "recorded-result-reinspection-unavailable"
+            )
+        else:
+            safe_partial_cache_miss = inspected_policy
+            updated["cache_policy_provenance"] = (
+                "explicit-local-checkpoint-reinspection"
+            )
+    elif "safe_partial_cache_miss" in record:
         safe_partial_cache_miss = bool(record["safe_partial_cache_miss"])
         updated["cache_policy_provenance"] = "recorded-result"
     else:
@@ -83,6 +108,14 @@ def main():
         default=[],
         help="explicit scenario label allowed to use recurrent safe cold fallback",
     )
+    parser.add_argument(
+        "--reinspect-cache-policy",
+        action="store_true",
+        help=(
+            "derive cache policy from the local checkpoint even when the input "
+            "record contains a previously captured policy"
+        ),
+    )
     args = parser.parse_args()
 
     if paths_refer_to_same_file(args.input, args.output):
@@ -98,9 +131,12 @@ def main():
                     reassess_record(
                         json.loads(line),
                         safe_cache_labels=frozenset(args.allow_safe_partial_cache_label),
+                        reinspect_cache_policy=args.reinspect_cache_policy,
                     )
                 )
             except json.JSONDecodeError as error:
+                raise SystemExit(f"{args.input}:{line_number}: {error}") from error
+            except ValueError as error:
                 raise SystemExit(f"{args.input}:{line_number}: {error}") from error
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
