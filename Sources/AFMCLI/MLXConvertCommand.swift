@@ -43,6 +43,10 @@ struct MLXConvertCommand: ParsableCommand {
     mutating func run() throws {
         let sourceURL = URL(fileURLWithPath: source, isDirectory: true)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
+        try MLXConversionStoragePreflight.validateProfileName(profile)
+        _ = try MLXConversionStoragePreflight.validateLocalPaths(
+            source: sourceURL, output: outputURL)
+        let templateURL = try MLXConversionStoragePreflight.validateTemplateFile(templateGGUF)
         let inspection = try AFMMLXCheckpointConverter.inspect(
             source: sourceURL,
             sourceRevision: sourceRevision)
@@ -65,7 +69,8 @@ struct MLXConvertCommand: ParsableCommand {
         let storage = try MLXConversionStoragePreflight.validate(
             source: sourceURL,
             output: outputURL,
-            inspection: inspection)
+            inspection: inspection,
+            overwrite: overwrite)
         if let required = storage.requiredBytes, let available = storage.availableBytes {
             print("Destination preflight: \(Self.bytes(available)) free; \(Self.bytes(required)) required")
         }
@@ -83,12 +88,16 @@ struct MLXConvertCommand: ParsableCommand {
         try converter.run()
 
         if needsDwarfStarTemplate {
+            guard let templateURL else {
+                throw ValidationError(
+                    "--template-gguf is required for dwarfstar-executor so the converted checkpoint is self-contained")
+            }
             let templateOutput = URL(fileURLWithPath: output, isDirectory: true)
                 .appendingPathComponent(
                     AFMDwarfStarCheckpointCatalog.bundledTemplateFilename,
                     isDirectory: false)
             try AFMDwarfStarProjection.writeMetadataTemplate(
-                from: URL(fileURLWithPath: templateGGUF!),
+                from: templateURL,
                 to: templateOutput)
             print("Bundled DwarfStar metadata template: \(templateOutput.path)")
         }

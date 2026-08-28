@@ -20,11 +20,15 @@ afm mlx-convert \
 ```
 
 The command fails before conversion unless the source is a local directory,
-the destination is outside it, every indexed shard is present, and the
-destination volume reports at least 600 GB free. The output-size estimate is
-calculated from the actual source headers; the conservative 600 GB floor also
-allows atomic partial output and resume state. This is a storage floor, not an
-assertion that the final checkpoint will occupy 600 GB.
+the source and destination are disjoint after resolving symlinks, every
+indexed shard and required processor/tokenizer/template asset is present, and
+the destination volume reports at least 600 GB free. The output-size estimate
+is calculated from the actual source headers; the conservative 600 GB floor
+also allows atomic partial output and resume state. On a verified resume, AFM
+credits checksummed completed units and retains a 64 GB atomic-unit margin, so
+the initial floor does not incorrectly block a job merely because its own
+partial output consumed space. This is a storage floor, not an assertion that
+the final checkpoint will occupy 600 GB.
 
 Conversion behavior:
 
@@ -33,10 +37,12 @@ Conversion behavior:
 - decodes E4M3 and applies the declared 128 x 128 inverse scales in FP32 before
   bounded affine 4-bit/group-64 quantization;
 - reconstructs numerically ordered routed experts across source shards;
-- converts the complete text and vision namespaces and copies the processor,
-  tokenizer, and chat-template assets needed by the multimodal checkpoint;
+- converts the complete text and vision namespaces, including the required
+  PyTorch-to-MLX Conv3d patch-embedding and Conv2d downsample layouts, and
+  atomically copies the processor, tokenizer, and chat-template assets;
 - writes atomic per-unit SafeTensor outputs and a checksummed resume manifest
-  tied to the source revision, config, index, and shard fingerprints;
+  tied to consistent local revision evidence, config, index, full shard
+  content hashes, and support-asset hashes;
 - explicitly omits the one MTP layer, sets `num_nextn_predict_layers` to zero,
   and records that omission in `config.json` provenance.
 
@@ -50,7 +56,7 @@ machine with ample unified memory and without another large model loaded.
 ## Validation limit
 
 The FP8 decoder, block scaling, quantization error bound, cross-shard expert
-ordering, complete vision-name mapping, multimodal assets, MTP omission,
+ordering, complete vision-name and convolution-layout mapping, multimodal assets, MTP omission,
 dispatcher, storage preflight, and resumability are covered with synthetic
 SafeTensor fixtures. The full 328 GB checkpoint was not present locally during
 implementation, so no claim is made yet for full-checkpoint conversion time,
