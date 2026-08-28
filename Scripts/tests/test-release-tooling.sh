@@ -13,6 +13,13 @@ fail() {
 
 "$ROOT_DIR/Scripts/check-afmkit-consumer-boundary.sh"
 
+codeql_workflow="$ROOT_DIR/.github/workflows/codeql-analysis.yml"
+if grep -Eq 'AFMKIT_READ_TOKEN|private-dependency-notice|while AFMKit is private' "$codeql_workflow"; then
+  fail "CodeQL still treats the public AFMKit release as a private dependency"
+fi
+grep -Fq 'Scripts/resolve-release-dependencies.sh' "$codeql_workflow" || \
+  fail "CodeQL does not resolve the tracked public release graph"
+
 mkdir -p "$WORK_ROOT/nested/AFMKit_AFMKitMLX.bundle/Contents/Resources"
 printf 'fixture' > "$WORK_ROOT/nested/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib"
 resolved="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --metallib "$WORK_ROOT/nested")"
