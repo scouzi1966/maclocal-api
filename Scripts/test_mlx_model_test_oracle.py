@@ -1,22 +1,87 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from assemble_smart_report import assemble_per_test_report
+from reassess_mlx_results import paths_refer_to_same_file, reassess_record
 from mlx_model_test_oracle import (
     classify_result_likelihood,
+    configuration_allows_safe_partial_cache_miss,
     evaluate_expectations,
     evaluation_lane,
     expectation_for_prompt,
     extract_score_payload,
     failed_run_records,
+    model_allows_safe_partial_cache_miss,
     skipped_run_records,
     transport_failure_record,
 )
 
 
 class ModelTestOracleTests(unittest.TestCase):
+    def test_reassessment_corrects_safe_recurrent_cache_false_negative(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "model"
+            model.mkdir()
+            (model / "config.json").write_text(
+                json.dumps({"model_type": "deepseek_v4"}),
+                encoding="utf-8",
+            )
+            record = {
+                "model": str(model),
+                "label": "agent-cached-sequence",
+                "status": "OK",
+                "overall_status": "fail",
+                "assertion_status": "fail",
+                "assertion_failures": [
+                    "cached_input_tokens expected >= 1, got 0"
+                ],
+                "content": "ok",
+                "finish_reason": "stop",
+                "cached_input_tokens": 0,
+                "expect": {"cached_input_tokens_min": 1},
+            }
+
+            updated = reassess_record(
+                record,
+                safe_cache_labels=frozenset({"agent-cached-sequence"}),
+            )
+
+        self.assertEqual(updated["overall_status"], "pass")
+        self.assertEqual(updated["assertion_failures"], [])
+        self.assertTrue(updated["safe_partial_cache_miss"])
+
+    def test_reassessment_prefers_recorded_cache_policy(self):
+        record = {
+            "model": "missing/model",
+            "label": "agent-cached-sequence",
+            "status": "OK",
+            "content": "ok",
+            "finish_reason": "stop",
+            "cached_input_tokens": 0,
+            "safe_partial_cache_miss": True,
+            "expect": {
+                "cached_input_tokens_min": 1,
+                "allow_safe_partial_cache_miss": True,
+            },
+        }
+
+        updated = reassess_record(record)
+
+        self.assertEqual(updated["overall_status"], "pass")
+        self.assertEqual(updated["cache_policy_provenance"], "recorded-result")
+
+    def test_reassessment_rejects_hardlinked_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.jsonl"
+            output = Path(directory) / "output.jsonl"
+            source.write_text('{"_meta":true}\n', encoding="utf-8")
+            os.link(source, output)
+
+            self.assertTrue(paths_refer_to_same_file(source, output))
+
     def test_per_test_report_assembler_handles_metadata_skip_and_score_reasons(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -273,6 +338,131 @@ class ModelTestOracleTests(unittest.TestCase):
             failures,
             ["cached_input_tokens expected <= 0, got 1"],
         )
+
+    def test_recurrent_cache_oracle_accepts_only_safe_cold_fallback(self):
+        expectation = {
+            "cached_input_tokens_min": 10,
+            "allow_safe_partial_cache_miss": True,
+        }
+
+        _, failures = evaluate_expectations(
+            expectation,
+            content="ok",
+            finish_reason="stop",
+            logprobs_count=0,
+            tool_calls=[],
+            cached_input_tokens=0,
+            safe_partial_cache_miss=True,
+        )
+        self.assertEqual(failures, [])
+
+        _, failures = evaluate_expectations(
+            expectation,
+            content="ok",
+            finish_reason="stop",
+            logprobs_count=0,
+            tool_calls=[],
+            cached_input_tokens=9,
+            safe_partial_cache_miss=True,
+        )
+        self.assertEqual(
+            failures,
+            ["cached_input_tokens expected >= 10, got 9"],
+        )
+
+        _, failures = evaluate_expectations(
+            {"cached_input_tokens_min": 10},
+            content="ok",
+            finish_reason="stop",
+            logprobs_count=0,
+            tool_calls=[],
+            cached_input_tokens=0,
+            safe_partial_cache_miss=True,
+        )
+        self.assertEqual(
+            failures,
+            ["cached_input_tokens expected >= 10, got 0"],
+        )
+
+    def test_recurrent_cache_policy_uses_checkpoint_architecture(self):
+        self.assertTrue(
+            configuration_allows_safe_partial_cache_miss(
+                {"model_type": "deepseek_v4"}
+            )
+        )
+        self.assertTrue(
+            configuration_allows_safe_partial_cache_miss(
+                {"text_config": {"layer_types": ["attention", "mamba"]}}
+            )
+        )
+        self.assertFalse(
+            configuration_allows_safe_partial_cache_miss(
+                {"model_type": "llama", "layer_types": ["attention"]}
+            )
+        )
+
+    def test_recurrent_cache_policy_resolves_hugging_face_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "hub"
+            repository = cache / "models--example--hybrid"
+            (repository / "refs").mkdir(parents=True)
+            (repository / "refs/main").write_text("revision", encoding="utf-8")
+            snapshot = repository / "snapshots/revision"
+            snapshot.mkdir(parents=True)
+            (snapshot / "config.json").write_text(
+                json.dumps({"layer_types": ["attention", "linear_attention"]}),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                model_allows_safe_partial_cache_miss(
+                    "example/hybrid",
+                    environ={"HF_HUB_CACHE": str(cache), "HOME": directory},
+                )
+            )
+
+    def test_recurrent_cache_policy_resolves_legacy_hugging_face_cache_variable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "hub"
+            repository = cache / "models--example--hybrid"
+            (repository / "refs").mkdir(parents=True)
+            (repository / "refs/main").write_text("revision", encoding="utf-8")
+            snapshot = repository / "snapshots/revision"
+            snapshot.mkdir(parents=True)
+            (snapshot / "config.json").write_text(
+                json.dumps({"model_type": "deepseek_v4"}),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                model_allows_safe_partial_cache_miss(
+                    "example/hybrid",
+                    environ={
+                        "HUGGINGFACE_HUB_CACHE": str(cache),
+                        "HOME": directory,
+                    },
+                )
+            )
+
+    def test_recurrent_cache_policy_resolves_mac_cache_models_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "curated"
+            checkpoint = cache / "models/example/hybrid"
+            checkpoint.mkdir(parents=True)
+            (checkpoint / "config.json").write_text(
+                json.dumps({"text_config": {"layer_types": ["mamba"]}}),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                model_allows_safe_partial_cache_miss(
+                    "example/hybrid",
+                    environ={
+                        "MACAFM_MLX_MODEL_CACHE": str(cache),
+                        "HOME": directory,
+                    },
+                )
+            )
 
     def test_server_load_failure_records_every_prompt_with_engine_metadata(self):
         records = failed_run_records(

@@ -233,14 +233,16 @@ Write an XCTest that verifies the proposed --timeout flag rejects non-positive v
 
 # AI: Cached request sequence. All three requests run sequentially against one persistent
 # AI: server process with one identical multiline API system message. Request 1 establishes
-# AI: the prefix; requests 2 and 3 must reuse it and report cached input tokens. Compare
-# AI: response quality with agent-no-cache-sequence, but judge cache reuse from telemetry.
+# AI: the prefix. Rewindable KV-cache models must report reuse for requests 2 and 3. A
+# AI: recurrent/hybrid model may instead report zero when rejecting non-rewindable state and
+# AI: performing a correctness-preserving cold fallback. Judge this from the recorded cache
+# AI: policy and telemetry; compare response quality with agent-no-cache-sequence.
 [@ agent-cached-sequence]
 temperature: 0.0
 max_tokens: 20000
 afm: --enable-prefix-caching
 requires: prefix_cache
-expect_by_prompt: [{},{"cached_input_tokens_min":1},{"cached_input_tokens_min":1}]
+expect_by_prompt: [{},{"cached_input_tokens_min":1,"allow_safe_partial_cache_miss":true},{"cached_input_tokens_min":1,"allow_safe_partial_cache_miss":true}]
 system_json: "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nWhen modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor for HTTP, MLX for inference, and async/await for concurrency."
 Read the file Sources/AFMCLI/main.swift and summarize how the CLI starts the server.
 Describe a targeted implementation for a --timeout flag that sets request timeout seconds.

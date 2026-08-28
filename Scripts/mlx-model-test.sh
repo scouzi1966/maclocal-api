@@ -1129,6 +1129,7 @@ try:
         logprobs_count=logprobs_count,
         tool_calls=tool_calls,
         cached_input_tokens=cached_input_tokens,
+        safe_partial_cache_miss=config.get('safe_partial_cache_miss', False),
     )
     if is_valid_json is None:
         is_valid_json = oracle_valid_json
@@ -1385,6 +1386,26 @@ print(f'API: {api}' if api else 'API: (none)')
       echo ""
       return
     fi
+  fi
+
+  # Resolve cache policy only after the server has loaded the checkpoint. A
+  # remote checkpoint may not exist in the local cache before this point.
+  local safe_partial_cache_miss
+  safe_partial_cache_miss=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 - "$model" <<'PYEOF'
+import sys
+from mlx_model_test_oracle import model_allows_safe_partial_cache_miss
+
+print("true" if model_allows_safe_partial_cache_miss(sys.argv[1]) else "false")
+PYEOF
+  )
+  run_config=$(python3 -c '
+import json, sys
+config = json.loads(sys.argv[1])
+config["safe_partial_cache_miss"] = sys.argv[2] == "true"
+print(json.dumps(config))
+' "$run_config" "$safe_partial_cache_miss")
+  if [ "$safe_partial_cache_miss" = "true" ]; then
+    echo "  Cache oracle: recurrent hybrid; marked scenarios may use a safe cold fallback"
   fi
 
   # Get prompts list
