@@ -6,18 +6,18 @@ imports provider products directly; it does not import maclocal-api's
 
 ## Package Dependency
 
-Until AFMKit publishes its first tag, use the immutable checkpoint:
+Use the current exact public AFMKit release:
 
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    revision: "4c1b868df6c3aaa41e0f4d546e2353b8d6b55dce"
+    exact: "0.1.9"
 )
 ```
 
-This revision is a development checkpoint, not a versioned public installation
-contract. Production consumers must switch to an exact public AFMKit semantic
-version and commit the matching resolved version/revision before publication.
+Production consumers must commit the matching resolved version and revision
+before publication. Do not use a branch or revision requirement for release
+builds.
 
 Select only the products the app target needs:
 
