@@ -10,10 +10,17 @@ import Testing
 
 // MARK: - Fake Service for Batch Tests
 
+private enum BatchDispatchTestTiming {
+    static let delayedStreamNanoseconds: UInt64 = 50_000_000
+    static let pollIntervalNanoseconds: UInt64 = 50_000_000
+    static let pollAttempts = 40
+}
+
 /// A fake AFMChatServing that supports batch-mode protocol methods.
 /// Configurable per-test: control slot reservation, streaming results, errors, and concurrency tracking.
 private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
-    let maxConcurrent: Int
+    var maxConcurrent: Int
+    var generatedStreamOwnsSlotReservation = true
     let toolCallParser: String? = nil
     var supportsStrictToolGrammar: Bool = false
     let thinkStartTag: String? = nil
@@ -40,10 +47,14 @@ private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
     private(set) var generateStreamingCallCount = 0
     private(set) var reserveSlotCallCount = 0
     private(set) var releaseSlotCallCount = 0
+    private(set) var streamOwnedReleaseCount = 0
+    private var activeReservations = 0
+    private var peakActiveReservations = 0
 
     // Configuration
     var shouldFailEnsureBatchMode = false
     var shouldFailReserveSlot = false
+    var enforceCapacity = false
     var streamingResultFactory: (([Message]) -> AFMChatStreamingResult)?
     private let defaultStreamingResult: AFMChatStreamingResult
 
@@ -61,13 +72,53 @@ private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
     func tryReserveSlot() -> Bool {
         _lock.withLock {
             reserveSlotCallCount += 1
-            return !shouldFailReserveSlot
+            guard !shouldFailReserveSlot else { return false }
+            guard enforceCapacity else { return true }
+            guard activeReservations < maxConcurrent else { return false }
+            activeReservations += 1
+            peakActiveReservations = max(peakActiveReservations, activeReservations)
+            return true
         }
+    }
+
+    func waitForSlot(timeout: TimeInterval) async -> Bool {
+        if shouldFailReserveSlot || Task.isCancelled { return false }
+        if tryReserveSlot() { return true }
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(nanoseconds: 1_000_000)
+            } catch {
+                return false
+            }
+            if tryReserveSlot() { return true }
+        }
+        return false
     }
 
     func releaseSlot() {
         _lock.withLock {
             releaseSlotCallCount += 1
+            if enforceCapacity {
+                activeReservations = max(0, activeReservations - 1)
+            }
+        }
+    }
+
+    var activeReservationCount: Int {
+        _lock.withLock { activeReservations }
+    }
+
+    var peakActiveReservationCount: Int {
+        _lock.withLock { peakActiveReservations }
+    }
+
+    private func releaseStreamOwnedSlot() {
+        _lock.withLock {
+            streamOwnedReleaseCount += 1
+            if enforceCapacity {
+                activeReservations = max(0, activeReservations - 1)
+            }
         }
     }
 
@@ -127,7 +178,32 @@ private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
         _lock.withLock {
             generateStreamingCallCount += 1
         }
-        return streamingResultFactory?(messages) ?? defaultStreamingResult
+        let result = streamingResultFactory?(messages) ?? defaultStreamingResult
+        guard generatedStreamOwnsSlotReservation else { return result }
+
+        let ownedStream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+            let task = Task {
+                defer { self.releaseStreamOwnedSlot() }
+                do {
+                    for try await chunk in result.stream {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (
+            modelID: result.modelID,
+            stream: ownedStream,
+            promptTokens: result.promptTokens,
+            toolCallStartTag: result.toolCallStartTag,
+            toolCallEndTag: result.toolCallEndTag,
+            thinkStartTag: result.thinkStartTag,
+            thinkEndTag: result.thinkEndTag
+        )
     }
 
     func generateStreaming(
@@ -178,6 +254,43 @@ private final class FakeBatchService: AFMChatServing, @unchecked Sendable {
                 continuation.yield(chunk)
             }
             continuation.finish()
+        }
+        return (
+            modelID: "test-model",
+            stream: stream,
+            promptTokens: 10,
+            toolCallStartTag: "<tool_call>",
+            toolCallEndTag: "</tool_call>",
+            thinkStartTag: nil,
+            thinkEndTag: nil
+        )
+    }
+
+    static func makeDelayedStreamingResult(
+        text: String,
+        delayNanoseconds: UInt64
+    ) -> AFMChatStreamingResult {
+        let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+            let task = Task {
+                do {
+                    try await Task.sleep(nanoseconds: delayNanoseconds)
+                    continuation.yield(AFMServerStreamChunk(text: text))
+                    continuation.yield(
+                        AFMServerStreamChunk(
+                            text: "",
+                            promptTokens: 10,
+                            completionTokens: 2,
+                            cachedTokens: 0,
+                            promptTime: 0.01,
+                            generateTime: 0.02
+                        )
+                    )
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
         return (
             modelID: "test-model",
@@ -1087,6 +1200,77 @@ final class BatchAPIControllerTests: XCTestCase {
         }
     }
 
+    func testSingleCapacityBatchDispatchSerializesAndReleasesForLaterRequests() async throws {
+        service.maxConcurrent = 1
+        service.generatedStreamOwnsSlotReservation = false
+        service.enforceCapacity = true
+        service.streamingResultFactory = { messages in
+            let text = messages.first?.textContent ?? "missing"
+            return FakeBatchService.makeDelayedStreamingResult(
+                text: "response: \(text)",
+                delayNanoseconds: BatchDispatchTestTiming.delayedStreamNanoseconds
+            )
+        }
+
+        let jsonl = """
+        {"custom_id":"serial-1","method":"POST","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"first"}]}}
+        {"custom_id":"serial-2","method":"POST","url":"/v1/chat/completions","body":{"model":"test","messages":[{"role":"user","content":"second"}]}}
+        """
+        let file = await store.storeFile(
+            filename: "serial-input.jsonl",
+            purpose: "batch",
+            data: Data(jsonl.utf8)
+        )
+        let requestBody = """
+        {"input_file_id":"\(file.id)","endpoint":"/v1/chat/completions","completion_window":"24h"}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        var batchId = ""
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/batches",
+            headers: headers,
+            body: ByteBuffer(string: requestBody)
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            batchId = (try? response.content.decode(BatchObject.self).id) ?? ""
+        }
+
+        for _ in 0..<BatchDispatchTestTiming.pollAttempts {
+            if await store.getBatch(batchId)?.status == "completed" { break }
+            try await Task.sleep(
+                nanoseconds: BatchDispatchTestTiming.pollIntervalNanoseconds
+            )
+        }
+
+        let batch = await store.getBatch(batchId)
+        XCTAssertEqual(batch?.status, "completed")
+        XCTAssertEqual(batch?.requestCounts.completed, 2)
+        XCTAssertEqual(batch?.requestCounts.failed, 0)
+        XCTAssertEqual(service.generateStreamingCallCount, 2)
+        XCTAssertEqual(service.releaseSlotCallCount, 2)
+        XCTAssertEqual(service.activeReservationCount, 0)
+
+        if let outputFileId = batch?.outputFileId {
+            try await app.testable(method: .running(port: 0)).test(
+                .GET,
+                "/v1/files/\(outputFileId)/content"
+            ) { response async in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertContains(response.body.string, "\"serial-1\"")
+                XCTAssertContains(response.body.string, "\"serial-2\"")
+                XCTAssertFalse(response.body.string.contains("\"error\":"))
+            }
+        } else {
+            XCTFail("Completed serial batch did not produce an output file")
+        }
+
+        XCTAssertTrue(service.tryReserveSlot(), "Serial slot leaked after batch completion")
+        service.releaseSlot()
+    }
+
     func testBatchDispatchRecordsErrorOnSlotReservationFailure() async throws {
         service.shouldFailReserveSlot = true
 
@@ -1324,6 +1508,112 @@ final class BatchCompletionsControllerTests: XCTestCase {
         }
 
         XCTAssertEqual(service.releaseSlotCallCount, 0, "The scheduler owns submitted streaming reservations")
+    }
+
+    func testSingleCapacityMultiplexSerializesAndReleasesForLaterRequests() async throws {
+        service.maxConcurrent = 1
+        service.generatedStreamOwnsSlotReservation = false
+        service.enforceCapacity = true
+        service.streamingResultFactory = { messages in
+            let text = messages.first?.textContent ?? "missing"
+            return FakeBatchService.makeDelayedStreamingResult(
+                text: "response: \(text)",
+                delayNanoseconds: BatchDispatchTestTiming.delayedStreamNanoseconds
+            )
+        }
+
+        let json = """
+        {"requests":[{"custom_id":"serial-a","body":{"model":"m","messages":[{"role":"user","content":"first"}]}},{"custom_id":"serial-b","body":{"model":"m","messages":[{"role":"user","content":"second"}]}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/batch/completions",
+            headers: headers,
+            body: ByteBuffer(string: json)
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, "\"serial-a\"")
+            XCTAssertContains(response.body.string, "\"serial-b\"")
+            XCTAssertFalse(response.body.string.contains("batch.error"))
+            XCTAssertContains(response.body.string, "data: [DONE]")
+        }
+
+        XCTAssertEqual(service.generateStreamingCallCount, 2)
+        XCTAssertEqual(service.releaseSlotCallCount, 2)
+        XCTAssertEqual(service.activeReservationCount, 0)
+        XCTAssertTrue(service.tryReserveSlot(), "Serial slot leaked after multiplex completion")
+        service.releaseSlot()
+    }
+
+    func testSingleCapacityStreamOwnedReservationsDoNotDoubleReleaseQueuedRequests() async throws {
+        service.maxConcurrent = 1
+        service.generatedStreamOwnsSlotReservation = true
+        service.enforceCapacity = true
+        service.streamingResultFactory = { _ in
+            FakeBatchService.makeDelayedStreamingResult(
+                text: "owned",
+                delayNanoseconds: BatchDispatchTestTiming.delayedStreamNanoseconds
+            )
+        }
+
+        let json = """
+        {"requests":[{"custom_id":"owned-a","body":{"model":"m","messages":[{"role":"user","content":"first"}]}},{"custom_id":"owned-b","body":{"model":"m","messages":[{"role":"user","content":"second"}]}},{"custom_id":"owned-c","body":{"model":"m","messages":[{"role":"user","content":"third"}]}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/batch/completions",
+            headers: headers,
+            body: ByteBuffer(string: json)
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, "data: [DONE]")
+        }
+
+        XCTAssertEqual(service.generateStreamingCallCount, 3)
+        XCTAssertEqual(service.releaseSlotCallCount, 0, "Only the returned streams own these reservations")
+        XCTAssertEqual(service.streamOwnedReleaseCount, 3)
+        XCTAssertEqual(service.peakActiveReservationCount, 1)
+        XCTAssertEqual(service.activeReservationCount, 0)
+    }
+
+    func testTwoCapacityStreamOwnedReservationsQueueThirdRequest() async throws {
+        service.maxConcurrent = 2
+        service.generatedStreamOwnsSlotReservation = true
+        service.enforceCapacity = true
+        service.streamingResultFactory = { _ in
+            FakeBatchService.makeDelayedStreamingResult(
+                text: "owned",
+                delayNanoseconds: BatchDispatchTestTiming.delayedStreamNanoseconds
+            )
+        }
+
+        let json = """
+        {"requests":[{"custom_id":"cap-a","body":{"model":"m","messages":[{"role":"user","content":"first"}]}},{"custom_id":"cap-b","body":{"model":"m","messages":[{"role":"user","content":"second"}]}},{"custom_id":"cap-c","body":{"model":"m","messages":[{"role":"user","content":"third"}]}}]}
+        """
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/batch/completions",
+            headers: headers,
+            body: ByteBuffer(string: json)
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, "data: [DONE]")
+        }
+
+        XCTAssertEqual(service.generateStreamingCallCount, 3)
+        XCTAssertEqual(service.releaseSlotCallCount, 0)
+        XCTAssertEqual(service.streamOwnedReleaseCount, 3)
+        XCTAssertEqual(service.peakActiveReservationCount, 2)
+        XCTAssertEqual(service.activeReservationCount, 0)
     }
 
     func testCallsEnsureBatchMode() async throws {

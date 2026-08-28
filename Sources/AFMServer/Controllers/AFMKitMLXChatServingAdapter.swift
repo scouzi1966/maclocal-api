@@ -107,6 +107,17 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMGenerationAdmitterPr
     }
 
     var maxConcurrent: Int { mlxServing?.maxConcurrent ?? fixedMaxConcurrent }
+    var generatedStreamOwnsSlotReservation: Bool {
+        if mlxServing != nil {
+            // Concurrent MLX streams are submitted to the scheduler, which
+            // releases the reservation on termination. Serial MLX generation
+            // remains caller-owned.
+            return maxConcurrent >= 2
+        }
+        // Generic provider streams release their admission gate in the
+        // adapter's producer task regardless of configured capacity.
+        return genericAdmission != nil
+    }
     var providerGenerationAdmitter: AnyAFMGenerationAdmitter? {
         fixedModel.generationAdmitter
     }

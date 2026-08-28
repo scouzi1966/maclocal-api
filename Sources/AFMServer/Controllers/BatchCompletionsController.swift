@@ -7,6 +7,9 @@ import os
 struct BatchCompletionsController: RouteCollection {
     /// Maximum requests allowed in a single SSE multiplex batch.
     private static let maxBatchSize = 64
+    /// Match the ordinary chat endpoint's bounded admission wait. Serial-only
+    /// models must queue batch members instead of rejecting every sibling.
+    private static let slotQueueTimeout: TimeInterval = 240
 
     private let service: any AFMChatServing
     private let modelID: String
@@ -103,50 +106,54 @@ struct BatchCompletionsController: RouteCollection {
         let sd = seed
 
         response.body = .init(asyncStream: { writer in
+            defer { svc.releaseBatchReference() }
             let encoder = JSONEncoder()
+            // Per-request streams feed into a shared async channel. A writer
+            // failure escapes the throwing group so queued/generating child
+            // requests are cancelled when the client disconnects.
+            let (mergedStream, mergedContinuation) = AsyncStream<String>.makeStream()
 
-            await withTaskGroup(of: Void.self) { group in
-                // Per-request streams feed into a shared async channel
-                let (mergedStream, mergedContinuation) = AsyncStream<String>.makeStream()
-                let activeCount = OSAllocatedUnfairLock(initialState: batchReq.requests.count)
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    let activeCount = OSAllocatedUnfairLock(initialState: batchReq.requests.count)
 
-                for item in batchReq.requests {
-                    group.addTask {
-                        await self.processRequest(
-                            item: item,
-                            service: svc,
-                            modelID: mdlID,
-                            temperature: temp,
-                            topP: tp,
-                            maxTokens: mt,
-                            repetitionPenalty: rp,
-                            topK: tk,
-                            minP: mp,
-                            presencePenalty: pp,
-                            seed: sd,
-                            encoder: encoder,
-                            continuation: mergedContinuation,
-                            activeCount: activeCount
-                        )
-                    }
-                }
-
-                // Writer task: read from merged stream and write to SSE
-                group.addTask {
-                    for await sseData in mergedStream {
-                        do {
-                            try await writer.write(.buffer(.init(string: sseData)))
-                        } catch {
-                            break
+                    for item in batchReq.requests {
+                        group.addTask {
+                            await self.processRequest(
+                                item: item,
+                                service: svc,
+                                modelID: mdlID,
+                                temperature: temp,
+                                topP: tp,
+                                maxTokens: mt,
+                                repetitionPenalty: rp,
+                                topK: tk,
+                                minP: mp,
+                                presencePenalty: pp,
+                                seed: sd,
+                                encoder: encoder,
+                                continuation: mergedContinuation,
+                                activeCount: activeCount
+                            )
                         }
                     }
-                    // Write final DONE
-                    try? await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
-                    try? await writer.write(.end)
-                }
-            }
 
-            svc.releaseBatchReference()
+                    // Writer task: read from merged stream and write to SSE
+                    group.addTask {
+                        for await sseData in mergedStream {
+                            try await writer.write(.buffer(.init(string: sseData)))
+                        }
+                        // Write final DONE
+                        try await writer.write(.buffer(.init(string: "data: [DONE]\n\n")))
+                        try await writer.write(.end)
+                    }
+
+                    try await group.waitForAll()
+                }
+            } catch {
+                mergedContinuation.finish()
+                try? await writer.write(.end)
+            }
         })
 
         return response
@@ -173,7 +180,11 @@ struct BatchCompletionsController: RouteCollection {
         let isStreaming = chatReq.stream ?? false
 
         do {
-            guard service.tryReserveSlot() else {
+            guard await service.waitForSlot(timeout: Self.slotQueueTimeout) else {
+                guard !Task.isCancelled else {
+                    decrementAndFinishIfDone(activeCount: activeCount, continuation: continuation)
+                    return
+                }
                 let errorEvent = makeErrorEvent(customId: customId, message: "Server at capacity", type: "server_error", encoder: encoder)
                 continuation.yield(errorEvent)
                 decrementAndFinishIfDone(activeCount: activeCount, continuation: continuation)
@@ -185,6 +196,7 @@ struct BatchCompletionsController: RouteCollection {
                     service.releaseSlot()
                 }
             }
+            try Task.checkCancellation()
 
             let effectiveModel = service.normalizeModel(chatReq.model ?? modelID)
             let effectiveMaxTokens = chatReq.effectiveMaxTokens ?? maxTokens ?? Int.max
@@ -212,7 +224,7 @@ struct BatchCompletionsController: RouteCollection {
                 preserveStructuralTags: false,
                 requestId: nil
             )
-            reservationTransferred = true
+            reservationTransferred = service.generatedStreamOwnsSlotReservation
 
             let extractThinking = streamResult.thinkStartTag != nil
             let thinkStart = streamResult.thinkStartTag ?? "<think>"
