@@ -158,6 +158,14 @@ NO_REPORT=false
 TEST_INDICES=""
 CLI_AFM_ARGS=""
 OVERALL_STATUS=0
+RECOVERED_PROMPTS_TEMP=""
+
+cleanup_recovered_prompts() {
+  if [ -n "$RECOVERED_PROMPTS_TEMP" ]; then
+    rm -f "$RECOVERED_PROMPTS_TEMP"
+  fi
+}
+trap cleanup_recovered_prompts EXIT
 
 # Parse arguments
 args=("$@")
@@ -484,6 +492,49 @@ fi
 # ── Reanalyse mode: skip tests, jump straight to smart analysis + report ──
 if [ -n "$REANALYSE_FILE" ]; then
   RESULTS_FILE="$REANALYSE_FILE"
+  if [ -z "$PROMPTS_FILE" ]; then
+    RECORDED_PROMPTS_FILE=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import sys
+from mlx_model_test_config import materialize_verified_prompts_snapshot
+try:
+    snapshot = materialize_verified_prompts_snapshot(sys.argv[1])
+except (OSError, ValueError) as error:
+    print(f"Error: {error}", file=sys.stderr)
+    raise SystemExit(2)
+print(snapshot or "")
+' "$RESULTS_FILE")
+    RECORDED_PROMPTS_STATUS=$?
+    if [ "$RECORDED_PROMPTS_STATUS" -ne 0 ]; then
+      echo "Error: recorded prompt snapshot verification failed; pass --prompts explicitly to override" >&2
+      exit 1
+    elif [ -n "$RECORDED_PROMPTS_FILE" ]; then
+      PROMPTS_FILE="$RECORDED_PROMPTS_FILE"
+      RECOVERED_PROMPTS_TEMP="$RECORDED_PROMPTS_FILE"
+      echo "Recovered verified prompt snapshot from result metadata: $PROMPTS_FILE"
+    else
+      RECORDED_RUN_USED_PROMPTS=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import sys
+from mlx_model_test_config import results_metadata_declares_prompts
+try:
+    declared = results_metadata_declares_prompts(sys.argv[1])
+except (OSError, ValueError) as error:
+    print(f"Error: {error}", file=sys.stderr)
+    raise SystemExit(2)
+print("true" if declared else "false")
+' "$RESULTS_FILE")
+      RECORDED_RUN_STATUS=$?
+      if [ "$RECORDED_RUN_STATUS" -ne 0 ]; then
+        echo "Error: result metadata cannot safely determine prompt provenance" >&2
+        echo "Pass --prompts explicitly to override" >&2
+        exit 1
+      elif [ "$RECORDED_RUN_USED_PROMPTS" = "true" ]; then
+        echo "Error: legacy results used a prompts file but contain no verified snapshot" >&2
+        echo "Pass --prompts explicitly to preserve test intent during reanalysis" >&2
+        exit 1
+      fi
+      echo "Note: results contain no prompt spec; using generic quality judging" >&2
+    fi
+  fi
   line_count=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
   echo "=== Re-analysing existing results: $RESULTS_FILE ($line_count lines) ==="
   echo ""
@@ -509,10 +560,55 @@ AFM_VERSION=$("$AFM" --version 2>/dev/null || echo "unknown")
 AFM_RESOLVED_PATH=$(command -v "$AFM" 2>/dev/null || printf '%s' "$AFM")
 AFM_BINARY_DIGEST=$(shasum -a 256 "$AFM_RESOLVED_PATH" | awk '{print $1}')
 TEST_COMMAND="mlx-model-test.sh $*"
-export AFM_VERSION AFM_RESOLVED_PATH AFM_BINARY_DIGEST TEST_COMMAND
+PROMPTS_FILE_METADATA=""
+PROMPTS_SNAPSHOT_NAME=""
+PROMPTS_FILE_SHA256=""
+if [ -n "$PROMPTS_FILE" ]; then
+  PROMPTS_FILE_METADATA=$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$PROMPTS_FILE")
+  PROMPTS_SNAPSHOT_CAPTURE=$(PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import json
+import sys
+from mlx_model_test_config import capture_prompts_snapshot
+
+try:
+    snapshot, digest = capture_prompts_snapshot(sys.argv[1], sys.argv[2])
+except (OSError, ValueError) as error:
+    print(f"Error: failed to capture prompt snapshot: {error}", file=sys.stderr)
+    raise SystemExit(2)
+print(json.dumps({"path": str(snapshot), "sha256": digest}))
+' "$PROMPTS_FILE" "$RESULTS_FILE")
+  PROMPTS_SNAPSHOT_STATUS=$?
+  if [ "$PROMPTS_SNAPSHOT_STATUS" -ne 0 ]; then
+    exit 1
+  fi
+  PROMPTS_SNAPSHOT_PATH=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["path"])' "$PROMPTS_SNAPSHOT_CAPTURE")
+  PROMPTS_FILE_SHA256=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["sha256"])' "$PROMPTS_SNAPSHOT_CAPTURE")
+  PROMPTS_SNAPSHOT_NAME=$(basename "$PROMPTS_SNAPSHOT_PATH")
+  PROMPTS_FILE="$PROMPTS_SNAPSHOT_PATH"
+fi
+export AFM_VERSION AFM_RESOLVED_PATH AFM_BINARY_DIGEST TEST_COMMAND PROMPTS_FILE_METADATA
+export PROMPTS_SNAPSHOT_NAME PROMPTS_FILE_SHA256
 
 # Write metadata record as first JSONL line
-echo "{\"_meta\":true,\"afm_version\":\"$AFM_VERSION\",\"test_command\":\"$TEST_COMMAND\",\"afm_binary\":\"$AFM_RESOLVED_PATH\",\"afm_binary_sha256\":\"$AFM_BINARY_DIGEST\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> "$RESULTS_FILE"
+python3 -c '
+import datetime
+import json
+import os
+
+record = {
+    "_meta": True,
+    "afm_version": os.environ["AFM_VERSION"],
+    "test_command": os.environ["TEST_COMMAND"],
+    "afm_binary": os.environ["AFM_RESOLVED_PATH"],
+    "afm_binary_sha256": os.environ["AFM_BINARY_DIGEST"],
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+if os.environ.get("PROMPTS_FILE_METADATA"):
+    record["prompts_file"] = os.environ["PROMPTS_FILE_METADATA"]
+    record["prompts_snapshot"] = os.environ["PROMPTS_SNAPSHOT_NAME"]
+    record["prompts_sha256"] = os.environ["PROMPTS_FILE_SHA256"]
+print(json.dumps(record, separators=(",", ":")))
+' >> "$RESULTS_FILE"
 
 # ── Parse prompts file into JSON config ───────────────────────────────────────
 
@@ -1767,10 +1863,11 @@ PER_TEST_PROMPT_END
   for tool in "${SMART_TOOL_LIST[@]}"; do
     echo "=== Running AI analysis with: $tool ==="
     SMART_REPORT="$(pwd)/test-reports/smart-analysis-${tool}-${SMART_TIMESTAMP}.md"
+    mkdir -p "$(dirname "$SMART_REPORT")"
 
     # ── SMART_BATCH=1: per-test mode ──────────────────────────────────────
     if [ "$SMART_BATCH" = "1" ]; then
-      PERTEST_SCORES_DIR="$(mktemp -d /tmp/smart-pertest-XXXXXX)"
+      PERTEST_SCORES_DIR="$(mktemp -d "$(dirname "$SMART_REPORT")/.smart-pertest-XXXXXX")"
       total_lines=$(python3 -c "
 import json, sys
 print(sum(1 for line in open(sys.argv[1]) if line.strip() and not json.loads(line).get('_meta')))
@@ -1866,11 +1963,20 @@ print(payload['score'] if payload else '?')
 
       echo "  Assembling per-test report..."
 
-      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      SMART_REPORT_TMP=$(mktemp "$(dirname "$SMART_REPORT")/.smart-analysis-XXXXXX.md")
+      if PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
         python3 "$SCRIPT_DIR/assemble_smart_report.py" \
-        "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT"
-
-      rm -rf "$PERTEST_SCORES_DIR"
+        "$PERTEST_SCORES_DIR" "$RESULTS_FILE" > "$SMART_REPORT_TMP" && \
+        PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+          'import sys; from mlx_model_test_config import publish_report_atomically; publish_report_atomically(sys.argv[1], sys.argv[2])' \
+          "$SMART_REPORT_TMP" "$SMART_REPORT"; then
+        rm -rf "$PERTEST_SCORES_DIR"
+      else
+        rm -f "$SMART_REPORT_TMP"
+        echo "  Error: failed to assemble per-test report" >&2
+        echo "  Preserved per-test scores: $PERTEST_SCORES_DIR" >&2
+        exit 1
+      fi
 
     # ── SMART_BATCH=0: one big swoop (default) ───────────────────────────
     else
