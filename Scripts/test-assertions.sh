@@ -1176,24 +1176,28 @@ except Exception as e:
 
   # Test: tool with array-type parameter (regression PR #37 — array params must not serialize as strings)
   t0=$(now_ms)
-  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Create todos: Buy milk, Call dentist, Fix bug\"}],\"tools\":$ARRAY_TOOL,\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
+  resp=$(api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"Call todowrite exactly once. Set todos to the JSON array [\\\"Buy milk\\\",\\\"Call dentist\\\",\\\"Fix bug\\\"] in that order. Do not answer with text.\"}],\"tools\":$ARRAY_TOOL,\"tool_choice\":\"required\",\"max_tokens\":300,\"stream\":false,\"temperature\":0}")
   dur=$(( $(now_ms) - t0 ))
   array_param=$(echo "$resp" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
     tc = d['choices'][0]['message'].get('tool_calls', [])
-    if not tc:
-        print('FAIL: no tool calls')
+    if len(tc) != 1:
+        print(f'FAIL: expected exactly 1 tool call, got {len(tc)}')
+    elif tc[0].get('function', {}).get('name') != 'todowrite':
+        actual_name = tc[0].get('function', {}).get('name')
+        print(f'FAIL: expected todowrite, got {actual_name}')
     else:
         args = json.loads(tc[0]['function']['arguments'])
         todos = args.get('todos', args.get('items', None))
-        if isinstance(todos, list):
+        expected = ['Buy milk', 'Call dentist', 'Fix bug']
+        if todos == expected:
             print('PASS')
         elif isinstance(todos, str):
             print('FAIL: todos is string (not array)')
         else:
-            print(f'FAIL: todos type={type(todos).__name__}')
+            print(f'FAIL: todos expected {expected!r}, got {todos!r}')
 except Exception as e:
     print(f'FAIL: {e}')
 " 2>/dev/null || echo "FAIL: parse error")
@@ -2916,11 +2920,11 @@ else:
 
     # Test: tool call with array param via streaming (PR #37 streaming path)
     t0=$(now_ms)
-    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Create todos: Walk dog, Read book, Cook dinner.\"}],\"tools\":$ARRAY_TOOL,\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
+    stream_resp=$(api_stream "{\"messages\":[{\"role\":\"user\",\"content\":\"Call todowrite exactly once. Set todos to the JSON array [\\\"Walk dog\\\",\\\"Read book\\\",\\\"Cook dinner\\\"] in that order. Do not answer with text.\"}],\"tools\":$ARRAY_TOOL,\"tool_choice\":\"required\",\"max_tokens\":1000,\"stream\":true,\"temperature\":0}")
     dur=$(( $(now_ms) - t0 ))
     stream_array_ok=$(echo "$stream_resp" | python3 -c "
 import sys, json
-tool_args = ''
+tool_calls = {}
 found_finish = False
 for line in sys.stdin:
     line = line.strip()
@@ -2931,27 +2935,41 @@ for line in sys.stdin:
         delta = d.get('choices', [{}])[0].get('delta', {})
         tcs = delta.get('tool_calls', [])
         for tc in tcs:
+            index = tc.get('index', 0)
+            call = tool_calls.setdefault(index, {'name': '', 'arguments': ''})
             fn = tc.get('function', {})
+            if fn.get('name'):
+                call['name'] = fn['name']
             if fn.get('arguments'):
-                tool_args += fn['arguments']
+                call['arguments'] += fn['arguments']
         fr = d.get('choices', [{}])[0].get('finish_reason')
         if fr == 'tool_calls':
             found_finish = True
     except: pass
 if not found_finish:
     print('FAIL: no finish_reason=tool_calls')
-elif not tool_args:
-    print('FAIL: no arguments in stream')
+elif len(tool_calls) != 1:
+    print(f'FAIL: expected exactly 1 streamed tool call, got {len(tool_calls)}')
 else:
+    call = next(iter(tool_calls.values()))
+    tool_args = call['arguments']
+    if call['name'] != 'todowrite':
+        actual_name = call['name']
+        print(f'FAIL: expected todowrite, got {actual_name}')
+        raise SystemExit
+    if not tool_args:
+        print('FAIL: no arguments in stream')
+        raise SystemExit
     try:
         args = json.loads(tool_args)
         todos = args.get('todos', args.get('items', None))
-        if isinstance(todos, list) and len(todos) >= 2:
+        expected = ['Walk dog', 'Read book', 'Cook dinner']
+        if todos == expected:
             print('PASS')
         elif isinstance(todos, str):
             print('FAIL: todos is string in stream (not array)')
         else:
-            print(f'FAIL: todos={todos}')
+            print(f'FAIL: todos expected {expected!r}, got {todos!r}')
     except:
         print(f'FAIL: args not valid JSON: {tool_args[:100]}')
 " 2>/dev/null || echo "FAIL: parse error")

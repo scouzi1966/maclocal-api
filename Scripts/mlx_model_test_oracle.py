@@ -1,7 +1,80 @@
 """Deterministic response assertions for mlx-model-test.sh."""
 
 import json
+import os
 import re
+from pathlib import Path
+
+
+def configuration_allows_safe_partial_cache_miss(config):
+    """Return whether correctness may require a cold fallback for a hybrid cache."""
+    text_config = config.get("text_config") or {}
+    layer_types = (
+        text_config.get("layer_types")
+        or config.get("layer_types")
+        or text_config.get("layers_block_type")
+        or config.get("layers_block_type")
+        or []
+    )
+    recurrent_markers = ("linear", "mamba", "ssm", "delta", "recurrent")
+    if any(
+        any(marker in str(layer_type).lower() for marker in recurrent_markers)
+        for layer_type in layer_types
+    ):
+        return True
+
+    model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
+    architectures = text_config.get("architectures") or config.get("architectures") or []
+    architecture_text = " ".join(str(architecture).lower() for architecture in architectures)
+    return any(
+        marker in model_type or marker in architecture_text
+        for marker in ("deepseek_v4", "deepseekv4")
+    )
+
+
+def model_allows_safe_partial_cache_miss(model, environ=None):
+    """Inspect a local checkpoint without depending on a running AFM server."""
+    environ = os.environ if environ is None else environ
+    model_path = Path(model).expanduser()
+    candidates = [model_path / "config.json"]
+
+    mac_cache_root = None
+    if environ.get("MACAFM_MLX_MODEL_CACHE"):
+        mac_cache_root = Path(environ["MACAFM_MLX_MODEL_CACHE"]).expanduser()
+        candidates.extend(
+            (
+                mac_cache_root / model / "config.json",
+                mac_cache_root / "models" / model / "config.json",
+            )
+        )
+
+    cache_roots = []
+    for key in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"):
+        if environ.get(key):
+            cache_roots.append(Path(environ[key]).expanduser())
+    if environ.get("HF_HOME"):
+        cache_roots.append(Path(environ["HF_HOME"]).expanduser() / "hub")
+    cache_roots.append(Path(environ.get("HOME", str(Path.home()))) / ".cache/huggingface/hub")
+
+    repo_directory_name = "models--" + model.replace("/", "--")
+    for cache_root in cache_roots:
+        candidates.append(cache_root / model / "config.json")
+        repo_directory = cache_root / repo_directory_name
+        main_ref = repo_directory / "refs/main"
+        if main_ref.is_file():
+            revision = main_ref.read_text(encoding="utf-8").strip()
+            if revision:
+                candidates.append(repo_directory / "snapshots" / revision / "config.json")
+
+    for config_path in candidates:
+        if not config_path.is_file():
+            continue
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        return configuration_allows_safe_partial_cache_miss(config)
+    return False
 
 
 def evaluation_lane(*, model, afm_args="", is_baseline=False, has_expectation=True):
@@ -91,6 +164,7 @@ def request_configuration_fields(config, *, expectation=None):
         "server_instructions": config.get("instructions", ""),
         "required_capabilities": config.get("requires") or [],
         "afm_args": config.get("afm_args", ""),
+        "safe_partial_cache_miss": bool(config.get("safe_partial_cache_miss", False)),
     }
     for key in (
         "top_p",
@@ -238,6 +312,7 @@ def evaluate_expectations(
     logprobs_count,
     tool_calls,
     cached_input_tokens=0,
+    safe_partial_cache_miss=False,
 ):
     """Return (valid_json, failures) for a response and declarative expectation."""
     parsed_json = None
@@ -263,6 +338,11 @@ def evaluate_expectations(
     if (
         expectation.get("cached_input_tokens_min") is not None
         and cached_input_tokens < int(expectation["cached_input_tokens_min"])
+        and not (
+            expectation.get("allow_safe_partial_cache_miss") is True
+            and safe_partial_cache_miss
+            and cached_input_tokens == 0
+        )
     ):
         failures.append(
             "cached_input_tokens expected >= "
