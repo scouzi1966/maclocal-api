@@ -1,5 +1,7 @@
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,6 +74,127 @@ class ModelTestOracleTests(unittest.TestCase):
 
         self.assertEqual(updated["overall_status"], "pass")
         self.assertEqual(updated["cache_policy_provenance"], "recorded-result")
+
+    def test_reassessment_can_explicitly_reinspect_stale_recorded_cache_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "model"
+            model.mkdir()
+            (model / "config.json").write_text(
+                json.dumps({"model_type": "deepseek_v4"}),
+                encoding="utf-8",
+            )
+            record = {
+                "model": str(model),
+                "label": "agent-cached-sequence",
+                "status": "OK",
+                "content": "ok",
+                "finish_reason": "stop",
+                "cached_input_tokens": 0,
+                "safe_partial_cache_miss": False,
+                "expect": {"cached_input_tokens_min": 1},
+            }
+
+            updated = reassess_record(
+                record,
+                safe_cache_labels=frozenset({"agent-cached-sequence"}),
+                reinspect_cache_policy=True,
+            )
+
+        self.assertEqual(updated["overall_status"], "pass")
+        self.assertEqual(updated["assertion_failures"], [])
+        self.assertTrue(updated["safe_partial_cache_miss"])
+        self.assertEqual(
+            updated["cache_policy_provenance"],
+            "explicit-local-checkpoint-reinspection",
+        )
+
+    def test_reinspection_preserves_recorded_policy_when_checkpoint_is_missing(self):
+        record = {
+            "model": "missing/model",
+            "label": "agent-cached-sequence",
+            "status": "OK",
+            "content": "ok",
+            "finish_reason": "stop",
+            "cached_input_tokens": 0,
+            "safe_partial_cache_miss": True,
+            "expect": {
+                "cached_input_tokens_min": 1,
+                "allow_safe_partial_cache_miss": True,
+            },
+        }
+
+        updated = reassess_record(record, reinspect_cache_policy=True)
+
+        self.assertEqual(updated["overall_status"], "pass")
+        self.assertTrue(updated["safe_partial_cache_miss"])
+        self.assertEqual(
+            updated["cache_policy_provenance"],
+            "recorded-result-reinspection-unavailable",
+        )
+
+    def test_reinspection_preserves_recorded_policy_when_config_is_malformed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "model"
+            model.mkdir()
+            (model / "config.json").write_text("{not-json", encoding="utf-8")
+            record = {
+                "model": str(model),
+                "label": "agent-cached-sequence",
+                "status": "OK",
+                "content": "ok",
+                "finish_reason": "stop",
+                "cached_input_tokens": 0,
+                "safe_partial_cache_miss": True,
+                "expect": {
+                    "cached_input_tokens_min": 1,
+                    "allow_safe_partial_cache_miss": True,
+                },
+            }
+
+            updated = reassess_record(record, reinspect_cache_policy=True)
+
+        self.assertEqual(updated["overall_status"], "pass")
+        self.assertEqual(
+            updated["cache_policy_provenance"],
+            "recorded-result-reinspection-unavailable",
+        )
+
+    def test_reinspection_cli_fails_when_no_policy_can_be_established(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.jsonl"
+            output = root / "output.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "model": "missing/model",
+                        "label": "agent-cached-sequence",
+                        "status": "OK",
+                        "content": "ok",
+                        "finish_reason": "stop",
+                        "cached_input_tokens": 0,
+                        "expect": {"cached_input_tokens_min": 1},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("reassess_mlx_results.py")),
+                    "--reinspect-cache-policy",
+                    str(source),
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("reinspection unavailable", completed.stderr)
 
     def test_reassessment_rejects_hardlinked_output(self):
         with tempfile.TemporaryDirectory() as directory:
