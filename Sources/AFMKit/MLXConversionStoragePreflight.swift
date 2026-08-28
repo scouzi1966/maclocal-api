@@ -170,12 +170,7 @@ public enum MLXConversionStoragePreflight {
         }
         guard !overwrite, verifiedCompletedOutputBytes > 0
         else { return initial }
-        guard let estimated = inspection.estimatedOutputBytes,
-              verifiedCompletedOutputBytes <= estimated
-        else {
-            throw PreflightError.invalidOption(
-                "Provider-verified completed output bytes exceed the estimated conversion output.")
-        }
+        guard let estimated = inspection.estimatedOutputBytes else { return initial }
         let completed = verifiedCompletedOutputBytes
         let remainingEstimate = max(0, estimated - completed)
         return max(
@@ -190,14 +185,18 @@ public enum MLXConversionStoragePreflight {
         return Array(child.prefix(parent.count)) == parent
     }
 
-    private static func isFilesystemOrVolumeRoot(_ url: URL) -> Bool {
-        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
-        if resolved.path == "/" { return true }
-        return FileManager.default.mountedVolumeURLs(
+    static func isFilesystemOrVolumeRoot(
+        _ url: URL,
+        mountedVolumes: [URL]? = nil
+    ) -> Bool {
+        let resolvedPath = url.standardizedFileURL.resolvingSymlinksInPath().path
+        if resolvedPath == "/" { return true }
+        let volumes = mountedVolumes ?? FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: nil,
-            options: [.skipHiddenVolumes])?.contains {
-                $0.standardizedFileURL.resolvingSymlinksInPath() == resolved
-            } ?? false
+            options: []) ?? []
+        return volumes.contains {
+            $0.standardizedFileURL.resolvingSymlinksInPath().path == resolvedPath
+        }
     }
 
     private static func nearestExistingDirectory(to output: URL) throws -> URL {

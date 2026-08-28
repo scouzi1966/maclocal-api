@@ -1,4 +1,4 @@
-import AFMKit
+@testable import AFMKit
 import AFMKitMLX
 import Foundation
 import XCTest
@@ -136,6 +136,17 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
         }
     }
 
+    func testInjectedHiddenMountedRootIsRecognized() throws {
+        let root = try makeRoot()
+        let hiddenMount = root.appendingPathComponent("nobrowse-volume", isDirectory: true)
+        try FileManager.default.createDirectory(at: hiddenMount, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(MLXConversionStoragePreflight.isFilesystemOrVolumeRoot(
+            hiddenMount,
+            mountedVolumes: [hiddenMount]))
+    }
+
     func testResumeCreditsOnlyProviderVerifiedCompletedOutput() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -188,20 +199,21 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             capacity: { _ in 599_999_999_999 }))
     }
 
-    func testImpossibleProviderResumeCreditIsRejected() throws {
+    func testProviderResumeMayExceedTensorEstimateBySafeTensorOverhead() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
 
-        XCTAssertThrowsError(try MLXConversionStoragePreflight.validate(
+        let report = try MLXConversionStoragePreflight.validate(
             source: source,
             output: root.appendingPathComponent("output"),
             inspection: makeInspection(required: 600_000_000_000),
             verifiedCompletedOutputBytes: 190_700_000_001,
-            capacity: { _ in Int64.max })) { error in
-                XCTAssertTrue(error.localizedDescription.contains("exceed the estimated"))
-            }
+            capacity: { _ in 409_299_999_999 })
+
+        XCTAssertEqual(report.requiredBytes, 409_299_999_999)
+        XCTAssertEqual(report.availableBytes, 409_299_999_999)
     }
 
     func testDeepSeekWithoutPublishedEstimatePreservesExistingBehavior() throws {

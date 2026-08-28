@@ -30,8 +30,10 @@ asks AFMKit to revalidate the complete private manifest, current conversion
 plan, source revision/config/index/assets/full shard hashes, and SafeTensor
 outputs before crediting completed bytes. It retains a 64 GB atomic-unit margin, so
 the initial floor does not incorrectly block a job merely because its own
-partial output consumed space. This is a storage floor, not an assertion that
-the final checkpoint will occupy 600 GB.
+partial output consumed space. Provider-verified physical output bytes include
+SafeTensor headers and may therefore exceed the tensor-payload estimate; the
+remaining payload estimate is clamped to zero in that case. This is a storage
+floor, not an assertion that the final checkpoint will occupy 600 GB.
 
 Conversion behavior:
 
