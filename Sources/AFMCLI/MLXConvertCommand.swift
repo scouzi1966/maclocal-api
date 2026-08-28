@@ -66,11 +66,29 @@ struct MLXConvertCommand: ParsableCommand {
             throw ValidationError(
                 "--template-gguf is only valid with the DeepSeek dwarfstar-executor profile")
         }
+        if let templateURL {
+            // Parse the metadata before the potentially long tensor conversion,
+            // but only after option/model compatibility has been established so
+            // the CLI reports the most actionable validation error first.
+            try AFMDwarfStarProjection.validateMetadataTemplate(at: templateURL)
+        }
+        let verifiedCompletedOutputBytes: Int64
+        if !overwrite, inspection.requiredDestinationFreeBytes != nil {
+            verifiedCompletedOutputBytes = try AFMMLXCheckpointConverter.inspectResume(
+                source: sourceURL,
+                output: outputURL,
+                profile: selectedProfile,
+                sourceRevision: inspection.sourceRevision)
+                .verifiedCompletedOutputBytes
+        } else {
+            verifiedCompletedOutputBytes = 0
+        }
         let storage = try MLXConversionStoragePreflight.validate(
             source: sourceURL,
             output: outputURL,
             inspection: inspection,
-            overwrite: overwrite)
+            overwrite: overwrite,
+            verifiedCompletedOutputBytes: verifiedCompletedOutputBytes)
         if let required = storage.requiredBytes, let available = storage.availableBytes {
             print("Destination preflight: \(Self.bytes(available)) free; \(Self.bytes(required)) required")
         }

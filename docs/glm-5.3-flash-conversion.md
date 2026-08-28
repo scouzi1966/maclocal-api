@@ -20,12 +20,15 @@ afm mlx-convert \
 ```
 
 The command fails before conversion unless the source is a local directory,
-the source and destination are disjoint after resolving symlinks, every
+the destination is not a filesystem or mounted-volume root, the source and
+destination are disjoint after resolving symlinks, every
 indexed shard and required processor/tokenizer/template asset is present, and
 the destination volume reports at least 600 GB free. The output-size estimate
 is calculated from the actual source headers; the conservative 600 GB floor
 also allows atomic partial output and resume state. On a verified resume, AFM
-credits checksummed completed units and retains a 64 GB atomic-unit margin, so
+asks AFMKit to revalidate the complete private manifest, current conversion
+plan, source revision/config/index/assets/full shard hashes, and SafeTensor
+outputs before crediting completed bytes. It retains a 64 GB atomic-unit margin, so
 the initial floor does not incorrectly block a job merely because its own
 partial output consumed space. This is a storage floor, not an assertion that
 the final checkpoint will occupy 600 GB.

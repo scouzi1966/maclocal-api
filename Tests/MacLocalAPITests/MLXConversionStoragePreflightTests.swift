@@ -1,6 +1,5 @@
 import AFMKit
 import AFMKitMLX
-import CryptoKit
 import Foundation
 import XCTest
 
@@ -80,7 +79,7 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             output: source.appendingPathComponent("converted"),
             inspection: makeInspection(required: nil),
             capacity: { _ in Int64.max })) { error in
-                XCTAssertTrue(error.localizedDescription.contains("neither may contain"))
+                XCTAssertTrue(error.localizedDescription.contains("source/output must be separate"))
             }
     }
 
@@ -96,7 +95,7 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             inspection: makeInspection(required: nil),
             overwrite: true,
             capacity: { _ in Int64.max })) { error in
-                XCTAssertTrue(error.localizedDescription.contains("neither may contain"))
+                XCTAssertTrue(error.localizedDescription.contains("source/output must be separate"))
             }
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
@@ -115,40 +114,41 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             output: alias,
             inspection: makeInspection(required: nil),
             capacity: { _ in Int64.max })) { error in
-                XCTAssertTrue(error.localizedDescription.contains("neither may contain"))
+                XCTAssertTrue(error.localizedDescription.contains("source/output must be separate"))
             }
     }
 
-    func testResumeCreditsOnlyChecksummedCompletedOutput() throws {
+    func testFilesystemRootAndRootSymlinkAreRejected() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let alias = root.appendingPathComponent("root-alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: alias, withDestinationURL: URL(fileURLWithPath: "/", isDirectory: true))
+
+        for output in [URL(fileURLWithPath: "/", isDirectory: true), alias] {
+            XCTAssertThrowsError(try MLXConversionStoragePreflight.validateLocalPaths(
+                source: source,
+                output: output)) { error in
+                    XCTAssertTrue(error.localizedDescription.contains("filesystem or volume root"))
+                }
+        }
+    }
+
+    func testResumeCreditsOnlyProviderVerifiedCompletedOutput() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source", isDirectory: true)
         let output = root.appendingPathComponent("output", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let contents = Data("done".utf8)
-        let completedURL = output.appendingPathComponent("model-00001.safetensors")
-        try contents.write(to: completedURL)
-        let revision = String(repeating: "a", count: 40)
-        let state: [String: Any] = [
-            "sourceRevision": revision,
-            "completed": [
-                "unit": [
-                    "outputFile": completedURL.lastPathComponent,
-                    "outputSize": contents.count,
-                    "outputSHA256": SHA256.hash(data: contents).map {
-                        String(format: "%02x", $0)
-                    }.joined(),
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]).write(
-            to: output.appendingPathComponent(".afm-mlx-conversion.json"))
 
         let report = try MLXConversionStoragePreflight.validate(
             source: source,
             output: output,
             inspection: makeInspection(required: 600_000_000_000),
+            verifiedCompletedOutputBytes: 4,
             capacity: { _ in 599_999_999_996 })
         XCTAssertEqual(report.requiredBytes, 599_999_999_996)
 
@@ -157,18 +157,17 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             output: output,
             inspection: makeInspection(required: 600_000_000_000),
             overwrite: true,
+            verifiedCompletedOutputBytes: 4,
             capacity: { _ in 599_999_999_996 }))
     }
 
-    func testCorruptCompletedOutputReceivesNoResumeCredit() throws {
+    func testConsumerDoesNotInferCreditFromPrivateManifest() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source", isDirectory: true)
         let output = root.appendingPathComponent("output", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try Data("bad".utf8).write(
-            to: output.appendingPathComponent("model-00001.safetensors"))
         let state: [String: Any] = [
             "sourceRevision": String(repeating: "a", count: 40),
             "completed": [
@@ -187,6 +186,22 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
             output: output,
             inspection: makeInspection(required: 600_000_000_000),
             capacity: { _ in 599_999_999_999 }))
+    }
+
+    func testImpossibleProviderResumeCreditIsRejected() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(try MLXConversionStoragePreflight.validate(
+            source: source,
+            output: root.appendingPathComponent("output"),
+            inspection: makeInspection(required: 600_000_000_000),
+            verifiedCompletedOutputBytes: 190_700_000_001,
+            capacity: { _ in Int64.max })) { error in
+                XCTAssertTrue(error.localizedDescription.contains("exceed the estimated"))
+            }
     }
 
     func testDeepSeekWithoutPublishedEstimatePreservesExistingBehavior() throws {

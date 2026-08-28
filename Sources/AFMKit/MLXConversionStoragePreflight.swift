@@ -1,5 +1,4 @@
 import AFMKitMLX
-import CryptoKit
 import Foundation
 
 /// Application-level storage policy for AFMKit checkpoint conversion.
@@ -49,13 +48,14 @@ public enum MLXConversionStoragePreflight {
         output: URL,
         inspection: AFMMLXCheckpointConverter.Inspection,
         overwrite: Bool = false,
+        verifiedCompletedOutputBytes: Int64 = 0,
         capacity: ((URL) throws -> Int64?)? = nil
     ) throws -> Report {
         let paths = try validateLocalPaths(source: source, output: output)
         let required = try effectiveRequiredBytes(
-            output: paths.output,
             inspection: inspection,
-            overwrite: overwrite)
+            overwrite: overwrite,
+            verifiedCompletedOutputBytes: verifiedCompletedOutputBytes)
         guard let required else {
             return Report(
                 source: paths.source,
@@ -115,11 +115,12 @@ public enum MLXConversionStoragePreflight {
         }
         let resolvedSource = sourceURL.resolvingSymlinksInPath()
         let resolvedOutput = outputURL.resolvingSymlinksInPath()
-        guard !contains(resolvedSource, resolvedOutput),
+        guard !isFilesystemOrVolumeRoot(resolvedOutput),
+              !contains(resolvedSource, resolvedOutput),
               !contains(resolvedOutput, resolvedSource)
         else {
             throw PreflightError.unsafeOutput(
-                "Conversion source and output must be separate directories; neither may contain the other, including through symlinks.")
+                "Conversion output cannot be a filesystem or volume root, and source/output must be separate directories with neither containing the other, including through symlinks.")
         }
 
         let probe = try nearestExistingDirectory(to: outputURL)
@@ -158,71 +159,45 @@ public enum MLXConversionStoragePreflight {
     }
 
     private static func effectiveRequiredBytes(
-        output: URL,
         inspection: AFMMLXCheckpointConverter.Inspection,
-        overwrite: Bool
+        overwrite: Bool,
+        verifiedCompletedOutputBytes: Int64
     ) throws -> Int64? {
         guard let initial = inspection.requiredDestinationFreeBytes else { return nil }
-        guard !overwrite,
-              let completed = try verifiedCompletedBytes(
-                output: output, sourceRevision: inspection.sourceRevision),
-              completed > 0
+        guard verifiedCompletedOutputBytes >= 0 else {
+            throw PreflightError.invalidOption(
+                "Provider-verified completed output bytes cannot be negative.")
+        }
+        guard !overwrite, verifiedCompletedOutputBytes > 0
         else { return initial }
-        let remainingEstimate = max(0, (inspection.estimatedOutputBytes ?? 0) - completed)
+        guard let estimated = inspection.estimatedOutputBytes,
+              verifiedCompletedOutputBytes <= estimated
+        else {
+            throw PreflightError.invalidOption(
+                "Provider-verified completed output bytes exceed the estimated conversion output.")
+        }
+        let completed = verifiedCompletedOutputBytes
+        let remainingEstimate = max(0, estimated - completed)
         return max(
             0,
             max(initial - completed, remainingEstimate + resumeAtomicMarginBytes))
     }
 
-    private static func verifiedCompletedBytes(
-        output: URL,
-        sourceRevision: String?
-    ) throws -> Int64? {
-        let stateURL = output.appendingPathComponent(".afm-mlx-conversion.json")
-        guard FileManager.default.fileExists(atPath: stateURL.path),
-              let object = try JSONSerialization.jsonObject(
-                with: Data(contentsOf: stateURL)) as? [String: Any],
-              object["sourceRevision"] as? String == sourceRevision,
-              let completed = object["completed"] as? [String: Any]
-        else { return nil }
-        var seen = Set<String>()
-        var total: Int64 = 0
-        for raw in completed.values {
-            guard let item = raw as? [String: Any],
-                  let name = item["outputFile"] as? String,
-                  URL(fileURLWithPath: name).lastPathComponent == name,
-                  let expectedSize = (item["outputSize"] as? NSNumber)?.int64Value,
-                  let expectedSHA256 = item["outputSHA256"] as? String,
-                  expectedSize >= 0,
-                  expectedSHA256.count == 64,
-                  expectedSHA256.allSatisfy(\.isHexDigit),
-                  seen.insert(name).inserted
-            else { return nil }
-            let url = output.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: url.path),
-                  Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1)
-                    == expectedSize,
-                  try sha256File(url) == expectedSHA256
-            else { return nil }
-            let sum = total.addingReportingOverflow(expectedSize)
-            guard !sum.overflow else { return nil }
-            total = sum.partialValue
-        }
-        return total
-    }
-
-    private static func sha256File(_ url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var digest = SHA256()
-        while let chunk = try handle.read(upToCount: 4 * 1024 * 1024), !chunk.isEmpty {
-            digest.update(data: chunk)
-        }
-        return digest.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
     private static func contains(_ directory: URL, _ candidate: URL) -> Bool {
-        directory == candidate || candidate.path.hasPrefix(directory.path + "/")
+        let parent = directory.standardizedFileURL.pathComponents
+        let child = candidate.standardizedFileURL.pathComponents
+        guard parent.count <= child.count else { return false }
+        return Array(child.prefix(parent.count)) == parent
+    }
+
+    private static func isFilesystemOrVolumeRoot(_ url: URL) -> Bool {
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
+        if resolved.path == "/" { return true }
+        return FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil,
+            options: [.skipHiddenVolumes])?.contains {
+                $0.standardizedFileURL.resolvingSymlinksInPath() == resolved
+            } ?? false
     }
 
     private static func nearestExistingDirectory(to output: URL) throws -> URL {
