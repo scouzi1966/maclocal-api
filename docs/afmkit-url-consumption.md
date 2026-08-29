@@ -6,7 +6,7 @@ one exact release and selects every provider product from it:
 ```swift
 .package(
     url: "https://github.com/scouzi1966/AFMKit.git",
-    exact: "0.1.13"
+    exact: "0.1.14"
 )
 ```
 
@@ -14,7 +14,7 @@ Do not use a branch or revision requirement for release builds.
 
 ## Production Blocker
 
-AFMKit is public and exposes `0.1.13`. AFM release publication remains
+AFMKit is public and exposes `0.1.14`. AFM release publication remains
 fail-closed unless AFMKit and every dependency in its root graph are
 anonymously readable and the tracked lock resolves that exact tag.
 
@@ -38,7 +38,7 @@ surface publishable.
 
 ## Dependency Resolution
 
-AFMKit 0.1.13 is public, so normal resolution requires no GitHub credential:
+AFMKit 0.1.14 is public, so normal resolution requires no GitHub credential:
 
 ```bash
 Scripts/resolve-release-dependencies.sh
@@ -55,7 +55,7 @@ The normal graph is independent of maclocal-api's dirty vendor worktrees:
 
 | Dependency | Requirement | Purpose |
 | --- | --- | --- |
-| `AFMKit` | exact `0.1.13` | Core, services, evaluation, MLX, DwarfStar, Apple, Foundation Models bridges, audio, and the vendored MLX runtime |
+| `AFMKit` | exact `0.1.14` | Core, services, evaluation, MLX, DwarfStar, Apple, Foundation Models bridges, audio, and the vendored MLX runtime |
 
 The MLX, mlx-c, Swift bindings, and mlx-swift-lm sources are snapshots inside
 AFMKit's `vendor/MLX` tree. They are not separate SwiftPM dependencies of
