@@ -1,13 +1,13 @@
 {
-  "originHash" : "102a2332ab25954fc0ba1e1c21e9e2c02214d978c90b84da1b038f9622d6c600",
+  "originHash" : "a739ee70b3144e072b1ee26c2f5443c67f01ccf64cff2d600fc18e572623afd3",
   "pins" : [
     {
       "identity" : "afmkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/scouzi1966/AFMKit.git",
       "state" : {
-        "revision" : "415e2c52a4f4db776a12b88fb1e0a1ba4a32e7b5",
-        "version" : "0.1.12"
+        "revision" : "8ab8cc9551249a43fbd9ba3afbd209e5bd81d77c",
+        "version" : "0.1.13"
       }
     },
     {
