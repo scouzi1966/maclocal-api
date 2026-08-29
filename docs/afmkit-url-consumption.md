@@ -61,7 +61,7 @@ The MLX, mlx-c, Swift bindings, and mlx-swift-lm sources are snapshots inside
 AFMKit's `vendor/MLX` tree. They are not separate SwiftPM dependencies of
 maclocal-api.
 
-The tracked root `Package.resolved` is the release lock for all 40 direct and
+The tracked root `Package.resolved` is the release lock for all direct and
 transitive SwiftPM dependencies, not only AFMKit and MLX. The boundary gate
 requires a full 40-character revision for every pin, rejects branch state and
 local release dependencies, validates direct manifest requirements, verifies
