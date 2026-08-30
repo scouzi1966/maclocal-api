@@ -467,7 +467,7 @@ public class Server: @unchecked Sendable {
     ]
     private static let mlxWebFlagOptions: Set<String> = [
         "--verbose", "--very-verbose", "--vv", "--no-streaming", "--raw", "--vlm",
-        "--trust-remote-code", "--fix-tool-args", "--enable-prefix-caching", "--mtp",
+        "--trust-remote-code", "--fix-tool-args", "--enable-prefix-caching", "--qwen-ngram-mmap", "--mtp",
         "--dspark-strict", "--enable-grammar-constraints", "--no-think", "--gpu-profile",
         "--gpu-profile-bw"
     ]

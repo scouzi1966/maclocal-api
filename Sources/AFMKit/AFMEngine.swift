@@ -30,6 +30,7 @@ public struct EngineConfig: Sendable {
     public var kvBits: Int?
     public var enablePrefixCaching: Bool
     public var mlxKernels: String
+    public var qwenNGramMmapEnabled: Bool
     public var mtpEnabled: Bool
     public var mtpDepth: Int
     public var mtpModelID: String?
@@ -56,6 +57,7 @@ public struct EngineConfig: Sendable {
         kvBits: Int? = nil,
         enablePrefixCaching: Bool = false,
         mlxKernels: String = "native",
+        qwenNGramMmapEnabled: Bool = false,
         mtpEnabled: Bool = false,
         mtpDepth: Int = 3,
         mtpModelID: String? = nil,
@@ -81,6 +83,7 @@ public struct EngineConfig: Sendable {
         self.kvBits = kvBits
         self.enablePrefixCaching = enablePrefixCaching
         self.mlxKernels = mlxKernels
+        self.qwenNGramMmapEnabled = qwenNGramMmapEnabled
         self.mtpEnabled = mtpEnabled
         self.mtpDepth = mtpDepth
         self.mtpModelID = mtpModelID
@@ -106,6 +109,7 @@ private extension EngineConfig {
         var values: [String: AFMJSONValue] = [
             "enablePrefixCaching": .bool(enablePrefixCaching),
             "mlxKernels": .string(mlxKernels),
+            "qwenNGramMmapEnabled": .bool(qwenNGramMmapEnabled),
             "mtpEnabled": .bool(mtpEnabled),
             "mtpDepth": .integer(mtpDepth),
             "enableGrammarConstraints": .bool(enableGrammarConstraints),

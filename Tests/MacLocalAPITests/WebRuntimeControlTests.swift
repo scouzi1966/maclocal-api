@@ -53,7 +53,7 @@ final class WebRuntimeControlTests: XCTestCase {
                 "--gguf-file": "model-q4.gguf",
                 "--mtp-model": "mlx-community/example-mtp"
             ],
-            flags: ["--mtp", "--no-think"],
+            flags: ["--qwen-ngram-mmap", "--mtp", "--no-think"],
             dryRun: false
         )
 
@@ -61,6 +61,7 @@ final class WebRuntimeControlTests: XCTestCase {
         XCTAssertEqual(Array(arguments.prefix(3)), ["mlx", "--model", "mlx-community/example"])
         XCTAssertTrue(arguments.contains("--gguf-file"))
         XCTAssertTrue(arguments.contains("--mtp-model"))
+        XCTAssertTrue(arguments.contains("--qwen-ngram-mmap"))
         XCTAssertTrue(arguments.contains("--mtp"))
         XCTAssertEqual(Array(arguments.suffix(5)), ["--hostname", "127.0.0.1", "--port", "10001", "--webui"])
     }

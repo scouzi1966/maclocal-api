@@ -154,6 +154,7 @@ extension MlxCommand {
                 kvBits: kvBits,
                 enablePrefixCaching: enablePrefixCaching,
                 mlxKernels: mlxKernels,
+                qwenNGramMmapEnabled: qwenNGramMmap,
                 mtpEnabled: mtp,
                 mtpDepth: mtpDepth,
                 mtpModelID: mtpModel,
@@ -430,6 +431,7 @@ extension MlxCommand {
         if vlm { args.append("--vlm") }
         if let kvBits { args += ["--kv-bits", String(kvBits)] }
         if enablePrefixCaching { args.append("--enable-prefix-caching") }
+        if qwenNGramMmap { args.append("--qwen-ngram-mmap") }
         if mlxKernels != "native" { args += ["--mlx-kernels", shellQuote(mlxKernels)] }
         if let temperature { args += ["--temperature", String(temperature)] }
         if maxTokens != 8_192 { args += ["--max-tokens", String(maxTokens)] }

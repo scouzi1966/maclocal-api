@@ -274,6 +274,7 @@ struct MlxCommand: ParsableCommand {
           --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
           --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
+          --qwen-ngram-mmap: Opt in to a checkpoint-declared, disk-backed Qwen Next n-gram table
           --mtp-depth: MTP draft depth compatibility setting
           --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
@@ -514,6 +515,9 @@ struct MlxCommand: ParsableCommand {
 
     @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
     var enablePrefixCaching: Bool = false
+
+    @Flag(name: .customLong("qwen-ngram-mmap"), help: "Opt in to a checkpoint-declared, disk-backed Qwen Next n-gram table. Disabled by default and independent from --mtp.")
+    var qwenNGramMmap: Bool = false
 
     @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
     var mtp: Bool = false
@@ -837,6 +841,7 @@ struct MlxCommand: ParsableCommand {
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
             kernelEngine: kernelEngine,
+            qwenNGramMmapEnabled: qwenNGramMmap,
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
             mtpModelID: mtpModel,
@@ -879,6 +884,7 @@ struct MlxCommand: ParsableCommand {
                 kvBits: kvBits,
                 enablePrefixCaching: enablePrefixCaching,
                 mlxKernels: kernelEngine.rawValue,
+                qwenNGramMmapEnabled: qwenNGramMmap,
                 mtpEnabled: mtp,
                 mtpDepth: mtpDepth,
                 mtpModelID: mtpModel,
@@ -1407,6 +1413,7 @@ struct MlxCommand: ParsableCommand {
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
                     mlxKernels: self.mlxKernels,
+                    qwenNGramMmapEnabled: self.qwenNGramMmap,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
                     mtpModelID: self.mtpModel,
