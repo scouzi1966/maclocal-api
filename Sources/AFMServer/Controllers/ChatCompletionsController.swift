@@ -94,7 +94,7 @@ struct ChatCompletionsController: RouteCollection {
         var fallbackMessages: [Message] = []
         var fallbackMaxTokens = 2000
         do {
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            let chatRequest = try decodeChatCompletionRequest(req)
             fallbackModel = chatRequest.model ?? "foundation"
             fallbackMessages = chatRequest.messages
             fallbackMaxTokens = chatRequest.effectiveMaxTokens ?? 2000

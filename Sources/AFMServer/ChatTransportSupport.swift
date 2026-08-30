@@ -28,6 +28,25 @@ private struct MultiChatCompletionResponse: Content {
     }
 }
 
+/// Decodes the OpenAI chat request while accepting both documented shapes for
+/// `stop`. The pinned AFMKit DTO models the canonical array representation, so
+/// normalize the bare-string wire form at the HTTP boundary until that shared
+/// contract can represent the union directly.
+func decodeChatCompletionRequest(_ request: Request) throws -> ChatCompletionRequest {
+    guard let body = request.body.data else {
+        return try request.content.decode(ChatCompletionRequest.self)
+    }
+    let sourceData = Data(buffer: body)
+    guard var object = try? JSONSerialization.jsonObject(with: sourceData) as? [String: Any],
+          let stop = object["stop"] as? String else {
+        return try request.content.decode(ChatCompletionRequest.self)
+    }
+
+    object["stop"] = [stop]
+    let normalizedData = try JSONSerialization.data(withJSONObject: object)
+    return try JSONDecoder().decode(ChatCompletionRequest.self, from: normalizedData)
+}
+
 /// Runs one real non-streaming generation per requested choice and combines
 /// the resulting OpenAI envelopes. Keeping this at the HTTP boundary avoids
 /// changing the immutable AFMKit provider contract while ensuring `n` is not a

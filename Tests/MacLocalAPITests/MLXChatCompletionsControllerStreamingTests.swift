@@ -760,6 +760,57 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testNonStreamingControllerAcceptsAndHonorsBareStringStop() async throws {
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: "alpha beta gamma",
+                promptTokens: 4,
+                completionTokens: 3,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: false,
+            prompt: "Say exactly: alpha beta gamma",
+            toolsJSON: "[]",
+            stopJSON: #""beta""#
+        )
+        let headers = requestHeaders(for: body)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            guard let data = response.body.getData(
+                at: response.body.readerIndex,
+                length: response.body.readableBytes
+            ),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = object["choices"] as? [[String: Any]],
+                  let message = choices.first?["message"] as? [String: Any] else {
+                return XCTFail("missing chat completion response")
+            }
+            XCTAssertEqual(message["content"] as? String, "alpha ")
+        }
+    }
+
     func testStreamingControllerNarrowsToolsToNamedFunctionChoiceBeforeGeneration() async throws {
         let service = FakeMLXChatService(
             toolCallParser: "afm_adaptive_xml",

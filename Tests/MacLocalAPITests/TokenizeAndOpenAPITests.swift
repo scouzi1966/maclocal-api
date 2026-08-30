@@ -170,6 +170,31 @@ struct TokenizeAndOpenAPITests {
         #expect(events.contains { $0["delta"]?["type"]?.stringValue == "input_json_delta" })
     }
 
+    @Test("Messages adapter honors disable_parallel_tool_use and final assistant prefills")
+    func messagesAdapterParallelToolsAndPrefill() throws {
+        let request = try MessagesController.makeChatRequest(
+            object: [
+                "tool_choice": .object([
+                    "type": .string("any"),
+                    "disable_parallel_tool_use": .bool(true)
+                ])
+            ],
+            sourceMessages: [
+                .object(["role": .string("user"), "content": .string("Capital of France?")]),
+                .object(["role": .string("assistant"), "content": .string("Sure. The city is Par")])
+            ],
+            maxTokens: 12,
+            defaultModel: "test-model"
+        )
+        #expect(request["tool_choice"]?.stringValue == "required")
+        #expect(request["parallel_tool_calls"]?.boolValue == false)
+        let messages = request["messages"]?.arrayValue ?? []
+        #expect(messages.count == 2)
+        #expect(messages.last?["role"]?.stringValue == "user")
+        #expect(messages.last?["content"]?.stringValue?.contains("exact continuation") == true)
+        #expect(messages.last?["content"]?.stringValue?.contains("The city is Par") == true)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - T1.7 — OpenAPI spec integrity
     // ═══════════════════════════════════════════════════════════════════

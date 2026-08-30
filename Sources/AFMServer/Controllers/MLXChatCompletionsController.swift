@@ -311,7 +311,7 @@ struct MLXChatCompletionsController: RouteCollection {
         var requestRegistered = requestRegistration != nil
         do {
             let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            let chatRequest = try decodeChatCompletionRequest(req)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(Self.redactedRequestJSON(chatRequest))\(Self.reset)"); fflush(stdout)
                 if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {

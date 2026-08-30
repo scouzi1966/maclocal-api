@@ -78,13 +78,28 @@ struct MessagesController: RouteCollection {
                 messages.append(.object(["role": .string("system"), "content": .string(systemText)]))
             }
         }
-        for source in sourceMessages {
+        let assistantPrefill = sourceMessages.last.flatMap(prefillText(from:))
+        let translatedSources = assistantPrefill == nil ? sourceMessages : Array(sourceMessages.dropLast())
+        for source in translatedSources {
             guard let message = source.objectValue,
                   let role = message["role"]?.stringValue,
                   ["user", "assistant"].contains(role) else {
                 throw Abort(.badRequest, reason: "messages must contain user or assistant turns")
             }
             messages.append(contentsOf: try chatMessages(from: message, role: role))
+        }
+        if let assistantPrefill {
+            // AFMKit's current ChatCompletionRequest contract has no
+            // `continue_final_message` flag. Convert Anthropic's required
+            // unfinished-final-assistant semantics into an explicit final turn
+            // instead of sending a completed assistant turn that native chat
+            // templates close before adding their generation prompt.
+            messages.append(.object([
+                "role": .string("user"),
+                "content": .string(
+                    "Continue the unfinished assistant answer below. Return only the exact continuation after the prefix; do not repeat the prefix or start a new answer.\n\nUnfinished assistant prefix:\n\(assistantPrefill)"
+                )
+            ]))
         }
         var request: [String: ResponsesJSON] = [
             "model": object["model"] ?? .string(defaultModel), "messages": .array(messages),
@@ -111,8 +126,24 @@ struct MessagesController: RouteCollection {
         }
         if let choice = object["tool_choice"] {
             request["tool_choice"] = chatToolChoice(choice)
+            if choice["disable_parallel_tool_use"]?.boolValue == true {
+                request["parallel_tool_calls"] = .bool(false)
+            }
         }
         return .object(request)
+    }
+
+    /// Anthropic defines a final assistant text turn as a generation prefill.
+    /// Tool-use turns are structured history, not a textual prefill.
+    static func prefillText(from source: ResponsesJSON) -> String? {
+        guard let message = source.objectValue,
+              message["role"]?.stringValue == "assistant" else { return nil }
+        if let blocks = message["content"]?.arrayValue,
+           blocks.contains(where: { $0["type"]?.stringValue == "tool_use" }) {
+            return nil
+        }
+        let value = text(from: message["content"] ?? .null)
+        return value.isEmpty ? nil : value
     }
 
     /// Converts Message blocks without discarding tool or image semantics.
