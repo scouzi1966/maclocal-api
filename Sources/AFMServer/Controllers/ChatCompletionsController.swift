@@ -949,6 +949,10 @@ struct ChatCompletionsController: RouteCollection {
         v1.on(.POST, "chat", "completions", body: .collect(maxSize: "100mb"), use: unavailable)
     }
 
+    func chatCompletions(req: Request) async throws -> Response {
+        try await unavailable(req: req)
+    }
+
     static func resolveStrictJsonSchema(
         requestFormat: ResponseFormat?,
         serverDefault: ResponseFormat?

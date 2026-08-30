@@ -952,6 +952,12 @@ public class Server: @unchecked Sendable {
                 telemetry: telemetry
             )
             try app.register(collection: mlxController)
+            try app.register(collection: ResponsesController(
+                defaultModelID: mlxModelID,
+                chatHandler: { request in
+                    try await mlxController.chatCompletions(req: request)
+                }
+            ))
             if let rawTextGenerator {
                 try app.register(collection: CompletionsController(
                     modelID: mlxModelID,
@@ -1020,6 +1026,12 @@ public class Server: @unchecked Sendable {
                 telemetry: telemetry
             )
             try app.register(collection: chatController)
+            try app.register(collection: ResponsesController(
+                defaultModelID: "foundation",
+                chatHandler: { request in
+                    try await chatController.chatCompletions(req: request)
+                }
+            ))
         }
 
         // Prometheus metrics — always on, regardless of backend.
