@@ -399,6 +399,17 @@ struct OpenAPIController: RouteCollection {
             }
           }
         },
+        "/v1/messages/count_tokens": {
+          "post": {
+            "tags": ["tokenize"],
+            "summary": "Count tokens for an Anthropic Messages conversation",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["messages"], "properties": { "model": { "type": "string" }, "system": {}, "messages": { "type": "array" } } } } } },
+            "responses": {
+              "200": { "description": "Token count", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CountTokensResponse" } } } },
+              "422": { "description": "No MLX model loaded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
         "/v1/embeddings": {
           "post": {
             "tags": ["embeddings"],

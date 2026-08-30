@@ -260,6 +260,20 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     func chatCompletions(req: Request) async throws -> Response {
+        if let choiceCount = requestedChatChoiceCount(req), choiceCount != 1 {
+            telemetry.recordRejection(.validation)
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: "This server supports exactly one completion choice per request (n must be 1).",
+                    type: "invalid_request_error",
+                    code: "unsupported_n",
+                    param: "n",
+                    requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                ),
+                status: .badRequest
+            )
+        }
         // RequestIDMiddleware sets this; controller piggybacks for log correlation. (T1.1)
         let reqId = req.afmRequestID
         let inflightRegistry = req.application.inflightRegistry

@@ -29,6 +29,20 @@ extension Request {
     }
 }
 
+/// `ChatCompletionRequest` deliberately lives in AFMKit, and older immutable
+/// AFMKit releases did not expose OpenAI's `n` field. Inspect the wire body at
+/// the HTTP boundary so this server never silently accepts a request for
+/// multiple choices and returns one. A future AFMKit DTO can replace this with
+/// typed validation while preserving this safety net for pinned consumers.
+func requestedChatChoiceCount(_ request: Request) -> Int? {
+    guard let body = request.body.data else { return nil }
+    let data = Data(buffer: body)
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    return object["n"] as? Int
+}
+
 /// Mints or echoes a stable request ID for every HTTP request and copies it
 /// to the response headers. Honors inbound `X-Request-ID` (most common) and
 /// `OpenAI-Request-ID` (OpenAI SDK convention); otherwise mints `req_<uuid12>`

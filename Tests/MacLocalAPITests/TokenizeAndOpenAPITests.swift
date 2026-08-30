@@ -67,6 +67,23 @@ struct TokenizeAndOpenAPITests {
         #expect(json.contains("\"model\":\"m\""))
     }
 
+    @Test("Messages count-tokens accepts Anthropic string and block content")
+    func messagesCountRequestDecoding() throws {
+        let json = #"""
+        {
+          "model": "m",
+          "system": [{"type":"text","text":"Be concise."}],
+          "messages": [
+            {"role":"user","content":"Hello"},
+            {"role":"assistant","content":[{"type":"thinking","text":"Plan"},{"type":"text","text":"Hi"}]}
+          ]
+        }
+        """#
+        let request = try JSONDecoder().decode(MessagesCountTokensRequest.self, from: Data(json.utf8))
+        #expect(request.model == "m")
+        #expect(request.effectiveText == "Be concise.\nHello\nPlan\nHi")
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - T1.7 — OpenAPI spec integrity
     // ═══════════════════════════════════════════════════════════════════
@@ -91,6 +108,7 @@ struct TokenizeAndOpenAPITests {
             "/v1/chat/completions/{id}/cancel",
             "/v1/tokenize",
             "/v1/count_tokens",
+            "/v1/messages/count_tokens",
             "/v1/embeddings",
             "/v1/audio/transcriptions",
             "/v1/audio/speech",
@@ -167,6 +185,30 @@ final class TokenizeControllerIntegrationTests: XCTestCase {
             body: body
         ) { response async in
             XCTAssertEqual(response.status, .unprocessableEntity)
+        }
+    }
+
+    func testMessagesCountTokensAcceptsConversationShape() async throws {
+        try TokenizeController(
+            mlxModelID: "test/model",
+            tokenizer: FixedTokenizer(tokens: [1, 2, 3, 4]),
+            contextWindow: 8_192
+        ).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"""
+        {"model":"test/model","messages":[{"role":"user","content":"hello"}]}
+        """#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/messages/count_tokens",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertContains(response.body.string, #""input_tokens":4"#)
         }
     }
 }

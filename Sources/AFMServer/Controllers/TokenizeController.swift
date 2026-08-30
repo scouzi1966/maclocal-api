@@ -34,6 +34,12 @@ struct TokenizeController: RouteCollection {
         v1.on(.OPTIONS, "tokenize", use: handleOptions)
         v1.on(.POST, "count_tokens", body: .collect(maxSize: "8mb"), use: countTokens)
         v1.on(.OPTIONS, "count_tokens", use: handleOptions)
+        // Anthropic-compatible token budgeting surface.  This intentionally
+        // lives beside the existing generic endpoint: clients using the
+        // Messages API address this path, while OpenAI/vLLM clients use
+        // /v1/count_tokens or /v1/tokenize.
+        v1.on(.POST, "messages", "count_tokens", body: .collect(maxSize: "8mb"), use: countMessageTokens)
+        v1.on(.OPTIONS, "messages", "count_tokens", use: handleOptions)
     }
 
     func handleOptions(req: Request) async throws -> Response {
@@ -68,6 +74,35 @@ struct TokenizeController: RouteCollection {
             model: mlxModelID ?? body.model ?? "unknown"
         )
         return try Self.jsonResponse(payload)
+    }
+
+    /// Anthropic's `POST /v1/messages/count_tokens` accepts a conversation
+    /// rather than one flat prompt. AFM's public tokenizer capability only
+    /// exposes text tokenization, so we preserve each textual block in order
+    /// and tokenize the resulting transcript. This is deliberately useful for
+    /// context budgeting without claiming exact model-template accounting;
+    /// template-exact counting requires a new AFMKit tokenizer capability.
+    func countMessageTokens(req: Request) async throws -> Response {
+        let body: MessagesCountTokensRequest
+        do {
+            body = try req.content.decode(MessagesCountTokensRequest.self)
+        } catch {
+            throw TokenizeBadRequestError(
+                message: "invalid messages/count_tokens request body: \(error.localizedDescription)",
+                requestId: req.afmRequestID
+            )
+        }
+        guard !body.effectiveText.isEmpty else {
+            throw TokenizeBadRequestError(
+                message: "request must include at least one textual message or system block",
+                requestId: req.afmRequestID
+            )
+        }
+        let tokens = try await encode(body.effectiveText, requestedModel: body.model, on: req)
+        return try Self.jsonResponse(CountTokensResponse(
+            inputTokens: tokens.count,
+            model: mlxModelID ?? body.model ?? "unknown"
+        ))
     }
 
     // MARK: - Internals
@@ -162,6 +197,64 @@ struct CountTokensResponse: Content {
         case inputTokens = "input_tokens"
         case model
     }
+}
+
+// MARK: - Anthropic Messages token-count request
+
+/// The subset of Anthropic Messages content needed for token budgeting. It
+/// accepts the normal string shorthand and arrays of content blocks, retaining
+/// text/thinking blocks and safely ignoring non-text media/tool payloads.
+struct MessagesCountTokensRequest: Content {
+    let model: String?
+    let system: MessagesCountContent?
+    let messages: [MessagesCountMessage]
+
+    var effectiveText: String {
+        let parts = (system.map { [$0.text] } ?? []) + messages.map(\.content.text)
+        return parts
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+}
+
+struct MessagesCountMessage: Content {
+    let role: String
+    let content: MessagesCountContent
+}
+
+enum MessagesCountContent: Content {
+    case text(String)
+    case blocks([MessagesCountBlock])
+
+    var text: String {
+        switch self {
+        case .text(let value): return value
+        case .blocks(let blocks):
+            return blocks.compactMap(\.text).joined(separator: "\n")
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let text = try? container.decode(String.self) {
+            self = .text(text)
+        } else {
+            self = .blocks(try container.decode([MessagesCountBlock].self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .text(let value): try container.encode(value)
+        case .blocks(let blocks): try container.encode(blocks)
+        }
+    }
+}
+
+struct MessagesCountBlock: Content {
+    let type: String
+    let text: String?
 }
 
 // MARK: - Errors rendered in OpenAI shape
