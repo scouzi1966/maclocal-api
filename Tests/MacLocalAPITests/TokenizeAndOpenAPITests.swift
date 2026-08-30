@@ -105,6 +105,8 @@ struct TokenizeAndOpenAPITests {
         let expected = [
             "/v1/chat/completions",
             "/v1/completions",
+            "/v1/responses",
+            "/v1/responses/{response_id}",
             "/v1/chat/completions/{id}/cancel",
             "/v1/tokenize",
             "/v1/count_tokens",
