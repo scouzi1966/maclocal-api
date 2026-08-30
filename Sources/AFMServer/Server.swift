@@ -1127,7 +1127,6 @@ public class Server: @unchecked Sendable {
     /// Custom CSS/JS to inject into webui (branding + auto-select default model + /metrics dashboard)
     private var customCSS: String {
         Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false")
-        + Self.controlCenterTemplate
         + Self.dashboardTemplate
     }
     private static let customCSSTemplate = """
