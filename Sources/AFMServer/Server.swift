@@ -116,13 +116,26 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
             // Return a JSON error response compatible with OpenAI format
             let reqId = request.afmRequestID
             let errorResponse = OpenAIError(
-                message: "Your conversation is too long. Please start a new conversation.",
+                message: request.url.path.hasPrefix("/v1/images/")
+                    ? "Image request exceeds the maximum allowed size."
+                    : "Request payload exceeds the maximum allowed size.",
                 type: "payload_too_large",
+                code: "payload_too_large",
                 requestId: reqId.isEmpty ? nil : reqId
             )
             let response = Response(status: .payloadTooLarge)
             response.headers.add(name: .contentType, value: "application/json")
             response.headers.add(name: .accessControlAllowOrigin, value: "*")
+            response.headers.add(name: .accessControlAllowMethods, value: "GET, POST, OPTIONS")
+            let requestedHeaders = request.headers.first(name: "Access-Control-Request-Headers")
+            response.headers.add(
+                name: .accessControlAllowHeaders,
+                value: requestedHeaders.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? "Authorization, Content-Type, OpenAI-Organization, OpenAI-Project"
+            )
+            response.headers.add(name: "Access-Control-Expose-Headers", value: "X-Request-ID, OpenAI-Request-ID")
+            response.headers.add(name: .vary, value: "Access-Control-Request-Headers")
+            response.headers.add(name: .cacheControl, value: "no-store")
             try response.content.encode(errorResponse)
             return response
         }
@@ -933,13 +946,24 @@ public class Server: @unchecked Sendable {
 
         try app.register(collection: VisionAPIController())
         try app.register(collection: SpeechAPIController())
+        let imageModelID = ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL"]
+            ?? "mlx-community/FLUX.2-klein-4B-bf16"
         let imageService = FluxKleinImageService(configuration: FluxKleinImageConfiguration(
-            modelID: ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL"]
-                ?? "mlx-community/FLUX.2-klein-4B-bf16",
+            modelID: imageModelID,
             cacheDirectory: Self.imageModelCacheDirectory(),
             quantization: Self.imageQuantization()
         ))
-        try app.register(collection: ImagesAPIController(generator: imageService))
+        let imageModelAliases = Set(
+            (ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL_ALIASES"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        try app.register(collection: ImagesAPIController(
+            generator: imageService,
+            modelID: imageModelID,
+            modelAliases: imageModelAliases
+        ))
         // POST /v1/embeddings on the main server (#132). The Apple NL embedding
         // model is loaded lazily on first request (a chat-only server pays
         // nothing until used) and this path never triggers MLX init. It does NOT

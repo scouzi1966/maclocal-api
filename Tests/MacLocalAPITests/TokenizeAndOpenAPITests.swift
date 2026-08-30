@@ -108,6 +108,29 @@ struct TokenizeAndOpenAPITests {
         }
     }
 
+    @Test("T1.7 image schemas declare strict controls and operational errors")
+    func openAPIImagesContract() throws {
+        let data = Data(OpenAPIController.specJSON.utf8)
+        let parsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let components = try #require(parsed["components"] as? [String: Any])
+        let schemas = try #require(components["schemas"] as? [String: Any])
+        let generation = try #require(schemas["ImageGenerationRequest"] as? [String: Any])
+        #expect(generation["additionalProperties"] as? Bool == false)
+        let generationProperties = try #require(generation["properties"] as? [String: Any])
+        let prompt = try #require(generationProperties["prompt"] as? [String: Any])
+        #expect(prompt["maxLength"] as? Int == 32_000)
+
+        let paths = try #require(parsed["paths"] as? [String: Any])
+        for path in ["/v1/images/generations", "/v1/images/edits"] {
+            let pathItem = try #require(paths[path] as? [String: Any])
+            let post = try #require(pathItem["post"] as? [String: Any])
+            let responses = try #require(post["responses"] as? [String: Any])
+            for status in ["200", "400", "405", "413", "415", "500", "503"] {
+                #expect(responses[status] != nil, "missing image response status \(status) for \(path)")
+            }
+        }
+    }
+
     @Test("T1.7 docs page references /openapi.json on same origin")
     func docsHTMLReferencesSpec() {
         let html = OpenAPIController.docsHTML

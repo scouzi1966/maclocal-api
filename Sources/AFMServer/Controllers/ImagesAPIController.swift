@@ -1,4 +1,5 @@
 import AFMKit
+import AFMKitMLXImage
 import Foundation
 import Vapor
 
@@ -31,7 +32,7 @@ public struct ImageGenerationRequestBody: Content {
 private struct ImageEditForm: Content {
     var model: String?
     var prompt: String
-    var image: File
+    var image: File?
     var background: String?
     var inputFidelity: String?
     var mask: File?
@@ -71,7 +72,10 @@ public struct OpenAIImagesResponse: Content {
 }
 
 public struct ImagesAPIController: RouteCollection, Sendable {
-    private static let maximumBodySize: ByteCount = "100mb"
+    private static let maximumGenerationBodySize: ByteCount = "1mb"
+    private static let maximumEditBodySize: ByteCount = "25mb"
+    private static let maximumImageBytes = 20 * 1024 * 1024
+    private static let maximumPromptCharacters = 32_000
     private static let compatibilityHeader = HTTPHeaders.Name("X-AFM-Compatibility")
     private static let emulatedParametersHeader = HTTPHeaders.Name("X-AFM-Emulated-Parameters")
     private static let generationParameters: Set<String> = [
@@ -85,18 +89,26 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         "quality", "size", "response_format", "seed", "stream", "user",
     ]
     private let generator: any AFMImageGenerating
+    private let modelID: String
+    private let modelAliases: Set<String>
 
-    public init(generator: any AFMImageGenerating) {
+    public init(
+        generator: any AFMImageGenerating,
+        modelID: String = "mlx-community/FLUX.2-klein-4B-bf16",
+        modelAliases: Set<String> = []
+    ) {
         self.generator = generator
+        self.modelID = modelID
+        self.modelAliases = modelAliases
     }
 
     public func boot(routes: RoutesBuilder) throws {
         let images = routes.grouped("v1", "images")
-        images.on(.POST, "generations", body: .collect(maxSize: Self.maximumBodySize), use: generate)
-        images.on(.POST, "edits", body: .collect(maxSize: Self.maximumBodySize), use: edit)
+        images.on(.POST, "generations", body: .collect(maxSize: Self.maximumGenerationBodySize), use: generate)
+        images.on(.POST, "edits", body: .collect(maxSize: Self.maximumEditBodySize), use: edit)
         images.on(.OPTIONS, "generations", use: options)
         images.on(.OPTIONS, "edits", use: options)
-        for method in [HTTPMethod.GET, .PUT, .PATCH, .DELETE] {
+        for method in [HTTPMethod.GET, .HEAD, .PUT, .PATCH, .DELETE, .CONNECT, .TRACE] {
             images.on(method, "generations", use: unsupportedMethod)
             images.on(method, "edits", use: unsupportedMethod)
         }
@@ -133,6 +145,7 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         }
         do {
             try Self.validateGenerationControls(body)
+            let emulatesModel = try validateModel(body.model)
             let dimensions = try Self.dimensions(body.size, defaultValue: (1024, 1024))
             let results = try await generator.generateImages(for: AFMImageGenerationRequest(
                 prompt: try Self.validPrompt(body.prompt),
@@ -142,11 +155,14 @@ public struct ImagesAPIController: RouteCollection, Sendable {
                 seed: body.seed
             ))
             return try Self.response(
+                request: req,
                 for: results,
-                emulatedParameters: body.model == nil ? [] : ["model"]
+                emulatedParameters: emulatesModel ? ["model"] : []
             )
         } catch let error as ImageAPIRequestError {
             return try Self.errorResponse(request: req, error: error)
+        } catch {
+            return try Self.providerErrorResponse(request: req, error: error, operation: "generation")
         }
     }
 
@@ -159,22 +175,32 @@ public struct ImagesAPIController: RouteCollection, Sendable {
                 code: "unsupported_media_type"
             )
         }
-        if let parameter = Self.unknownMultipartParameter(in: req, allowed: Self.editParameters) {
+        do {
+            let parameterNames = try Self.multipartParameterNames(in: req)
+            if let parameter = parameterNames.filter({ !Self.editParameters.contains($0) }).sorted().first {
+                return try Self.errorResponse(
+                    request: req,
+                    status: .badRequest,
+                    message: "Unknown parameter: \(parameter)",
+                    code: "unknown_parameter",
+                    param: parameter
+                )
+            }
+            if parameterNames.contains("image[]") {
+                return try Self.errorResponse(
+                    request: req,
+                    status: .badRequest,
+                    message: "Multiple image inputs are not supported; send one file using the image field",
+                    code: "unsupported_parameter",
+                    param: "image"
+                )
+            }
+        } catch {
             return try Self.errorResponse(
                 request: req,
                 status: .badRequest,
-                message: "Unknown parameter: \(parameter)",
-                code: "unknown_parameter",
-                param: parameter
-            )
-        }
-        if Self.multipartParameterNames(in: req).contains("image[]") {
-            return try Self.errorResponse(
-                request: req,
-                status: .badRequest,
-                message: "Multiple image inputs are not supported; send one file using the image field",
-                code: "unsupported_parameter",
-                param: "image"
+                message: "Invalid multipart image edit request",
+                code: "invalid_request_error"
             )
         }
         let form: ImageEditForm
@@ -190,27 +216,35 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         }
         do {
             try Self.validateEditControls(form)
+            let emulatesModel = try validateModel(form.model)
+            guard let image = form.image else {
+                throw ImageAPIRequestError.invalid("image is required", param: "image")
+            }
+            try Self.validateImageFile(image)
             let dimensions = try Self.dimensions(form.size, defaultValue: (1024, 1024))
             let results = try await generator.editImages(for: AFMImageEditRequest(
                 prompt: try Self.validPrompt(form.prompt),
-                images: [Data(buffer: form.image.data)],
+                images: [Data(buffer: image.data)],
                 width: dimensions.width,
                 height: dimensions.height,
                 count: try Self.validCount(form.n),
                 seed: form.seed
             ))
             return try Self.response(
+                request: req,
                 for: results,
-                emulatedParameters: form.model == nil ? [] : ["model"]
+                emulatedParameters: emulatesModel ? ["model"] : []
             )
         } catch let error as ImageAPIRequestError {
             return try Self.errorResponse(request: req, error: error)
+        } catch {
+            return try Self.providerErrorResponse(request: req, error: error, operation: "edit")
         }
     }
 
     private func options(req: Request) async throws -> Response {
         let response = Response(status: .ok)
-        Self.applyHeaders(to: response)
+        Self.applyHeaders(to: response, for: req)
         return response
     }
 
@@ -230,7 +264,40 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         guard !value.isEmpty else {
             throw ImageAPIRequestError.invalid("prompt must not be empty", param: "prompt")
         }
+        guard value.count <= maximumPromptCharacters else {
+            throw ImageAPIRequestError.invalid(
+                "prompt must not exceed \(maximumPromptCharacters) characters",
+                param: "prompt"
+            )
+        }
         return value
+    }
+
+    private func validateModel(_ requestedModel: String?) throws -> Bool {
+        guard let requestedModel else { return false }
+        guard !requestedModel.isEmpty else {
+            throw ImageAPIRequestError.invalid("model must not be empty", param: "model")
+        }
+        if requestedModel == modelID { return false }
+        if modelAliases.contains(requestedModel) { return true }
+        throw ImageAPIRequestError(
+            message: "Model '\(requestedModel)' is not configured for image generation; use '\(modelID)'",
+            code: "unsupported_model",
+            param: "model"
+        )
+    }
+
+    private static func validateImageFile(_ image: File) throws {
+        guard image.data.readableBytes > 0 else {
+            throw ImageAPIRequestError.invalid("image must not be empty", param: "image")
+        }
+        guard image.data.readableBytes <= maximumImageBytes else {
+            throw ImageAPIRequestError.invalid("image must not exceed 20 MB", param: "image")
+        }
+        let supportedExtensions: Set<String> = ["png", "jpg", "jpeg", "webp"]
+        guard let fileExtension = image.extension?.lowercased(), supportedExtensions.contains(fileExtension) else {
+            throw ImageAPIRequestError.invalid("image must be a PNG, JPEG, or WebP file", param: "image")
+        }
     }
 
     private static func validCount(_ count: Int?) throws -> Int {
@@ -249,10 +316,12 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         let parts = size.lowercased().split(separator: "x", omittingEmptySubsequences: false)
         guard parts.count == 2,
               let width = Int(parts[0]), let height = Int(parts[1]),
-              (64...2048).contains(width), (64...2048).contains(height)
+              (64...2048).contains(width), (64...2048).contains(height),
+              width.isMultiple(of: 16), height.isMultiple(of: 16),
+              width <= height * 3, height <= width * 3
         else {
             throw ImageAPIRequestError.invalid(
-                "size must be auto or WIDTHxHEIGHT between 64 and 2048",
+                "size must be auto or WIDTHxHEIGHT between 64 and 2048, divisible by 16, with an aspect ratio from 1:3 through 3:1",
                 param: "size"
             )
         }
@@ -325,22 +394,27 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         return object.keys.filter { !allowed.contains($0) }.sorted().first
     }
 
-    private static func unknownMultipartParameter(in request: Request, allowed: Set<String>) -> String? {
-        multipartParameterNames(in: request).filter { !allowed.contains($0) }.sorted().first
-    }
-
-    private static func multipartParameterNames(in request: Request) -> [String] {
-        guard let buffer = request.body.data else { return [] }
-        let text = String(decoding: Data(buffer: buffer), as: UTF8.self)
-        let pattern = #"Content-Disposition:[^\r\n]*\bname="([^"]+)""#
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
+    /// Parses only multipart boundaries and headers. Uploaded bytes are never decoded as text
+    /// or copied into a second full-body allocation.
+    private static func multipartParameterNames(in request: Request) throws -> Set<String> {
+        guard let boundary = request.headers.contentType?.parameters["boundary"],
+              let buffer = request.body.data
+        else { return [] }
+        let parser = MultipartParser(boundary: boundary)
+        var headers = HTTPHeaders()
+        var names: Set<String> = []
+        parser.onHeader = { field, value in
+            headers.replaceOrAdd(name: field, value: value)
         }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return expression.matches(in: text, range: range).compactMap { match -> String? in
-            guard let nameRange = Range(match.range(at: 1), in: text) else { return nil }
-            return String(text[nameRange])
+        parser.onBody = { _ in }
+        parser.onPartComplete = {
+            if let name = MultipartPart(headers: headers, body: ByteBuffer()).name {
+                names.insert(name)
+            }
+            headers = HTTPHeaders()
         }
+        try parser.execute(buffer)
+        return names
     }
 
     private static func errorResponse(request: Request, error: ImageAPIRequestError) throws -> Response {
@@ -358,21 +432,57 @@ public struct ImagesAPIController: RouteCollection, Sendable {
         status: HTTPResponseStatus,
         message: String,
         code: String,
-        param: String? = nil
+        param: String? = nil,
+        type: String = "invalid_request_error"
     ) throws -> Response {
         let response = Response(status: status)
         try response.content.encode(OpenAIError(
             message: message,
-            type: "invalid_request_error",
+            type: type,
             code: code,
             param: param,
             requestId: request.afmRequestID.isEmpty ? nil : request.afmRequestID
         ))
-        applyHeaders(to: response)
+        applyHeaders(to: response, for: request)
         return response
     }
 
-    private static func response(for images: [AFMGeneratedImage], emulatedParameters: [String]) throws -> Response {
+    private static func providerErrorResponse(request: Request, error: Error, operation: String) throws -> Response {
+        if error is CancellationError { throw error }
+        if let error = error as? FluxKleinImageError {
+            switch error {
+            case .invalidImage:
+                return try errorResponse(
+                    request: request,
+                    status: .badRequest,
+                    message: "The input image could not be decoded",
+                    code: "invalid_image",
+                    param: "image"
+                )
+            case .unreadableSnapshot:
+                request.logger.error("Image model snapshot is unavailable: \(error.localizedDescription)")
+                return try errorResponse(
+                    request: request,
+                    status: .serviceUnavailable,
+                    message: "The configured image model is unavailable",
+                    code: "image_model_unavailable",
+                    type: "server_error"
+                )
+            case .pngEncodingFailed:
+                break
+            }
+        }
+        request.logger.error("Image \(operation) failed: \(String(describing: error))")
+        return try errorResponse(
+            request: request,
+            status: .internalServerError,
+            message: "Image \(operation) failed",
+            code: "image_generation_failed",
+            type: "server_error"
+        )
+    }
+
+    private static func response(request: Request, for images: [AFMGeneratedImage], emulatedParameters: [String]) throws -> Response {
         let body = OpenAIImagesResponse(
             created: Int64(Date().timeIntervalSince1970),
             data: images.map { OpenAIImageData(b64Json: $0.data.base64EncodedString()) }
@@ -383,19 +493,26 @@ public struct ImagesAPIController: RouteCollection, Sendable {
             response.headers.replaceOrAdd(name: compatibilityHeader, value: "emulated")
             response.headers.replaceOrAdd(name: emulatedParametersHeader, value: emulatedParameters.joined(separator: ","))
         }
-        applyHeaders(to: response)
+        applyHeaders(to: response, for: request)
         return response
     }
 
-    private static func applyHeaders(to response: Response) {
+    private static let defaultAllowHeaders = "Authorization, Content-Type, OpenAI-Organization, OpenAI-Project"
+
+    private static func applyHeaders(to response: Response, for request: Request) {
         response.headers.replaceOrAdd(name: .accessControlAllowOrigin, value: "*")
         response.headers.replaceOrAdd(name: .accessControlAllowMethods, value: "POST, OPTIONS")
-        response.headers.replaceOrAdd(name: .accessControlAllowHeaders, value: "Authorization, Content-Type")
+        let requested = request.headers.first(name: "Access-Control-Request-Headers")
+        response.headers.replaceOrAdd(
+            name: .accessControlAllowHeaders,
+            value: requested.flatMap { $0.isEmpty ? nil : $0 } ?? defaultAllowHeaders
+        )
         response.headers.replaceOrAdd(
             name: "Access-Control-Expose-Headers",
             value: "X-Request-ID, OpenAI-Request-ID, X-AFM-Compatibility, X-AFM-Emulated-Parameters"
         )
         response.headers.replaceOrAdd(name: .cacheControl, value: "no-store")
+        response.headers.replaceOrAdd(name: .vary, value: "Access-Control-Request-Headers")
     }
 }
 

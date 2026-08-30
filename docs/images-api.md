@@ -22,6 +22,12 @@ snapshot. Set `MACAFM_IMAGE_QUANT=bf16`, `int8`, or `int4` to select the memory
 tier. Set `MACAFM_IMAGE_MODEL` to use a different compatible cache-relative
 model ID.
 
+Requests must omit `model` or name that configured image model exactly. To
+support a client that cannot select a separate image model, set
+`MACAFM_IMAGE_MODEL_ALIASES` to an explicit comma-separated allowlist, for
+example `Qwen3.8-27B,dall-e-3`. Unknown model IDs are rejected with
+`code=unsupported_model`; AFM never silently reroutes them.
+
 ## Generate an image
 
 ```bash
@@ -54,11 +60,10 @@ curl http://127.0.0.1:9999/v1/images/edits \
   -F 'response_format=b64_json'
 ```
 
-`model` remains accepted when an OpenAI client sends its active chat model ID;
-AFM routes these image-only endpoints to `MACAFM_IMAGE_MODEL`. This lets one
-server expose chat and image surfaces without requiring the client to manage a
-second base URL. Because that routing emulates rather than exactly honors the
-requested `model`, successful responses include:
+When an OpenAI client sends an alias explicitly listed in
+`MACAFM_IMAGE_MODEL_ALIASES`, AFM routes the request to `MACAFM_IMAGE_MODEL`.
+Because that opt-in routing emulates rather than exactly honors the requested
+`model`, successful responses include:
 
 ```text
 X-AFM-Compatibility: emulated
@@ -91,10 +96,20 @@ silently. Unsupported HTTP methods return 405 and `Allow: POST, OPTIONS`.
 Permanent capability gaps are deliberately reported as non-retryable client
 errors rather than 501 server errors.
 
+Generation JSON is limited to 1 MB. Edit multipart requests are limited to 25
+MB, with one non-empty PNG, JPEG, or WebP input of at most 20 MB. Prompts are
+limited to 32,000 characters. Explicit sizes must be 64–2048 pixels in each
+dimension, divisible by 16, and between 1:3 and 3:1 aspect ratio. These checks
+prevent the provider from silently rounding dimensions or failing after model
+loading. A missing model snapshot returns retryable HTTP 503; invalid image
+bytes return HTTP 400 with `param=image`; unexpected provider failures return a
+correlated OpenAI-shaped HTTP 500.
+
 | Control | AFM behavior |
 | --- | --- |
 | `prompt`, `size`, `n` (1-4), `response_format=b64_json`, `output_format=png`, `seed` | Exact |
-| `model` | Emulated routing with response headers |
+| exact configured `model` | Exact |
+| alias listed in `MACAFM_IMAGE_MODEL_ALIASES` | Emulated routing with response headers |
 | `stream=false`, `user` | Accepted compatibility values |
 | `background`, `moderation`, `output_compression`, `partial_images`, `quality`, `style` | Rejected with `unsupported_parameter` |
 | edit `input_fidelity`, `mask`, and `image[]` multi-input syntax | Rejected with `unsupported_parameter` |
