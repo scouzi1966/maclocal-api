@@ -972,6 +972,7 @@ public class Server: @unchecked Sendable {
                     try await mlxController.chatCompletions(req: request)
                 }
             ))
+            try app.register(collection: MessagesController(model: mlxModelID, chatHandler: { request in try await mlxController.chatCompletions(req: request) }))
             if let rawTextGenerator {
                 try app.register(collection: CompletionsController(
                     modelID: mlxModelID,
@@ -1042,6 +1043,12 @@ public class Server: @unchecked Sendable {
             try app.register(collection: chatController)
             try app.register(collection: ResponsesController(
                 defaultModelID: "foundation",
+                chatHandler: { request in
+                    try await chatController.chatCompletions(req: request)
+                }
+            ))
+            try app.register(collection: MessagesController(
+                model: "foundation",
                 chatHandler: { request in
                     try await chatController.chatCompletions(req: request)
                 }

@@ -84,6 +84,40 @@ struct TokenizeAndOpenAPITests {
         #expect(request.effectiveText == "Be concise.\nHello\nPlan\nHi")
     }
 
+    @Test("Messages adapter forwards block text and preserves Anthropic SSE lifecycle")
+    func messagesAdapterTranslation() throws {
+        let request = try MessagesController.makeChatRequest(
+            object: [
+                "system": .array([.object(["type": .string("text"), "text": .string("Be concise.")])]),
+                "stop_sequences": .array([.string("END")])
+            ],
+            sourceMessages: [.object([
+                "role": .string("user"),
+                "content": .array([.object(["type": .string("text"), "text": .string("Say hi")])])
+            ])],
+            maxTokens: 12,
+            defaultModel: "test-model"
+        )
+        #expect(request["messages"]?.arrayValue?.count == 2)
+        #expect(request["messages"]?.arrayValue?[1]["content"]?.stringValue == "Say hi")
+        #expect(request["stop"]?.arrayValue?.first?.stringValue == "END")
+
+        let message = try MessagesController.makeMessage(
+            chat: .object([
+                "model": .string("test-model"),
+                "choices": .array([.object(["finish_reason": .string("stop"), "message": .object(["content": .string("hello")])])]),
+                "usage": .object(["prompt_tokens": .number(3), "completion_tokens": .number(1)])
+            ]),
+            request: [:],
+            defaultModel: "test-model"
+        )
+        let types = MessagesController.streamingEvents(for: message).compactMap { $0["type"]?.stringValue }
+        #expect(types.first == "message_start")
+        #expect(types.last == "message_stop")
+        #expect(types.contains("content_block_start"))
+        #expect(types.contains("content_block_stop"))
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - T1.7 — OpenAPI spec integrity
     // ═══════════════════════════════════════════════════════════════════
@@ -111,6 +145,7 @@ struct TokenizeAndOpenAPITests {
             "/v1/tokenize",
             "/v1/count_tokens",
             "/v1/messages/count_tokens",
+            "/v1/messages",
             "/v1/embeddings",
             "/v1/audio/transcriptions",
             "/v1/audio/speech",
@@ -211,6 +246,27 @@ final class TokenizeControllerIntegrationTests: XCTestCase {
         ) { response async in
             XCTAssertEqual(response.status, .ok)
             XCTAssertContains(response.body.string, #""input_tokens":4"#)
+        }
+    }
+
+    func testMessagesRequiresMaxTokensWithAnthropicErrorEnvelope() async throws {
+        try MessagesController(model: "test-model", chatHandler: { _ in
+            throw Abort(.notImplemented)
+        }).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"model":"test-model","messages":[{"role":"user","content":"hello"}]}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/messages",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            XCTAssertContains(response.body.string, #""type":"error""#)
+            XCTAssertContains(response.body.string, #""invalid_request_error""#)
         }
     }
 }

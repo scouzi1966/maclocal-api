@@ -410,6 +410,17 @@ struct OpenAPIController: RouteCollection {
             }
           }
         },
+        "/v1/messages": {
+          "post": {
+            "tags": ["chat"],
+            "summary": "Create an Anthropic-compatible message",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["messages", "max_tokens"], "properties": { "model": { "type": "string" }, "system": {}, "messages": { "type": "array" }, "max_tokens": { "type": "integer" }, "stream": { "type": "boolean" } } } } } },
+            "responses": {
+              "200": { "description": "Message or Anthropic SSE event stream" },
+              "400": { "description": "Invalid Anthropic Messages request" }
+            }
+          }
+        },
         "/v1/embeddings": {
           "post": {
             "tags": ["embeddings"],

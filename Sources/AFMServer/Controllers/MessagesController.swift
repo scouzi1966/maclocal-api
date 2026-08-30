@@ -1,0 +1,169 @@
+import Foundation
+import Vapor
+
+/// Anthropic Messages compatibility over AFM's Chat Completions transport.
+/// External SSE is deliberately buffered: the internal Chat request is always
+/// non-streaming, then emitted as one complete, valid Anthropic lifecycle.
+struct MessagesController: RouteCollection {
+    typealias ChatHandler = @Sendable (Request) async throws -> Response
+
+    let model: String
+    let chatHandler: ChatHandler
+
+    func boot(routes: RoutesBuilder) throws {
+        routes.grouped("v1").on(.POST, "messages", body: .collect(maxSize: "100mb"), use: create)
+    }
+
+    func create(req: Request) async throws -> Response {
+        do {
+            guard let data = req.body.data.map({ Data(buffer: $0) }) else {
+                return try Self.error("request body is required")
+            }
+            let body = try JSONDecoder().decode(ResponsesJSON.self, from: data)
+            guard let object = body.objectValue,
+                  let sourceMessages = object["messages"]?.arrayValue,
+                  let maxTokens = object["max_tokens"]?.intValue else {
+                return try Self.error("messages and max_tokens are required")
+            }
+            let chatRequest = try Self.makeChatRequest(
+                object: object, sourceMessages: sourceMessages,
+                maxTokens: maxTokens, defaultModel: model
+            )
+            let result = try await executeChat(chatRequest, from: req)
+            let resource = try Self.makeMessage(chat: result, request: object, defaultModel: model)
+            return object["stream"]?.boolValue == true
+                ? try Self.streamingResponse(resource)
+                : try Self.json(resource)
+        } catch let abort as AbortError {
+            return try Self.error(abort.reason, status: abort.status)
+        } catch {
+            return try Self.error("invalid_request_error: \(error)")
+        }
+    }
+
+    private func executeChat(_ body: ResponsesJSON, from request: Request) async throws -> ResponsesJSON {
+        let encodedBody = try JSONEncoder().encode(body)
+        var buffer = request.byteBufferAllocator.buffer(capacity: encodedBody.count)
+        buffer.writeBytes(encodedBody)
+        var headers = request.headers
+        headers.contentType = .json
+        headers.replaceOrAdd(name: .contentLength, value: String(encodedBody.count))
+        let chatRequest = Request(
+            application: request.application, method: .POST, url: URI(path: "/v1/chat/completions"),
+            version: request.version, headersNoUpdate: headers, collectedBody: buffer,
+            remoteAddress: request.remoteAddress, peerCertificateChain: request.peerCertificateChain,
+            logger: request.logger, byteBufferAllocator: request.byteBufferAllocator, on: request.eventLoop
+        )
+        let response = try await chatHandler(chatRequest)
+        guard let output = try await response.body.collect(on: chatRequest.eventLoop).get() else {
+            throw Abort(.internalServerError, reason: "chat backend returned an empty response")
+        }
+        return try JSONDecoder().decode(ResponsesJSON.self, from: Data(buffer: output))
+    }
+
+    static func makeChatRequest(object: [String: ResponsesJSON], sourceMessages: [ResponsesJSON], maxTokens: Int, defaultModel: String) throws -> ResponsesJSON {
+        var messages: [ResponsesJSON] = []
+        if let system = object["system"] {
+            let systemText = text(from: system)
+            if !systemText.isEmpty {
+                messages.append(.object(["role": .string("system"), "content": .string(systemText)]))
+            }
+        }
+        for source in sourceMessages {
+            guard let message = source.objectValue,
+                  let role = message["role"]?.stringValue,
+                  ["user", "assistant"].contains(role) else {
+                throw Abort(.badRequest, reason: "messages must contain user or assistant turns")
+            }
+            messages.append(.object([
+                "role": .string(role), "content": .string(text(from: message["content"] ?? .null))
+            ]))
+        }
+        var request: [String: ResponsesJSON] = [
+            "model": object["model"] ?? .string(defaultModel), "messages": .array(messages),
+            "max_tokens": .number(Double(maxTokens)), "stream": .bool(false)
+        ]
+        for key in ["temperature", "top_p", "top_k", "stop_sequences"] {
+            if let value = object[key] { request[key == "stop_sequences" ? "stop" : key] = value }
+        }
+        return .object(request)
+    }
+
+    static func makeMessage(chat: ResponsesJSON, request: [String: ResponsesJSON], defaultModel: String) throws -> ResponsesJSON {
+        guard let choice = chat["choices"]?.arrayValue?.first?.objectValue else {
+            throw Abort(.internalServerError, reason: "chat backend returned no choices")
+        }
+        let output = choice["message"]?.objectValue ?? [:]
+        let visibleText = output["content"]?.stringValue ?? ""
+        let reasoning = output["reasoning_content"]?.stringValue
+        let thinkingEnabled = request["thinking"]?["type"]?.stringValue == "enabled"
+        var content: [ResponsesJSON] = []
+        if thinkingEnabled, let reasoning, !reasoning.isEmpty {
+            content.append(.object(["type": .string("thinking"), "thinking": .string(reasoning)]))
+        }
+        content.append(.object(["type": .string("text"), "text": .string(visibleText)]))
+        let finish = choice["finish_reason"]?.stringValue ?? "stop"
+        let stops = request["stop_sequences"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let matchedStop = stops.first(where: { visibleText.contains($0) })
+        let reason = matchedStop != nil ? "stop_sequence" : finish == "length" ? "max_tokens" : finish == "tool_calls" ? "tool_use" : "end_turn"
+        let usage = chat["usage"]?.objectValue ?? [:]
+        return .object([
+            "id": .string("msg_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"),
+            "type": .string("message"), "role": .string("assistant"),
+            "model": chat["model"] ?? request["model"] ?? .string(defaultModel), "content": .array(content),
+            "stop_reason": .string(reason), "stop_sequence": matchedStop.map(ResponsesJSON.string) ?? .null,
+            "usage": .object(["input_tokens": usage["prompt_tokens"] ?? .number(0), "output_tokens": usage["completion_tokens"] ?? .number(0)])
+        ])
+    }
+
+    static func text(from value: ResponsesJSON) -> String {
+        if let text = value.stringValue { return text }
+        return value.arrayValue?.compactMap { $0["text"]?.stringValue ?? $0["thinking"]?.stringValue }.joined(separator: "\n") ?? ""
+    }
+
+    static func streamingEvents(for message: ResponsesJSON) -> [ResponsesJSON] {
+        let content = message["content"]?.arrayValue ?? []
+        var events: [ResponsesJSON] = [.object(["type": .string("message_start"), "message": message])]
+        for (index, block) in content.enumerated() {
+            let type = block["type"]?.stringValue ?? "text"
+            let field = type == "thinking" ? "thinking" : "text"
+            let value = block[field]?.stringValue ?? ""
+            events.append(.object(["type": .string("content_block_start"), "index": .number(Double(index)), "content_block": .object(["type": .string(type), field: .string("")])]))
+            if !value.isEmpty {
+                events.append(.object(["type": .string("content_block_delta"), "index": .number(Double(index)), "delta": .object(["type": .string(type == "thinking" ? "thinking_delta" : "text_delta"), field: .string(value)])]))
+            }
+            events.append(.object(["type": .string("content_block_stop"), "index": .number(Double(index))]))
+        }
+        events.append(.object(["type": .string("message_delta"), "delta": .object(["stop_reason": message["stop_reason"] ?? .string("end_turn"), "stop_sequence": message["stop_sequence"] ?? .null]), "usage": message["usage"] ?? .object([:])]))
+        events.append(.object(["type": .string("message_stop")]))
+        return events
+    }
+
+    static func streamingResponse(_ message: ResponsesJSON) throws -> Response {
+        let frames = try streamingEvents(for: message).map { event in
+            let type = event["type"]?.stringValue ?? "message"
+            return "event: \(type)\ndata: \(String(decoding: try JSONEncoder().encode(event), as: UTF8.self))\n\n"
+        }
+        let response = Response(status: .ok)
+        response.headers.replaceOrAdd(name: .contentType, value: "text/event-stream")
+        response.headers.replaceOrAdd(name: .cacheControl, value: "no-cache")
+        response.body = .init(string: frames.joined())
+        return response
+    }
+
+    static func json(_ value: ResponsesJSON) throws -> Response {
+        let response = Response(status: .ok)
+        response.headers.contentType = .json
+        response.body = .init(data: try JSONEncoder().encode(value))
+        return response
+    }
+
+    static func error(_ message: String, status: HTTPStatus = .badRequest) throws -> Response {
+        let response = Response(status: status)
+        response.headers.contentType = .json
+        response.body = .init(data: try JSONEncoder().encode(.object([
+            "type": .string("error"), "error": .object(["type": .string("invalid_request_error"), "message": .string(message)])
+        ]) as ResponsesJSON))
+        return response
+    }
+}
