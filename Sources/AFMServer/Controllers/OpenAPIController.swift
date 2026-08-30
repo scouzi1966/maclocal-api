@@ -223,10 +223,19 @@ struct OpenAPIController: RouteCollection {
             "properties": {
               "model": { "type": "string", "description": "Accepted for OpenAI client compatibility; AFM routes image requests to its configured FLUX model." },
               "prompt": { "type": "string" },
+              "background": { "type": "string", "enum": ["transparent", "opaque", "auto"], "x-afm-support": "unsupported" },
+              "moderation": { "type": "string", "enum": ["low", "auto"], "x-afm-support": "unsupported" },
               "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 },
+              "output_compression": { "type": "integer", "minimum": 0, "maximum": 100, "x-afm-support": "unsupported" },
+              "output_format": { "type": "string", "const": "png", "x-afm-support": "exact" },
+              "partial_images": { "type": "integer", "minimum": 0, "maximum": 3, "x-afm-support": "unsupported" },
+              "quality": { "type": "string", "enum": ["auto", "low", "medium", "high", "standard", "hd"], "x-afm-support": "unsupported" },
               "size": { "type": "string", "description": "auto or WIDTHxHEIGHT from 64 through 2048." },
               "response_format": { "type": "string", "const": "b64_json" },
-              "seed": { "type": "integer", "minimum": 0 }
+              "seed": { "type": "integer", "minimum": 0, "description": "AFM extension for deterministic generation." },
+              "stream": { "type": "boolean", "const": false, "x-afm-support": "unsupported-when-true" },
+              "style": { "type": "string", "enum": ["vivid", "natural"], "x-afm-support": "unsupported" },
+              "user": { "type": "string", "description": "Accepted as non-behavioral client metadata." }
             }
           },
           "ImagesResponse": {
@@ -253,6 +262,7 @@ struct OpenAPIController: RouteCollection {
                   "message": { "type": "string" },
                   "type": { "type": "string" },
                   "code": { "type": "string", "nullable": true },
+                  "param": { "type": "string", "nullable": true },
                   "request_id": { "type": "string", "nullable": true }
                 }
               }
@@ -401,7 +411,11 @@ struct OpenAPIController: RouteCollection {
             "tags": ["images"],
             "summary": "Generate images with FLUX.2 Klein",
             "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageGenerationRequest" } } } },
-            "responses": { "200": { "description": "Base64-encoded PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } } }
+            "responses": {
+              "200": { "description": "Base64-encoded PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } },
+              "400": { "description": "Invalid or unsupported request parameter", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "415": { "description": "Request must use application/json", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
           }
         },
         "/v1/images/edits": {
@@ -419,16 +433,30 @@ struct OpenAPIController: RouteCollection {
                       "model": { "type": "string" },
                       "prompt": { "type": "string" },
                       "image": { "type": "string", "format": "binary" },
+                      "background": { "type": "string", "enum": ["transparent", "opaque", "auto"], "x-afm-support": "unsupported" },
+                      "input_fidelity": { "type": "string", "enum": ["high", "low"], "x-afm-support": "unsupported" },
+                      "mask": { "type": "string", "format": "binary", "x-afm-support": "unsupported" },
+                      "moderation": { "type": "string", "enum": ["low", "auto"], "x-afm-support": "unsupported" },
                       "n": { "type": "integer", "minimum": 1, "maximum": 4 },
+                      "output_compression": { "type": "integer", "minimum": 0, "maximum": 100, "x-afm-support": "unsupported" },
+                      "output_format": { "type": "string", "const": "png", "x-afm-support": "exact" },
+                      "partial_images": { "type": "integer", "minimum": 0, "maximum": 3, "x-afm-support": "unsupported" },
+                      "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"], "x-afm-support": "unsupported" },
                       "size": { "type": "string" },
                       "response_format": { "type": "string", "const": "b64_json" },
-                      "seed": { "type": "integer", "minimum": 0 }
+                      "seed": { "type": "integer", "minimum": 0, "description": "AFM extension for deterministic generation." },
+                      "stream": { "type": "boolean", "const": false, "x-afm-support": "unsupported-when-true" },
+                      "user": { "type": "string", "description": "Accepted as non-behavioral client metadata." }
                     }
                   }
                 }
               }
             },
-            "responses": { "200": { "description": "Base64-encoded edited PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } } }
+            "responses": {
+              "200": { "description": "Base64-encoded edited PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } },
+              "400": { "description": "Invalid or unsupported request parameter", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "415": { "description": "Request must use multipart/form-data", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
           }
         },
         "/v1/audio/speech": {

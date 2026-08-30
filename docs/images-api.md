@@ -57,7 +57,48 @@ curl http://127.0.0.1:9999/v1/images/edits \
 `model` remains accepted when an OpenAI client sends its active chat model ID;
 AFM routes these image-only endpoints to `MACAFM_IMAGE_MODEL`. This lets one
 server expose chat and image surfaces without requiring the client to manage a
-second base URL.
+second base URL. Because that routing emulates rather than exactly honors the
+requested `model`, successful responses include:
+
+```text
+X-AFM-Compatibility: emulated
+X-AFM-Emulated-Parameters: model
+```
+
+## Compatibility and errors
+
+AFM does not silently ignore behavior-changing OpenAI Images controls. A known
+but unavailable control returns HTTP 400 with an OpenAI-compatible,
+parameter-specific error:
+
+```json
+{
+  "error": {
+    "message": "Parameter 'background' is not supported by the configured AFM image model",
+    "type": "invalid_request_error",
+    "code": "unsupported_parameter",
+    "param": "background",
+    "request_id": "req_..."
+  }
+}
+```
+
+The same request ID is returned in `X-Request-ID` and `OpenAI-Request-ID`.
+Malformed values use `code=invalid_request_error`; an incorrect request media
+type returns HTTP 415 with `code=unsupported_media_type`; unknown fields are
+rejected with `code=unknown_parameter` so misspelled controls cannot disappear
+silently. Unsupported HTTP methods return 405 and `Allow: POST, OPTIONS`.
+Permanent capability gaps are deliberately reported as non-retryable client
+errors rather than 501 server errors.
+
+| Control | AFM behavior |
+| --- | --- |
+| `prompt`, `size`, `n` (1-4), `response_format=b64_json`, `output_format=png`, `seed` | Exact |
+| `model` | Emulated routing with response headers |
+| `stream=false`, `user` | Accepted compatibility values |
+| `background`, `moderation`, `output_compression`, `partial_images`, `quality`, `style` | Rejected with `unsupported_parameter` |
+| edit `input_fidelity`, `mask`, and `image[]` multi-input syntax | Rejected with `unsupported_parameter` |
+| `stream=true`, `response_format=url`, `output_format=jpeg/webp`, `n` 5-10 | Rejected with `unsupported_parameter` |
 
 The current endpoint returns PNG data through `b64_json`. URL-hosted output,
 streaming partial images, masks, and variations are not implemented.

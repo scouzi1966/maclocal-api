@@ -11,6 +11,7 @@ final class ImagesAPIControllerTests: XCTestCase {
 
     override func setUp() async throws {
         app = try await Application.make(.testing)
+        app.middleware.use(RequestIDMiddleware())
     }
 
     override func tearDown() async throws {
@@ -30,6 +31,8 @@ final class ImagesAPIControllerTests: XCTestCase {
             XCTAssertEqual(response.status, .ok)
             let decoded = try! JSONDecoder().decode(OpenAIImagesResponse.self, from: Data(buffer: response.body))
             XCTAssertEqual(decoded.data.first?.b64Json, Data("png".utf8).base64EncodedString())
+            XCTAssertEqual(response.headers.first(name: "X-AFM-Compatibility"), "emulated")
+            XCTAssertEqual(response.headers.first(name: "X-AFM-Emulated-Parameters"), "model")
         }
         let request = await generator.generationRequest
         XCTAssertEqual(request?.prompt, "a red square")
@@ -73,9 +76,183 @@ final class ImagesAPIControllerTests: XCTestCase {
             .POST, "/v1/images/generations", headers: headers, body: body
         ) { response async in
             XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["type"] as? String, "invalid_request_error")
+            XCTAssertEqual(error["code"] as? String, "invalid_request_error")
+            XCTAssertEqual(error["param"] as? String, "size")
+            XCTAssertNotNil(error["request_id"] as? String)
+            XCTAssertNotNil(response.headers.first(name: "x-request-id"))
         }
         let request = await generator.generationRequest
         XCTAssertNil(request)
+    }
+
+    func testUnsupportedGenerationControlReturnsParameterSpecificOpenAIError() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"prompt":"test","background":"transparent"}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["type"] as? String, "invalid_request_error")
+            XCTAssertEqual(error["code"] as? String, "unsupported_parameter")
+            XCTAssertEqual(error["param"] as? String, "background")
+            XCTAssertContains(error["message"] as? String ?? "", "not supported")
+        }
+        let request = await generator.generationRequest
+        XCTAssertNil(request)
+    }
+
+    func testSupportedExplicitPNGAndNonStreamingControlsAreAccepted() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"prompt":"test","output_format":"png","response_format":"b64_json","stream":false}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertNil(response.headers.first(name: "X-AFM-Compatibility"))
+        }
+    }
+
+    func testStreamingRequestIsRejectedAsNonRetryableClientError() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"prompt":"test","stream":true}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unsupported_parameter")
+            XCTAssertEqual(error["param"] as? String, "stream")
+        }
+    }
+
+    func testWrongGenerationContentTypeReturns415OpenAIError() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .plainText
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: ByteBuffer(string: "test")
+        ) { response async in
+            XCTAssertEqual(response.status, .unsupportedMediaType)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unsupported_media_type")
+        }
+    }
+
+    func testUnknownGenerationParameterIsNotSilentlyIgnored() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"prompt":"test","qualitty":"high"}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unknown_parameter")
+            XCTAssertEqual(error["param"] as? String, "qualitty")
+        }
+    }
+
+    func testUnsupportedMethodReturns405WithAllowHeader() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .GET, "/v1/images/generations"
+        ) { response async in
+            XCTAssertEqual(response.status, .methodNotAllowed)
+            XCTAssertEqual(response.headers.first(name: "Allow"), "POST, OPTIONS")
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "method_not_allowed")
+        }
+    }
+
+    func testStandardCountBeyondLocalLimitIsUnsupportedRatherThanInvalid() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"prompt":"test","n":5}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/generations", headers: headers, body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unsupported_parameter")
+            XCTAssertEqual(error["param"] as? String, "n")
+        }
+    }
+
+    func testUnsupportedEditMaskReturnsParameterSpecificOpenAIError() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        let boundary = "afm-image-mask-boundary"
+        let png = Data([0x89, 0x50, 0x4e, 0x47])
+        var body = Data()
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nedit it\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"image\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
+        body.append(png)
+        body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"mask\"; filename=\"mask.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
+        body.append(png)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var headers = HTTPHeaders()
+        headers.contentType = HTTPMediaType(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/edits", headers: headers, body: ByteBuffer(data: body)
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unsupported_parameter")
+            XCTAssertEqual(error["param"] as? String, "mask")
+        }
+    }
+
+    func testEditImageArraySyntaxIsRecognizedAndRejectedExplicitly() async throws {
+        let generator = FakeImageGenerator()
+        try ImagesAPIController(generator: generator).boot(routes: app)
+        let boundary = "afm-image-array-boundary"
+        var body = Data()
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nedit it\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"image.png\"\r\nContent-Type: image/png\r\n\r\nPNG\r\n--\(boundary)--\r\n".utf8))
+        var headers = HTTPHeaders()
+        headers.contentType = HTTPMediaType(type: "multipart", subType: "form-data", parameters: ["boundary": boundary])
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/images/edits", headers: headers, body: ByteBuffer(data: body)
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            let error = try! XCTUnwrap(Self.errorDetail(response.body))
+            XCTAssertEqual(error["code"] as? String, "unsupported_parameter")
+            XCTAssertEqual(error["param"] as? String, "image")
+        }
+    }
+
+    private static func errorDetail(_ body: ByteBuffer) -> [String: Any]? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: body)) as? [String: Any] else {
+            return nil
+        }
+        return object["error"] as? [String: Any]
     }
 
     func testFluxKleinGenerationAndEditIntegration() async throws {
