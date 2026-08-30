@@ -73,6 +73,7 @@ struct OpenAPIController: RouteCollection {
         { "name": "embeddings", "description": "Text embeddings" },
         { "name": "audio", "description": "Speech transcription and synthesis" },
         { "name": "vision", "description": "Apple Vision OCR" },
+        { "name": "images", "description": "FLUX.2 Klein image generation and editing" },
         { "name": "batch", "description": "Batch completions API" },
         { "name": "tokenize", "description": "Tokenizer access for context-budgeting" },
         { "name": "models", "description": "Model discovery" },
@@ -214,6 +215,33 @@ struct OpenAPIController: RouteCollection {
               "model": { "type": "string" },
               "choices": { "type": "array" },
               "usage": { "type": "object" }
+            }
+          },
+          "ImageGenerationRequest": {
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+              "model": { "type": "string", "description": "Accepted for OpenAI client compatibility; AFM routes image requests to its configured FLUX model." },
+              "prompt": { "type": "string" },
+              "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 },
+              "size": { "type": "string", "description": "auto or WIDTHxHEIGHT from 64 through 2048." },
+              "response_format": { "type": "string", "const": "b64_json" },
+              "seed": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "ImagesResponse": {
+            "type": "object",
+            "required": ["created", "data"],
+            "properties": {
+              "created": { "type": "integer" },
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["b64_json"],
+                  "properties": { "b64_json": { "type": "string", "contentEncoding": "base64" } }
+                }
+              }
             }
           },
           "OpenAIError": {
@@ -366,6 +394,41 @@ struct OpenAPIController: RouteCollection {
             "summary": "Transcribe audio (Apple Speech)",
             "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object" } } } },
             "responses": { "200": { "description": "Transcription result" } }
+          }
+        },
+        "/v1/images/generations": {
+          "post": {
+            "tags": ["images"],
+            "summary": "Generate images with FLUX.2 Klein",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageGenerationRequest" } } } },
+            "responses": { "200": { "description": "Base64-encoded PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } } }
+          }
+        },
+        "/v1/images/edits": {
+          "post": {
+            "tags": ["images"],
+            "summary": "Edit an image with FLUX.2 Klein",
+            "requestBody": {
+              "required": true,
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "type": "object",
+                    "required": ["prompt", "image"],
+                    "properties": {
+                      "model": { "type": "string" },
+                      "prompt": { "type": "string" },
+                      "image": { "type": "string", "format": "binary" },
+                      "n": { "type": "integer", "minimum": 1, "maximum": 4 },
+                      "size": { "type": "string" },
+                      "response_format": { "type": "string", "const": "b64_json" },
+                      "seed": { "type": "integer", "minimum": 0 }
+                    }
+                  }
+                }
+              }
+            },
+            "responses": { "200": { "description": "Base64-encoded edited PNG images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } } } }
           }
         },
         "/v1/audio/speech": {

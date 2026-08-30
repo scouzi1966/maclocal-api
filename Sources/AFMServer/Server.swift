@@ -1,6 +1,7 @@
 import Vapor
 import AFMKit
 import AFMKitMLX
+import AFMKitMLXImage
 import Foundation
 import Compression
 import Darwin
@@ -355,6 +356,28 @@ public class Server: @unchecked Sendable {
         if #available(macOS 13.0, *) { return true }
         return false
     }()
+
+    private static func imageModelCacheDirectory() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment["MACAFM_MLX_MODEL_CACHE"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        if let path = environment["HUGGINGFACE_HUB_CACHE"] ?? environment["HF_HUB_CACHE"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        if let path = environment["HF_HOME"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("hub", isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/huggingface/models", isDirectory: true)
+    }
+
+    private static func imageQuantization() -> FluxKleinQuantization {
+        guard let value = ProcessInfo.processInfo.environment["MACAFM_IMAGE_QUANT"]?.lowercased() else {
+            return .int4
+        }
+        return FluxKleinQuantization(rawValue: value) ?? .int4
+    }
 
     public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModel: AFMMLXModel? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
         self.port = port
@@ -910,6 +933,13 @@ public class Server: @unchecked Sendable {
 
         try app.register(collection: VisionAPIController())
         try app.register(collection: SpeechAPIController())
+        let imageService = FluxKleinImageService(configuration: FluxKleinImageConfiguration(
+            modelID: ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL"]
+                ?? "mlx-community/FLUX.2-klein-4B-bf16",
+            cacheDirectory: Self.imageModelCacheDirectory(),
+            quantization: Self.imageQuantization()
+        ))
+        try app.register(collection: ImagesAPIController(generator: imageService))
         // POST /v1/embeddings on the main server (#132). The Apple NL embedding
         // model is loaded lazily on first request (a chat-only server pays
         // nothing until used) and this path never triggers MLX init. It does NOT

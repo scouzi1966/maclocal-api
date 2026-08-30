@@ -94,6 +94,8 @@ struct TokenizeAndOpenAPITests {
             "/v1/embeddings",
             "/v1/audio/transcriptions",
             "/v1/audio/speech",
+            "/v1/images/generations",
+            "/v1/images/edits",
             "/v1/ocr",
             "/v1/batch/completions",
             "/v1/files",

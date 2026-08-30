@@ -231,6 +231,7 @@ let package = Package(
             dependencies: [
                 "AFMKit",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitMLXImage", package: "AFMKit"),
                 .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Vapor", package: "vapor")
             ],
@@ -356,6 +357,7 @@ let package = Package(
                 "AFMTerminalUI",
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitMLXImage", package: "AFMKit"),
                 .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),
