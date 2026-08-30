@@ -75,9 +75,7 @@ struct MessagesController: RouteCollection {
                   ["user", "assistant"].contains(role) else {
                 throw Abort(.badRequest, reason: "messages must contain user or assistant turns")
             }
-            messages.append(.object([
-                "role": .string(role), "content": .string(text(from: message["content"] ?? .null))
-            ]))
+            messages.append(contentsOf: try chatMessages(from: message, role: role))
         }
         var request: [String: ResponsesJSON] = [
             "model": object["model"] ?? .string(defaultModel), "messages": .array(messages),
@@ -86,7 +84,94 @@ struct MessagesController: RouteCollection {
         for key in ["temperature", "top_p", "top_k", "stop_sequences"] {
             if let value = object[key] { request[key == "stop_sequences" ? "stop" : key] = value }
         }
+        if let tools = object["tools"]?.arrayValue {
+            request["tools"] = .array(tools.compactMap { tool in
+                guard let tool = tool.objectValue, let name = tool["name"] else { return nil }
+                return .object([
+                    "type": .string("function"),
+                    "function": .object([
+                        "name": name,
+                        "description": tool["description"] ?? .null,
+                        "parameters": tool["input_schema"] ?? .object([:])
+                    ])
+                ])
+            })
+        }
+        if let choice = object["tool_choice"] {
+            request["tool_choice"] = chatToolChoice(choice)
+        }
         return .object(request)
+    }
+
+    /// Converts Message blocks without discarding tool or image semantics.
+    static func chatMessages(from message: [String: ResponsesJSON], role: String) throws -> [ResponsesJSON] {
+        let content = message["content"] ?? .null
+        guard let blocks = content.arrayValue else {
+            return [.object(["role": .string(role), "content": content])]
+        }
+        var textParts: [ResponsesJSON] = []
+        var toolCalls: [ResponsesJSON] = []
+        var toolResults: [ResponsesJSON] = []
+        for block in blocks {
+            guard let block = block.objectValue else { continue }
+            switch block["type"]?.stringValue {
+            case "text", "thinking":
+                let value = block["text"] ?? block["thinking"] ?? .string("")
+                textParts.append(.object(["type": .string("text"), "text": value]))
+            case "image":
+                if let image = chatImagePart(block) { textParts.append(image) }
+            case "tool_use":
+                let input = block["input"] ?? .object([:])
+                let arguments = String(decoding: try JSONEncoder().encode(input), as: UTF8.self)
+                toolCalls.append(.object([
+                    "id": block["id"] ?? .string("call_\(UUID().uuidString.lowercased().prefix(12))"),
+                    "type": .string("function"),
+                    "function": .object(["name": block["name"] ?? .string(""), "arguments": .string(arguments)])
+                ]))
+            case "tool_result":
+                toolResults.append(.object([
+                    "role": .string("tool"),
+                    "tool_call_id": block["tool_use_id"] ?? .string(""),
+                    "content": .string(text(from: block["content"] ?? .null))
+                ]))
+            default:
+                continue
+            }
+        }
+        var result: [ResponsesJSON] = []
+        if !textParts.isEmpty || (toolCalls.isEmpty && toolResults.isEmpty) {
+            let translated: ResponsesJSON = textParts.count == 1 && textParts[0]["type"]?.stringValue == "text"
+                ? textParts[0]["text"] ?? .string("") : .array(textParts)
+            result.append(.object(["role": .string(role), "content": translated]))
+        }
+        if !toolCalls.isEmpty {
+            result.append(.object(["role": .string("assistant"), "content": .null, "tool_calls": .array(toolCalls)]))
+        }
+        result.append(contentsOf: toolResults)
+        return result
+    }
+
+    static func chatImagePart(_ block: [String: ResponsesJSON]) -> ResponsesJSON? {
+        guard let source = block["source"]?.objectValue else { return nil }
+        if source["type"]?.stringValue == "base64", let data = source["data"]?.stringValue {
+            let mediaType = source["media_type"]?.stringValue ?? "image/png"
+            return .object(["type": .string("image_url"), "image_url": .object(["url": .string("data:\(mediaType);base64,\(data)")])])
+        }
+        if source["type"]?.stringValue == "url", let url = source["url"] {
+            return .object(["type": .string("image_url"), "image_url": .object(["url": url])])
+        }
+        return nil
+    }
+
+    static func chatToolChoice(_ choice: ResponsesJSON) -> ResponsesJSON {
+        guard let object = choice.objectValue else { return choice }
+        switch object["type"]?.stringValue {
+        case "any": return .string("required")
+        case "tool":
+            return .object(["type": .string("function"), "function": .object(["name": object["name"] ?? .string("")])])
+        case "auto", "none": return object["type"] ?? .string("auto")
+        default: return choice
+        }
     }
 
     static func makeMessage(chat: ResponsesJSON, request: [String: ResponsesJSON], defaultModel: String) throws -> ResponsesJSON {
@@ -101,7 +186,22 @@ struct MessagesController: RouteCollection {
         if thinkingEnabled, let reasoning, !reasoning.isEmpty {
             content.append(.object(["type": .string("thinking"), "thinking": .string(reasoning)]))
         }
-        content.append(.object(["type": .string("text"), "text": .string(visibleText)]))
+        if !visibleText.isEmpty || output["tool_calls"] == nil {
+            content.append(.object(["type": .string("text"), "text": .string(visibleText)]))
+        }
+        if let calls = output["tool_calls"]?.arrayValue {
+            for call in calls {
+                guard let call = call.objectValue, let function = call["function"]?.objectValue else { continue }
+                let rawInput = function["arguments"]?.stringValue ?? "{}"
+                let input = (try? JSONDecoder().decode(ResponsesJSON.self, from: Data(rawInput.utf8))) ?? .object([:])
+                content.append(.object([
+                    "type": .string("tool_use"),
+                    "id": call["id"] ?? .string("toolu_\(UUID().uuidString.lowercased().prefix(12))"),
+                    "name": function["name"] ?? .string(""),
+                    "input": input
+                ]))
+            }
+        }
         let finish = choice["finish_reason"]?.stringValue ?? "stop"
         let stops = request["stop_sequences"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let matchedStop = stops.first(where: { visibleText.contains($0) })
@@ -126,10 +226,22 @@ struct MessagesController: RouteCollection {
         var events: [ResponsesJSON] = [.object(["type": .string("message_start"), "message": message])]
         for (index, block) in content.enumerated() {
             let type = block["type"]?.stringValue ?? "text"
-            let field = type == "thinking" ? "thinking" : "text"
+            let field = type == "thinking" ? "thinking" : type == "tool_use" ? "input" : "text"
             let value = block[field]?.stringValue ?? ""
-            events.append(.object(["type": .string("content_block_start"), "index": .number(Double(index)), "content_block": .object(["type": .string(type), field: .string("")])]))
-            if !value.isEmpty {
+            var start: [String: ResponsesJSON] = ["type": .string(type)]
+            if type == "tool_use" {
+                start["id"] = block["id"] ?? .string("")
+                start["name"] = block["name"] ?? .string("")
+                start["input"] = .object([:])
+            } else {
+                start[field] = .string("")
+            }
+            events.append(.object(["type": .string("content_block_start"), "index": .number(Double(index)), "content_block": .object(start)]))
+            if type == "tool_use" {
+                let input = block["input"] ?? .object([:])
+                let partial = (try? String(decoding: JSONEncoder().encode(input), as: UTF8.self)) ?? "{}"
+                events.append(.object(["type": .string("content_block_delta"), "index": .number(Double(index)), "delta": .object(["type": .string("input_json_delta"), "partial_json": .string(partial)])]))
+            } else if !value.isEmpty {
                 events.append(.object(["type": .string("content_block_delta"), "index": .number(Double(index)), "delta": .object(["type": .string(type == "thinking" ? "thinking_delta" : "text_delta"), field: .string(value)])]))
             }
             events.append(.object(["type": .string("content_block_stop"), "index": .number(Double(index))]))

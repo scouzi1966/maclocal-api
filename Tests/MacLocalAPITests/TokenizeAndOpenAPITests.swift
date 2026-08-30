@@ -118,6 +118,53 @@ struct TokenizeAndOpenAPITests {
         #expect(types.contains("content_block_stop"))
     }
 
+    @Test("Messages adapter translates Anthropic tools, tool history, and base64 images")
+    func messagesAdapterToolAndVisionTranslation() throws {
+        let request = try MessagesController.makeChatRequest(
+            object: [
+                "tools": .array([.object([
+                    "name": .string("weather"), "description": .string("Forecast"),
+                    "input_schema": .object(["type": .string("object")])
+                ])]),
+                "tool_choice": .object(["type": .string("tool"), "name": .string("weather")])
+            ],
+            sourceMessages: [
+                .object(["role": .string("assistant"), "content": .array([.object([
+                    "type": .string("tool_use"), "id": .string("call_1"), "name": .string("weather"),
+                    "input": .object(["city": .string("Toronto")])
+                ])])]),
+                .object(["role": .string("user"), "content": .array([
+                    .object(["type": .string("tool_result"), "tool_use_id": .string("call_1"), "content": .string("sunny")]),
+                    .object(["type": .string("image"), "source": .object([
+                        "type": .string("base64"), "media_type": .string("image/png"), "data": .string("AAAA")
+                    ])])
+                ])])
+            ],
+            maxTokens: 12,
+            defaultModel: "test-model"
+        )
+        #expect(request["tools"]?.arrayValue?.first?["function"]?["parameters"]?["type"]?.stringValue == "object")
+        #expect(request["tool_choice"]?["function"]?["name"]?.stringValue == "weather")
+        let messages = request["messages"]?.arrayValue ?? []
+        #expect(messages.contains { $0["tool_calls"]?.arrayValue?.first?["id"]?.stringValue == "call_1" })
+        #expect(messages.contains { $0["role"]?.stringValue == "tool" && $0["tool_call_id"]?.stringValue == "call_1" })
+        #expect(messages.contains { $0["content"]?.arrayValue?.contains { $0["image_url"]?["url"]?.stringValue == "data:image/png;base64,AAAA" } == true })
+
+        let response = try MessagesController.makeMessage(
+            chat: .object(["choices": .array([.object([
+                "finish_reason": .string("tool_calls"), "message": .object(["tool_calls": .array([.object([
+                    "id": .string("call_2"), "function": .object(["name": .string("weather"), "arguments": .string(#"{"city":"Toronto"}"#)])
+                ])])])
+            ])])]),
+            request: [:], defaultModel: "test-model"
+        )
+        #expect(response["stop_reason"]?.stringValue == "tool_use")
+        #expect(response["content"]?.arrayValue?.first?["type"]?.stringValue == "tool_use")
+        let events = MessagesController.streamingEvents(for: response)
+        #expect(events.contains { $0["content_block"]?["type"]?.stringValue == "tool_use" })
+        #expect(events.contains { $0["delta"]?["type"]?.stringValue == "input_json_delta" })
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - T1.7 — OpenAPI spec integrity
     // ═══════════════════════════════════════════════════════════════════
