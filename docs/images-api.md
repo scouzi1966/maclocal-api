@@ -117,3 +117,20 @@ correlated OpenAI-shaped HTTP 500.
 
 The current endpoint returns PNG data through `b64_json`. URL-hosted output,
 streaming partial images, masks, and variations are not implemented.
+
+## Testing
+
+The normal unit suite exercises the Images HTTP contract with a lightweight
+fake provider. The real generation-and-edit smoke test is opt-in because it
+loads the 23.7 GB FLUX snapshot:
+
+```bash
+AFM_RUN_FLUX_INTEGRATION=1 \
+MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache \
+  ./Scripts/test-assertions.sh --tier unit
+```
+
+`AFM_RUN_FLUX_INTEGRATION=1` enables only this expensive test. It is not
+required to start AFM or use `/v1/images/generations` and `/v1/images/edits`.
+Without it, the harness reports the real-model test as skipped while continuing
+to run all controller and OpenAPI contract tests.

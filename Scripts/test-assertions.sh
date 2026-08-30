@@ -12,6 +12,11 @@
 #   MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
 #     .build/release/afm mlx -m mlx-community/Qwen3-0.6B-4bit -p 9998 &
 #   ./Scripts/test-assertions.sh --tier smoke --model mlx-community/Qwen3-0.6B-4bit --port 9998
+#
+# Real FLUX integration smoke test (loads the 23.7 GB image model):
+#   AFM_RUN_FLUX_INTEGRATION=1 \
+#   MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache \
+#     ./Scripts/test-assertions.sh --tier unit
 
 set -euo pipefail
 
@@ -35,6 +40,33 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
 REQUEST_TIMEOUT="${AFM_ASSERTIONS_REQUEST_TIMEOUT:-60}"
 
+usage() {
+  cat <<'EOF'
+Usage: ./Scripts/test-assertions.sh [options]
+
+Options:
+  --tier unit|smoke|standard|full
+  --model MODEL
+  --port PORT
+  --bin BIN
+  --section SECTION
+  --grammar-constraints
+  --help
+
+Optional real FLUX image integration test:
+  AFM_RUN_FLUX_INTEGRATION=1 enables the generation-and-edit smoke test that
+  loads the 23.7 GB FLUX model. This variable enables only the expensive test;
+  it is not required for normal /v1/images API operation.
+
+  Set MACAFM_MLX_MODEL_CACHE to the cache containing
+  mlx-community/FLUX.2-klein-4B-bf16, then run:
+
+    AFM_RUN_FLUX_INTEGRATION=1 \
+    MACAFM_MLX_MODEL_CACHE=/Volumes/Crucial4TB/models/vesta-test-cache \
+      ./Scripts/test-assertions.sh --tier unit
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --tier) TIER="$2"; shift 2 ;;
@@ -43,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --bin) BIN="$2"; shift 2 ;;
     --section) SECTION="$2"; shift 2 ;;
     --grammar-constraints) GRAMMAR_CONSTRAINTS=true; shift ;;
+    --help|-h) usage; exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done

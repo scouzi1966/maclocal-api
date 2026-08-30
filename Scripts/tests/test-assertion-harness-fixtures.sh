@@ -14,6 +14,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+help_output="$($ROOT_DIR/Scripts/test-assertions.sh --help)"
+grep -q "AFM_RUN_FLUX_INTEGRATION=1" <<<"$help_output" || {
+    echo "assertion harness help does not document the FLUX integration opt-in" >&2
+    exit 1
+}
+grep -q "not required for normal /v1/images API operation" <<<"$help_output" || {
+    echo "assertion harness help does not distinguish the test flag from runtime enablement" >&2
+    exit 1
+}
+
 python3 - "$ROOT_DIR/Scripts/test-assertions.sh" <<'PY'
 import json
 import re
