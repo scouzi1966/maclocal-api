@@ -89,7 +89,8 @@ struct TokenizeAndOpenAPITests {
         let request = try MessagesController.makeChatRequest(
             object: [
                 "system": .array([.object(["type": .string("text"), "text": .string("Be concise.")])]),
-                "stop_sequences": .array([.string("END")])
+                "stop_sequences": .array([.string("END")]),
+                "thinking": .object(["type": .string("enabled"), "budget_tokens": .number(256)])
             ],
             sourceMessages: [.object([
                 "role": .string("user"),
@@ -101,10 +102,12 @@ struct TokenizeAndOpenAPITests {
         #expect(request["messages"]?.arrayValue?.count == 2)
         #expect(request["messages"]?.arrayValue?[1]["content"]?.stringValue == "Say hi")
         #expect(request["stop"]?.arrayValue?.first?.stringValue == "END")
+        #expect(request["reasoning_effort"]?.stringValue == "low")
 
         let message = try MessagesController.makeMessage(
             chat: .object([
                 "model": .string("test-model"),
+                "_afm_matched_stop": .string("END"),
                 "choices": .array([.object(["finish_reason": .string("stop"), "message": .object(["content": .string("hello")])])]),
                 "usage": .object(["prompt_tokens": .number(3), "completion_tokens": .number(1)])
             ]),
@@ -112,6 +115,8 @@ struct TokenizeAndOpenAPITests {
             defaultModel: "test-model"
         )
         let types = MessagesController.streamingEvents(for: message).compactMap { $0["type"]?.stringValue }
+        #expect(message["stop_reason"]?.stringValue == "stop_sequence")
+        #expect(message["stop_sequence"]?.stringValue == "END")
         #expect(types.first == "message_start")
         #expect(types.last == "message_stop")
         #expect(types.contains("content_block_start"))

@@ -48,6 +48,7 @@ struct MessagesController: RouteCollection {
         var headers = request.headers
         headers.contentType = .json
         headers.replaceOrAdd(name: .contentLength, value: String(encodedBody.count))
+        headers.replaceOrAdd(name: "X-AFM-Report-Matched-Stop", value: "1")
         let chatRequest = Request(
             application: request.application, method: .POST, url: URI(path: "/v1/chat/completions"),
             version: request.version, headersNoUpdate: headers, collectedBody: buffer,
@@ -58,7 +59,15 @@ struct MessagesController: RouteCollection {
         guard let output = try await response.body.collect(on: chatRequest.eventLoop).get() else {
             throw Abort(.internalServerError, reason: "chat backend returned an empty response")
         }
-        return try JSONDecoder().decode(ResponsesJSON.self, from: Data(buffer: output))
+        let decoded = try JSONDecoder().decode(ResponsesJSON.self, from: Data(buffer: output))
+        guard let encodedStop = response.headers.first(name: "X-AFM-Matched-Stop-Base64"),
+              let stopData = Data(base64Encoded: encodedStop),
+              let stop = String(data: stopData, encoding: .utf8),
+              var object = decoded.objectValue else {
+            return decoded
+        }
+        object["_afm_matched_stop"] = .string(stop)
+        return .object(object)
     }
 
     static func makeChatRequest(object: [String: ResponsesJSON], sourceMessages: [ResponsesJSON], maxTokens: Int, defaultModel: String) throws -> ResponsesJSON {
@@ -83,6 +92,9 @@ struct MessagesController: RouteCollection {
         ]
         for key in ["temperature", "top_p", "top_k", "stop_sequences"] {
             if let value = object[key] { request[key == "stop_sequences" ? "stop" : key] = value }
+        }
+        if object["thinking"]?["type"]?.stringValue == "enabled" {
+            request["reasoning_effort"] = .string("low")
         }
         if let tools = object["tools"]?.arrayValue {
             request["tools"] = .array(tools.compactMap { tool in
@@ -204,7 +216,8 @@ struct MessagesController: RouteCollection {
         }
         let finish = choice["finish_reason"]?.stringValue ?? "stop"
         let stops = request["stop_sequences"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        let matchedStop = stops.first(where: { visibleText.contains($0) })
+        let matchedStop = chat["_afm_matched_stop"]?.stringValue
+            ?? stops.first(where: { visibleText.contains($0) })
         let reason = matchedStop != nil ? "stop_sequence" : finish == "length" ? "max_tokens" : finish == "tool_calls" ? "tool_use" : "end_turn"
         let usage = chat["usage"]?.objectValue ?? [:]
         return .object([

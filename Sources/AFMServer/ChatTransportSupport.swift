@@ -209,6 +209,7 @@ struct ChatRateLimitMiddleware: AsyncMiddleware {
         guard request.method == .POST else { return false }
         return request.url.path == "/v1/chat/completions"
             || request.url.path == "/v1/responses"
+            || request.url.path == "/v1/messages"
     }
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {

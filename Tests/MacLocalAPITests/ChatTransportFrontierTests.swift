@@ -6,6 +6,32 @@ import AFMKit
 @testable import AFMServer
 
 final class ChatTransportFrontierTests: XCTestCase {
+    func testMatchedStopSequenceReportsOnlyKnownIdentity() {
+        XCTAssertEqual(
+            MLXChatCompletionsController.matchedStopSequence(
+                in: "alpha beta gamma",
+                stopSequences: ["gamma", "beta"],
+                stoppedBySequence: false
+            ),
+            "beta"
+        )
+        XCTAssertEqual(
+            MLXChatCompletionsController.matchedStopSequence(
+                in: "alpha",
+                stopSequences: ["beta"],
+                stoppedBySequence: true
+            ),
+            "beta"
+        )
+        XCTAssertNil(
+            MLXChatCompletionsController.matchedStopSequence(
+                in: "alpha",
+                stopSequences: ["beta", "gamma"],
+                stoppedBySequence: true
+            )
+        )
+    }
+
     func testSharedChoiceFanoutInvokesHandlerOncePerChoice() async throws {
         let app = try await Application.make(.testing)
         let body = ByteBuffer(string: #"{"model":"foundation","n":3,"stream":false,"messages":[{"role":"user","content":"Hi"}]}"#)
@@ -128,17 +154,21 @@ final class ChatTransportFrontierTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
-    func testRateLimitMiddlewareCoversResponsesButNotReadOnlyRoutes() async throws {
+    func testRateLimitMiddlewareCoversChatShapedRoutesButNotReadOnlyRoutes() async throws {
         let app = try await Application.make(.testing)
         app.middleware.use(ChatRateLimitMiddleware(configuration: .init(
             requestLimit: 2,
             windowSeconds: 60
         )))
         app.post("v1", "responses") { _ in Response(status: .ok) }
+        app.post("v1", "messages") { _ in Response(status: .ok) }
         app.get("v1", "models") { _ in Response(status: .ok) }
 
         try await app.testable(method: .running(port: 0)).test(.POST, "/v1/responses") { response async in
             XCTAssertEqual(response.headers.first(name: "X-RateLimit-Remaining-Requests"), "1")
+        }
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/messages") { response async in
+            XCTAssertEqual(response.headers.first(name: "X-RateLimit-Remaining-Requests"), "0")
         }
         try await app.testable(method: .running(port: 0)).test(.GET, "/v1/models") { response async in
             XCTAssertNil(response.headers.first(name: "X-RateLimit-Limit-Requests"))
