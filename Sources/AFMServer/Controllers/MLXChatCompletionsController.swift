@@ -260,19 +260,40 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     func chatCompletions(req: Request) async throws -> Response {
-        if let choiceCount = requestedChatChoiceCount(req), choiceCount != 1 {
-            telemetry.recordRejection(.validation)
-            return try await createErrorResponse(
-                req: req,
-                error: OpenAIError(
-                    message: "This server supports exactly one completion choice per request (n must be 1).",
-                    type: "invalid_request_error",
-                    code: "unsupported_n",
-                    param: "n",
-                    requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
-                ),
-                status: .badRequest
-            )
+        if let choiceCount = requestedChatChoiceCount(req) {
+            guard (1...128).contains(choiceCount) else {
+                telemetry.recordRejection(.validation)
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: "n must be between 1 and 128.",
+                        type: "invalid_request_error",
+                        code: "invalid_n",
+                        param: "n",
+                        requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                    ),
+                    status: .badRequest
+                )
+            }
+            if choiceCount > 1 {
+                guard !requestedChatStreaming(req) else {
+                    telemetry.recordRejection(.validation)
+                    return try await createErrorResponse(
+                        req: req,
+                        error: OpenAIError(
+                            message: "Streaming multiple choices is not supported; set stream to false when n is greater than 1.",
+                            type: "invalid_request_error",
+                            code: "unsupported_streaming_n",
+                            param: "n",
+                            requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                        ),
+                        status: .badRequest
+                    )
+                }
+                return try await generateChatChoices(request: req, count: choiceCount) { child in
+                    try await self.chatCompletions(req: child)
+                }
+            }
         }
         // RequestIDMiddleware sets this; controller piggybacks for log correlation. (T1.1)
         let reqId = req.afmRequestID

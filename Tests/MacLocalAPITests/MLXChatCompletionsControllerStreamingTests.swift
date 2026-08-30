@@ -28,6 +28,74 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertEqual(filter.flush(), "")
     }
 
+    func testNonStreamingNProducesExactlyNGeneratedChoices() async throws {
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: "Neon Badgers",
+                promptTokens: 4,
+                completionTokens: 2,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.02,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = ByteBuffer(string: #"{"model":"test-model","n":2,"stream":false,"messages":[{"role":"user","content":"Invent a band name."}]}"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            let object = try? JSONSerialization.jsonObject(
+                with: Data(buffer: response.body)
+            ) as? [String: Any]
+            let choices = object?["choices"] as? [[String: Any]]
+            XCTAssertEqual(choices?.count, 2)
+            XCTAssertEqual(choices?.compactMap { $0["index"] as? Int }, [0, 1])
+            let usage = object?["usage"] as? [String: Any]
+            XCTAssertEqual(usage?["prompt_tokens"] as? Int, 8)
+            XCTAssertEqual(usage?["completion_tokens"] as? Int, 4)
+        }
+        XCTAssertEqual(service.generateCount, 2)
+    }
+
+    func testStreamingNIsRejectedExplicitly() async throws {
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = ByteBuffer(string: #"{"model":"test-model","n":2,"stream":true,"messages":[{"role":"user","content":"Hi"}]}"#)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .badRequest)
+            XCTAssertContains(response.body.string, "unsupported_streaming_n")
+        }
+        XCTAssertEqual(service.generateCount, 0)
+    }
+
     func testStreamingStopFilterFlushesUnmatchedPartialDelimiter() {
         var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
 
@@ -1687,11 +1755,13 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
     private var _mediaPreflightCount = 0
     private var _withPreflightedMediaCount = 0
     private var _releaseSlotCount = 0
+    private var _generateCount = 0
     private var _recordedIgnoreEndOfSequence: [Bool] = []
     private(set) var recordedGenerateMediaPartCounts: [Int] = []
     var mediaPreflightCount: Int { stateLock.withLock { _mediaPreflightCount } }
     var withPreflightedMediaCount: Int { stateLock.withLock { _withPreflightedMediaCount } }
     var releaseSlotCount: Int { stateLock.withLock { _releaseSlotCount } }
+    var generateCount: Int { stateLock.withLock { _generateCount } }
     var recordedIgnoreEndOfSequence: [Bool] { stateLock.withLock { _recordedIgnoreEndOfSequence } }
 
     init(
@@ -1854,7 +1924,10 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         responseFormat: ResponseFormat?,
         chatTemplateKwargs: [String: AnyCodable]?
     ) async throws -> AFMChatGenerationResult {
-        stateLock.withLock { _recordedIgnoreEndOfSequence.append(AFMGenerationContext.ignoreEndOfSequence) }
+        stateLock.withLock {
+            _generateCount += 1
+            _recordedIgnoreEndOfSequence.append(AFMGenerationContext.ignoreEndOfSequence)
+        }
         recordGenerateTools(tools)
         if let generateProbe {
             try await generateProbe.suspendUntilCancelled()
