@@ -109,6 +109,43 @@ final class ResponsesControllerTests: XCTestCase {
         XCTAssertEqual(messages[2]["content"] as? String, "What is my name?")
     }
 
+    func testStoreFalseResponseCannotBeRetrieved() async throws {
+        try register(content: "not retained")
+
+        var responseID = ""
+        try await post(#"{"input":"private request","store":false}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+            responseID = try XCTUnwrap(Self.json(response.body.string)["id"] as? String)
+        }
+
+        try await app.testable(method: .running(port: 0)).test(
+            .GET,
+            "/v1/responses/\(responseID)"
+        ) { response async in
+            XCTAssertEqual(response.status, .notFound)
+        }
+    }
+
+    func testPreviousResponseDoesNotCarryPriorInstructions() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "answer")
+
+        var firstID = ""
+        try await post(#"{"input":"first","instructions":"old instruction"}"#) { response in
+            firstID = try XCTUnwrap(Self.json(response.body.string)["id"] as? String)
+        }
+        try await post(#"{"input":"second","instructions":"new instruction","previous_response_id":"\#(firstID)"}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+
+        let requests = (await recorder.all()).map(\.foundationObject)
+        let messages = try XCTUnwrap(requests.last?["messages"] as? [[String: Any]])
+        let systemMessages = messages.filter { ($0["role"] as? String) == "system" }
+        XCTAssertEqual(systemMessages.count, 1)
+        XCTAssertEqual(systemMessages.first?["content"] as? String, "new instruction")
+        XCTAssertFalse(messages.contains { ($0["content"] as? String) == "old instruction" })
+    }
+
     func testBackgroundResponseReturnsInProgressImmediately() async throws {
         try register(content: "hi")
         try await post(#"{"input":"Say hi.","background":true}"#) { response in

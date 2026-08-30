@@ -152,9 +152,18 @@ struct ResponsesController: RouteCollection {
         }
 
         let newMessages = try Self.translateInput(body)
-        let messages = priorMessages + newMessages
+        let conversationMessages = priorMessages + newMessages
+        var messages = conversationMessages
+        if let instructions = body["instructions"]?.stringValue, !instructions.isEmpty {
+            messages.insert(.object(["role": .string("system"), "content": .string(instructions)]), at: 0)
+        }
         let chatBody = try Self.makeChatBody(body, model: model, messages: messages)
         let background = body["background"]?.boolValue ?? false
+        let shouldStore = body["store"]?.boolValue ?? true
+
+        if background && !shouldStore {
+            throw Abort(.badRequest, reason: "background responses require store to be true")
+        }
 
         if background {
             let initial = Self.makeResource(
@@ -167,7 +176,7 @@ struct ResponsesController: RouteCollection {
                 usage: nil,
                 background: true
             )
-            await store.put(id: responseID, messages: messages, resource: initial)
+            await store.put(id: responseID, messages: conversationMessages, resource: initial)
 
             let handler = chatHandler
             let responseStore = store
@@ -185,7 +194,7 @@ struct ResponsesController: RouteCollection {
                     )
                     await responseStore.put(
                         id: responseID,
-                        messages: messages + completed.assistantMessages,
+                        messages: conversationMessages + completed.assistantMessages,
                         resource: completed.resource
                     )
                 } catch {
@@ -200,7 +209,7 @@ struct ResponsesController: RouteCollection {
                         background: true,
                         error: error.localizedDescription
                     )
-                    await responseStore.put(id: responseID, messages: messages, resource: failed)
+                    await responseStore.put(id: responseID, messages: conversationMessages, resource: failed)
                 }
             }
             return try encodeJSONResponse(initial, status: .accepted)
@@ -216,11 +225,13 @@ struct ResponsesController: RouteCollection {
             background: false,
             handler: chatHandler
         )
-        await store.put(
-            id: responseID,
-            messages: messages + completed.assistantMessages,
-            resource: completed.resource
-        )
+        if shouldStore {
+            await store.put(
+                id: responseID,
+                messages: conversationMessages + completed.assistantMessages,
+                resource: completed.resource
+            )
+        }
 
         if body["stream"]?.boolValue == true {
             return try Self.makeStreamingResponse(completed.resource)
@@ -295,10 +306,6 @@ struct ResponsesController: RouteCollection {
 
     private static func translateInput(_ body: [String: ResponsesJSON]) throws -> [ResponsesJSON] {
         var messages: [ResponsesJSON] = []
-        if let instructions = body["instructions"]?.stringValue, !instructions.isEmpty {
-            messages.append(.object(["role": .string("system"), "content": .string(instructions)]))
-        }
-
         guard let input = body["input"] else {
             throw Abort(.badRequest, reason: "input is required")
         }

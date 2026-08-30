@@ -75,7 +75,7 @@ struct TokenizeAndOpenAPITests {
           "system": [{"type":"text","text":"Be concise."}],
           "messages": [
             {"role":"user","content":"Hello"},
-            {"role":"assistant","content":[{"type":"thinking","text":"Plan"},{"type":"text","text":"Hi"}]}
+            {"role":"assistant","content":[{"type":"thinking","thinking":"Plan"},{"type":"text","text":"Hi"}]}
           ]
         }
         """#
@@ -114,13 +114,20 @@ struct TokenizeAndOpenAPITests {
             request: [:],
             defaultModel: "test-model"
         )
-        let types = MessagesController.streamingEvents(for: message).compactMap { $0["type"]?.stringValue }
+        let events = MessagesController.streamingEvents(for: message)
+        let types = events.compactMap { $0["type"]?.stringValue }
         #expect(message["stop_reason"]?.stringValue == "stop_sequence")
         #expect(message["stop_sequence"]?.stringValue == "END")
         #expect(types.first == "message_start")
         #expect(types.last == "message_stop")
         #expect(types.contains("content_block_start"))
         #expect(types.contains("content_block_stop"))
+        #expect(events.first?["message"]?["content"]?.arrayValue?.isEmpty == true)
+        #expect(events.first?["message"]?["stop_reason"] == .null)
+        #expect(events.first?["message"]?["usage"]?["output_tokens"]?.intValue == 0)
+        let delta = events.first { $0["type"]?.stringValue == "message_delta" }
+        #expect(delta?["usage"]?["input_tokens"] == nil)
+        #expect(delta?["usage"]?["output_tokens"]?.intValue == 1)
     }
 
     @Test("Messages adapter translates Anthropic tools, tool history, and base64 images")
@@ -134,10 +141,13 @@ struct TokenizeAndOpenAPITests {
                 "tool_choice": .object(["type": .string("tool"), "name": .string("weather")])
             ],
             sourceMessages: [
-                .object(["role": .string("assistant"), "content": .array([.object([
-                    "type": .string("tool_use"), "id": .string("call_1"), "name": .string("weather"),
-                    "input": .object(["city": .string("Toronto")])
-                ])])]),
+                .object(["role": .string("assistant"), "content": .array([
+                    .object(["type": .string("text"), "text": .string("Checking.")]),
+                    .object([
+                        "type": .string("tool_use"), "id": .string("call_1"), "name": .string("weather"),
+                        "input": .object(["city": .string("Toronto")])
+                    ])
+                ])]),
                 .object(["role": .string("user"), "content": .array([
                     .object(["type": .string("tool_result"), "tool_use_id": .string("call_1"), "content": .string("sunny")]),
                     .object(["type": .string("image"), "source": .object([
@@ -151,9 +161,11 @@ struct TokenizeAndOpenAPITests {
         #expect(request["tools"]?.arrayValue?.first?["function"]?["parameters"]?["type"]?.stringValue == "object")
         #expect(request["tool_choice"]?["function"]?["name"]?.stringValue == "weather")
         let messages = request["messages"]?.arrayValue ?? []
-        #expect(messages.contains { $0["tool_calls"]?.arrayValue?.first?["id"]?.stringValue == "call_1" })
-        #expect(messages.contains { $0["role"]?.stringValue == "tool" && $0["tool_call_id"]?.stringValue == "call_1" })
-        #expect(messages.contains { $0["content"]?.arrayValue?.contains { $0["image_url"]?["url"]?.stringValue == "data:image/png;base64,AAAA" } == true })
+        #expect(messages.map { $0["role"]?.stringValue } == ["assistant", "tool", "user"])
+        #expect(messages[0]["content"]?.stringValue == "Checking.")
+        #expect(messages[0]["tool_calls"]?.arrayValue?.first?["id"]?.stringValue == "call_1")
+        #expect(messages[1]["tool_call_id"]?.stringValue == "call_1")
+        #expect(messages[2]["content"]?.arrayValue?.contains { $0["image_url"]?["url"]?.stringValue == "data:image/png;base64,AAAA" } == true)
 
         let response = try MessagesController.makeMessage(
             chat: .object(["choices": .array([.object([
@@ -193,6 +205,21 @@ struct TokenizeAndOpenAPITests {
         #expect(messages.last?["role"]?.stringValue == "user")
         #expect(messages.last?["content"]?.stringValue?.contains("exact continuation") == true)
         #expect(messages.last?["content"]?.stringValue?.contains("The city is Par") == true)
+
+        let response = try MessagesController.makeMessage(
+            chat: .object([
+                "choices": .array([.object([
+                    "finish_reason": .string("stop"),
+                    "message": .object(["content": .string("is.")])
+                ])])
+            ]),
+            request: ["messages": .array([
+                .object(["role": .string("user"), "content": .string("Capital of France?")]),
+                .object(["role": .string("assistant"), "content": .string("Sure. The city is Par")])
+            ])],
+            defaultModel: "test-model"
+        )
+        #expect(response["content"]?.arrayValue?.first?["text"]?.stringValue == "is.")
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -344,6 +371,31 @@ final class TokenizeControllerIntegrationTests: XCTestCase {
             XCTAssertEqual(response.status, .badRequest)
             XCTAssertContains(response.body.string, #""type":"error""#)
             XCTAssertContains(response.body.string, #""invalid_request_error""#)
+        }
+    }
+
+    func testMessagesPreservesChatBackendErrorStatusAndMessage() async throws {
+        try MessagesController(model: "test-model", chatHandler: { _ in
+            let response = Response(status: .serviceUnavailable)
+            response.headers.contentType = .json
+            response.body = .init(string: #"{"error":{"message":"model unavailable","type":"server_error"}}"#)
+            return response
+        }).boot(routes: app)
+
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        let body = ByteBuffer(string: #"{"model":"test-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}]}"#)
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/messages",
+            headers: headers,
+            body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .serviceUnavailable)
+            XCTAssertContains(response.body.string, "model unavailable")
+            XCTAssertContains(response.body.string, #""type":"error""#)
+            XCTAssertContains(response.body.string, #""type":"api_error""#)
         }
     }
 }

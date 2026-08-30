@@ -230,7 +230,7 @@ enum MessagesCountContent: Content {
         switch self {
         case .text(let value): return value
         case .blocks(let blocks):
-            return blocks.compactMap(\.text).joined(separator: "\n")
+            return blocks.compactMap(\.effectiveText).joined(separator: "\n")
         }
     }
 
@@ -255,6 +255,11 @@ enum MessagesCountContent: Content {
 struct MessagesCountBlock: Content {
     let type: String
     let text: String?
+    let thinking: String?
+
+    var effectiveText: String? {
+        text ?? thinking
+    }
 }
 
 // MARK: - Errors rendered in OpenAI shape

@@ -7,6 +7,10 @@ import Vapor
 struct MessagesController: RouteCollection {
     typealias ChatHandler = @Sendable (Request) async throws -> Response
 
+    private static let successfulStatusCodes: Range<UInt> = 200..<300
+    private static let serverErrorStatusCodes: Range<UInt> = 500..<600
+    private static let overloadedStatusCode: UInt = 529
+
     let model: String
     let chatHandler: ChatHandler
 
@@ -59,7 +63,17 @@ struct MessagesController: RouteCollection {
         guard let output = try await response.body.collect(on: chatRequest.eventLoop).get() else {
             throw Abort(.internalServerError, reason: "chat backend returned an empty response")
         }
-        let decoded = try JSONDecoder().decode(ResponsesJSON.self, from: Data(buffer: output))
+        let outputData = Data(buffer: output)
+        guard Self.successfulStatusCodes.contains(response.status.code) else {
+            let decoded = try? JSONDecoder().decode(ResponsesJSON.self, from: outputData)
+            let reason = decoded?["error"]?["message"]?.stringValue
+                ?? decoded?["detail"]?.stringValue
+                ?? "chat backend failed with status \(response.status.code)"
+            throw Abort(response.status, reason: reason)
+        }
+        guard let decoded = try? JSONDecoder().decode(ResponsesJSON.self, from: outputData) else {
+            throw Abort(.internalServerError, reason: "chat backend returned malformed JSON")
+        }
         guard let encodedStop = response.headers.first(name: "X-AFM-Matched-Stop-Base64"),
               let stopData = Data(base64Encoded: encodedStop),
               let stop = String(data: stopData, encoding: .utf8),
@@ -181,16 +195,18 @@ struct MessagesController: RouteCollection {
                 continue
             }
         }
-        var result: [ResponsesJSON] = []
-        if !textParts.isEmpty || (toolCalls.isEmpty && toolResults.isEmpty) {
-            let translated: ResponsesJSON = textParts.count == 1 && textParts[0]["type"]?.stringValue == "text"
-                ? textParts[0]["text"] ?? .string("") : .array(textParts)
-            result.append(.object(["role": .string(role), "content": translated]))
-        }
+        var result = toolResults
+        let translatedContent: ResponsesJSON = textParts.count == 1 && textParts[0]["type"]?.stringValue == "text"
+            ? textParts[0]["text"] ?? .string("") : .array(textParts)
         if !toolCalls.isEmpty {
-            result.append(.object(["role": .string("assistant"), "content": .null, "tool_calls": .array(toolCalls)]))
+            result.append(.object([
+                "role": .string("assistant"),
+                "content": textParts.isEmpty ? .null : translatedContent,
+                "tool_calls": .array(toolCalls)
+            ]))
+        } else if !textParts.isEmpty || toolResults.isEmpty {
+            result.append(.object(["role": .string(role), "content": translatedContent]))
         }
-        result.append(contentsOf: toolResults)
         return result
     }
 
@@ -267,7 +283,19 @@ struct MessagesController: RouteCollection {
 
     static func streamingEvents(for message: ResponsesJSON) -> [ResponsesJSON] {
         let content = message["content"]?.arrayValue ?? []
-        var events: [ResponsesJSON] = [.object(["type": .string("message_start"), "message": message])]
+        let finalUsage = message["usage"]?.objectValue ?? [:]
+        var initialMessage = message.objectValue ?? [:]
+        initialMessage["content"] = .array([])
+        initialMessage["stop_reason"] = .null
+        initialMessage["stop_sequence"] = .null
+        initialMessage["usage"] = .object([
+            "input_tokens": finalUsage["input_tokens"] ?? .number(0),
+            "output_tokens": .number(0)
+        ])
+        var events: [ResponsesJSON] = [.object([
+            "type": .string("message_start"),
+            "message": .object(initialMessage)
+        ])]
         for (index, block) in content.enumerated() {
             let type = block["type"]?.stringValue ?? "text"
             let field = type == "thinking" ? "thinking" : type == "tool_use" ? "input" : "text"
@@ -290,7 +318,14 @@ struct MessagesController: RouteCollection {
             }
             events.append(.object(["type": .string("content_block_stop"), "index": .number(Double(index))]))
         }
-        events.append(.object(["type": .string("message_delta"), "delta": .object(["stop_reason": message["stop_reason"] ?? .string("end_turn"), "stop_sequence": message["stop_sequence"] ?? .null]), "usage": message["usage"] ?? .object([:])]))
+        events.append(.object([
+            "type": .string("message_delta"),
+            "delta": .object([
+                "stop_reason": message["stop_reason"] ?? .string("end_turn"),
+                "stop_sequence": message["stop_sequence"] ?? .null
+            ]),
+            "usage": .object(["output_tokens": finalUsage["output_tokens"] ?? .number(0)])
+        ]))
         events.append(.object(["type": .string("message_stop")]))
         return events
     }
@@ -318,8 +353,18 @@ struct MessagesController: RouteCollection {
         let response = Response(status: status)
         response.headers.contentType = .json
         response.body = .init(data: try JSONEncoder().encode(.object([
-            "type": .string("error"), "error": .object(["type": .string("invalid_request_error"), "message": .string(message)])
+            "type": .string("error"), "error": .object([
+                "type": .string(errorType(for: status)),
+                "message": .string(message)
+            ])
         ]) as ResponsesJSON))
         return response
+    }
+
+    private static func errorType(for status: HTTPStatus) -> String {
+        if status.code == overloadedStatusCode { return "overloaded_error" }
+        if status == .tooManyRequests { return "rate_limit_error" }
+        if serverErrorStatusCodes.contains(status.code) { return "api_error" }
+        return "invalid_request_error"
     }
 }
