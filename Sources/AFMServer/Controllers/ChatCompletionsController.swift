@@ -55,11 +55,46 @@ struct ChatCompletionsController: RouteCollection {
     }
     
     func chatCompletions(req: Request) async throws -> Response {
+        if let choiceCount = requestedChatChoiceCount(req) {
+            guard (1...128).contains(choiceCount) else {
+                telemetry.recordRejection(.validation)
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: "n must be between 1 and 128.",
+                        type: "invalid_request_error",
+                        code: "invalid_n",
+                        param: "n",
+                        requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                    ),
+                    status: .badRequest
+                )
+            }
+            if choiceCount > 1 {
+                guard !requestedChatStreaming(req) else {
+                    telemetry.recordRejection(.validation)
+                    return try await createErrorResponse(
+                        req: req,
+                        error: OpenAIError(
+                            message: "Streaming multiple choices is not supported; set stream to false when n is greater than 1.",
+                            type: "invalid_request_error",
+                            code: "unsupported_streaming_n",
+                            param: "n",
+                            requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                        ),
+                        status: .badRequest
+                    )
+                }
+                return try await generateChatChoices(request: req, count: choiceCount) { child in
+                    try await self.chatCompletions(req: child)
+                }
+            }
+        }
         var fallbackModel = "foundation"
         var fallbackMessages: [Message] = []
         var fallbackMaxTokens = 2000
         do {
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            let chatRequest = try decodeChatCompletionRequest(req)
             fallbackModel = chatRequest.model ?? "foundation"
             fallbackMessages = chatRequest.messages
             fallbackMaxTokens = chatRequest.effectiveMaxTokens ?? 2000
@@ -947,6 +982,10 @@ struct ChatCompletionsController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let v1 = routes.grouped("v1")
         v1.on(.POST, "chat", "completions", body: .collect(maxSize: "100mb"), use: unavailable)
+    }
+
+    func chatCompletions(req: Request) async throws -> Response {
+        try await unavailable(req: req)
     }
 
     static func resolveStrictJsonSchema(
