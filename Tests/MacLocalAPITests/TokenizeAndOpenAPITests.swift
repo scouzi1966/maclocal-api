@@ -205,6 +205,7 @@ struct TokenizeAndOpenAPITests {
         #expect(messages.last?["role"]?.stringValue == "user")
         #expect(messages.last?["content"]?.stringValue?.contains("exact continuation") == true)
         #expect(messages.last?["content"]?.stringValue?.contains("The city is Par") == true)
+        #expect(request["chat_template_kwargs"]?["enable_thinking"]?.boolValue == false)
 
         let response = try MessagesController.makeMessage(
             chat: .object([
