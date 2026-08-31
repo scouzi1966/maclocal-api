@@ -260,6 +260,41 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     func chatCompletions(req: Request) async throws -> Response {
+        if let choiceCount = requestedChatChoiceCount(req) {
+            guard (1...128).contains(choiceCount) else {
+                telemetry.recordRejection(.validation)
+                return try await createErrorResponse(
+                    req: req,
+                    error: OpenAIError(
+                        message: "n must be between 1 and 128.",
+                        type: "invalid_request_error",
+                        code: "invalid_n",
+                        param: "n",
+                        requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                    ),
+                    status: .badRequest
+                )
+            }
+            if choiceCount > 1 {
+                guard !requestedChatStreaming(req) else {
+                    telemetry.recordRejection(.validation)
+                    return try await createErrorResponse(
+                        req: req,
+                        error: OpenAIError(
+                            message: "Streaming multiple choices is not supported; set stream to false when n is greater than 1.",
+                            type: "invalid_request_error",
+                            code: "unsupported_streaming_n",
+                            param: "n",
+                            requestId: req.afmRequestID.isEmpty ? nil : req.afmRequestID
+                        ),
+                        status: .badRequest
+                    )
+                }
+                return try await generateChatChoices(request: req, count: choiceCount) { child in
+                    try await self.chatCompletions(req: child)
+                }
+            }
+        }
         // RequestIDMiddleware sets this; controller piggybacks for log correlation. (T1.1)
         let reqId = req.afmRequestID
         let inflightRegistry = req.application.inflightRegistry
@@ -276,7 +311,7 @@ struct MLXChatCompletionsController: RouteCollection {
         var requestRegistered = requestRegistration != nil
         do {
             let httpArrival = Self.debugPipeline ? Date() : Date.distantPast
-            let chatRequest = try req.content.decode(ChatCompletionRequest.self)
+            let chatRequest = try decodeChatCompletionRequest(req)
             if veryVerbose {
                 print("\(Self.pink)[\(Self.timestamp())] RECV MLX full request:\n\(Self.redactedRequestJSON(chatRequest))\(Self.reset)"); fflush(stdout)
                 if let lastUser = chatRequest.messages.last(where: { $0.role == "user" }) {
@@ -765,7 +800,19 @@ struct MLXChatCompletionsController: RouteCollection {
                 await inflightRegistry.release(id: reqId, registration: requestRegistration)
                 requestRegistered = false
             }
-            return try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+            let success = try await createSuccessResponse(req: req, response: response, grammarDowngraded: grammarDowngraded)
+            if req.headers.first(name: "X-AFM-Report-Matched-Stop") == "1",
+               let matchedStop = Self.matchedStopSequence(
+                   in: result.content,
+                   stopSequences: effectiveStop,
+                   stoppedBySequence: result.stoppedBySequence
+               ) {
+                success.headers.replaceOrAdd(
+                    name: "X-AFM-Matched-Stop-Base64",
+                    value: Data(matchedStop.utf8).base64EncodedString()
+                )
+            }
+            return success
         } catch let decodingError as DecodingError {
             if requestRegistered {
                 await inflightRegistry.release(id: reqId, registration: requestRegistration)
@@ -2412,6 +2459,22 @@ struct MLXChatCompletionsController: RouteCollection {
         }
         guard let earliest else { return (text, false) }
         return (String(text[..<earliest.lowerBound]), true)
+    }
+
+    static func matchedStopSequence(
+        in text: String,
+        stopSequences: [String]?,
+        stoppedBySequence: Bool
+    ) -> String? {
+        guard let stopSequences, !stopSequences.isEmpty else { return nil }
+        let matches = stopSequences.compactMap { stop -> (String, Range<String.Index>)? in
+            guard !stop.isEmpty, let range = text.range(of: stop) else { return nil }
+            return (stop, range)
+        }
+        if let first = matches.min(by: { $0.1.lowerBound < $1.1.lowerBound }) {
+            return first.0
+        }
+        return stoppedBySequence && stopSequences.count == 1 ? stopSequences[0] : nil
     }
 
     static func applyToolChoice(_ toolCalls: [ResponseToolCall]?, toolChoice: ToolChoice?) -> [ResponseToolCall]? {

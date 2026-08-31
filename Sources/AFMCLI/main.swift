@@ -82,6 +82,12 @@ struct ServeCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
 
+    @Option(name: .long, help: "Maximum chat-shaped requests per client in each rate-limit window (0 disables; default: 600)")
+    var rateLimitRequests: Int = 600
+
+    @Option(name: .long, help: "Rate-limit window in seconds (default: 60)")
+    var rateLimitWindow: Double = 60
+
     @Option(name: [.short, .long], help: "Custom instructions for the AI assistant")
     var instructions: String = "You are a helpful assistant"
     
@@ -125,6 +131,12 @@ struct ServeCommand: ParsableCommand {
     var guidedJson: String?
 
     func run() throws {
+        guard rateLimitRequests >= 0 else {
+            throw ValidationError("--rate-limit-requests must be zero or greater")
+        }
+        guard rateLimitWindow > 0 else {
+            throw ValidationError("--rate-limit-window must be greater than zero")
+        }
         // Validate temperature parameter
         if let temp = temperature {
             guard temp >= 0.0 && temp <= 1.0 else {
@@ -199,7 +211,7 @@ struct ServeCommand: ParsableCommand {
         // Start server in async context
         _ = Task {
             do {
-                let server = try await Server(port: chosenPort, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration, defaultGuidedJsonSchema: defaultGuidedJsonSchema)
+                let server = try await Server(port: chosenPort, hostname: hostname, verbose: verbose, veryVerbose: veryVerbose || vv, trace: vv, streamingEnabled: !noStreaming, instructions: instructions, adapter: adapter, temperature: temperature, randomness: randomness, permissiveGuardrails: permissiveGuardrails, stop: stop, webuiEnabled: webui, gatewayEnabled: gateway, prewarmEnabled: prewarmEnabled, telegramConfiguration: telegramConfiguration, defaultGuidedJsonSchema: defaultGuidedJsonSchema, rateLimitRequests: rateLimitRequests, rateLimitWindowSeconds: rateLimitWindow)
                 globalServer = server
                 try await server.start()
             } catch {
@@ -415,6 +427,12 @@ struct MlxCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
 
+    @Option(name: .long, help: "Maximum chat-shaped requests per client in each rate-limit window (0 disables; default: 600)")
+    var rateLimitRequests: Int = 600
+
+    @Option(name: .long, help: "Rate-limit window in seconds (default: 60)")
+    var rateLimitWindow: Double = 60
+
     @Flag(name: .long, help: "Output raw model content without extracting <think> tags into reasoning_content")
     var raw: Bool = false
 
@@ -600,6 +618,13 @@ struct MlxCommand: ParsableCommand {
         if helpJson {
             printHelpJson(command: "afm mlx")
             return
+        }
+
+        guard rateLimitRequests >= 0 else {
+            throw ValidationError("--rate-limit-requests must be zero or greater")
+        }
+        guard rateLimitWindow > 0 else {
+            throw ValidationError("--rate-limit-window must be greater than zero")
         }
 
         let evaluationAction = try AFMEvaluationCLIPlan.resolve(
@@ -1055,7 +1080,9 @@ struct MlxCommand: ParsableCommand {
                     mlxPresencePenalty: presencePenalty,
                     mlxSeed: seed,
                     mlxMaxLogprobs: maxLogprobs,
-                    contextWindow: contextWindow
+                    contextWindow: contextWindow,
+                    rateLimitRequests: rateLimitRequests,
+                    rateLimitWindowSeconds: rateLimitWindow
                 )
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
@@ -1326,7 +1353,9 @@ struct MlxCommand: ParsableCommand {
                     mlxMinP: minP,
                     mlxSeed: seed,
                     mlxMaxLogprobs: maxLogprobs,
-                    contextWindow: 32_768)
+                    contextWindow: 32_768,
+                    rateLimitRequests: rateLimitRequests,
+                    rateLimitWindowSeconds: rateLimitWindow)
                 globalServer = server
                 if !explicitPort && chosenPort != 9999 {
                     print("DwarfStar API URL: http://\(hostname):\(chosenPort)")
@@ -1943,6 +1972,8 @@ struct MacLocalAPI: ParsableCommand {
           --stop: Stop sequences, comma-separated
           --guided-json: Constrain output to JSON schema (auto-disables thinking on reasoning models)
           --no-streaming: Disable streaming
+          --rate-limit-requests: Chat-shaped requests allowed per client/window (0 disables; default: 600)
+          --rate-limit-window: Rate-limit window in seconds (default: 60)
           --prewarm: Pre-warm model on startup (y/n, default: y)
           --help-json: Print machine-readable JSON capability card for AI agents and exit
         skill:
@@ -2095,6 +2126,12 @@ struct RootCommand: ParsableCommand {
     @Flag(name: .long, help: "Disable streaming responses (streaming is enabled by default)")
     var noStreaming: Bool = false
 
+    @Option(name: .long, help: "Maximum chat-shaped requests per client in each rate-limit window (0 disables; default: 600)")
+    var rateLimitRequests: Int = 600
+
+    @Option(name: .long, help: "Rate-limit window in seconds (default: 60)")
+    var rateLimitWindow: Double = 60
+
     @Option(name: [.customShort("a"), .long], help: "Path to a .fmadapter file for LoRA adapter fine-tuning")
     var adapter: String?
 
@@ -2153,6 +2190,13 @@ struct RootCommand: ParsableCommand {
         if helpJson {
             printHelpJson(command: "afm")
             return
+        }
+
+        guard rateLimitRequests >= 0 else {
+            throw ValidationError("--rate-limit-requests must be zero or greater")
+        }
+        guard rateLimitWindow > 0 else {
+            throw ValidationError("--rate-limit-window must be greater than zero")
         }
 
         // Validate temperature parameter
@@ -2248,6 +2292,8 @@ struct RootCommand: ParsableCommand {
         if verbose { args.append("--verbose") }
         if veryVerbose { args.append("--very-verbose") }
         if noStreaming { args.append("--no-streaming") }
+        args += ["--rate-limit-requests", "\(rateLimitRequests)"]
+        args += ["--rate-limit-window", "\(rateLimitWindow)"]
         if permissiveGuardrails { args.append("--permissive-guardrails") }
         if webui { args.append("--webui") }
         if gateway { args.append("--gateway") }

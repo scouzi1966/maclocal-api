@@ -30,6 +30,27 @@ extension Request {
     }
 }
 
+/// `ChatCompletionRequest` deliberately lives in AFMKit, and the immutable
+/// pinned release does not expose OpenAI's `n` field. Inspect the wire body at
+/// the HTTP boundary until the provider-neutral DTO grows that field.
+func requestedChatChoiceCount(_ request: Request) -> Int? {
+    guard let body = request.body.data else { return nil }
+    let data = Data(buffer: body)
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    return object["n"] as? Int
+}
+
+func requestedChatStreaming(_ request: Request) -> Bool {
+    guard let body = request.body.data else { return false }
+    let data = Data(buffer: body)
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return false
+    }
+    return object["stream"] as? Bool ?? false
+}
+
 /// Mints or echoes a stable request ID for every HTTP request and copies it
 /// to the response headers. Honors inbound `X-Request-ID` (most common) and
 /// `OpenAI-Request-ID` (OpenAI SDK convention); otherwise mints `req_<uuid12>`
@@ -361,6 +382,7 @@ public class Server: @unchecked Sendable {
     private let mlxSeed: Int?
     private let mlxMaxLogprobs: Int
     private let contextWindow: Int?
+    private let chatRateLimitConfiguration: ChatRateLimitConfiguration
     private let telemetry: AFMServerTelemetryAdapter
     private var telegramBridge: TelegramBridge?
     private let webRuntimeManager = AFMWebRuntimeManager()
@@ -392,7 +414,13 @@ public class Server: @unchecked Sendable {
         return FluxKleinQuantization(rawValue: value) ?? .int4
     }
 
-    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModel: AFMMLXModel? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
+    public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModel: AFMMLXModel? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, rateLimitRequests: Int = 600, rateLimitWindowSeconds: TimeInterval = 60, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
+        guard rateLimitRequests >= 0 else {
+            throw Abort(.badRequest, reason: "rateLimitRequests must be zero or greater.")
+        }
+        guard rateLimitWindowSeconds > 0 else {
+            throw Abort(.badRequest, reason: "rateLimitWindowSeconds must be greater than zero.")
+        }
         self.port = port
         self.hostname = hostname
         self.verbose = verbose
@@ -426,6 +454,10 @@ public class Server: @unchecked Sendable {
         self.mlxSeed = mlxSeed
         self.mlxMaxLogprobs = mlxMaxLogprobs ?? 20
         self.contextWindow = contextWindow
+        self.chatRateLimitConfiguration = ChatRateLimitConfiguration(
+            requestLimit: rateLimitRequests,
+            windowSeconds: rateLimitWindowSeconds
+        )
         let resolvedTelemetry = telemetry ?? .standalone()
         self.telemetry = resolvedTelemetry
         if let observer = resolvedTelemetry.providerTelemetryObserver {
@@ -473,6 +505,14 @@ public class Server: @unchecked Sendable {
         // Render typed errors (TokenizeUnsupportedError, etc.) in OpenAI shape. (T1.6)
         app.middleware.use(OpenAIErrorRenderingMiddleware())
 
+        // Apply real per-client admission accounting to generation-shaped chat
+        // routes. A zero request limit explicitly disables this middleware.
+        if chatRateLimitConfiguration.isEnabled {
+            app.middleware.use(ChatRateLimitMiddleware(
+                configuration: chatRateLimitConfiguration
+            ))
+        }
+
         // Add custom error middleware to handle payload too large errors
         app.middleware.use(PayloadTooLargeMiddleware())
         // Track concurrent client connections for /metrics' afm:num_active_connections gauge.
@@ -484,7 +524,8 @@ public class Server: @unchecked Sendable {
     private static let foundationWebValueOptions: Set<String> = [
         "--instructions", "--adapter", "--temperature", "--randomness", "--stop",
         "--prewarm", "--guided-json", "--telegram-bot-token", "--telegram-allow",
-        "--telegram-format", "--telegram-require-prefix"
+        "--telegram-format", "--telegram-require-prefix", "--rate-limit-requests",
+        "--rate-limit-window"
     ]
     private static let foundationWebFlagOptions: Set<String> = [
         "--verbose", "--very-verbose", "--vv", "--no-streaming",
@@ -499,7 +540,7 @@ public class Server: @unchecked Sendable {
         "--concurrent", "--mtp-depth", "--mtp-model", "--dspark-support", "--dspark-draft-tokens",
         "--dspark-confidence", "--eagle3", "--cache-profile-path", "--gpu-capture",
         "--gpu-trace", "--chat-template", "--dtype", "--telegram-bot-token", "--telegram-allow", "--telegram-format",
-        "--telegram-require-prefix"
+        "--telegram-require-prefix", "--rate-limit-requests", "--rate-limit-window"
     ]
     private static let mlxWebFlagOptions: Set<String> = [
         "--verbose", "--very-verbose", "--vv", "--no-streaming", "--raw", "--vlm",
@@ -1006,6 +1047,13 @@ public class Server: @unchecked Sendable {
                 telemetry: telemetry
             )
             try app.register(collection: mlxController)
+            try app.register(collection: ResponsesController(
+                defaultModelID: mlxModelID,
+                chatHandler: { request in
+                    try await mlxController.chatCompletions(req: request)
+                }
+            ))
+            try app.register(collection: MessagesController(model: mlxModelID, chatHandler: { request in try await mlxController.chatCompletions(req: request) }))
             if let rawTextGenerator {
                 try app.register(collection: CompletionsController(
                     modelID: mlxModelID,
@@ -1074,6 +1122,18 @@ public class Server: @unchecked Sendable {
                 telemetry: telemetry
             )
             try app.register(collection: chatController)
+            try app.register(collection: ResponsesController(
+                defaultModelID: "foundation",
+                chatHandler: { request in
+                    try await chatController.chatCompletions(req: request)
+                }
+            ))
+            try app.register(collection: MessagesController(
+                model: "foundation",
+                chatHandler: { request in
+                    try await chatController.chatCompletions(req: request)
+                }
+            ))
         }
 
         // Prometheus metrics — always on, regardless of backend.
@@ -1181,7 +1241,6 @@ public class Server: @unchecked Sendable {
     /// Custom CSS/JS to inject into webui (branding + auto-select default model + /metrics dashboard)
     private var customCSS: String {
         Self.customCSSTemplate.replacingOccurrences(of: "/*_IS_MLX_PLACEHOLDER*/false", with: mlxModelID != nil ? "true" : "false")
-        + Self.controlCenterTemplate
         + Self.dashboardTemplate
     }
     private static let customCSSTemplate = """

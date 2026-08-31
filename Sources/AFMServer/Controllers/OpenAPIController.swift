@@ -54,7 +54,7 @@ struct OpenAPIController: RouteCollection {
     """
 
     /// Hand-curated OpenAPI 3.1 spec. Intentionally kept compact — describes
-    /// the surface agents actually call rather than every property of every
+/// the surface agents actually call rather than every property of every
     /// payload. JSON-encoded inline so we don't fight SPM resource bundling.
     static let specJSON: String = #"""
     {
@@ -70,6 +70,7 @@ struct OpenAPIController: RouteCollection {
       ],
       "tags": [
         { "name": "chat", "description": "Chat completions" },
+        { "name": "responses", "description": "OpenAI Responses API" },
         { "name": "embeddings", "description": "Text embeddings" },
         { "name": "audio", "description": "Speech transcription and synthesis" },
         { "name": "vision", "description": "Apple Vision OCR" },
@@ -187,6 +188,32 @@ struct OpenAPIController: RouteCollection {
               "model": { "type": "string" },
               "choices": { "type": "array" },
               "usage": { "type": "object" }
+            }
+          },
+          "ResponsesRequest": {
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+              "model": { "type": "string" },
+              "input": { "description": "A string or array of Responses input items, including input_text, input_image, function_call, and function_call_output." },
+              "instructions": { "type": "string" },
+              "previous_response_id": { "type": "string" },
+              "background": { "type": "boolean" },
+              "stream": { "type": "boolean" },
+              "max_output_tokens": { "type": "integer" },
+              "tools": { "type": "array", "items": { "type": "object" } },
+              "text": { "type": "object", "description": "Structured output configuration in text.format." }
+            }
+          },
+          "ResponsesResponse": {
+            "type": "object",
+            "required": ["id", "object", "status", "output"],
+            "properties": {
+              "id": { "type": "string" },
+              "object": { "type": "string", "const": "response" },
+              "status": { "type": "string", "enum": ["in_progress", "completed", "failed", "incomplete"] },
+              "output": { "type": "array", "items": { "type": "object" } },
+              "usage": { "type": ["object", "null"] }
             }
           },
           "CompletionRequest": {
@@ -366,6 +393,26 @@ struct OpenAPIController: RouteCollection {
             }
           }
         },
+        "/v1/responses": {
+          "post": {
+            "tags": ["responses"],
+            "summary": "Create a response",
+            "description": "Supports text, Qwen VLM image input, tools, structured output, streaming lifecycle events, previous_response_id chaining, and background execution.",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesRequest" } } } },
+            "responses": {
+              "200": { "description": "Completed response or Responses SSE stream.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesResponse" } }, "text/event-stream": { "schema": { "type": "string" } } } },
+              "202": { "description": "Background response accepted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesResponse" } } } }
+            }
+          }
+        },
+        "/v1/responses/{response_id}": {
+          "get": {
+            "tags": ["responses"],
+            "summary": "Retrieve a stored or background response",
+            "parameters": [{ "name": "response_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "200": { "description": "Stored response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesResponse" } } } } }
+          }
+        },
         "/v1/chat/completions/{id}/cancel": {
           "post": {
             "tags": ["chat"],
@@ -398,6 +445,28 @@ struct OpenAPIController: RouteCollection {
             "responses": {
               "200": { "description": "Token count", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CountTokensResponse" } } } },
               "422": { "description": "No MLX model loaded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
+        "/v1/messages/count_tokens": {
+          "post": {
+            "tags": ["tokenize"],
+            "summary": "Count tokens for an Anthropic Messages conversation",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["messages"], "properties": { "model": { "type": "string" }, "system": {}, "messages": { "type": "array" } } } } } },
+            "responses": {
+              "200": { "description": "Token count", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CountTokensResponse" } } } },
+              "422": { "description": "No MLX model loaded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
+        "/v1/messages": {
+          "post": {
+            "tags": ["chat"],
+            "summary": "Create an Anthropic-compatible message",
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["messages", "max_tokens"], "properties": { "model": { "type": "string" }, "system": {}, "messages": { "type": "array" }, "max_tokens": { "type": "integer" }, "stream": { "type": "boolean" } } } } } },
+            "responses": {
+              "200": { "description": "Message or Anthropic SSE event stream" },
+              "400": { "description": "Invalid Anthropic Messages request" }
             }
           }
         },
