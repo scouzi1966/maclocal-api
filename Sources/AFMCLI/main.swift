@@ -281,7 +281,7 @@ struct MlxCommand: ParsableCommand {
           --vlm: Force load as vision model (VLM) instead of text-only LLM
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
-          --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
+          --prefill-step-size: Override prompt tokens per GPU pass (default: architecture-tuned)
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
@@ -475,7 +475,7 @@ struct MlxCommand: ParsableCommand {
     var maxKVSize: Int?
     @Option(name: .long, help: "Quantize KV cache to this many bits (4 or 8) to reduce memory usage")
     var kvBits: Int?
-    @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
+    @Option(name: .long, help: "Override the architecture-tuned number of prompt tokens processed per GPU pass")
     var prefillStepSize: Int?
     @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
