@@ -31,8 +31,9 @@ facade_files=(Sources/AFMKitFoundationModels/*.swift)
   fail "AFMKitFoundationModels must contain only its compatibility facade"
 grep -Fqx '@_exported import AFMKitApple' "${facade_files[0]}" || \
   fail "AFMKitFoundationModels must re-export the AFMKitApple product"
-grep -Fqx '#if compiler(>=6.4)' "${facade_files[0]}" || \
-  fail "AFMKitFoundationModels must compile to an empty compatibility surface on Xcode 26"
+if grep -Fq '#if compiler' "${facade_files[0]}"; then
+  fail "AFMKitFoundationModels must not silently compile to an empty compatibility surface"
+fi
 if grep -Eq '\b(class|struct|enum|protocol|actor|func)[[:space:]]+' "${facade_files[0]}"; then
   fail "AFMKitFoundationModels facade contains a local implementation"
 fi
@@ -297,8 +298,25 @@ for project in pyproject.toml pyproject-next.toml; do
     fail "$project does not package nested Xcode 27 provider resources"
 done
 
+grep -Fq '// swift-tools-version: 6.4' Package.swift || \
+  fail "Package.swift must reject compilers that cannot build Apple Foundation Models"
 grep -Fq '.macOS("26.0")' Package.swift || \
   fail "Package.swift no longer preserves the macOS 26 deployment boundary"
+
+for artifact_gate in \
+  build.sh \
+  Scripts/build-native-wheel.sh \
+  Scripts/build-nightly-wheel.sh \
+  Scripts/create-tarball.sh \
+  Scripts/publish-next.sh \
+  Scripts/publish-stable.sh \
+  Scripts/verify-native-wheel.sh \
+  Scripts/verify-release-archive.sh; do
+  grep -Fq 'check-macos26-compatibility.sh' "$artifact_gate" || \
+    fail "$artifact_gate bypasses release binary compatibility checks"
+done
+grep -Fq 'check-foundation-models-build.sh' Scripts/check-macos26-compatibility.sh || \
+  fail "release binary compatibility does not verify compiled Foundation Models support"
 
 if grep -ERn \
   '\b(MLXModelService|BatchScheduler|RequestSlot|RadixTreeCache|ToolCallStreamingRuntime)\b' \

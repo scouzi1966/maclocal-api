@@ -7,6 +7,16 @@ public struct BuildInfo {
     public static let version: String? = "v0.9.18"
     static let commit: String? = nil
 
+    /// True only when the executable was compiled with the toolchain required
+    /// to include the real Apple Foundation Models provider.
+    public static var foundationModelsCompiled: Bool {
+#if compiler(>=6.4) && canImport(AFMKitFoundationModels)
+        true
+#else
+        false
+#endif
+    }
+
     public static var fullVersion: String {
         resolvedVersion(
             override: ProcessInfo.processInfo.environment["AFM_BUILD_VERSION"]

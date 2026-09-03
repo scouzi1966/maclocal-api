@@ -12,6 +12,7 @@ fail() {
 }
 
 "$ROOT_DIR/Scripts/check-afmkit-consumer-boundary.sh"
+"$ROOT_DIR/Scripts/tests/test-foundation-build-gate.sh"
 
 codeql_workflow="$ROOT_DIR/.github/workflows/codeql-analysis.yml"
 if grep -Eq 'AFMKIT_READ_TOKEN|private-dependency-notice|while AFMKit is private' "$codeql_workflow"; then
