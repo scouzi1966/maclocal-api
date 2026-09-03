@@ -24,6 +24,8 @@ if [ ! -x "$BINARY" ]; then
   exit 1
 fi
 
+"$ROOT_DIR/Scripts/check-foundation-models-build.sh" "$BINARY"
+
 if [ -z "$METALLIB" ]; then
   METALLIB="$($ROOT_DIR/Scripts/resolve-afmkit-resource.sh --metallib "$(dirname "$BINARY")" 2>/dev/null || true)"
 fi
