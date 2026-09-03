@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/scouzi1966/AFMKit.git",
       "state" : {
-        "revision" : "c3c1a47f740eb08be8ee3dbeda8e8fc6fa88f04a",
-        "version" : "0.1.14"
+        "revision" : "65c0e56f084fdebf1b28d0ae4a9c8b72e757a64d",
+        "version" : "0.1.15"
       }
     },
     {
