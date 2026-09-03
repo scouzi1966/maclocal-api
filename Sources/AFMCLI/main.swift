@@ -1910,6 +1910,11 @@ func printHelpJson(command: String) {
     }
     flushL1()
 
+    root["build_capabilities"] = [
+        "foundation_models_compiled": BuildInfo.foundationModelsCompiled,
+        "minimum_swift_compiler": "6.4",
+    ]
+
     if let jsonData = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
        let jsonString = String(data: jsonData, encoding: .utf8) {
         print(jsonString)

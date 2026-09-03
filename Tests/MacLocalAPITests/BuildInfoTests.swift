@@ -2,6 +2,10 @@
 import XCTest
 
 final class BuildInfoTests: XCTestCase {
+    func testReleaseCompilerIncludesFoundationModels() {
+        XCTAssertTrue(BuildInfo.foundationModelsCompiled)
+    }
+
     func testBaseVersionIsNextRelease() {
         XCTAssertEqual(BuildInfo.resolvedVersion(override: nil), "v0.9.18")
     }
