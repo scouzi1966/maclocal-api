@@ -9,7 +9,7 @@ if let localPath = ProcessInfo.processInfo.environment["AFMKIT_EXAMPLE_PATH"],
 } else {
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        exact: "0.1.14"
+        exact: "0.1.15"
     )
 }
 
