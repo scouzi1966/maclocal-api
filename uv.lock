@@ -397,7 +397,7 @@ wheels = [
 
 [[package]]
 name = "macafm"
-version = "0.9.18"
+version = "0.9.18.1"
 source = { editable = "." }
 
 [package.optional-dependencies]

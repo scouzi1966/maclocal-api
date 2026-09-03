@@ -43,6 +43,14 @@ if [ "${MIN_OS%%.*}" -gt "$MAX_MAJOR" ]; then
   exit 1
 fi
 
+# The Apple provider is intentionally compiler-gated so MLX development can
+# continue on older toolchains. A public release must never ship that fallback
+# build: users cannot restore the omitted provider by installing Swift later.
+if ! /usr/bin/otool -L "$BINARY" | grep -Fq '/FoundationModels.framework/'; then
+  echo "[compat] Executable does not link FoundationModels.framework; rebuild with Swift 6.4/Xcode 27 or newer." >&2
+  exit 1
+fi
+
 METAL_TARGETS="$(LC_ALL=C grep -aoE 'air64(_v[0-9]+)?-apple-macosx[0-9]+(\.[0-9]+){2}' "$METALLIB" | sort -u || true)"
 if [ -z "$METAL_TARGETS" ]; then
   echo "[compat] Could not read a deployment target from $METALLIB" >&2
@@ -57,4 +65,4 @@ while IFS= read -r target; do
   fi
 done <<< "$METAL_TARGETS"
 
-echo "[compat] macOS 26 compatible: executable minos=$MIN_OS; Metal targets=$(echo "$METAL_TARGETS" | tr '\n' ' ')"
+echo "[compat] macOS 26 compatible with Foundation Models: executable minos=$MIN_OS; Metal targets=$(echo "$METAL_TARGETS" | tr '\n' ' ')"
