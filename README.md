@@ -248,6 +248,8 @@ afm mlx -m Qwen3-Coder-Next-4bit --openclaw-config
 | `POST` | `/v1/vision/ocr` | OCR, tables, barcodes, classification, saliency, and PDFs |
 | `POST` | `/v1/audio/transcriptions` | On-device speech-to-text |
 | `POST` | `/v1/audio/speech` | Text-to-speech using installed Apple voices |
+| `POST` | `/v1/images/generations` | FLUX.2 Klein text-to-image with base64 PNG output |
+| `POST` | `/v1/images/edits` | Multipart FLUX.2 Klein reference-image editing |
 | `POST` | `/v1/tokenize` | vLLM-compatible tokens and counts for the loaded MLX model |
 | `POST` | `/v1/count_tokens` | Anthropic-style input token count |
 | `POST` | `/v1/batch/completions` | Multiplex up to 64 completions over SSE |
@@ -395,6 +397,7 @@ Small 0.6B–4B quantized models are the easiest way to confirm a setup. Large 3
 - [MLX tool calling](docs/mlx-tool-calling.md)
 - [Vision OCR API](docs/vision-ocr-api.md)
 - [Embeddings API](docs/embeddings-api.md)
+- [Images API](docs/images-api.md)
 - [Apple-native endpoints](docs/apple-native-endpoints.md)
 - [Model path resolution](docs/model-path-resolution.md)
 - [Decode optimizations](docs/decode-optimizations.md)

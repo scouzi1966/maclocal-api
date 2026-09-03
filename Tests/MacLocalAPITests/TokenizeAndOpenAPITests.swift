@@ -253,6 +253,8 @@ struct TokenizeAndOpenAPITests {
             "/v1/embeddings",
             "/v1/audio/transcriptions",
             "/v1/audio/speech",
+            "/v1/images/generations",
+            "/v1/images/edits",
             "/v1/ocr",
             "/v1/batch/completions",
             "/v1/files",
@@ -262,6 +264,29 @@ struct TokenizeAndOpenAPITests {
         ]
         for path in expected {
             #expect(paths[path] != nil, "missing path in OpenAPI spec: \(path)")
+        }
+    }
+
+    @Test("T1.7 image schemas declare strict controls and operational errors")
+    func openAPIImagesContract() throws {
+        let data = Data(OpenAPIController.specJSON.utf8)
+        let parsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let components = try #require(parsed["components"] as? [String: Any])
+        let schemas = try #require(components["schemas"] as? [String: Any])
+        let generation = try #require(schemas["ImageGenerationRequest"] as? [String: Any])
+        #expect(generation["additionalProperties"] as? Bool == false)
+        let generationProperties = try #require(generation["properties"] as? [String: Any])
+        let prompt = try #require(generationProperties["prompt"] as? [String: Any])
+        #expect(prompt["maxLength"] as? Int == 32_000)
+
+        let paths = try #require(parsed["paths"] as? [String: Any])
+        for path in ["/v1/images/generations", "/v1/images/edits"] {
+            let pathItem = try #require(paths[path] as? [String: Any])
+            let post = try #require(pathItem["post"] as? [String: Any])
+            let responses = try #require(post["responses"] as? [String: Any])
+            for status in ["200", "400", "405", "413", "415", "500", "503"] {
+                #expect(responses[status] != nil, "missing image response status \(status) for \(path)")
+            }
         }
     }
 

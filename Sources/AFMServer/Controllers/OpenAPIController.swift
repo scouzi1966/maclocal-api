@@ -74,6 +74,7 @@ struct OpenAPIController: RouteCollection {
         { "name": "embeddings", "description": "Text embeddings" },
         { "name": "audio", "description": "Speech transcription and synthesis" },
         { "name": "vision", "description": "Apple Vision OCR" },
+        { "name": "images", "description": "FLUX.2 Klein image generation and editing" },
         { "name": "batch", "description": "Batch completions API" },
         { "name": "tokenize", "description": "Tokenizer access for context-budgeting" },
         { "name": "models", "description": "Model discovery" },
@@ -92,6 +93,14 @@ struct OpenAPIController: RouteCollection {
         "headers": {
           "XRequestID": {
             "description": "Server-assigned or echoed request correlation id.",
+            "schema": { "type": "string" }
+          },
+          "XAFMCompatibility": {
+            "description": "Present as `emulated` only when an explicitly configured image-model alias was routed to the local image model.",
+            "schema": { "type": "string", "const": "emulated" }
+          },
+          "XAFMEmulatedParameters": {
+            "description": "Comma-separated request parameters whose behavior was emulated.",
             "schema": { "type": "string" }
           }
         },
@@ -243,6 +252,45 @@ struct OpenAPIController: RouteCollection {
               "usage": { "type": "object" }
             }
           },
+          "ImageGenerationRequest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["prompt"],
+            "properties": {
+              "model": { "type": "string", "description": "Must match MACAFM_IMAGE_MODEL or an alias explicitly listed in MACAFM_IMAGE_MODEL_ALIASES." },
+              "prompt": { "type": "string", "minLength": 1, "maxLength": 32000 },
+              "background": { "type": "string", "enum": ["transparent", "opaque", "auto"], "x-afm-support": "unsupported" },
+              "moderation": { "type": "string", "enum": ["low", "auto"], "x-afm-support": "unsupported" },
+              "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 },
+              "output_compression": { "type": "integer", "minimum": 0, "maximum": 100, "x-afm-support": "unsupported" },
+              "output_format": { "type": "string", "const": "png", "x-afm-support": "exact" },
+              "partial_images": { "type": "integer", "minimum": 0, "maximum": 3, "x-afm-support": "unsupported" },
+              "quality": { "type": "string", "enum": ["auto", "low", "medium", "high", "standard", "hd"], "x-afm-support": "unsupported" },
+              "size": { "type": "string", "description": "auto or WIDTHxHEIGHT from 64 through 2048. Both dimensions must be divisible by 16 and the aspect ratio must be between 1:3 and 3:1." },
+              "response_format": { "type": "string", "const": "b64_json" },
+              "seed": { "type": "integer", "minimum": 0, "description": "AFM extension for deterministic generation." },
+              "stream": { "type": "boolean", "const": false, "x-afm-support": "unsupported-when-true" },
+              "style": { "type": "string", "enum": ["vivid", "natural"], "x-afm-support": "unsupported" },
+              "user": { "type": "string", "description": "Accepted as non-behavioral client metadata." }
+            }
+          },
+          "ImagesResponse": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["created", "data"],
+            "properties": {
+              "created": { "type": "integer" },
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["b64_json"],
+                  "properties": { "b64_json": { "type": "string", "contentEncoding": "base64" } }
+                }
+              }
+            }
+          },
           "OpenAIError": {
             "type": "object",
             "properties": {
@@ -252,6 +300,7 @@ struct OpenAPIController: RouteCollection {
                   "message": { "type": "string" },
                   "type": { "type": "string" },
                   "code": { "type": "string", "nullable": true },
+                  "param": { "type": "string", "nullable": true },
                   "request_id": { "type": "string", "nullable": true }
                 }
               }
@@ -435,6 +484,86 @@ struct OpenAPIController: RouteCollection {
             "summary": "Transcribe audio (Apple Speech)",
             "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object" } } } },
             "responses": { "200": { "description": "Transcription result" } }
+          }
+        },
+        "/v1/images/generations": {
+          "post": {
+            "tags": ["images"],
+            "summary": "Generate images with FLUX.2 Klein",
+            "parameters": [{ "$ref": "#/components/parameters/RequestIdHeader" }],
+            "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageGenerationRequest" } } } },
+            "responses": {
+              "200": {
+                "description": "Base64-encoded PNG images",
+                "headers": {
+                  "X-Request-ID": { "$ref": "#/components/headers/XRequestID" },
+                  "X-AFM-Compatibility": { "$ref": "#/components/headers/XAFMCompatibility" },
+                  "X-AFM-Emulated-Parameters": { "$ref": "#/components/headers/XAFMEmulatedParameters" }
+                },
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } }
+              },
+              "400": { "description": "Invalid or unsupported request parameter", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "405": { "description": "Method not allowed", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "413": { "description": "Request body exceeds 1 MB", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "415": { "description": "Request must use application/json", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "500": { "description": "Image generation failed", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "503": { "description": "Configured image model unavailable", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
+          }
+        },
+        "/v1/images/edits": {
+          "post": {
+            "tags": ["images"],
+            "summary": "Edit an image with FLUX.2 Klein",
+            "parameters": [{ "$ref": "#/components/parameters/RequestIdHeader" }],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["prompt", "image"],
+                    "properties": {
+                      "model": { "type": "string", "description": "Must match MACAFM_IMAGE_MODEL or an explicitly configured alias." },
+                      "prompt": { "type": "string", "minLength": 1, "maxLength": 32000 },
+                      "image": { "type": "string", "format": "binary", "maxLength": 20971520, "description": "One PNG, JPEG, or WebP image, at most 20 MB." },
+                      "background": { "type": "string", "enum": ["transparent", "opaque", "auto"], "x-afm-support": "unsupported" },
+                      "input_fidelity": { "type": "string", "enum": ["high", "low"], "x-afm-support": "unsupported" },
+                      "mask": { "type": "string", "format": "binary", "x-afm-support": "unsupported" },
+                      "moderation": { "type": "string", "enum": ["low", "auto"], "x-afm-support": "unsupported" },
+                      "n": { "type": "integer", "minimum": 1, "maximum": 4 },
+                      "output_compression": { "type": "integer", "minimum": 0, "maximum": 100, "x-afm-support": "unsupported" },
+                      "output_format": { "type": "string", "const": "png", "x-afm-support": "exact" },
+                      "partial_images": { "type": "integer", "minimum": 0, "maximum": 3, "x-afm-support": "unsupported" },
+                      "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"], "x-afm-support": "unsupported" },
+                      "size": { "type": "string", "description": "auto or WIDTHxHEIGHT from 64 through 2048; dimensions divisible by 16; aspect ratio 1:3 through 3:1." },
+                      "response_format": { "type": "string", "const": "b64_json" },
+                      "seed": { "type": "integer", "minimum": 0, "description": "AFM extension for deterministic generation." },
+                      "stream": { "type": "boolean", "const": false, "x-afm-support": "unsupported-when-true" },
+                      "user": { "type": "string", "description": "Accepted as non-behavioral client metadata." }
+                    }
+                  }
+                }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Base64-encoded edited PNG images",
+                "headers": {
+                  "X-Request-ID": { "$ref": "#/components/headers/XRequestID" },
+                  "X-AFM-Compatibility": { "$ref": "#/components/headers/XAFMCompatibility" },
+                  "X-AFM-Emulated-Parameters": { "$ref": "#/components/headers/XAFMEmulatedParameters" }
+                },
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImagesResponse" } } }
+              },
+              "400": { "description": "Invalid or unsupported request parameter", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "405": { "description": "Method not allowed", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "413": { "description": "Multipart request exceeds 25 MB", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "415": { "description": "Request must use multipart/form-data", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "500": { "description": "Image edit failed", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } },
+              "503": { "description": "Configured image model unavailable", "headers": { "X-Request-ID": { "$ref": "#/components/headers/XRequestID" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIError" } } } }
+            }
           }
         },
         "/v1/audio/speech": {
