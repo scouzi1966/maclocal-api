@@ -477,7 +477,7 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Override the architecture-tuned number of prompt tokens processed per GPU pass")
     var prefillStepSize: Int?
-    @Option(name: .customLong("qwen-ngram-residency"), help: "Qwen Next n-gram residency: mapped (default), prewarm, or locked")
+    @Option(name: .customLong("qwen-ngram-residency"), help: "Qwen Next n-gram residency: mapped (default) or prewarm")
     var qwenNGramResidency: String = "mapped"
     @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
@@ -686,7 +686,7 @@ struct MlxCommand: ParsableCommand {
             .contains(normalizedNGramResidency)
         else {
             throw ValidationError(
-                "--qwen-ngram-residency must be one of: mapped, prewarm, locked")
+                "--qwen-ngram-residency must be one of: mapped, prewarm")
         }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
