@@ -477,6 +477,8 @@ struct MlxCommand: ParsableCommand {
     var kvBits: Int?
     @Option(name: .long, help: "Override the architecture-tuned number of prompt tokens processed per GPU pass")
     var prefillStepSize: Int?
+    @Option(name: .customLong("qwen-ngram-residency"), help: "Qwen Next n-gram residency: mapped (default), prewarm, or locked")
+    var qwenNGramResidency: String = "mapped"
     @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
     @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects vanilla DwarfStar for compatible DeepSeek V4 GGUF metadata; directory checkpoints use MLX.")
@@ -677,6 +679,15 @@ struct MlxCommand: ParsableCommand {
                 )
             }
         }
+        let normalizedNGramResidency = qwenNGramResidency
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard AFMMLXQwenNGramResidency.allCases.map(\.rawValue)
+            .contains(normalizedNGramResidency)
+        else {
+            throw ValidationError(
+                "--qwen-ngram-residency must be one of: mapped, prewarm, locked")
+        }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
         if let capturePath = gpuCapture {
@@ -862,6 +873,8 @@ struct MlxCommand: ParsableCommand {
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
             kernelEngine: kernelEngine,
+            qwenNGramResidency: AFMMLXQwenNGramResidency(
+                configuredValue: normalizedNGramResidency),
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
             mtpModelID: mtpModel,
@@ -904,6 +917,7 @@ struct MlxCommand: ParsableCommand {
                 kvBits: kvBits,
                 enablePrefixCaching: enablePrefixCaching,
                 mlxKernels: kernelEngine.rawValue,
+                qwenNGramResidency: normalizedNGramResidency,
                 mtpEnabled: mtp,
                 mtpDepth: mtpDepth,
                 mtpModelID: mtpModel,
@@ -1436,6 +1450,7 @@ struct MlxCommand: ParsableCommand {
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
                     mlxKernels: self.mlxKernels,
+                    qwenNGramResidency: self.qwenNGramResidency,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
                     mtpModelID: self.mtpModel,
