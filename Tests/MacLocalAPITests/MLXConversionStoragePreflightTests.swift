@@ -245,6 +245,8 @@ final class MLXConversionStoragePreflightTests: XCTestCase {
     }
 
     func testInvalidProfileAndMissingTemplateFailBeforeModelInspection() throws {
+        XCTAssertNoThrow(try MLXConversionStoragePreflight.validateProfileName(
+            Qwen4ExpCheckpointConverter.Profile.afmMapped4.rawValue))
         XCTAssertThrowsError(try MLXConversionStoragePreflight.validateProfileName(
             "not-a-profile")) { error in
                 XCTAssertTrue(error.localizedDescription.contains("Unknown conversion profile"))
