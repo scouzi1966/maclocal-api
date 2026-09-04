@@ -24,13 +24,13 @@ struct MLXConvertCommand: ParsableCommand {
 
     @Option(
         name: .long,
-        help: "Conversion profile. Defaults to native for DeepSeek V4 and mlx-affine-4 for GLM-5.3 Flash"
+        help: "Conversion profile. Defaults to native for DeepSeek V4, mlx-affine-4 for GLM-5.3 Flash, and afm-mapped-4 for Qwen3.8 Flash Next"
     )
     var profile: String?
 
     @Option(
         name: .long,
-        help: "Pinned 40-character Hugging Face source commit (required for GLM unless inferable from the local snapshot)"
+        help: "Pinned 40-character Hugging Face source commit (required for GLM and Qwen unless inferable from the local snapshot)"
     )
     var sourceRevision: String?
 

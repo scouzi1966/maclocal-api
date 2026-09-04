@@ -134,7 +134,8 @@ public enum MLXConversionStoragePreflight {
         guard let profile else { return }
         let supported = Set(
             DeepseekV4CheckpointConverter.Profile.allCases.map(\.rawValue)
-                + GLM5NextCheckpointConverter.Profile.allCases.map(\.rawValue))
+                + GLM5NextCheckpointConverter.Profile.allCases.map(\.rawValue)
+                + Qwen4ExpCheckpointConverter.Profile.allCases.map(\.rawValue))
         guard supported.contains(profile) else {
             throw PreflightError.invalidOption(
                 "Unknown conversion profile '\(profile)'. Expected one of: \(supported.sorted().joined(separator: ", ")).")
