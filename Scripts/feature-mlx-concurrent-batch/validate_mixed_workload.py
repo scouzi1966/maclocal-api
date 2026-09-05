@@ -12,6 +12,7 @@ Usage:
 """
 import asyncio, aiohttp, json, time, sys, subprocess, threading, os
 from batch_validation_report import BatchReport
+from batch_stream_evidence import capture_stream_evidence, record_stream_parse_error
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -211,6 +212,7 @@ class MactopSampler:
 
 # ─── request sender ──────────────────────────────────────────────────────────
 
+@capture_stream_evidence("batch-mixed")
 async def send_request(session, prompt, max_tokens=4096):
     """Send streaming request, return full stats dict from server."""
     if MAX_TOKENS_CAP > 0:
@@ -252,6 +254,7 @@ async def send_request(session, prompt, max_tokens=4096):
                         ttft = time.monotonic() - start
                     text += content
             except Exception:
+                record_stream_parse_error()
                 pass
 
     elapsed = time.monotonic() - start
