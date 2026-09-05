@@ -142,8 +142,6 @@ export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/v
 PORT=9877
 DEFAULT_PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
 RESULTS_FILE="${AFM_RESULTS_FILE:-$(pwd)/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl}"
-TEST_WORK_ROOT="${AFM_TEST_WORK_ROOT:-$(dirname "$RESULTS_FILE")/judge-work}"
-mkdir -p "$TEST_WORK_ROOT"
 SERVER_LOG_DIR="${AFM_SERVER_LOG_DIR:-$(dirname "$RESULTS_FILE")/server-logs}"
 DEFAULT_MAX_TOKENS=5000
 DEFAULT_TEMPERATURE=0.7
@@ -1821,6 +1819,9 @@ $(cat "$PROMPTS_FILE")"
   fi
 
   # Build combined prompt+data for tools that need it in one stream
+  # Reanalysis may select a different results file after CLI parsing.
+  TEST_WORK_ROOT="${AFM_TEST_WORK_ROOT:-$(dirname "$RESULTS_FILE")/judge-work}"
+  mkdir -p "$TEST_WORK_ROOT"
   SMART_INPUT="$(mktemp "$TEST_WORK_ROOT/smart-input-XXXXXX")"
   { echo "$ANALYSIS_PROMPT"; echo "$SMART_TEST_FILE_SECTION"; echo ""; echo "--- JSONL DATA ---"; cat "$RESULTS_FILE"; } > "$SMART_INPUT"
 
