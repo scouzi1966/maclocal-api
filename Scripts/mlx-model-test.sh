@@ -104,7 +104,7 @@
 # TIPS FOR LLMs GENERATING TESTS:
 #   - Use temperature: 0.0 for deterministic/regression tests
 #   - Use the @ variant syntax to compare sampling strategies
-#   - Use afm: --verbose to capture debug logs in /tmp/mlx-server-*.log
+#   - Use afm: --verbose to capture debug logs beside the result file
 #   - Keep prompts short for fast iteration; use max_tokens: 200-500
 #   - For tool calling tests, set the system prompt with tool definitions
 #     and use afm: --tool-call-parser to select the right parser
@@ -141,7 +141,9 @@ fi
 export MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-/Volumes/edata/models/vesta-test-cache}"
 PORT=9877
 DEFAULT_PROMPT="Explain calculus concepts from limits through multivariable calculus with rigorous mathematical notation"
-RESULTS_FILE="${AFM_RESULTS_FILE:-/tmp/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl}"
+RESULTS_FILE="${AFM_RESULTS_FILE:-$(pwd)/mlx-test-results-$(date +%Y%m%d_%H%M%S)-$$.jsonl}"
+TEST_WORK_ROOT="${AFM_TEST_WORK_ROOT:-$(dirname "$RESULTS_FILE")/judge-work}"
+mkdir -p "$TEST_WORK_ROOT"
 SERVER_LOG_DIR="${AFM_SERVER_LOG_DIR:-$(dirname "$RESULTS_FILE")/server-logs}"
 DEFAULT_MAX_TOKENS=5000
 DEFAULT_TEMPERATURE=0.7
@@ -1819,7 +1821,7 @@ $(cat "$PROMPTS_FILE")"
   fi
 
   # Build combined prompt+data for tools that need it in one stream
-  SMART_INPUT="$(mktemp /tmp/smart-input-XXXXXX)"
+  SMART_INPUT="$(mktemp "$TEST_WORK_ROOT/smart-input-XXXXXX")"
   { echo "$ANALYSIS_PROMPT"; echo "$SMART_TEST_FILE_SECTION"; echo ""; echo "--- JSONL DATA ---"; cat "$RESULTS_FILE"; } > "$SMART_INPUT"
 
   # ── Per-test prompt (used in SMART_BATCH=1 mode) ─────────────────────────
@@ -1933,19 +1935,19 @@ $jsonl_line"
 
         case "$tool" in
           claude)
-            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>/tmp/smart-${tool}-stderr-$$.log)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
             ;;
           codex)
-            CODEX_TMP="$(mktemp /tmp/smart-codex-pertest-XXXXXX)"
+            CODEX_TMP="$(mktemp "$TEST_WORK_ROOT/smart-codex-pertest-XXXXXX")"
             echo "$PERTEST_INPUT" > "$CODEX_TMP"
-            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" </dev/null 2>/tmp/smart-${tool}-stderr-$$.log)
+            PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" </dev/null 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
             rm -f "$CODEX_TMP"
             ;;
           afm)
-            PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>/tmp/smart-${tool}-stderr-$$.log)
+            PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
             ;;
           *)
-            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>/tmp/smart-${tool}-stderr-$$.log)
+            PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
             ;;
         esac
 
@@ -1987,17 +1989,17 @@ print(payload['score'] if payload else '?')
 $SMART_TEST_FILE_SECTION
 
 --- JSONL DATA ---"
-          "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
+          "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log"
           ;;
         codex)
           # codex exec: use temp file to avoid ARG_MAX limit on command line
           # (91+ test results with full responses easily exceed OS argument length)
-          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every executed JSONL result, omit metadata and status=SKIP records, and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
+          "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every executed JSONL result, omit metadata and status=SKIP records, and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log"
           ;;
         afm)
           # afm uses Apple Foundation Models — context window is limited (~4K tokens).
           # Two-pass approach: score each result individually, then summarize.
-          AFM_SCORES_DIR="$(mktemp -d /tmp/smart-afm-XXXXXX)"
+          AFM_SCORES_DIR="$(mktemp -d "$TEST_WORK_ROOT/smart-afm-XXXXXX")"
           total_lines=$(wc -l < "$RESULTS_FILE" | tr -d ' ')
           echo "  Pass 1: Scoring $total_lines results individually..."
 
@@ -2061,7 +2063,7 @@ Test expectation: $afm_spec"
 TEST RESULT:
 $jsonl_line"
 
-            AFM_SCORE=$("$AFM" -s "$AFM_SCORE_PROMPT" 2>/tmp/smart-afm-stderr-$$.log)
+            AFM_SCORE=$("$AFM" -s "$AFM_SCORE_PROMPT" 2>"$TEST_WORK_ROOT/smart-afm-stderr-$$.log")
 
             echo "$AFM_SCORE" > "$AFM_SCORES_DIR/score_${line_idx}.txt"
             score_val=$(echo "$AFM_SCORE" | python3 -c "
@@ -2130,7 +2132,7 @@ Produce a brief markdown report:
 
 $AFM_META_DATA
 SUMMARY_PROMPT_END
-)" 2>/tmp/smart-afm-stderr-$$.log)
+)" 2>"$TEST_WORK_ROOT/smart-afm-stderr-$$.log")
 
           {
             echo "$AFM_SUMMARY"
@@ -2146,7 +2148,7 @@ SUMMARY_PROMPT_END
 $SMART_TEST_FILE_SECTION
 
 --- JSONL DATA ---"
-          "$tool" -p "$GENERIC_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>/tmp/smart-${tool}-stderr-$$.log
+          "$tool" -p "$GENERIC_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log"
           ;;
       esac
     fi
