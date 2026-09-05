@@ -12,6 +12,8 @@ Each request produces one atomically published JSON file in
 endpoint, HTTP status/headers, base64-encoded bytes consumed by the sender,
 separate visible/reasoning text, finish reasons, observed `[DONE]`, iterator EOF,
 parse errors, and partial evidence on a request exception or cancellation.
+When available, `http_raw_headers_base64` retains ordered name/value byte pairs,
+including duplicate headers; `http_headers` remains a convenience dictionary.
 This is not an independent socket capture: the sender normally stops at `[DONE]`
 without reading the following blank line or exhausting the response iterator.
 Missing finish/DONE evidence must not be interpreted as proof of an engine bug.

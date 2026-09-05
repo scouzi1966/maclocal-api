@@ -33,6 +33,7 @@ class StreamEvidence:
         self.observed_bytes = self.lines_seen = self.parse_error_count = 0
         self.parse_errors = []
         self.request = self.endpoint = self.http_status = self.http_headers = None
+        self.http_raw_headers_base64 = None
         self.done_observed = self.iterator_eof = False
 
     def parse_error(self, error, origin):
@@ -85,6 +86,7 @@ class StreamEvidence:
         truncated = self.observed_bytes > len(self.raw)
         return dict(request=self.request, endpoint=self.endpoint, started_at_unix=self.started_at_unix,
                     http_status=self.http_status, http_headers=self.http_headers,
+                    http_raw_headers_base64=self.http_raw_headers_base64,
                     raw_sse_base64=base64.b64encode(self.raw).decode('ascii'),
                     raw_encoding='base64 (exact bytes consumed by the sender, not an independent socket capture)',
                     observed_bytes=self.observed_bytes, retained_bytes=len(self.raw),
@@ -128,6 +130,12 @@ class _Post:
         response = await self.manager.__aenter__()
         self.capture.http_status = getattr(response, 'status', None)
         self.capture.http_headers = dict(getattr(response, 'headers', {}))
+        raw_headers = getattr(response, 'raw_headers', None)
+        if raw_headers is not None:
+            self.capture.http_raw_headers_base64 = [
+                [base64.b64encode(name).decode('ascii'), base64.b64encode(value).decode('ascii')]
+                for name, value in raw_headers
+            ]
         return _Response(response, self.capture)
 
     async def __aexit__(self, *args):

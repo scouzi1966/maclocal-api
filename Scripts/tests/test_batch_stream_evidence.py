@@ -90,6 +90,63 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(error['origin'] == 'sender' for error in doc['parse_errors']))
             self.assertEqual(doc['visible_content'], 'ok')
 
+    async def test_interleaved_requests_keep_histories_channels_errors_and_headers_isolated(self):
+        turns = [asyncio.Event(), asyncio.Event()]
+        turns[0].set()
+        interleaving = []
+        bodies = []
+        histories = []
+        responses = []
+
+        class InterleavedResponse(Response):
+            @property
+            def content(self):
+                async def lines():
+                    for line in self.body.splitlines(keepends=True):
+                        await turns[self.index].wait()
+                        turns[self.index].clear()
+                        interleaving.append(self.index)
+                        yield line
+                        turns[1-self.index].set()
+                    raise self.error
+                return lines()
+
+        for index in range(2):
+            body = (frame({'choices': [{'delta': {'content': f'visible-{index}',
+                                                   'reasoning_content': f'reasoning-{index}'}}]})
+                    + b'data: {broken' + str(index).encode() + b'}\n\n')
+            bodies.append(body)
+            histories.append([{'role': 'system', 'content': f'system-{index}'},
+                              {'role': 'user', 'content': f'history-{index}'}])
+            response = InterleavedResponse(body, RuntimeError(f'connection-{index}'))
+            response.index = index
+            response.headers = {'X-Request-ID': f'request-{index}', 'X-Repeat': 'second'}
+            response.raw_headers = ((b'X-Request-ID', f'request-{index}'.encode()),
+                                    (b'X-Repeat', b'first'), (b'X-Repeat', b'second\xff'))
+            responses.append(response)
+
+        with patch.dict(os.environ, {'AFM_REPORT_DIR': str(self.root), 'AFM_CAPTURE_STREAM_EVIDENCE': '1'}):
+            results = await asyncio.wait_for(asyncio.gather(*[
+                MODULES[2].send_request(SimpleNamespace(post=Mock(return_value=responses[index])),
+                                        histories[index], max_tokens=8)
+                for index in range(2)
+            ], return_exceptions=True), timeout=5)
+        self.assertEqual(interleaving, [0, 1]*4)
+        self.assertEqual([str(result) for result in results], ['connection-0', 'connection-1'])
+        docs = self.documents()
+        self.assertEqual(len(docs), 2)
+        by_id = {doc['http_headers']['X-Request-ID']: doc for doc in docs}
+        for index in range(2):
+            doc = by_id[f'request-{index}']
+            self.assertEqual(doc['request']['messages'], histories[index])
+            self.assertEqual(base64.b64decode(doc['raw_sse_base64']), bodies[index])
+            self.assertEqual(doc['visible_content'], f'visible-{index}')
+            self.assertEqual(doc['reasoning_content'], f'reasoning-{index}')
+            self.assertEqual(doc['request_error']['message'], f'connection-{index}')
+            self.assertEqual(sum(error['origin'] == 'sender' for error in doc['parse_errors']), 1)
+            self.assertEqual([tuple(base64.b64decode(part) for part in pair)
+                              for pair in doc['http_raw_headers_base64']], list(responses[index].raw_headers))
+
     async def test_eof_without_done_is_not_invented_as_clean_done(self):
         await self.send(MODULES[0], Response(frame({'choices': [{'delta': {'content': 'partial'}}]})))
         doc = self.documents()[0]
