@@ -205,6 +205,7 @@ struct TokenizeAndOpenAPITests {
         #expect(messages.last?["role"]?.stringValue == "user")
         #expect(messages.last?["content"]?.stringValue?.contains("exact continuation") == true)
         #expect(messages.last?["content"]?.stringValue?.contains("The city is Par") == true)
+        #expect(request["chat_template_kwargs"]?["enable_thinking"]?.boolValue == false)
 
         let response = try MessagesController.makeMessage(
             chat: .object([
@@ -220,6 +221,18 @@ struct TokenizeAndOpenAPITests {
             defaultModel: "test-model"
         )
         #expect(response["content"]?.arrayValue?.first?["text"]?.stringValue == "is.")
+    }
+
+    @Test("Messages without assistant prefill retain requested thinking")
+    func messagesWithoutPrefillRetainThinking() throws {
+        let request = try MessagesController.makeChatRequest(
+            object: ["thinking": .object(["type": .string("enabled")])],
+            sourceMessages: [.object(["role": .string("user"), "content": .string("Explain your answer.")])],
+            maxTokens: 128,
+            defaultModel: "test-model"
+        )
+        #expect(request["reasoning_effort"]?.stringValue == "low")
+        #expect(request["chat_template_kwargs"] == nil)
     }
 
     // ═══════════════════════════════════════════════════════════════════
