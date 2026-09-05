@@ -68,14 +68,15 @@ class StartupSubprocessTests(unittest.TestCase):
         def gguf_string(value):
             encoded = value.encode()
             return struct.pack('<Q', len(encoded)) + encoded
-        # Valid v3 architecture metadata passes CLI runtime selection; absent
-        # model metadata/tensors must fail inside the async backend load, before
-        # any weights or inference can exist. Random bytes only test preflight.
+        # Valid v3 architecture metadata passes CLI runtime selection. Missing
+        # required metadata rejects before any weights or inference can exist.
+        # The C loader may exit directly: this proves CLI rejection, not the
+        # Swift catch alone. SourceWiringTests separately guards that wiring.
         model.write_bytes(struct.pack('<4sIQQ', b'GGUF', 3, 0, 1)
                           + gguf_string('general.architecture')
                           + struct.pack('<I', 8) + gguf_string('deepseek4'))
         self.run_rejection(['mlx', '-m', str(model), '--mlx-runtime', 'dwarfstar', '--prewarm', 'n'],
-                           r'(?i)Error:.*(load|gguf|dwarfstar)')
+                           r'(?m)^ds4: required metadata key is missing: deepseek4\.block_count$')
 
     def test_gateway_bind_failure_exits_nonzero(self):
         with socket.socket() as occupied:
