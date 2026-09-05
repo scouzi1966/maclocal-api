@@ -12,8 +12,11 @@ Usage:
 Prerequisites:
     pip install aiohttp
     Server running on port 9999
+
+Set AFM_REPORT_DIR to retain JSON evidence after each completed batch size.
 """
 import asyncio, aiohttp, json, time, sys, re, os, unicodedata
+from batch_validation_report import BatchReport
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -77,6 +80,7 @@ async def send_request(session, prompt, max_tokens=200):
     start = time.monotonic()
 
     async with session.post(URL, json=payload) as resp:
+        resp.raise_for_status()
         async for line in resp.content:
             line = line.decode().strip()
             if not line.startswith("data: "):
@@ -106,7 +110,7 @@ def check_response(text, expected_substrings):
     return False, None
 
 
-async def run_validation(batch_size):
+async def run_validation(batch_size, records=None):
     """Run all validations at the given concurrency level."""
     print(f"\n{'='*70}")
     print(f"  Validating B={batch_size}")
@@ -115,6 +119,7 @@ async def run_validation(batch_size):
     passed = 0
     failed = 0
     errors = []
+    records = [] if records is None else records
 
     async with aiohttp.ClientSession() as session:
         # Send batch_size requests concurrently, cycling through validations
@@ -128,12 +133,17 @@ async def run_validation(batch_size):
                     failed += 1
                     errors.append((desc, f"EXCEPTION: {result}"))
                     print(f"  FAIL  {desc}: exception {result}")
+                    records.append(dict(name=desc, prompt=prompt, expected=expected,
+                                        status='EXCEPTION', error=repr(result)))
                     continue
 
                 text, elapsed = result
                 ok, matched = check_response(text, expected)
                 # Also check for obvious garbage
                 is_garbage = not text.strip() or text.count('\ufffd') > 5
+                records.append(dict(name=desc, prompt=prompt, expected=expected,
+                                    text=text, wall_s=elapsed, matched=matched,
+                                    status='GARBAGE' if is_garbage else ('OK' if ok else 'MISSING')))
 
                 if is_garbage:
                     failed += 1
@@ -166,9 +176,14 @@ async def main():
 
     total_passed = 0
     total_failed = 0
+    report = BatchReport('batch-known-answers', MODEL, URL)
+    report_batches = {}
 
     for bs in batch_sizes:
-        p, f = await run_validation(bs)
+        records = []
+        p, f = await run_validation(bs, records)
+        report_batches[bs] = dict(passed=p, failed=f, results=records)
+        report.save(report_batches)
         total_passed += p
         total_failed += f
         await asyncio.sleep(0.5)
@@ -183,4 +198,5 @@ async def main():
 
     return 1 if total_failed else 0
 
-raise SystemExit(asyncio.run(main()))
+if __name__ == '__main__':
+    raise SystemExit(asyncio.run(main()))

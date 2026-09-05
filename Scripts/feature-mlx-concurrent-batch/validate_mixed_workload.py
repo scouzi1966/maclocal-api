@@ -3,6 +3,7 @@
 
 Reports pp (prompt processing), tg (token generation), TTFT, total tokens,
 and GPU metrics via mactop. Designed for A/B comparison between code versions.
+Set AFM_REPORT_DIR to retain JSON evidence after each completed batch size.
 
 Usage:
     python3 validate_mixed_workload.py              # test B=1,2,4,8
@@ -10,6 +11,7 @@ Usage:
     python3 validate_mixed_workload.py --label "overlap-v2" 1 2 4 8
 """
 import asyncio, aiohttp, json, time, sys, subprocess, threading, os
+from batch_validation_report import BatchReport
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -227,6 +229,7 @@ async def send_request(session, prompt, max_tokens=4096):
     start = time.monotonic()
 
     async with session.post(URL, json=payload) as resp:
+        resp.raise_for_status()
         async for line in resp.content:
             line = line.decode().strip()
             if not line.startswith("data: "):
@@ -361,6 +364,8 @@ async def main():
     total_passed = 0
     total_failed = 0
     all_batch_results = {}
+    report = BatchReport('batch-mixed', MODEL, URL)
+    report_batches = {}
 
     for bs in batch_sizes:
         print(f"\n{'='*100}")
@@ -429,6 +434,9 @@ async def main():
             "passed": p, "failed": f, "results": completed_results,
             "gpu": gpu_stats, "workload_wall_s": workload_wall,
         }
+        # Keep exceptions and failed output checks, not just metric-bearing rows.
+        report_batches[bs] = dict(all_batch_results[bs], results=results)
+        report.save(report_batches)
         await asyncio.sleep(1)
 
     # ─── Final summary table ──────────────────────────────────────────────
@@ -476,8 +484,7 @@ async def main():
 
     print(f"{'='*120}")
     print(f"  TOTAL: {total_passed}/{total_passed+total_failed} passed across {len(batch_sizes)} batch sizes")
-    if total_failed > 0:
-        print(f"  ({total_failed} failures: model answer mismatches, not code bugs)")
+    print_failure_summary(total_failed)
     print(f"{'='*120}")
 
     acceptance_failed = False
@@ -519,4 +526,11 @@ async def main():
     return 1 if total_failed else 0
 
 
-raise SystemExit(asyncio.run(main()))
+def print_failure_summary(failed):
+    if failed:
+        print(f"  ({failed} failed checks; cause remains unattributed. "
+              "Review request errors and output checks before assigning ownership.)")
+
+
+if __name__ == '__main__':
+    raise SystemExit(asyncio.run(main()))
