@@ -75,7 +75,7 @@ enum StreamCollector {
     ) async throws -> CollectedResult {
         var fullText = ""
         var allLogprobs: [AFMServerResolvedLogprob] = []
-        var toolCalls: [ResponseToolCall]? = nil
+        var completedToolCalls = CompletedToolCallAccumulator()
         var promptTokens = streamResult.promptTokens
         var completionTokens = 0
         var cachedTokens = 0
@@ -86,7 +86,7 @@ enum StreamCollector {
         for try await chunk in streamResult.stream {
             fullText += chunk.text
             if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
-            if let tc = chunk.toolCalls { toolCalls = tc }
+            if let tc = chunk.toolCalls { completedToolCalls.consume(tc) }
             if let pt = chunk.promptTokens { promptTokens = pt }
             if let ct = chunk.completionTokens { completionTokens = ct }
             if let cached = chunk.cachedTokens { cachedTokens = cached }
@@ -95,6 +95,7 @@ enum StreamCollector {
             if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
         }
 
+        let toolCalls = completedToolCalls.toolCalls
         // Determine finish reason
         let finishReason: String
         if let tc = toolCalls, !tc.isEmpty {

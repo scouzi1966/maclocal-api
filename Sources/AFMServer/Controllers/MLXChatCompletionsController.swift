@@ -578,7 +578,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 // Collect stream into complete response
                 var fullText = ""
                 var allLogprobs: [AFMServerResolvedLogprob] = []
-                var finalToolCalls: [ResponseToolCall]? = nil
+                var completedToolCalls = CompletedToolCallAccumulator()
                 var promptTokens = streamResult.promptTokens
                 var completionTokens = 0
                 var cachedTokens = 0
@@ -589,7 +589,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 for try await chunk in streamResult.stream {
                     fullText += chunk.text
                     if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
-                    if let tc = chunk.toolCalls { finalToolCalls = tc }
+                    if let tc = chunk.toolCalls { completedToolCalls.consume(tc) }
                     if let pt = chunk.promptTokens { promptTokens = pt }
                     if let ct = chunk.completionTokens { completionTokens = ct }
                     if let cached = chunk.cachedTokens { cachedTokens = cached }
@@ -598,6 +598,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let sbs = chunk.stoppedBySequence { stoppedBySequence = sbs }
                 }
 
+                var finalToolCalls = completedToolCalls.toolCalls
                 // FIX: Vendor ToolCallProcessor can append XML tag remnants to tool names
                 // for zero-parameter calls (e.g. "todoread</function"). Strip them.
                 // See: opencode promptfoo test #20/#33 — todoread</function bug.

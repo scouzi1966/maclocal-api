@@ -275,6 +275,37 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testNonStreamingConcurrentControllerPreservesSingletonToolCallChunks() async throws {
+        let weather = ResponseToolCall(index: 0, id: "call_weather", type: "function",
+            function: .init(name: "get_weather", arguments: #"{"location":"Berlin"}"#))
+        let time = ResponseToolCall(index: 1, id: "call_time", type: "function",
+            function: .init(name: "get_time", arguments: #"{"timezone":"Europe/Berlin"}"#))
+        let service = FakeMLXChatService(
+            maxConcurrent: 2,
+            streamingResult: makeStreamingResult(chunks: [
+                .init(text: "", toolCalls: [weather]),
+                .init(text: "", toolCalls: [time]),
+                .init(text: "", toolCalls: [time]),
+                .init(text: "", promptTokens: 359, completionTokens: 71),
+            ])
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        let body = try requestBody(stream: false)
+        try await app.testable(method: .running(port: 0)).test(
+            .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+        ) { response async in
+            XCTAssertEqual(response.status, .ok)
+            let object = (try? JSONSerialization.jsonObject(with: Data(buffer: response.body))) as? [String: Any]
+            let choices = object?["choices"] as? [[String: Any]]
+            let message = choices?.first?["message"] as? [String: Any]
+            let calls = message?["tool_calls"] as? [[String: Any]]
+            XCTAssertEqual(calls?.compactMap { $0["id"] as? String }, ["call_weather", "call_time"])
+            XCTAssertEqual(calls?.compactMap { $0["index"] as? Int }, [0, 1])
+            XCTAssertEqual(choices?.first?["finish_reason"] as? String, "tool_calls")
+        }
+    }
+
     func testStreamingControllerSerializesProviderToolCallsIntoSSEToolCalls() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
