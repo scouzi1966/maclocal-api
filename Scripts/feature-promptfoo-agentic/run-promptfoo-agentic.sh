@@ -18,6 +18,9 @@ load_timeout="${AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS:-60}"
 summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
 overall_status=0
+capability_snapshot=""
+discovery_server_ready=0
+capability_timeout=20
 
 if [[ "$no_think" != "0" && "$no_think" != "1" ]]; then
   echo "AFM_NO_THINK must be 0 or 1" >&2
@@ -108,6 +111,14 @@ wait_for_port_free() {
 
 start_server() {
   local profile="$1"
+  # Reuse the first default server loaded solely for capability discovery.
+  # This avoids an extra model load, without changing later profile isolation.
+  if [[ "$discovery_server_ready" == "1" ]]; then
+    discovery_server_ready=0
+    if [[ "$profile" == "default" && -n "$server_pid" ]] && kill -0 "$server_pid" 2>/dev/null; then
+      return 0
+    fi
+  fi
   local -a extra_args=()
   local log_file="${out_dir}/server-${profile}.log"
 
@@ -175,8 +186,43 @@ start_server() {
   fi
 }
 
+require_capabilities() {
+  local scope="$1"
+  shift
+  if [[ -z "$capability_snapshot" ]]; then
+    start_server default
+    local raw="${out_dir}/capability-models.json"
+    capability_snapshot="${out_dir}/capability-snapshot.json"
+    if ! curl -sf --max-time "$capability_timeout" "http://127.0.0.1:${port}/v1/models" > "$raw"; then
+      echo "Capability discovery failed; refusing to classify unavailable engine as SKIP" >&2
+      exit 1
+    fi
+    python3 "$script_dir/capability-routing.py" snapshot "$raw" "$model" > "$capability_snapshot" || exit 1
+    # Start a new invocation's skip inventory; never mix previous runs.
+    print -r -- '[]' > "${out_dir}/capability-skips.json"
+    discovery_server_ready=1
+  fi
+  python3 "$script_dir/capability-routing.py" check "$capability_snapshot" \
+    "${out_dir}/capability-skips.json" "$scope" "$@"
+  local check_status=$?
+  case "$check_status" in
+    0) return 0 ;;
+    3) return 1 ;;
+    *) echo "Capability routing failed" >&2; exit 1 ;;
+  esac
+}
+
+require_tool_profile() {
+  local profile="$1"
+  local -a required=(tools)
+  if [[ "$profile" == *adaptive-xml* ]]; then required+=(mlx_runtime); fi
+  if [[ "$profile" == *grammar* ]]; then required+=(structured); fi
+  require_capabilities "${funcstack[2]}/$profile" "${required[@]}"
+}
+
 run_structured_suite() {
   local suite="$1"
+  require_capabilities "$suite (API and CLI strict schemas)" structured || return 0
   local output_prefix="${out_dir}/${suite}"
   local model_slug="$(print -r -- "$model" | tr '/:' '__')"
   # The two datasets label their single-prompt cases with this prefix.
@@ -223,6 +269,7 @@ run_structured_stress() {
 
 run_toolcall_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/toolcall-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -250,6 +297,7 @@ run_toolcall_all() {
 
 run_toolcall_quality_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/toolcall-quality-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -277,6 +325,7 @@ run_toolcall_quality_all() {
 
 run_agentic_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/agentic-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -304,6 +353,7 @@ run_agentic_all() {
 
 run_frameworks_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/frameworks-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -331,6 +381,7 @@ run_frameworks_all() {
 
 run_opencode_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/opencode-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -358,6 +409,7 @@ run_opencode_all() {
 
 run_pi_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/pi-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -385,6 +437,7 @@ run_pi_all() {
 
 run_openclaw_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/openclaw-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -412,6 +465,7 @@ run_openclaw_all() {
 
 run_hermes_profile() {
   local profile="$1"
+  require_tool_profile "$profile" || return 0
   local filter_regex="$2"
   local env_name="$3"
   local output="${out_dir}/hermes-${profile}-$(print -r -- "$model" | tr '/:' '__').json"
@@ -438,6 +492,9 @@ run_hermes_all() {
 }
 
 run_grammar_constraints() {
+  # This bundle asserts MLX grammar enforcement and downgrade/header semantics.
+  # Skipping it on another engine does not assert those negative contracts passed.
+  require_capabilities "grammar-constraints (including downgrade and header contracts)" mlx_runtime structured || return 0
   local base_url="http://127.0.0.1:${port}/v1"
 
   # Phase 1: default server (no --enable-grammar-constraints) — tests downgrade path
@@ -514,6 +571,7 @@ run_grammar_constraints() {
   (( overall_status |= exit_code ))
 
   # Phase 4: grammar-enabled-concurrent — concurrent path grammar
+  if require_capabilities "grammar-constraints/concurrent" batch; then
   start_server grammar-enabled-concurrent
 
   local output_schema_conc="${out_dir}/grammar-schema-concurrent-$(print -r -- "$model" | tr '/:' '__').json"
@@ -540,7 +598,10 @@ run_grammar_constraints() {
   exit_code=$?
   (( overall_status |= exit_code ))
 
+  fi
+
   # Phase 5: grammar-enabled-prefix-cache — prefix caching + grammar interaction
+  if require_capabilities "grammar-constraints/prefix-cache" prefix_cache; then
   start_server grammar-enabled-prefix-cache
 
   local output_schema_cache="${out_dir}/grammar-schema-prefix-cache-$(print -r -- "$model" | tr '/:' '__').json"
@@ -566,6 +627,8 @@ run_grammar_constraints() {
       -o "$output_tools_cache"
   exit_code=$?
   (( overall_status |= exit_code ))
+
+  fi
 
   # Phase 6: mixed strict — json_schema + tool strict in same request
   start_server grammar-enabled

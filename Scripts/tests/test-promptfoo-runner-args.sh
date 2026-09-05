@@ -39,13 +39,15 @@ unset_line="$(trace_launch default -u AFM_NO_THINK -u AFM_MTP | server_argv)"
 zero_line="$(trace_launch adaptive-xml-grammar AFM_NO_THINK=0 AFM_MTP=0 | server_argv)"
 [[ "$(print -r -- "$zero_line" | occurrences --no-think)" == "0" ]]
 [[ "$(print -r -- "$zero_line" | occurrences --mtp)" == "0" ]]
-[[ "$(print -r -- "$zero_line" | occurrences afm_adaptive_xml)" == "1" ]]
-[[ "$(print -r -- "$zero_line" | occurrences --enable-grammar-constraints)" == "1" ]]
+# Every requested profile first discovers capabilities using the native profile.
+# The real CPU server fixtures verify supported forced profiles after discovery.
+[[ "$(print -r -- "$zero_line" | occurrences afm_adaptive_xml)" == "0" ]]
+[[ "$(print -r -- "$zero_line" | occurrences --enable-grammar-constraints)" == "0" ]]
 
 enabled_line="$(trace_launch adaptive-xml AFM_NO_THINK=1 AFM_MTP=1 | server_argv)"
 [[ "$(print -r -- "$enabled_line" | occurrences --no-think)" == "1" ]]
 [[ "$(print -r -- "$enabled_line" | occurrences --mtp)" == "1" ]]
-[[ "$(print -r -- "$enabled_line" | occurrences afm_adaptive_xml)" == "1" ]]
+[[ "$(print -r -- "$enabled_line" | occurrences afm_adaptive_xml)" == "0" ]]
 
 # Quoting must retain a support checkpoint path containing spaces as one value.
 touch "$work_root/support checkpoint.gguf"
