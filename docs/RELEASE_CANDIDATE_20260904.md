@@ -13,10 +13,11 @@ This document tracks a candidate, not a completed release qualification.
 | AFMKit #77 | Qwen Next measured parity documentation | Merged; preserved newer causal-prefill medians separately from historical peak-of-three results |
 | AFMKit #86 | DeepSeek embedded speculation and graph optimizations | New non-draft PR; review and qualify MTP on/off, cache, concurrency and exact-checkpoint performance |
 | AFMKit #87 | MLX Swift LM independence feasibility study | Merged after review; not authorization to restructure dependencies |
-| AFMKit #88 | Older long-generation lifetime experiment | New non-draft PR; reconcile newer host-token scheduling and measure cache-evaluation/allocator tradeoffs before inclusion |
-| AFMKit #89 | OpenAI request compatibility plus older prefill error handling | New non-draft PR; separate missing API behavior from potentially superseded execution changes |
-| AFMKit #90 | Older recurrent replay/error-handler branch | New non-draft PR; high overlap with merged scheduler and cache changes; reconcile before inclusion |
-| AFMKit #91 | Earlier GLM compilation experiment | New non-draft PR; compare with merged #81 and avoid restoring superseded graph code |
+| AFMKit #88 | Older long-generation lifetime experiment | Kept open, excluded: per-token cache evaluation and 4x allocator-clear cadence need independent memory/throughput evidence against newer host-token scheduling |
+| AFMKit #89 | OpenAI request compatibility plus older prefill error handling | API portion merged through #92; older runtime portion kept open, excluded pending error-attribution qualification |
+| AFMKit #90 | Older recurrent replay/error-handler branch | Kept open, excluded: worker errors can be attributed to another concurrent request by the proposed global last-handler fallback |
+| AFMKit #91 | Earlier GLM compilation experiment | Closed as superseded by #81 and newer cache-lifecycle fixes; guarded SDPA, compiled FFN and multimodal forwarding are already present |
+| AFMKit #92 | Current-main scalar stop and choice-count decoding | Merged after 5 tests, including malformed stops and all-current-fields round-trip coverage |
 | maclocal-api #251 | Messages assistant continuation disables thinking | Merged after semantic review and 15 passing request-mapping tests, including ordinary-thinking preservation |
 | AFMKit #74 | Experimental MLX GGUF loader | Existing draft; separate prototype, not presumed RC-ready |
 | maclocal-api #89–91, #196 | TurboQuant / DFlash | Previously deferred by user; leave open and untouched |
@@ -51,6 +52,14 @@ prefix replay). Full live MTP equivalence and performance remain pending.
 The API-only portion of #89 is isolated on `fix/rc-request-decoding`; its custom
 decoder preserves newer fields such as `ignore_eos`, with all-field round-trip
 regression coverage. It does not import the older asynchronous prefill changes.
+
+Review findings on #90 also identify a callback-data lifetime hazard: copying
+the global callback/data pair outside its registry lock permits concurrent
+replacement to destroy that data before invocation. These are findings in an
+unmerged proposal, not claims that current main contains that implementation.
+The #89 preparation scope catches synchronous scheduling errors only; it is not
+proof of safe attribution for later GPU-worker errors. Any forward port must
+also retain the newer `.logits` result-state assignment.
 
 1. Land isolated correctness/converter fixes and reconcile documentation.
 2. Review API compatibility separately from old runtime changes. For overlapping
