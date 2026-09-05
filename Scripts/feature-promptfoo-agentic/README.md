@@ -84,11 +84,13 @@ The configs expect these environment variables:
 Optional runner and CLI structured-output settings:
 
 - `AFM_MTP_MODEL`: optional existing local MTP-head directory, passed as one
-  quoted `--mtp-model` argument to every server profile. Requires `AFM_MTP=1`.
+  quoted `--mtp-model` argument to every server profile and CLI guided-json
+  invocation. Requires `AFM_MTP=1`.
   Use this to pin the exact cached Qwen 27B head during release qualification.
 - `AFM_DSPARK_SUPPORT`
   Existing support GGUF path for DwarfStar speculative server profiles. Passed
-  as one quoted `--dspark-support` argument; unset leaves speculation off.
+  as one quoted `--dspark-support` argument to servers and CLI guided-json
+  invocations; unset leaves speculation off.
   Native MLX profiles instead use `AFM_MTP=1`. Request features may still require
   target fallback, so requested flags alone do not prove active speculation.
 - `AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS`
@@ -163,6 +165,13 @@ AFM_PROMPTFOO_OUT_DIR=/your/custom/output/path \
 ```
 
 That wrapper:
+- runs each structured suite in separate API and CLI phases, stopping the
+  server before its single-prompt CLI cases load the model; each case executes
+  once, serially. Reports use `structured-{api,cli}-MODEL.json` and
+  `structured-stress-{api,cli}-MODEL.json`, both included in the summary.
+- forwards `AFM_MTP=1`, the optional MTP head, and DSpark support to CLI cases
+  as well as server profiles. Requested speculation can still fall back for
+  unsupported request features.
 - runs the structured core suite once against the default AFM profile
 - runs the structured stress suite once against the default AFM profile
 - runs the tool-calling core suite three times:

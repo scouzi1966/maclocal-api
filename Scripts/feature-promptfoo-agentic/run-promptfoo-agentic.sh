@@ -175,36 +175,50 @@ start_server() {
   fi
 }
 
-run_structured() {
-  local output="${out_dir}/structured-$(print -r -- "$model" | tr '/:' '__').json"
+run_structured_suite() {
+  local suite="$1"
+  local output_prefix="${out_dir}/${suite}"
+  local model_slug="$(print -r -- "$model" | tr '/:' '__')"
+  # The two datasets label their single-prompt cases with this prefix.
+  # Complementary filters execute each case exactly once, without keeping a
+  # server's model resident while the CLI loads its own copy.
+  local cli_pattern='^(?:stress/)?cli guided-json '
+  local api_pattern='^(?!(?:stress/)?cli guided-json )'
   start_server default
   AFM_MODEL="$model" \
   AFM_BASE_URL_DEFAULT="http://127.0.0.1:${port}/v1" \
   AFM_BINARY="$afm_binary" \
   MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
     promptfoo eval \
-      -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured.yaml \
+      -c "Scripts/feature-promptfoo-agentic/promptfooconfig.${suite}.yaml" \
       -j 1 \
-      -o "$output"
+      --filter-pattern "$api_pattern" \
+      -o "${output_prefix}-api-${model_slug}.json"
   local exit_code=$?
+  (( overall_status |= exit_code ))
+
+  cleanup
+  wait_for_port_free || exit 1
+  AFM_MODEL="$model" \
+  AFM_BASE_URL_DEFAULT="http://127.0.0.1:${port}/v1" \
+  AFM_BINARY="$afm_binary" \
+  MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
+    promptfoo eval \
+      -c "Scripts/feature-promptfoo-agentic/promptfooconfig.${suite}.yaml" \
+      -j 1 \
+      --filter-pattern "$cli_pattern" \
+      -o "${output_prefix}-cli-${model_slug}.json"
+  exit_code=$?
   (( overall_status |= exit_code ))
   return $exit_code
 }
 
+run_structured() {
+  run_structured_suite structured
+}
+
 run_structured_stress() {
-  local output="${out_dir}/structured-stress-$(print -r -- "$model" | tr '/:' '__').json"
-  start_server default
-  AFM_MODEL="$model" \
-  AFM_BASE_URL_DEFAULT="http://127.0.0.1:${port}/v1" \
-  AFM_BINARY="$afm_binary" \
-  MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
-    promptfoo eval \
-      -c Scripts/feature-promptfoo-agentic/promptfooconfig.structured-stress.yaml \
-      -j 1 \
-      -o "$output"
-  local exit_code=$?
-  (( overall_status |= exit_code ))
-  return $exit_code
+  run_structured_suite structured-stress
 }
 
 run_toolcall_profile() {
