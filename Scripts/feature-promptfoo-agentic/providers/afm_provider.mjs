@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { statSync } from 'node:fs';
 
 function readEnv(name, fallback = undefined) {
   const value = process.env[name];
@@ -171,6 +172,25 @@ export default class AfmPromptfooProvider {
 
       if (this.config.noThink || readEnv('AFM_NO_THINK') === '1') {
         args.push('--no-think');
+      }
+
+      // Match the runner's server profiles. Argument arrays preserve local
+      // checkpoint paths without interpreting them as shell commands.
+      const mtp = readEnv('AFM_MTP', '0');
+      const mtpModel = readEnv('AFM_MTP_MODEL');
+      const dsparkSupport = readEnv('AFM_DSPARK_SUPPORT');
+      if (mtpModel && (mtp !== '1' || !statSync(mtpModel).isDirectory())) {
+        throw new Error('AFM_MTP_MODEL requires AFM_MTP=1 and an existing local model directory');
+      }
+      if (mtp === '1') {
+        args.push('--mtp');
+        if (mtpModel) args.push('--mtp-model', mtpModel);
+      }
+      if (dsparkSupport) {
+        if (!statSync(dsparkSupport).isFile()) {
+          throw new Error('AFM_DSPARK_SUPPORT must name an existing support GGUF file');
+        }
+        args.push('--dspark-support', dsparkSupport);
       }
 
       const env = { ...process.env };
