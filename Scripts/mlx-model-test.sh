@@ -1971,7 +1971,7 @@ $jsonl_line"
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
             judge_status=$?
             ;;
-          codex)
+          codex|codex-glm)
             CODEX_TMP="$(mktemp "$TEST_WORK_ROOT/smart-codex-pertest-XXXXXX")"
             echo "$PERTEST_INPUT" > "$CODEX_TMP"
             PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" </dev/null 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
@@ -2052,7 +2052,7 @@ $SMART_TEST_FILE_SECTION
 --- JSONL DATA ---"
           "$tool" -p "$CLAUDE_PROMPT" < "$RESULTS_FILE" > "$SMART_REPORT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log"
           ;;
-        codex)
+        codex|codex-glm)
           # codex exec: use temp file to avoid ARG_MAX limit on command line
           # (91+ test results with full responses easily exceed OS argument length)
           "$tool" exec --skip-git-repo-check "Read and follow the analysis instructions in $SMART_INPUT. Score every executed JSONL result, omit metadata and status=SKIP records, and output the AI_SCORES block as specified." </dev/null > "$SMART_REPORT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log"

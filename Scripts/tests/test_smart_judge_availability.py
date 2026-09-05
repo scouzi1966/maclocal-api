@@ -13,12 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "Scripts/mlx-model-test.sh"
 
 
-def run_reanalysis(fake_judge_script, records):
+def run_reanalysis(fake_judge_script, records, tool="codex"):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         bindir = work / "bin"
         bindir.mkdir()
-        fake_codex = bindir / "codex"
+        fake_codex = bindir / tool
         fake_codex.write_text(fake_judge_script, encoding="utf-8")
         fake_codex.chmod(0o755)
 
@@ -39,7 +39,7 @@ def run_reanalysis(fake_judge_script, records):
                 "--reanalyse",
                 str(results),
                 "--smart",
-                "1:codex",
+                f"1:{tool}",
                 "--no-report",
             ],
             cwd=work,
@@ -50,7 +50,7 @@ def run_reanalysis(fake_judge_script, records):
         )
         reports = [
             (path, path.read_text(encoding="utf-8"))
-            for path in (work / "test-reports").glob("smart-analysis-codex-*.md")
+            for path in (work / "test-reports").glob(f"smart-analysis-{tool}-*.md")
         ]
         return completed, reports
 
@@ -121,6 +121,20 @@ class SmartJudgeAvailabilityTests(unittest.TestCase):
             '<!-- AI_SCORES [{"i": 0, "s": 4}, {"i": 2, "s": 4}] -->',
             report,
         )
+
+    def test_codex_glm_uses_the_codex_exec_interface(self):
+        records = [{"model": "fixture/model", "label": "case", "status": "OK"}]
+        completed, reports = run_reanalysis(
+            "#!/bin/sh\n"
+            "case $1 in exec) ;; *) echo \"unexpected command: $1\" >&2; exit 64 ;; esac\n"
+            "echo '{\"score\":5,\"reason\":\"glm judge fixture\"}'\n",
+            records,
+            tool="codex-glm",
+        )
+
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        self.assertEqual(len(reports), 1)
+        self.assertIn("> glm judge fixture", reports[0][1])
 
 
 if __name__ == "__main__":
