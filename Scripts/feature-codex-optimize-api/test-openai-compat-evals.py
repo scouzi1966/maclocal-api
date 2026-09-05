@@ -117,7 +117,30 @@ def http_get_json(url: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def run_models_probe(base_url: str) -> dict:
+def advertised_capabilities(body: dict, model: str) -> list[str] | None:
+    """Only an unambiguous AFM model entry can establish unsupported features."""
+    entries = body.get("models")
+    if not isinstance(entries, list):
+        return None
+    entries = [item for item in entries if isinstance(item, dict)]
+    matches = [item for item in entries if item.get("model") == model]
+    if not matches:
+        # AFM accepts aliases; resolve only a single non-embedding model.
+        matches = [item for item in entries
+                   if isinstance(item.get("capabilities"), list)
+                   and "embeddings" not in item["capabilities"]]
+    if len(matches) != 1:
+        return None
+    caps = matches[0].get("capabilities")
+    if not isinstance(caps, list) or not all(isinstance(cap, str) for cap in caps):
+        return None
+    # An empty/incomplete generic extension is not evidence of AFM capability.
+    if not {"mlx_runtime", "dwarfstar_runtime"}.intersection(caps):
+        return None
+    return sorted(set(caps))
+
+
+def run_models_probe(base_url: str, model: str = "") -> dict:
     started = time.time()
     body = http_get_json(f"{base_url.rstrip('/')}/models")
     data = body.get("data", [])
@@ -128,6 +151,7 @@ def run_models_probe(base_url: str) -> dict:
         "details": {
             "count": len(data),
             "first_id": data[0].get("id") if data else None,
+            "advertised_capabilities": advertised_capabilities(body, model),
         },
     }
 
@@ -373,11 +397,23 @@ def main() -> int:
                 log("Server failed to become ready")
                 return 1
 
-        results.append(run_models_probe(args.base_url))
+        results.append(run_models_probe(args.base_url, args.model))
         results.append(run_openai_python_nonstream(args.base_url, args.model))
         results.append(run_openai_python_stream(args.base_url, args.model))
-        results.append(run_openai_python_nonstream_logprobs(args.base_url, args.model))
-        results.append(run_openai_python_stream_logprobs(args.base_url, args.model))
+        capabilities = results[0]["details"]["advertised_capabilities"]
+        for check in (run_openai_python_nonstream_logprobs, run_openai_python_stream_logprobs):
+            if capabilities is not None and "logprobs" not in capabilities:
+                results.append({
+                    "name": check.__name__.removeprefix("run_"),
+                    "ok": True,
+                    "status": "SKIP",
+                    "elapsed_s": 0,
+                    "details": {"reason": "Selected engine does not advertise logprobs",
+                                "advertised_capabilities": capabilities},
+                })
+            else:
+                # Unknown metadata is not evidence of an unsupported feature.
+                results.append(check(args.base_url, args.model))
         if __import__("shutil").which("vllm"):
             results.append(run_vllm_bench(args.base_url[:-3] if args.base_url.endswith("/v1") else args.base_url, args.model, args.tokenizer))
         else:
@@ -389,7 +425,7 @@ def main() -> int:
         write_report(results, report_path)
 
         for item in results:
-            status = "PASS" if item["ok"] else "FAIL"
+            status = item.get("status") or ("PASS" if item["ok"] else "FAIL")
             log(f"{status} {item['name']} ({item['elapsed_s']}s)")
         log(f"Report: {report_path}")
         return 0 if ok else 1
