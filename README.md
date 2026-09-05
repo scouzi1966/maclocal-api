@@ -181,7 +181,7 @@ can display local images inline; Terminal.app uses an explicit `/image` Quick Lo
 | **DwarfStar** | Compatible fixed-schedule Metal checkpoints | `afm mlx -m <owner/repo>` (auto-resolved) or `afm mlx -m <checkpoint.gguf> --mlx-runtime dwarfstar` |
 | **Gateway** | One model list for Ollama, LM Studio, Jan, and other local servers | `afm --gateway` |
 
-Model IDs without an organization default to `mlx-community`, so `Qwen3-0.6B-4bit` and `mlx-community/Qwen3-0.6B-4bit` both work.
+Model IDs without an organization default to `mlx-community`, so `Qwen3-0.6B-4bit` and `mlx-community/Qwen3-0.6B-4bit` both work. For stable, general-purpose MLX models, use `mlx-community`; experimental [`scouzi1966`](https://huggingface.co/scouzi1966) MLX artifacts require an unreleased maclocal-api version and are described in [Experimental `scouzi1966` MLX models](docs/experimental-mlx-models.md).
 
 ## Evaluate a local model
 
