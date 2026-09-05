@@ -6,6 +6,7 @@ import AFMServer
 import AFMTerminalUI
 import ArgumentParser
 import Foundation
+import Synchronization
 import Darwin
 
 // CLI-only conformance: AFMServer's TelegramReplyFormat stays free of ArgumentParser; the
@@ -208,6 +209,9 @@ struct ServeCommand: ParsableCommand {
         signal(SIGINT, handleShutdown)
         signal(SIGTERM, handleShutdown)
 
+        // Capture fatal errors across the task/run-loop boundary. A shutdown
+        // signal alone leaves this empty and remains a successful exit.
+        let serverFailure = Mutex<(any Error)?>(nil)
         // Start server in async context
         _ = Task {
             do {
@@ -215,7 +219,7 @@ struct ServeCommand: ParsableCommand {
                 globalServer = server
                 try await server.start()
             } catch {
-                print("Error starting server. CTRL-C to stop: \(error)")
+                serverFailure.withLock { $0 = error }
                 shouldKeepRunning = false
             }
         }
@@ -225,6 +229,7 @@ struct ServeCommand: ParsableCommand {
             // Keep running until shutdown signal
         }
 
+        if let error = serverFailure.withLock({ $0 }) { throw error }
         print("Server shutdown complete.")
     }
 }
@@ -1037,6 +1042,7 @@ struct MlxCommand: ParsableCommand {
 
         let prewarmEnabled = prewarm.lowercased() != "n" && prewarm.lowercased() != "no" && prewarm != "0"
 
+        let serverFailure = Mutex<(any Error)?>(nil)
         _ = Task {
             do {
                 let loadReporter = MLXLoadReporter(modelID: selectedModel)
@@ -1105,7 +1111,7 @@ struct MlxCommand: ParsableCommand {
                 try await server.start()
             } catch {
                 MLXLoadReporter.finishActiveWithError(error.localizedDescription)
-                print("Error starting MLX server. CTRL-C to stop: \(error)")
+                serverFailure.withLock { $0 = error }
                 shouldKeepRunning = false
             }
         }
@@ -1114,6 +1120,7 @@ struct MlxCommand: ParsableCommand {
         signal(SIGINT, handleShutdown)
         signal(SIGTERM, handleShutdown)
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+        if let error = serverFailure.withLock({ $0 }) { throw error }
         print("Server shutdown complete.")
     }
 
@@ -1338,6 +1345,7 @@ struct MlxCommand: ParsableCommand {
         let defaultChatTemplateKwargs = chatTemplateKwargs.isEmpty
             ? nil
             : chatTemplateKwargs.mapValues { AnyCodable($0) }
+        let serverFailure = Mutex<(any Error)?>(nil)
         _ = Task {
             do {
                 _ = try await model.load(progress: nil)
@@ -1376,7 +1384,7 @@ struct MlxCommand: ParsableCommand {
                 }
                 try await server.start()
             } catch {
-                print("Error starting DwarfStar server. CTRL-C to stop: \(error)")
+                serverFailure.withLock { $0 = error }
                 shouldKeepRunning = false
             }
         }
@@ -1385,6 +1393,7 @@ struct MlxCommand: ParsableCommand {
         signal(SIGINT, handleShutdown)
         signal(SIGTERM, handleShutdown)
         while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+        if let error = serverFailure.withLock({ $0 }) { throw error }
         print("Server shutdown complete.")
     }
 
