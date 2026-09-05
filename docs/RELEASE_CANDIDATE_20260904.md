@@ -99,6 +99,26 @@ also retain the newer `.logits` result-state assignment.
 - Store bulky reports outside Git on persistent storage. Final release-report
   bundles belong on the matching release as optional assets, not in the package.
 
+## DeepSeek candidate evidence
+
+Clean paired build: consumer `25458616e1f27135695a398666daf95270c651a0`,
+provider `6550ad3277a3eb04c94309bee550d27fa84f4423`. Build took 259 seconds.
+Checkpoint: `/Volumes/edata2/models/afm/DeepSeek-V4-Flash-0731-AFM-MLX-native-v11`.
+Three 256-token trials per workload, temperature zero, no thinking, no prefix
+cache or diagnostic tuning variables, sequential MTP-off/on processes:
+
+| Mode | Counting median tok/s | Prose median tok/s |
+| --- | ---: | ---: |
+| Target only | 30.19 | 30.24 |
+| Embedded MTP | 50.36 | 26.72 |
+
+These are API-reported rates. MTP currently reports zero separate prefill time
+and includes that work in generation timing. Arithmetic (`391`), logic (`No`)
+and counting outputs match across modes. Prose remains coherent but differs;
+strict target equivalence is not proven. #86 remains unmerged pending output
+review and the user's performance-tradeoff decision. Raw responses, commands,
+and binary checksum are in `/Volumes/edata2/afm-benchmarks/rc-20260904/deepseek`.
+
 ## GLM evidence carried forward
 
 `scouzi1966/GLM-5.3-Flash-AFM-MLX-4bit` was uploaded successfully at HF revision
