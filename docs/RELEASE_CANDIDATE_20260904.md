@@ -10,14 +10,14 @@ This document tracks a candidate, not a completed release qualification.
 | Repository / PR | Work | Disposition |
 | --- | --- | --- |
 | AFMKit #85 | GLM cached-source conversion, bounded checksum memory, FP32 router preservation and repair | Merged after focused review; 29 converter tests, full conversion and live load passed |
-| AFMKit #77 | Qwen Next measured parity documentation | Existing non-draft PR; resolve conflict without replacing newer performance notes; retained raw artifact README matches proposed figures |
+| AFMKit #77 | Qwen Next measured parity documentation | Merged; preserved newer causal-prefill medians separately from historical peak-of-three results |
 | AFMKit #86 | DeepSeek embedded speculation and graph optimizations | New non-draft PR; review and qualify MTP on/off, cache, concurrency and exact-checkpoint performance |
-| AFMKit #87 | MLX Swift LM independence feasibility study | New non-draft documentation PR; review, not authorization to restructure dependencies |
+| AFMKit #87 | MLX Swift LM independence feasibility study | Merged after review; not authorization to restructure dependencies |
 | AFMKit #88 | Older long-generation lifetime experiment | New non-draft PR; reconcile newer host-token scheduling and measure cache-evaluation/allocator tradeoffs before inclusion |
 | AFMKit #89 | OpenAI request compatibility plus older prefill error handling | New non-draft PR; separate missing API behavior from potentially superseded execution changes |
 | AFMKit #90 | Older recurrent replay/error-handler branch | New non-draft PR; high overlap with merged scheduler and cache changes; reconcile before inclusion |
 | AFMKit #91 | Earlier GLM compilation experiment | New non-draft PR; compare with merged #81 and avoid restoring superseded graph code |
-| maclocal-api #251 | Messages assistant continuation disables thinking | New non-draft PR; current-main request-mapping tests and semantic review required |
+| maclocal-api #251 | Messages assistant continuation disables thinking | Merged after semantic review and 15 passing request-mapping tests, including ordinary-thinking preservation |
 | AFMKit #74 | Experimental MLX GGUF loader | Existing draft; separate prototype, not presumed RC-ready |
 | maclocal-api #89–91, #196 | TurboQuant / DFlash | Previously deferred by user; leave open and untouched |
 | AFMKit issue #76 | Per-slot continuous batching | Previously assigned to next release; do not silently include |
@@ -44,6 +44,13 @@ included in this release. Other worktrees and uncommitted performance probes
 must likewise remain separate until their ownership and validation are clear.
 
 ## Integration order
+
+Progress: DeepSeek #86 has been integrated with current main at `4b601745` and
+53 targeted Release tests passed (speculation policy, architecture numerics,
+prefix replay). Full live MTP equivalence and performance remain pending.
+The API-only portion of #89 is isolated on `fix/rc-request-decoding`; its custom
+decoder preserves newer fields such as `ignore_eos`, with all-field round-trip
+regression coverage. It does not import the older asynchronous prefill changes.
 
 1. Land isolated correctness/converter fixes and reconcile documentation.
 2. Review API compatibility separately from old runtime changes. For overlapping
