@@ -43,7 +43,50 @@ still exercise these feature combinations with MTP requested, but their target
 fallback is intentional compatibility coverage rather than a speculative speed
 measurement. Preserve separate focused greedy runs for actual on/off throughput.
 
-## Pre-package progress (September 5)
+## RC1 live qualification and corrective follow-up
+
+Installed candidate `v0.9.18-next.20260905.4f6d449` passed Foundation and MLX
+installation requests. Its build passed 332 XCTest cases (two skipped) and
+145 Swift Testing cases, with zero failures. These are not full model results.
+
+The first full Qwen Next MTP-off assertion run crashed in QSA decode when
+2,049 visible tokens contained only 512 complete blocks. AFMKit #104 fixes
+issue #103 by retaining the existing visible-mask path until the complete
+block count exceeds the selection budget; optimized selection resumes at
+2,052 tokens. Four focused tests passed, including real indexer evaluation
+at batch sizes one and two. Same-checkpoint full model requalification is
+required after rebuilding with this change.
+
+maclocal-api #256 fixes transport-loss cascades and preserves partial HTML
+and JSONL reports (issue #255; twelve fixtures passed). Outcomes after the
+RC1 server crash must not be counted as valid model failures, successes or
+unsupported-capability skips. PR #258 separately fixes buffered-stream TTFT
+measurement (issue #257; seven delayed-stream fixtures passed). Earlier
+assertion-suite TTFT passes do not establish measured first-token latency.
+
+RC2 preparation also incorporates AFMKit #102, which accepts indexed
+per-expert DeepSeek MTP layouts without changing the stacked native-v11
+checkpoint selected here. AFMKit `v0.1.18-rc.2` was published at
+`6a8c25ab948237e822547c576c13a95d926086b1` after full local release validation:
+all sixteen API baselines, root tests and sixteen exact-tag downstream
+consumers passed. The exact consumer pin advances to `0.1.18-rc.2`;
+installed-artifact identity and full matrix completion must still be verified
+independently, not inferred from this dependency update.
+
+Failed RC1 evidence remains in `matrix/next-off-rc1` under the external report
+root. Its comprehensive stage did not run inference because the client SDK
+was missing; a dedicated qualification environment is now provisioned.
+No completed comprehensive or Promptfoo result is claimed for that run.
+
+Follow-up on the paired corrected build: Qwen Next completed the assertion
+harness with 116 passes, zero failures and two skips. Separate MTP-off/on API
+canaries passed the former crash request, repeated-prefix reuse, a 4,016-token
+prompt and two concurrent requests. These are pre-package regression evidence,
+not clean throughput measurements (release compilation was still active).
+A one-case comprehensive pipeline preflight completed with Codex score 5/5;
+it verifies judge/report wiring only, not comprehensive model quality.
+
+## Historical pre-package progress (September 5)
 
 These are qualification probes, not completed full-suite RC results:
 
