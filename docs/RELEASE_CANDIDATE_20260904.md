@@ -119,6 +119,19 @@ strict target equivalence is not proven. #86 remains unmerged pending output
 review and the user's performance-tradeoff decision. Raw responses, commands,
 and binary checksum are in `/Volumes/edata2/afm-benchmarks/rc-20260904/deepseek`.
 
+Follow-up: #97 identified incomplete restoration of evicted rotating-window
+entries, including the local window inside compressed caches. Commit `54ed9ea4`
+retains those array views and cursor metadata before verification. Nine
+architecture tests passed, including both new wraparound regressions. The
+consumer rebuilt in 116 seconds. Fresh paired results in `deepseek/after-rollback`
+were 30.12/29.78 tok/s target counting/prose and 51.04/27.32 tok/s MTP. Arithmetic,
+logic and counting remain identical; prose still differs, so the rollback fix
+must not be claimed to establish singleton/batched bitwise equivalence.
+
+AFMKit #96 repaired stale Core and MLX public API snapshots for already-merged
+image and Qwen features. All 16 API gates passed; #96 merged and #95 closed.
+Full immutable release qualification is running again on that main revision.
+
 ## GLM evidence carried forward
 
 `scouzi1966/GLM-5.3-Flash-AFM-MLX-4bit` was uploaded successfully at HF revision
