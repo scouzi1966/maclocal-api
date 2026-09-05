@@ -163,7 +163,19 @@ const filenames = fs.readdirSync(outDir)
     fs.statSync(path.join(outDir, filename)).mtimeMs >= minimumMtimeMs)
   .sort();
 
-if (filenames.length === 0) {
+const skipPath = path.join(outDir, 'capability-skips.json');
+let capabilitySkips = [];
+if (fs.existsSync(skipPath) &&
+    (minimumMtimeMs === null || fs.statSync(skipPath).mtimeMs >= minimumMtimeMs)) {
+  capabilitySkips = JSON.parse(fs.readFileSync(skipPath, 'utf8'));
+  if (!Array.isArray(capabilitySkips) || capabilitySkips.some((record) =>
+    record.status !== 'SKIP' || record.evidence?.status !== 'known' ||
+    record.evidence?.requested_model !== model || !record.scope ||
+    !Array.isArray(record.missing_capabilities) || record.missing_capabilities.length === 0)) {
+    throw new Error('invalid current-run capability skip inventory');
+  }
+}
+if (filenames.length === 0 && capabilitySkips.length === 0) {
   throw new Error('no current-run Promptfoo JSON reports found');
 }
 
@@ -220,6 +232,7 @@ function serializableBucket(bucket) {
 }
 
 const summary = {
+  capabilitySkips,
   schemaVersion: 1,
   model,
   generatedAt: new Date().toISOString(),
@@ -259,6 +272,7 @@ const rows = Object.values(summary.categories).map((category) => {
 const markdown = `# Promptfoo result categories\n\n` +
   `- Model: \`${model}\`\n` +
   `- Generated: ${summary.generatedAt}\n\n` +
+  `- Capability-skipped suite/profile scopes: ${capabilitySkips.length} (not executed; not conformance passes; excluded from case totals)\n\n` +
   `These categories are intentionally reported separately. Forced-parser experiments are not part of native protocol conformance, and behavioral preferences are not OpenAI API invariants.\n\n` +
   `| Category | Cases | Pass | Fail | Error | Unique failing cases | Pass rate |\n` +
   `|---|---:|---:|---:|---:|---:|---:|\n` +
