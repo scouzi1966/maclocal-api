@@ -40,6 +40,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 REPORT_DIR="${AFM_ASSERTIONS_REPORT_DIR:-$PROJECT_ROOT/test-reports}"
 REQUEST_TIMEOUT="${AFM_ASSERTIONS_REQUEST_TIMEOUT:-60}"
 TRANSPORT_HEALTH_TIMEOUT=5
+TTFT_LIMIT_MS=5000
 
 usage() {
   cat <<'EOF'
@@ -2668,29 +2669,14 @@ if should_run_section 9 && min_tier full; then
 
   # Test: TTFT < 5s (first token — content or reasoning_content)
   t0=$(now_ms)
-  stream_resp=$(api_stream '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":50,"stream":true,"temperature":0}')
-  first_data_ms=$(echo "$stream_resp" | python3 -c "
-import sys, time, json
-start = time.time()
-for line in sys.stdin:
-    line = line.strip()
-    if line.startswith('data: {'):
-        try:
-            d = json.loads(line[6:])
-            delta = d.get('choices', [{}])[0].get('delta', {})
-            c = delta.get('content', '') or delta.get('reasoning_content', '')
-            if c:
-                print(int((time.time() - start) * 1000))
-                break
-        except: pass
-else:
-    print('99999')
-" 2>/dev/null || echo "99999")
+  request_started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')
+  first_data_ms=$(api_stream '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":50,"stream":true,"temperature":0}' |
+    python3 "$SCRIPT_DIR/measure-sse-ttft.py" --start-ns "$request_started_ns")
   dur=$(( $(now_ms) - t0 ))
-  if [ "$first_data_ms" -lt 5000 ] 2>/dev/null; then
-    run_test "Perf" "TTFT < 5s" "<5000ms" "PASS" "$dur"
+  if [[ "$first_data_ms" =~ ^[0-9]+$ ]] && [ "$first_data_ms" -lt "$TTFT_LIMIT_MS" ]; then
+    run_test "Perf" "TTFT < 5s (${first_data_ms}ms)" "<${TTFT_LIMIT_MS}ms" "PASS" "$dur"
   else
-    run_test "Perf" "TTFT < 5s" "<5000ms" "FAIL: ${first_data_ms}ms" "$dur"
+    run_test "Perf" "TTFT < 5s" "<${TTFT_LIMIT_MS}ms" "FAIL: $first_data_ms" "$dur"
   fi
 
   # Test: tok/s > 1 (bare minimum)
