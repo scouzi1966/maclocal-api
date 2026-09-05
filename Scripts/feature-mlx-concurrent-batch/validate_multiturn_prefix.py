@@ -16,6 +16,7 @@ Usage:
 """
 import asyncio, aiohttp, json, time, sys, os
 from batch_validation_report import BatchReport
+from batch_stream_evidence import capture_stream_evidence, record_stream_parse_error
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -224,6 +225,7 @@ CONVERSATIONS = [
 
 # ─── Request sender ───────────────────────────────────────────────────────────
 
+@capture_stream_evidence("batch-prefix")
 async def send_request(session, messages, max_tokens=1024):
     """Send streaming request, return full stats dict."""
     payload = {
@@ -261,6 +263,7 @@ async def send_request(session, messages, max_tokens=1024):
                         ttft = time.monotonic() - start
                     text += content
             except Exception:
+                record_stream_parse_error()
                 pass
 
     elapsed = time.monotonic() - start
