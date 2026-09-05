@@ -248,6 +248,34 @@ class ModelTestOracleTests(unittest.TestCase):
         self.assertIn("> meets intent", report)
         self.assertIn('<!-- AI_SCORES [{"i": 1, "s": 5}] -->', report)
 
+    def test_per_test_report_assembler_rejects_fallback_scores(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results.jsonl"
+            scores = root / "scores"
+            scores.mkdir()
+            results.write_text(
+                json.dumps({"model": "model/a", "label": "working", "status": "OK"})
+                + "\n",
+                encoding="utf-8",
+            )
+
+            cases = {
+                "missing": None,
+                "empty": "",
+                "unparseable": "judge unavailable",
+                "no-reason": '{"score":5}',
+                "blank-reason": '{"score":5,"reason":"   "}',
+                "non-string-reason": '{"score":5,"reason":["looks genuine"]}',
+                "out-of-range": '{"score":6,"reason":"invalid range"}',
+            }
+            for name, payload in cases.items():
+                with self.subTest(case=name):
+                    score_file = scores / "score_0.txt"
+                    score_file.write_text(payload or "", encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "refusing|invalid judge score"):
+                        assemble_per_test_report(scores, results)
+
     def test_evaluation_lane_distinguishes_native_and_cross_family_parser_use(self):
         self.assertEqual(
             evaluation_lane(
