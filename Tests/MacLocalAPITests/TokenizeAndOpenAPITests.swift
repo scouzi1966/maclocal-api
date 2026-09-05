@@ -223,6 +223,18 @@ struct TokenizeAndOpenAPITests {
         #expect(response["content"]?.arrayValue?.first?["text"]?.stringValue == "is.")
     }
 
+    @Test("Messages without assistant prefill retain requested thinking")
+    func messagesWithoutPrefillRetainThinking() throws {
+        let request = try MessagesController.makeChatRequest(
+            object: ["thinking": .object(["type": .string("enabled")])],
+            sourceMessages: [.object(["role": .string("user"), "content": .string("Explain your answer.")])],
+            maxTokens: 128,
+            defaultModel: "test-model"
+        )
+        #expect(request["reasoning_effort"]?.stringValue == "low")
+        #expect(request["chat_template_kwargs"] == nil)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // MARK: - T1.7 — OpenAPI spec integrity
     // ═══════════════════════════════════════════════════════════════════
