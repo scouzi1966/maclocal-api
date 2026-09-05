@@ -42,3 +42,28 @@ tools, response format, logprobs, stop sequences, or media. The full suite must
 still exercise these feature combinations with MTP requested, but their target
 fallback is intentional compatibility coverage rather than a speculative speed
 measurement. Preserve separate focused greedy runs for actual on/off throughput.
+
+## Pre-package progress (September 5)
+
+These are qualification probes, not completed full-suite RC results:
+
+- AFMKit main at `bfef2313` passed all 16 public API snapshot gates. Its full
+  release validator has progressed through the root tests to downstream
+  consumer builds; final validator success is still pending.
+- DeepSeek candidate `54ed9ea4` passed nine focused architecture/rollback
+  tests. Its paired Release binary measured median counting throughput of
+  30.12 target / 51.04 speculative tok/s and prose throughput of
+  29.78 / 27.32 tok/s. Prose was coherent but not byte-identical. API timing
+  in the speculative path includes prefill, so these are not pure kernel rates.
+- A bounded two-client, repeated two-turn isolated-code probe passed 24/24
+  checks. Target mode recorded B=2 execution and radix hits; speculation
+  remained serialized with cache misses. Do not interpret this as speculative
+  batching/cache support. AFMKit issue #98 records that limitation; issue #97
+  tracks the rollback fix on PR #86, which remains unmerged.
+- Promptfoo DS4 support-path and positive load-timeout argument regression
+  tests passed, including a checkpoint path containing spaces. Real DS4
+  inference qualification is still pending. Changes are on this PR (#252),
+  associated with maclocal-api issue #253.
+
+Raw pre-package evidence is preserved under
+`/Volumes/edata2/afm-benchmarks/rc-20260904/`.
