@@ -83,6 +83,9 @@ The configs expect these environment variables:
 
 Optional runner and CLI structured-output settings:
 
+- `AFM_MTP_MODEL`: optional existing local MTP-head directory, passed as one
+  quoted `--mtp-model` argument to every server profile. Requires `AFM_MTP=1`.
+  Use this to pin the exact cached Qwen 27B head during release qualification.
 - `AFM_DSPARK_SUPPORT`
   Existing support GGUF path for DwarfStar speculative server profiles. Passed
   as one quoted `--dspark-support` argument; unset leaves speculation off.

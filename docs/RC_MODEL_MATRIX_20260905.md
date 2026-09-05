@@ -59,7 +59,7 @@ These are qualification probes, not completed full-suite RC results:
   checks. Target mode recorded B=2 execution and radix hits; speculation
   remained serialized with cache misses. Do not interpret this as speculative
   batching/cache support. AFMKit issue #98 records that limitation; issue #97
-  tracks the rollback fix on PR #86, which remains unmerged.
+  tracks the rollback fix on PR #86, now merged in `03fd2b44`.
 - Promptfoo DS4 support-path and positive load-timeout argument regression
   tests passed, including a checkpoint path containing spaces. Real DS4
   inference qualification is still pending. Changes are on this PR (#252),
@@ -67,3 +67,9 @@ These are qualification probes, not completed full-suite RC results:
 
 Raw pre-package evidence is preserved under
 `/Volumes/edata2/afm-benchmarks/rc-20260904/`.
+
+The earlier full validator built all sixteen downstream consumers but failed
+its stale terminal expectation of fifteen. AFMKit PR #100 fixes that count by
+using the generated inventory; regression tests accept sixteen and reject an
+incomplete fifteen. The local publisher is now rerunning full qualification
+of `03fd2b44` for `v0.1.18-rc.1`, before any tag/release publication.

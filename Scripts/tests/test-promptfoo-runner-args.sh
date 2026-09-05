@@ -53,6 +53,17 @@ dspark_line="$(trace_launch default AFM_DSPARK_SUPPORT="$work_root/support check
 [[ "$(print -r -- "$dspark_line" | occurrences --dspark-support)" == "1" ]]
 [[ "$dspark_line" == *"support checkpoint.gguf"* ]]
 
+mkdir "$work_root/mtp head"
+mtp_line="$(trace_launch default AFM_MTP=1 AFM_MTP_MODEL="$work_root/mtp head" | server_argv)"
+[[ "$(print -r -- "$mtp_line" | occurrences --mtp-model)" == "1" ]]
+[[ "$mtp_line" == *"mtp head"* ]]
+set +e
+mtp_output="$(AFM_MTP=0 AFM_MTP_MODEL="$work_root/mtp head" "$runner" all 2>&1)"
+mtp_status=$?
+set -e
+[[ "$mtp_status" == "1" ]]
+[[ "$mtp_output" == "AFM_MTP_MODEL requires AFM_MTP=1 and an existing local model directory" ]]
+
 for bad_timeout in 0 -1 invalid; do
   set +e
   timeout_output="$(AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS="$bad_timeout" "$runner" all 2>&1)"
