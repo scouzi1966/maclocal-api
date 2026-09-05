@@ -1697,6 +1697,39 @@ fi  # end of: if [ -z "$REANALYSE_FILE" ]
 
 if $SMART_ANALYSIS; then
   SMART_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
+  # Shared by batch, per-test, and the AFM judge fallback. Intent takes
+  # precedence over generic text-quality heuristics in every judge mode.
+  JUDGE_RESPONSE_RULES="$(cat <<'JUDGE_RESPONSE_RULES_END'
+RESPONSE CONTRACT PRECEDENCE (applies before generic scoring heuristics):
+- status=FAIL remains score 1; an expected output shape never overrides a failed assertion.
+- Resolve the applicable intent first. For is_baseline=true, ignore the enclosing
+  variant's TEST SPEC/expectations and judge only the result's own prompt.
+- Inspect content, content_preview, reasoning_content, tool_calls, finish_reason,
+  and available executable expectations/assertion results together, not text alone.
+- EXPECTED TOOL-ONLY RESPONSE: When the applicable intent calls for a tool, valid
+  tool_calls with the expected function names/arguments and finish_reason="tool_calls"
+  are the response. Empty content/reasoning_content is normal and carries no automatic
+  penalty or score-3 cap. Judge the actual tool contract; malformed, missing, wrong,
+  or unexpected calls are not exempt and are not automatically successful.
+- EXPECTED IMMEDIATE STOP: When the applicable test explicitly asserts empty output
+  (for example content_equals="") with finish_reason="stop", evaluate that contract.
+  A matching empty response carries no automatic penalty or score-3 cap. An ordinary
+  finish_reason="stop" alone does not establish that empty output was expected.
+- Explicit applicable output contracts take precedence over generic formatting rules,
+  including tests that intentionally stop inside JSON and expect truncated invalid JSON.
+- UNEXPECTED EMPTY OUTPUT: If there is no visible text, reasoning, or valid expected
+  tool response and the test does not explicitly expect emptiness, report the unmet
+  expectation or insufficient evidence. status=OK or completion_tokens>0 alone proves
+  neither successful behavior nor a harness capture bug. Do not automatically score 3;
+  score against the available intent/evidence and state unknown quality when appropriate.
+  Keep the cause unattributed unless evidence establishes a model, engine, or harness fault.
+- REASONING-ONLY OUTPUT: If the intended final answer is absent but reasoning_content
+  is present near the token limit, note possible budget exhaustion and assess the unmet
+  final-answer contract (typically 2-3). Token counts alone do not prove why it occurred
+  or that the engine/model was functioning correctly. Expected tool-only/stop outcomes
+  above take precedence over this heuristic.
+JUDGE_RESPONSE_RULES_END
+)"
   ANALYSIS_PROMPT="$(cat <<'ANALYSIS_PROMPT_END'
 You are a QA engineer for AFM (Apple Foundation Models), an OpenAI-compatible local
 inference server for Apple Silicon. Your job is to review automated test results from
@@ -1745,7 +1778,11 @@ Produce a concise markdown report covering:
    with specific reasons. Separate into:
    - "Likely AFM bug" (model works elsewhere, fails here)
    - "Model quality issue" (model itself is poor)
+   - "Unattributed" (observed issue, evidence does not establish its cause)
    - "Working well" (no action needed)
+
+Attribute a failure to AFM, the model, or the harness only when supported by evidence;
+otherwise retain it as unattributed and identify the evidence needed to investigate.
 
 WORKFLOW CONTEXT: This analysis is part of an iterative debug loop. A developer
 or AI coding agent runs tests, reads your analysis, fixes the issues, then re-runs
@@ -1772,14 +1809,6 @@ Do not score metadata records or capability-aware records whose status is SKIP:
 
 IMPORTANT scoring notes:
 - Base your score on "content", "content_preview", AND "reasoning_content" fields.
-- THINKING-BUDGET EXHAUSTION: If "content" is empty but "reasoning_content" is non-empty
-  and completion_tokens is close to max_tokens, the model spent its entire token budget
-  reasoning and never emitted a response. This is NOT a harness failure or empty response —
-  it means the max_tokens was too low for a thinking model. Score based on the quality of
-  the reasoning content (typically 2-3, since no actual response was produced, but the model
-  was functioning correctly). Flag this pattern explicitly in your anomalies section.
-- If BOTH "content" AND "reasoning_content" are empty but status=OK and completion_tokens > 0,
-  the test harness failed to capture output — score 3 (unknown quality) NOT 1.
 - Only score 1 for actual failures (status=FAIL).
 - A response that works but has minor formatting issues is still a 4 or 5.
 - Repetitive/looping text is a 2. Completely off-topic or garbled is a 2.
@@ -1807,6 +1836,9 @@ Rules:
 - Do NOT wrap it in a code block
 ANALYSIS_PROMPT_END
 )"
+  ANALYSIS_PROMPT="$JUDGE_RESPONSE_RULES
+
+$ANALYSIS_PROMPT"
 
   # Include test file contents in the prompt if available (AI-readable comments)
   SMART_TEST_FILE_SECTION=""
@@ -1842,9 +1874,6 @@ Score this result on a 1-5 scale:
 
 Scoring rules:
 - If status=FAIL, score 1.
-- If "content" is empty but "reasoning_content" is non-empty and completion_tokens
-  is close to max_tokens, the model spent its token budget reasoning. Score 2-3.
-- If BOTH content and reasoning_content are empty but status=OK, score 3.
 - Repetitive/looping text is a 2. Off-topic or garbled is a 2.
 - For stop sequence tests: output MUST NOT contain the stop string. If it does, score 2.
 - For seed/determinism tests: flag if paired runs differ (but score the content itself).
@@ -1860,6 +1889,9 @@ Respond with EXACTLY one line of JSON, nothing else:
 {"score": N, "reason": "brief explanation referencing expected outcome"}
 PER_TEST_PROMPT_END
 )"
+  PER_TEST_PROMPT="$JUDGE_RESPONSE_RULES
+
+$PER_TEST_PROMPT"
 
   echo "  Smart analysis mode: $([ "$SMART_BATCH" = "1" ] && echo "per-test (1)" || echo "batch (0)")"
 
@@ -2045,13 +2077,13 @@ Score this result on a 1-5 scale:
 
 Scoring rules:
 - If status=FAIL, score 1.
-- If \"content\" is empty but \"reasoning_content\" is non-empty and completion_tokens
-  is close to max_tokens, the model spent its token budget reasoning. Score 2-3.
-- If BOTH content and reasoning_content are empty but status=OK, score 3.
 - Repetitive/looping text is a 2. Off-topic or garbled is a 2.
 
 Respond with EXACTLY one line of JSON, nothing else:
 {\"score\": N, \"reason\": \"brief explanation\"}"
+            AFM_SCORE_PROMPT="$JUDGE_RESPONSE_RULES
+
+$AFM_SCORE_PROMPT"
 
             if [ -n "$afm_spec" ]; then
               AFM_SCORE_PROMPT="$AFM_SCORE_PROMPT
