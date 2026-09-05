@@ -46,8 +46,24 @@ def assemble_per_test_report(scores_dir: str | Path, results_file: str | Path) -
             payload = None
             if score_file.exists():
                 payload = extract_score_payload(score_file.read_text(encoding="utf-8").strip())
-            score_value = payload["score"] if payload else 3
-            reason = str(payload.get("reason", "")) if payload else ""
+            if payload is None:
+                raise ValueError(
+                    f"Result {result_idx} ({name}) has no genuine judge payload; "
+                    "refusing to synthesize a fallback score"
+                )
+
+            score_value = payload.get("score")
+            if type(score_value) is not int or not 1 <= score_value <= 5:
+                raise ValueError(
+                    f"Result {result_idx} ({name}) has invalid judge score: {score_value!r}"
+                )
+
+            reason = payload.get("reason", "")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError(
+                    f"Result {result_idx} ({name}) has no genuine judge reason; "
+                    "refusing to publish its score"
+                )
             scores.append({"i": result_idx, "s": score_value})
 
             tokens_per_second = result.get("tokens_per_sec", 0) or 0

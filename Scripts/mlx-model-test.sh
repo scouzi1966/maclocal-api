@@ -471,8 +471,8 @@ HELPEOF
   i=$((i + 1))
 done
 
-# Validate openai SDK prerequisite
-if ! python3 -c "import openai" 2>/dev/null; then
+# Generation needs the OpenAI SDK; CPU-only reanalysis must not require it.
+if [ -z "$REANALYSE_FILE" ] && ! python3 -c "import openai" 2>/dev/null; then
   echo "Error: OpenAI Python SDK not found. Install with: pip3 install openai" >&2
   exit 1
 fi
@@ -1969,29 +1969,57 @@ $jsonl_line"
         case "$tool" in
           claude)
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
+            judge_status=$?
             ;;
           codex)
             CODEX_TMP="$(mktemp "$TEST_WORK_ROOT/smart-codex-pertest-XXXXXX")"
             echo "$PERTEST_INPUT" > "$CODEX_TMP"
             PERTEST_SCORE=$("$tool" exec --skip-git-repo-check "Read and score the test result in $CODEX_TMP. Output exactly one JSON line: {\"score\": N, \"reason\": \"...\"}" </dev/null 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
+            judge_status=$?
             rm -f "$CODEX_TMP"
             ;;
           afm)
             PERTEST_SCORE=$("$AFM" -s "$PERTEST_INPUT" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
+            judge_status=$?
             ;;
           *)
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")
+            judge_status=$?
             ;;
         esac
 
         echo "$PERTEST_SCORE" > "$PERTEST_SCORES_DIR/score_${line_idx}.txt"
+        if [ "$judge_status" -ne 0 ]; then
+          echo "" >&2
+          echo "Error: $tool judge exited with status $judge_status for result $line_idx" >&2
+          echo "Preserved raw judge output: $PERTEST_SCORES_DIR/score_${line_idx}.txt" >&2
+          echo "Check stderr: $TEST_WORK_ROOT/smart-${tool}-stderr-$$.log" >&2
+          exit "$judge_status"
+        fi
+
         score_val=$(echo "$PERTEST_SCORE" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import sys
 from mlx_model_test_oracle import extract_score_payload
 text = sys.stdin.read().strip()
 payload = extract_score_payload(text)
-print(payload['score'] if payload else '?')
+reason = payload.get('reason', '') if payload else ''
+valid = (
+    payload is not None
+    and type(payload.get('score')) is int
+    and 1 <= payload['score'] <= 5
+    and isinstance(reason, str)
+    and bool(reason.strip())
+)
+print(payload['score'] if valid else '?')
 " 2>/dev/null)
+        if [ "$score_val" != "?" ] && [ "$score_val" != "" ]; then
+          :
+        else
+          echo "" >&2
+          echo "Error: $tool judge returned no valid score payload for result $line_idx" >&2
+          echo "Preserved raw judge output: $PERTEST_SCORES_DIR/score_${line_idx}.txt" >&2
+          exit 1
+        fi
         echo "score=$score_val"
         line_idx=$((line_idx + 1))
       done < "$RESULTS_FILE"
