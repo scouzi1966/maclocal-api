@@ -2208,11 +2208,35 @@ else
   echo "  JSONL: $RESULTS_FILE"
 fi
 
+# ── Final recorded outcome gate (also used when reanalysing retained JSONL) ──
 if [ -f "$RESULTS_FILE" ]; then
-  RECORDED_FAILURES=$(python3 - "$RESULTS_FILE" <<'PYEOF'
+  if RECORDED_COUNTS=$(python3 - "$RESULTS_FILE" <<'PYEOF'
 import json, sys
 
-failures = 0
+passed = failures = skipped = 0
+
+def outcome(record):
+    fields = {key: str(record.get(key, '')).strip().lower() for key in
+              ('status', 'transport_status', 'assertion_status', 'overall_status')}
+    # A successful HTTP response or summary field must never hide a failed
+    # executable assertion, transport error, or explicit error evidence.
+    if (any(value in ('fail', 'failed', 'error') for value in fields.values())
+            or record.get('assertion_failures') or record.get('error')):
+        return 'fail'
+    allowed = {
+        'status': {'ok', 'skip'},
+        'transport_status': {'', 'pass', 'not_run'},
+        'assertion_status': {'', 'pass', 'not_configured', 'not_run'},
+        'overall_status': {'', 'pass', 'skip'},
+    }
+    if any(value not in allowed[key] for key, value in fields.items()):
+        return 'fail'
+    if fields['status'] == 'skip' or fields['overall_status'] == 'skip':
+        return 'skip'
+    if fields['transport_status'] == 'not_run' or fields['assertion_status'] == 'not_run':
+        return 'fail'
+    return 'pass'
+
 with open(sys.argv[1]) as handle:
     for line in handle:
         line = line.strip()
@@ -2223,15 +2247,31 @@ with open(sys.argv[1]) as handle:
         except json.JSONDecodeError:
             failures += 1
             continue
-        if not record.get('_meta') and record.get('status') != 'OK':
+        if not isinstance(record, dict):
             failures += 1
-print(failures)
+            continue
+        if record.get('_meta'):
+            continue
+        result = outcome(record)
+        passed += result == 'pass'
+        failures += result == 'fail'
+        skipped += result == 'skip'
+print(passed, failures, skipped)
 PYEOF
-  )
-  if [ "$RECORDED_FAILURES" -gt 0 ]; then
-    echo "=== FAILED: $RECORDED_FAILURES result record(s) did not pass ===" >&2
+  ); then
+    read -r RECORDED_PASSES RECORDED_FAILURES RECORDED_SKIPS <<< "$RECORDED_COUNTS"
+    echo "=== Recorded outcomes: $RECORDED_PASSES passed, $RECORDED_FAILURES failed, $RECORDED_SKIPS skipped (not executed; not passes) ==="
+    if [ "$RECORDED_FAILURES" -gt 0 ]; then
+      echo "=== FAILED: $RECORDED_FAILURES result record(s) did not pass ===" >&2
+      OVERALL_STATUS=1
+    fi
+  else
+    echo "=== FAILED: could not evaluate recorded outcomes ===" >&2
     OVERALL_STATUS=1
   fi
+else
+  echo "=== FAILED: results file is missing: $RESULTS_FILE ===" >&2
+  OVERALL_STATUS=1
 fi
 
 exit "$OVERALL_STATUS"
