@@ -125,6 +125,15 @@ struct MessagesController: RouteCollection {
         if object["thinking"]?["type"]?.stringValue == "enabled" {
             request["reasoning_effort"] = .string("low")
         }
+        if assistantPrefill != nil {
+            // A final assistant turn is continuation text, not a new reasoning
+            // turn. Thinking models can otherwise spend the entire response
+            // budget on a hidden scratchpad before emitting the few characters
+            // that complete the prefix.
+            request["chat_template_kwargs"] = .object([
+                "enable_thinking": .bool(false)
+            ])
+        }
         if let tools = object["tools"]?.arrayValue {
             request["tools"] = .array(tools.compactMap { tool in
                 guard let tool = tool.objectValue, let name = tool["name"] else { return nil }
