@@ -71,6 +71,8 @@ struct AFMServerResolvedLogprob: Sendable {
 struct AFMServerStreamChunk: Sendable {
     let text: String
     let logprobs: [AFMServerResolvedLogprob]?
+    /// Completed per-call snapshots; consumers accumulate across chunks and
+    /// replace repeated indices. Argument fragments live in toolCallDeltas.
     let toolCalls: [ResponseToolCall]?
     let toolCallDeltas: [StreamDeltaToolCall]?
     let promptTokens: Int?
