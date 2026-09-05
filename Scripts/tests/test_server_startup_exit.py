@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import signal
 import socket
+import struct
 import subprocess
 import tempfile
 import time
@@ -41,41 +42,54 @@ class StartupSubprocessTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not key.startswith('AFM_')}
         self.env.update(HF_HUB_OFFLINE='1', MACAFM_MLX_MODEL_CACHE=str(self.work))
 
-    def run_rejection(self, args):
+    def run_rejection(self, args, expected_error):
         command = [str(Path(BINARY).resolve()), *args]
         result = subprocess.run(command, env=self.env, stdin=subprocess.DEVNULL,
                                 text=True, capture_output=True, timeout=TIMEOUT_SECONDS)
         (self.work/'stdout.log').write_text(result.stdout)
         (self.work/'stderr.log').write_text(result.stderr)
         (self.work/'result.json').write_text(json.dumps({'command': command, 'exit_code': result.returncode}, indent=2))
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertNotIn('Server shutdown complete.', result.stdout)
-        self.assertIn('Error', result.stderr)
+        self.assertNotIn('Unexpected argument', result.stderr)
+        self.assertNotIn('Usage:', result.stderr)
+        self.assertRegex(result.stderr, expected_error)
 
     def test_mlx_unsupported_local_config_exits_nonzero(self):
         model = self.work/'unsupported-model'
         model.mkdir()
         (model/'config.json').write_text(json.dumps({'model_type': 'afm_startup_fixture_unsupported'}))
         # No weights or tokenizer exist; model construction must reject before inference.
-        self.run_rejection(['mlx', '-m', str(model), '--prewarm', 'n'])
+        self.run_rejection(['mlx', '-m', str(model), '--prewarm', 'n'],
+                           r'The AFM model failed to load')
 
-    def test_dwarfstar_malformed_local_gguf_exits_nonzero(self):
-        model = self.work/'invalid.gguf'
-        model.write_bytes(b'not a GGUF checkpoint')
-        self.run_rejection(['mlx', '-m', str(model), '--mlx-runtime', 'dwarfstar', '--prewarm', 'n'])
+    def test_dwarfstar_tensorless_local_gguf_exits_nonzero(self):
+        model = self.work/'tensorless.gguf'
+        def gguf_string(value):
+            encoded = value.encode()
+            return struct.pack('<Q', len(encoded)) + encoded
+        # Valid v3 architecture metadata passes CLI runtime selection; absent
+        # model metadata/tensors must fail inside the async backend load, before
+        # any weights or inference can exist. Random bytes only test preflight.
+        model.write_bytes(struct.pack('<4sIQQ', b'GGUF', 3, 0, 1)
+                          + gguf_string('general.architecture')
+                          + struct.pack('<I', 8) + gguf_string('deepseek4'))
+        self.run_rejection(['mlx', '-m', str(model), '--mlx-runtime', 'dwarfstar', '--prewarm', 'n'],
+                           r'(?i)Error:.*(load|gguf|dwarfstar)')
 
     def test_gateway_bind_failure_exits_nonzero(self):
         with socket.socket() as occupied:
             occupied.bind(('127.0.0.1', 0))
             occupied.listen()
             port = occupied.getsockname()[1]
-            self.run_rejection(['serve', '--gateway', '--prewarm', 'n', '--port', str(port)])
+            self.run_rejection(['--gateway', '--prewarm', 'n', '--port', str(port)],
+                               r'(?i)(bind|address already in use|EADDRINUSE)')
 
     def test_gateway_sigint_exits_zero(self):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
-        command = [str(Path(BINARY).resolve()), 'serve', '--gateway', '--prewarm', 'n', '--port', str(port)]
+        command = [str(Path(BINARY).resolve()), '--gateway', '--prewarm', 'n', '--port', str(port)]
         with (self.work/'server.log').open('w') as log:
             proc = subprocess.Popen(command, env=self.env, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=log, start_new_session=True)
