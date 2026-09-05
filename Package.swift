@@ -25,7 +25,7 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WO
     // Bumping AFMKit is therefore one explicit, reviewable AFM change.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        exact: "0.1.17"
+        exact: "0.1.18-rc.1"
     )
 }
 

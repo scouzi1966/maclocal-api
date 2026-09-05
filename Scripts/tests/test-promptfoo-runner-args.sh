@@ -47,6 +47,39 @@ enabled_line="$(trace_launch adaptive-xml AFM_NO_THINK=1 AFM_MTP=1 | server_argv
 [[ "$(print -r -- "$enabled_line" | occurrences --mtp)" == "1" ]]
 [[ "$(print -r -- "$enabled_line" | occurrences afm_adaptive_xml)" == "1" ]]
 
+# Quoting must retain a support checkpoint path containing spaces as one value.
+touch "$work_root/support checkpoint.gguf"
+dspark_line="$(trace_launch default AFM_DSPARK_SUPPORT="$work_root/support checkpoint.gguf" AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS=900 | server_argv)"
+[[ "$(print -r -- "$dspark_line" | occurrences --dspark-support)" == "1" ]]
+[[ "$dspark_line" == *"support checkpoint.gguf"* ]]
+
+mkdir "$work_root/mtp head"
+mtp_line="$(trace_launch default AFM_MTP=1 AFM_MTP_MODEL="$work_root/mtp head" | server_argv)"
+[[ "$(print -r -- "$mtp_line" | occurrences --mtp-model)" == "1" ]]
+[[ "$mtp_line" == *"mtp head"* ]]
+set +e
+mtp_output="$(AFM_MTP=0 AFM_MTP_MODEL="$work_root/mtp head" "$runner" all 2>&1)"
+mtp_status=$?
+set -e
+[[ "$mtp_status" == "1" ]]
+[[ "$mtp_output" == "AFM_MTP_MODEL requires AFM_MTP=1 and an existing local model directory" ]]
+
+for bad_timeout in 0 -1 invalid; do
+  set +e
+  timeout_output="$(AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS="$bad_timeout" "$runner" all 2>&1)"
+  timeout_status=$?
+  set -e
+  [[ "$timeout_status" == "1" ]]
+  [[ "$timeout_output" == "AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS must be a positive integer" ]]
+done
+
+set +e
+missing_output="$(AFM_DSPARK_SUPPORT="$work_root/missing.gguf" "$runner" all 2>&1)"
+missing_status=$?
+set -e
+[[ "$missing_status" == "1" ]]
+[[ "$missing_output" == "AFM_DSPARK_SUPPORT must name an existing support GGUF file" ]]
+
 set +e
 invalid_output="$(AFM_NO_THINK=invalid "$runner" all 2>&1)"
 invalid_status=$?

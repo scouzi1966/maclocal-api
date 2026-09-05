@@ -83,6 +83,18 @@ The configs expect these environment variables:
 
 Optional runner and CLI structured-output settings:
 
+- `AFM_MTP_MODEL`: optional existing local MTP-head directory, passed as one
+  quoted `--mtp-model` argument to every server profile. Requires `AFM_MTP=1`.
+  Use this to pin the exact cached Qwen 27B head during release qualification.
+- `AFM_DSPARK_SUPPORT`
+  Existing support GGUF path for DwarfStar speculative server profiles. Passed
+  as one quoted `--dspark-support` argument; unset leaves speculation off.
+  Native MLX profiles instead use `AFM_MTP=1`. Request features may still require
+  target fallback, so requested flags alone do not prove active speculation.
+- `AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS`
+  Positive startup timeout, default `60`. Use `900` for large-model release
+  qualification; a process exit still fails immediately.
+
 - `AFM_BINARY`
   Path to the `afm` binary. Defaults to `.build/arm64-apple-macosx/release/afm`.
 - `MACAFM_MLX_MODEL_CACHE`

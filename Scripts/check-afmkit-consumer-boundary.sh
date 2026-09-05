@@ -146,8 +146,8 @@ for identity, (expected_location, checkout_name) in provider_packages.items():
     pin = pins_by_identity[identity]
     if pin["location"] != expected_location:
         fail(f"{identity} release lock points at an unexpected source")
-    if pin["state"].get("version") != "0.1.17":
-        fail(f"{identity} must resolve the exact 0.1.17 release")
+    if pin["state"].get("version") != "0.1.18-rc.1":
+        fail(f"{identity} must resolve the exact 0.1.18-rc.1 release")
 
     checkout = Path(".build/checkouts") / checkout_name
     if not checkout.is_dir():
@@ -290,7 +290,7 @@ grep -Fq '.product(name: "AFMKitCore", package: "AFMKit")' "$example_manifest" |
 if grep -Fq 'package: "MacLocalAPI"' "$example_manifest"; then
   fail "independent core consumer still relies on a removed maclocal compatibility product"
 fi
-grep -Fq 'exact: "0.1.17"' "$example_manifest" || \
+grep -Fq 'exact: "0.1.18-rc.1"' "$example_manifest" || \
   fail "independent core consumer must use the exact AFMKit release"
 
 for project in pyproject.toml pyproject-next.toml; do

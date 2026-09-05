@@ -12,12 +12,28 @@ out_dir="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/cur
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
 no_think="${AFM_NO_THINK:-0}"
+dspark_support="${AFM_DSPARK_SUPPORT:-}"
+mtp_model="${AFM_MTP_MODEL:-}"
+load_timeout="${AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS:-60}"
 summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
 overall_status=0
 
 if [[ "$no_think" != "0" && "$no_think" != "1" ]]; then
   echo "AFM_NO_THINK must be 0 or 1" >&2
+  exit 1
+fi
+
+if [[ "$load_timeout" != <-> || "$load_timeout" -lt 1 ]]; then
+  echo "AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
+if [[ -n "$dspark_support" && ! -f "$dspark_support" ]]; then
+  echo "AFM_DSPARK_SUPPORT must name an existing support GGUF file" >&2
+  exit 1
+fi
+if [[ -n "$mtp_model" && ( "${AFM_MTP:-0}" != "1" || ! -d "$mtp_model" ) ]]; then
+  echo "AFM_MTP_MODEL requires AFM_MTP=1 and an existing local model directory" >&2
   exit 1
 fi
 
@@ -55,7 +71,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 wait_for_health() {
-  local attempts=60
+  local attempts="$load_timeout"
   local health_url="http://127.0.0.1:${port}/health"
   local i
 
@@ -130,6 +146,12 @@ start_server() {
   # MTP path without accepting an arbitrary string of shell arguments.
   if [[ "${AFM_MTP:-0}" == "1" ]]; then
     extra_args+=(--mtp)
+    if [[ -n "$mtp_model" ]]; then
+      extra_args+=(--mtp-model "$mtp_model")
+    fi
+  fi
+  if [[ -n "$dspark_support" ]]; then
+    extra_args+=(--dspark-support "$dspark_support")
   fi
 
   # Keep reasoning-mode qualification explicit and shell-safe across every
@@ -140,6 +162,8 @@ start_server() {
 
   cleanup
   wait_for_port_free || exit 1
+  printf '%q ' "$afm_binary" mlx -m "$model" --port "$port" "${extra_args[@]}" > "${log_file%.log}.command"
+  printf '\n' >> "${log_file%.log}.command"
   : > "$log_file"
   MACAFM_MLX_MODEL_CACHE="${MACAFM_MLX_MODEL_CACHE:-}" \
     "$afm_binary" mlx -m "$model" --port "$port" "${extra_args[@]}" >"$log_file" 2>&1 &
