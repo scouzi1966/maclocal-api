@@ -47,9 +47,9 @@ measurement. Preserve separate focused greedy runs for actual on/off throughput.
 
 These are qualification probes, not completed full-suite RC results:
 
-- AFMKit main at `bfef2313` passed all 16 public API snapshot gates. Its full
-  release validator has progressed through the root tests to downstream
-  consumer builds; final validator success is still pending.
+- AFMKit main at `03fd2b44` passed full release qualification: all 16 public
+  API gates, root tests, and all 16 downstream consumers. It is published as
+  prerelease `v0.1.18-rc.1` and pinned in the consumer lockfile.
 - DeepSeek candidate `54ed9ea4` passed nine focused architecture/rollback
   tests. Its paired Release binary measured median counting throughput of
   30.12 target / 51.04 speculative tok/s and prose throughput of
@@ -71,5 +71,10 @@ Raw pre-package evidence is preserved under
 The earlier full validator built all sixteen downstream consumers but failed
 its stale terminal expectation of fifteen. AFMKit PR #100 fixes that count by
 using the generated inventory; regression tests accept sixteen and reject an
-incomplete fifteen. The local publisher is now rerunning full qualification
-of `03fd2b44` for `v0.1.18-rc.1`, before any tag/release publication.
+incomplete fifteen. The local publisher then completed full qualification
+of `03fd2b44` and published `v0.1.18-rc.1` only after that success.
+
+Consumer release-tooling regressions, explicit MTP-head runner arguments,
+categorized Promptfoo summaries, and external judge-work paths pass their
+focused checks. Codex execution preflight succeeded. The immutable consumer
+Release build and Swift tests are running; packaged model runs have not begun.
