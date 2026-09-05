@@ -296,7 +296,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
         ) { response async in
             XCTAssertEqual(response.status, .ok)
-            let object = try JSONSerialization.jsonObject(with: Data(buffer: response.body)) as? [String: Any]
+            let object = (try? JSONSerialization.jsonObject(with: Data(buffer: response.body))) as? [String: Any]
             let choices = object?["choices"] as? [[String: Any]]
             let message = choices?.first?["message"] as? [String: Any]
             let calls = message?["tool_calls"] as? [[String: Any]]
