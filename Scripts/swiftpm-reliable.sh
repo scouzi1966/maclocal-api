@@ -18,6 +18,29 @@ if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
 fi
 shift
 
+SWIFT_VERSION_OUTPUT="$(swift --version 2>&1)" || {
+    echo "[swiftpm-reliable] Unable to run the selected Swift compiler." >&2
+    exit 1
+}
+if ! SWIFT_VERSION_OUTPUT="$SWIFT_VERSION_OUTPUT" python3 - <<'PY'
+import os
+import re
+
+output = os.environ["SWIFT_VERSION_OUTPUT"]
+match = re.search(r"Swift version\s+(\d+)\.(\d+)", output, re.IGNORECASE)
+if match is None:
+    raise SystemExit(1)
+version = tuple(map(int, match.groups()))
+raise SystemExit(0 if version >= (6, 4) else 1)
+PY
+then
+    echo "[swiftpm-reliable] Apple Foundation Models require Swift 6.4 or newer." >&2
+    echo "[swiftpm-reliable] Selected compiler: ${SWIFT_VERSION_OUTPUT%%$'\n'*}" >&2
+    echo "[swiftpm-reliable] Refusing to produce a degraded MLX-only build." >&2
+    exit 1
+fi
+echo "[swiftpm-reliable] Foundation-capable compiler: ${SWIFT_VERSION_OUTPUT%%$'\n'*}" >&2
+
 LOCAL_PACKAGE_ROOT=""
 if [[ -n "${MACLOCAL_AFMKIT_WORKSPACE_PATH:-}" ]]; then
     echo "[swiftpm-reliable] MACLOCAL_AFMKIT_WORKSPACE_PATH is reserved for the generated workspace." >&2

@@ -281,7 +281,7 @@ struct MlxCommand: ParsableCommand {
           --vlm: Force load as vision model (VLM) instead of text-only LLM
           --media: Image/video paths for VLM single-prompt mode (implies --vlm)
           --kv-bits: Quantize KV cache (4 or 8 bits) to reduce memory
-          --prefill-step-size: Prompt tokens per GPU pass (default: 1024)
+          --prefill-step-size: Override prompt tokens per GPU pass (default: architecture-tuned)
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
           --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
@@ -475,8 +475,10 @@ struct MlxCommand: ParsableCommand {
     var maxKVSize: Int?
     @Option(name: .long, help: "Quantize KV cache to this many bits (4 or 8) to reduce memory usage")
     var kvBits: Int?
-    @Option(name: .long, help: "Prefill step size — number of prompt tokens processed per GPU pass (default: 2048)")
+    @Option(name: .long, help: "Override the architecture-tuned number of prompt tokens processed per GPU pass")
     var prefillStepSize: Int?
+    @Option(name: .customLong("qwen-ngram-residency"), help: "Qwen Next n-gram residency: mapped (default) or prewarm")
+    var qwenNGramResidency: String = "mapped"
     @Option(name: .long, help: .hidden)
     var mlxKernels: String = "native"
     @Option(name: .long, help: "Runtime backend: auto, mlx, or dwarfstar. auto selects vanilla DwarfStar for compatible DeepSeek V4 GGUF metadata; directory checkpoints use MLX.")
@@ -677,6 +679,15 @@ struct MlxCommand: ParsableCommand {
                 )
             }
         }
+        let normalizedNGramResidency = qwenNGramResidency
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard AFMMLXQwenNGramResidency.allCases.map(\.rawValue)
+            .contains(normalizedNGramResidency)
+        else {
+            throw ValidationError(
+                "--qwen-ngram-residency must be one of: mapped, prewarm")
+        }
 
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
         if let capturePath = gpuCapture {
@@ -862,6 +873,8 @@ struct MlxCommand: ParsableCommand {
             kvBits: kvBits,
             enablePrefixCaching: enablePrefixCaching,
             kernelEngine: kernelEngine,
+            qwenNGramResidency: AFMMLXQwenNGramResidency(
+                configuredValue: normalizedNGramResidency),
             mtpEnabled: mtp,
             mtpDepth: mtpDepth,
             mtpModelID: mtpModel,
@@ -904,6 +917,7 @@ struct MlxCommand: ParsableCommand {
                 kvBits: kvBits,
                 enablePrefixCaching: enablePrefixCaching,
                 mlxKernels: kernelEngine.rawValue,
+                qwenNGramResidency: normalizedNGramResidency,
                 mtpEnabled: mtp,
                 mtpDepth: mtpDepth,
                 mtpModelID: mtpModel,
@@ -1436,6 +1450,7 @@ struct MlxCommand: ParsableCommand {
                     kvBits: self.kvBits,
                     enablePrefixCaching: self.enablePrefixCaching,
                     mlxKernels: self.mlxKernels,
+                    qwenNGramResidency: self.qwenNGramResidency,
                     mtpEnabled: self.mtp,
                     mtpDepth: self.mtpDepth,
                     mtpModelID: self.mtpModel,
@@ -1909,6 +1924,11 @@ func printHelpJson(command: String) {
         }
     }
     flushL1()
+
+    root["build_capabilities"] = [
+        "foundation_models_compiled": BuildInfo.foundationModelsCompiled,
+        "minimum_swift_compiler": "6.4",
+    ]
 
     if let jsonData = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
        let jsonString = String(data: jsonData, encoding: .utf8) {

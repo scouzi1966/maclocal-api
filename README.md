@@ -30,7 +30,13 @@
 
 ## What's new
 
-### [AFM v0.9.17](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17)
+### [AFM v0.9.18.1](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.18.1)
+
+AFM v0.9.18.1 is a focused stable hotfix over v0.9.18. It ensures stable
+release builds include the Apple Foundation Models provider and rejects release
+artifacts that do not link `FoundationModels.framework`.
+
+#### v0.9.17 model highlights
 
 [![AFM v0.9.17 — four new models with standard and MTP Qwen launch commands](assets/afm-0.9.17-models-deep-dive-social-v8-mtp.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17)
 
@@ -48,15 +54,19 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 ## Install
 
 > [!NOTE]
-> **Stable v0.9.17 is the recommended release.** It adds automatic Qwen 3.8 MTP sidecar discovery and quant-matched download behavior, plus expanded Qwen 3.8 tool-calling qualification. Install `afm-next` only to preview changes made after v0.9.17.
+> **Stable v0.9.18.1 is the recommended release.** It fixes stable packaging so
+> the Apple Foundation Models provider is present and adds a release gate that
+> rejects artifacts without `FoundationModels.framework`. Install `afm-next`
+> only to preview changes made after v0.9.18.1.
 >
-> **The qualified nightly and v0.9.17 are essentially the same build.** Nightly `nightly-20260816-bc343f6` was promoted to this stable release; the differences are release versioning and distribution packaging, not runtime functionality. Use the stable release unless a newer nightly explicitly lists post-v0.9.17 changes you need.
+> **v0.9.18.1 is a focused hotfix over v0.9.18.** Use this stable release unless
+> a newer nightly explicitly lists a post-v0.9.18.1 change you need.
 
-|  | Stable (v0.9.17) | Nightly (afm-next) |
+|  | Stable (v0.9.18.1) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.17](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
+| **Release notes** | [v0.9.18.1](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.18.1) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
 
 ### Install a previous version
 
@@ -248,6 +258,8 @@ afm mlx -m Qwen3-Coder-Next-4bit --openclaw-config
 | `POST` | `/v1/vision/ocr` | OCR, tables, barcodes, classification, saliency, and PDFs |
 | `POST` | `/v1/audio/transcriptions` | On-device speech-to-text |
 | `POST` | `/v1/audio/speech` | Text-to-speech using installed Apple voices |
+| `POST` | `/v1/images/generations` | FLUX.2 Klein text-to-image with base64 PNG output |
+| `POST` | `/v1/images/edits` | Multipart FLUX.2 Klein reference-image editing |
 | `POST` | `/v1/tokenize` | vLLM-compatible tokens and counts for the loaded MLX model |
 | `POST` | `/v1/count_tokens` | Anthropic-style input token count |
 | `POST` | `/v1/batch/completions` | Multiplex up to 64 completions over SSE |
@@ -395,6 +407,7 @@ Small 0.6B–4B quantized models are the easiest way to confirm a setup. Large 3
 - [MLX tool calling](docs/mlx-tool-calling.md)
 - [Vision OCR API](docs/vision-ocr-api.md)
 - [Embeddings API](docs/embeddings-api.md)
+- [Images API](docs/images-api.md)
 - [Apple-native endpoints](docs/apple-native-endpoints.md)
 - [Model path resolution](docs/model-path-resolution.md)
 - [Decode optimizations](docs/decode-optimizations.md)

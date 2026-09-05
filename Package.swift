@@ -1,28 +1,19 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.4
 import PackageDescription
 import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let foundationModelsDependencies: [Target.Dependency]
-let foundationModels27Dependencies: [Target.Dependency]
-let dwarfStarFoundationModelsDependencies: [Target.Dependency]
-#if compiler(>=6.4)
-foundationModelsDependencies = [
+let foundationModelsDependencies: [Target.Dependency] = [
     .product(name: "AFMKitApple", package: "AFMKit")
 ]
-foundationModels27Dependencies = [
+let foundationModels27Dependencies: [Target.Dependency] = [
     .product(name: "AFMKitApple", package: "AFMKit"),
     .product(name: "AFMKitFoundationModelsMLX", package: "AFMKit")
 ]
-dwarfStarFoundationModelsDependencies = [
+let dwarfStarFoundationModelsDependencies: [Target.Dependency] = [
     .product(name: "AFMKitFoundationModelsDwarfStar", package: "AFMKit")
 ]
-#else
-foundationModelsDependencies = []
-foundationModels27Dependencies = []
-dwarfStarFoundationModelsDependencies = []
-#endif
 let afmKitDependency: Package.Dependency
 if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WORKSPACE_PATH"],
    !localAFMKitPath.isEmpty {
@@ -34,7 +25,7 @@ if let localAFMKitPath = ProcessInfo.processInfo.environment["MACLOCAL_AFMKIT_WO
     // Bumping AFMKit is therefore one explicit, reviewable AFM change.
     afmKitDependency = .package(
         url: "https://github.com/scouzi1966/AFMKit.git",
-        exact: "0.1.14"
+        exact: "0.1.17"
     )
 }
 
@@ -231,6 +222,7 @@ let package = Package(
             dependencies: [
                 "AFMKit",
                 .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitMLXImage", package: "AFMKit"),
                 .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Vapor", package: "vapor")
             ],
@@ -356,6 +348,7 @@ let package = Package(
                 "AFMTerminalUI",
                 .product(name: "AFMKitCore", package: "AFMKit"),
                 .product(name: "AFMKitMLX", package: "AFMKit"),
+                .product(name: "AFMKitMLXImage", package: "AFMKit"),
                 .product(name: "AFMKitServices", package: "AFMKit"),
                 .product(name: "Jinja", package: "swift-jinja"),
                 .product(name: "XCTVapor", package: "vapor"),

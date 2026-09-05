@@ -1,6 +1,7 @@
 import Vapor
 import AFMKit
 import AFMKitMLX
+import AFMKitMLXImage
 import Foundation
 import Compression
 import Darwin
@@ -136,13 +137,26 @@ struct PayloadTooLargeMiddleware: AsyncMiddleware {
             // Return a JSON error response compatible with OpenAI format
             let reqId = request.afmRequestID
             let errorResponse = OpenAIError(
-                message: "Your conversation is too long. Please start a new conversation.",
+                message: request.url.path.hasPrefix("/v1/images/")
+                    ? "Image request exceeds the maximum allowed size."
+                    : "Request payload exceeds the maximum allowed size.",
                 type: "payload_too_large",
+                code: "payload_too_large",
                 requestId: reqId.isEmpty ? nil : reqId
             )
             let response = Response(status: .payloadTooLarge)
             response.headers.add(name: .contentType, value: "application/json")
             response.headers.add(name: .accessControlAllowOrigin, value: "*")
+            response.headers.add(name: .accessControlAllowMethods, value: "GET, POST, OPTIONS")
+            let requestedHeaders = request.headers.first(name: "Access-Control-Request-Headers")
+            response.headers.add(
+                name: .accessControlAllowHeaders,
+                value: requestedHeaders.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? "Authorization, Content-Type, OpenAI-Organization, OpenAI-Project"
+            )
+            response.headers.add(name: "Access-Control-Expose-Headers", value: "X-Request-ID, OpenAI-Request-ID")
+            response.headers.add(name: .vary, value: "Access-Control-Request-Headers")
+            response.headers.add(name: .cacheControl, value: "no-store")
             try response.content.encode(errorResponse)
             return response
         }
@@ -377,6 +391,28 @@ public class Server: @unchecked Sendable {
         if #available(macOS 13.0, *) { return true }
         return false
     }()
+
+    private static func imageModelCacheDirectory() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let path = environment["MACAFM_MLX_MODEL_CACHE"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        if let path = environment["HUGGINGFACE_HUB_CACHE"] ?? environment["HF_HUB_CACHE"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        if let path = environment["HF_HOME"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("hub", isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/huggingface/models", isDirectory: true)
+    }
+
+    private static func imageQuantization() -> FluxKleinQuantization {
+        guard let value = ProcessInfo.processInfo.environment["MACAFM_IMAGE_QUANT"]?.lowercased() else {
+            return .int4
+        }
+        return FluxKleinQuantization(rawValue: value) ?? .int4
+    }
 
     public init(port: Int, hostname: String, verbose: Bool, veryVerbose: Bool = false, trace: Bool = false, streamingEnabled: Bool, instructions: String, adapter: String? = nil, temperature: Double? = nil, randomness: String? = nil, permissiveGuardrails: Bool = false, stop: String? = nil, webuiEnabled: Bool = false, gatewayEnabled: Bool = false, prewarmEnabled: Bool = true, telegramConfiguration: TelegramConfiguration? = nil, defaultGuidedJsonSchema: ResponseFormat? = nil, defaultChatTemplateKwargs: [String: AnyCodable]? = nil, forceDisableThinking: Bool = false, mlxModelID: String? = nil, mlxModel: AFMMLXModel? = nil, afmModel: AnyAFMModel? = nil, mlxRepetitionPenalty: Double? = nil, mlxTopP: Double? = nil, mlxMaxTokens: Int? = nil, mlxRawOutput: Bool = false, mlxTopK: Int? = nil, mlxMinP: Double? = nil, mlxPresencePenalty: Double? = nil, mlxSeed: Int? = nil, mlxMaxLogprobs: Int? = nil, contextWindow: Int? = nil, rateLimitRequests: Int = 600, rateLimitWindowSeconds: TimeInterval = 60, telemetry: AFMServerTelemetryAdapter? = nil) async throws {
         guard rateLimitRequests >= 0 else {
@@ -951,6 +987,24 @@ public class Server: @unchecked Sendable {
 
         try app.register(collection: VisionAPIController())
         try app.register(collection: SpeechAPIController())
+        let imageModelID = ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL"]
+            ?? "mlx-community/FLUX.2-klein-4B-bf16"
+        let imageService = FluxKleinImageService(configuration: FluxKleinImageConfiguration(
+            modelID: imageModelID,
+            cacheDirectory: Self.imageModelCacheDirectory(),
+            quantization: Self.imageQuantization()
+        ))
+        let imageModelAliases = Set(
+            (ProcessInfo.processInfo.environment["MACAFM_IMAGE_MODEL_ALIASES"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        try app.register(collection: ImagesAPIController(
+            generator: imageService,
+            modelID: imageModelID,
+            modelAliases: imageModelAliases
+        ))
         // POST /v1/embeddings on the main server (#132). The Apple NL embedding
         // model is loaded lazily on first request (a chat-only server pays
         // nothing until used) and this path never triggers MLX init. It does NOT
