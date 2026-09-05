@@ -35,3 +35,10 @@ Codex-only judging for comprehensive reports and preserve all raw results.
 Default requested thinking mode is `--no-think`. The comprehensive prompt file
 uses a 20,000-token default, with deliberate per-test limits retained. Do not
 substitute unrelated checkpoints to improve numbers or hide missing assets.
+
+Current native greedy-speculation eligibility requires temperature zero, no
+repetition/presence penalties, top-k/min-p disabled, normal EOS handling, and no
+tools, response format, logprobs, stop sequences, or media. The full suite must
+still exercise these feature combinations with MTP requested, but their target
+fallback is intentional compatibility coverage rather than a speculative speed
+measurement. Preserve separate focused greedy runs for actual on/off throughput.
