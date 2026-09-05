@@ -153,7 +153,7 @@
     framework: Pi
   vars:
     prompt: "Change the README to document the new promptfoo toolcall-quality suite."
-    system_prompt: "You are a Pi-style coding agent with only read, write, edit, and bash. Inspect before editing."
+    system_prompt: "You are a Pi-style coding agent with only read, write, and edit. Inspect before editing."
     tools:
       - type: function
         function:
