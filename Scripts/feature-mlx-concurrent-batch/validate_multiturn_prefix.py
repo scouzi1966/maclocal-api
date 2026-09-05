@@ -5,7 +5,9 @@ Simulates realistic agent/chatbot usage:
   - Shared long system prompts across turns (prefix cache hits)
   - Multi-turn conversations (growing context)
   - Concurrent users with different system prompts
-  - Measures cached_tokens, pp, tg, TTFT
+- Measures cached_tokens, pp, tg, TTFT
+
+Set AFM_REPORT_DIR to retain JSON evidence after each completed batch size.
 
 Usage:
     python3 validate_multiturn_prefix.py              # test B=1,2,4,8
@@ -13,6 +15,7 @@ Usage:
     python3 validate_multiturn_prefix.py --label "overlap+prefix" 1 2 4 8
 """
 import asyncio, aiohttp, json, time, sys, os
+from batch_validation_report import BatchReport
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -318,6 +321,7 @@ async def run_conversation(session, conv):
         r["turn"] = i + 1
         r["name"] = f"{conv['name']}/t{i+1}"
         r["ok"] = check["ok"]
+        r["is_garbage"] = check["is_garbage"]
         r["missing"] = check["missing"]
         r["min_tokens"] = turn.get("min_tokens", 0)
 
@@ -345,6 +349,8 @@ async def run_batch(batch_size, conversations):
                 if isinstance(outcome, Exception):
                     failed += len(conv["turns"])
                     print(f"  FAIL  {conv['name']}: exception {outcome}")
+                    all_results.append(dict(name=conv['name'], status='EXCEPTION',
+                                            error=repr(outcome), affected_turns=len(conv['turns'])))
                     continue
 
                 for r in outcome:
@@ -364,7 +370,9 @@ async def run_batch(batch_size, conversations):
                             failed += 1
                             passed -= 1
                             print(f"  FAIL  {r['name']:30s}  TOO SHORT ({ct} tok)")
+                            r['status'] = 'TOO_SHORT'
                         else:
+                            r['status'] = 'OK'
                             print(f"  OK    {r['name']:30s}  "
                                   f"pp={pt:5d} ({cached:4d} cached {cache_pct:4.0f}%) {pp:7.1f} t/s  "
                                   f"tg={ct:4d} tok {tg:6.1f} t/s  "
@@ -372,8 +380,10 @@ async def run_batch(batch_size, conversations):
                     else:
                         failed += 1
                         if r.get("is_garbage"):
+                            r['status'] = 'GARBAGE'
                             print(f"  FAIL  {r['name']:30s}  GARBAGE")
                         else:
+                            r['status'] = 'MISSING'
                             print(f"  FAIL  {r['name']:30s}  missing {r['missing']}")
 
     return passed, failed, all_results
@@ -393,6 +403,8 @@ async def main():
     total_passed = 0
     total_failed = 0
     all_batch_summaries = {}
+    report = BatchReport('batch-prefix', MODEL, URL)
+    report_batches = {}
 
     # Warm up: first request primes the prefix cache
     print("Warming up prefix cache...")
@@ -467,6 +479,8 @@ async def main():
         print(f"{'='*120}")
 
         all_batch_summaries[bs] = {"passed": p, "failed": f, "results": ok if ok else []}
+        report_batches[bs] = dict(passed=p, failed=f, results=results)
+        report.save(report_batches)
         await asyncio.sleep(1)
 
     # ─── Summary table ────────────────────────────────────────────────────
@@ -513,4 +527,5 @@ async def main():
     return 1 if total_failed else 0
 
 
-raise SystemExit(asyncio.run(main()))
+if __name__ == '__main__':
+    raise SystemExit(asyncio.run(main()))
