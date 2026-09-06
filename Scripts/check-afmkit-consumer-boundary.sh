@@ -277,6 +277,8 @@ grep -Fq 'MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMEvaluationHost.bundle' Script
 for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
   grep -Fq "s/libexec\\.install \"MacLocalAPI_AFMKit\\.bundle\"/libexec.install \"MacLocalAPI_AFMEvaluationHost.bundle\"/" "$publisher" || \
     fail "$publisher does not migrate an existing Homebrew formula to the current evaluation bundle"
+  grep -Fq 's|File\.exist?("Resources/webui/index.html\.gz")|File.exist?("Resources/webui/index.html")|' "$publisher" || \
+    fail "$publisher does not migrate an existing Homebrew WebUI guard"
 done
 
 for publisher in Scripts/publish-next.sh Scripts/publish-stable.sh; do
