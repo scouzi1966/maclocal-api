@@ -23,7 +23,8 @@ struct WebUIAssetResolver: Equatable {
             return nil
         }
 
-        guard !components.isEmpty, components != ["index.html"] else {
+        guard !components.isEmpty,
+              !(components.count == 1 && components[0].lowercased() == "index.html") else {
             return .index
         }
 

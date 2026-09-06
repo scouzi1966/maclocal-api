@@ -42,6 +42,7 @@ final class WebUIAssetResolverTests: XCTestCase {
 
         XCTAssertEqual(resolver.resolve(path: "/"), .index)
         XCTAssertEqual(resolver.resolve(path: "/index.html"), .index)
+        XCTAssertEqual(resolver.resolve(path: "/INDEX.HTML"), .index)
     }
 
     func testRejectsTraversalDirectoriesAndSymlinkEscapes() throws {
