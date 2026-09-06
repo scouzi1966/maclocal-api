@@ -2855,56 +2855,19 @@ public class Server: @unchecked Sendable {
 
     /// Serve the webui with custom CSS injected
     private func serveWebui(webuiFilePath: String, req: Request) async throws -> Response {
-        let rootURL = URL(fileURLWithPath: webuiFilePath).deletingLastPathComponent()
-        let components = req.url.path.split(separator: "/").map(String.init)
+        let resolver = WebUIAssetResolver(
+            rootURL: URL(fileURLWithPath: webuiFilePath).deletingLastPathComponent()
+        )
 
-        // URL paths are already decoded by Vapor. Reject traversal before the
-        // components are mapped back to filesystem paths.
-        guard !components.contains(where: { $0 == ".." || $0 == "." || $0.contains("\\") }) else {
-            throw Abort(.badRequest, reason: "Invalid WebUI asset path.")
-        }
-
-        if !components.isEmpty {
-            let assetURL = components.reduce(rootURL) { $0.appendingPathComponent($1) }
-            let standardizedRoot = rootURL.standardizedFileURL.path
-            let standardizedAsset = assetURL.standardizedFileURL.path
-            let isDirectory = (try? assetURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-
-            if standardizedAsset.hasPrefix(standardizedRoot + "/"),
-               !isDirectory,
-               FileManager.default.fileExists(atPath: standardizedAsset) {
-                let data = try Data(contentsOf: assetURL)
-                var headers = HTTPHeaders()
-                headers.add(name: .contentType, value: Self.webuiMimeType(forExtension: assetURL.pathExtension.lowercased()))
-                headers.add(
-                    name: .cacheControl,
-                    value: components.contains("_app")
-                        ? "public, max-age=31536000, immutable"
-                        : "no-cache"
-                )
-                return Response(status: .ok, headers: headers, body: .init(data: data))
-            }
+        if case let .asset(assetURL, mimeType, cacheControl)? = resolver.resolve(path: req.url.path) {
+            let data = try Data(contentsOf: assetURL)
+            var headers = HTTPHeaders()
+            headers.add(name: .contentType, value: mimeType)
+            headers.add(name: .cacheControl, value: cacheControl)
+            return Response(status: .ok, headers: headers, body: .init(data: data))
         }
 
         return try await serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
-    }
-
-    private static func webuiMimeType(forExtension extension: String) -> String {
-        switch `extension` {
-        case "html": return "text/html; charset=utf-8"
-        case "css": return "text/css; charset=utf-8"
-        case "js", "mjs": return "application/javascript; charset=utf-8"
-        case "json", "map": return "application/json; charset=utf-8"
-        case "webmanifest": return "application/manifest+json"
-        case "svg": return "image/svg+xml"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "ico": return "image/x-icon"
-        case "txt": return "text/plain; charset=utf-8"
-        case "woff": return "font/woff"
-        case "woff2": return "font/woff2"
-        default: return "application/octet-stream"
-        }
     }
 
     private func serveWebuiWithCustomCSS(webuiFilePath: String, req: Request) async throws -> Response {

@@ -165,6 +165,7 @@ printf 'unrelated' > "$prefix/libexec/afm/keep-me"
 printf 'unrelated' > "$prefix/share/afm/keep-me"
 mkdir -p "$prefix/share/afm/webui"
 printf '<html></html>' > "$prefix/share/afm/webui/index.html"
+printf 'unrelated' > "$prefix/share/afm/webui/keep-me"
 INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/bin/afm" ]] || fail "custom-prefix binary was not removed"
 [[ ! -e "$prefix/bin/MacLocalAPI_AFMKit.bundle" ]] || fail "legacy evaluation bundle was not removed"
@@ -176,7 +177,17 @@ INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/share/afm/webui" ]] || fail "WebUI was not removed"
 [[ -f "$prefix/bin/keep-me" ]] || fail "uninstall deleted an unrelated bin file"
 [[ -f "$prefix/libexec/afm/keep-me" ]] || fail "uninstall deleted an unrelated libexec file"
-[[ -f "$prefix/share/afm/keep-me" ]] || fail "uninstall deleted an unrelated WebUI file"
+[[ -f "$prefix/share/afm/keep-me" ]] || fail "uninstall deleted an unrelated share/afm file"
+
+for workflow in "$ROOT_DIR/.github/workflows/release.yml" "$ROOT_DIR/.github/workflows/nightly.yml"; do
+  grep -Fq 'cp -R Resources/webui/. release-package/Resources/webui/' "$workflow" || \
+    fail "$(basename "$workflow") does not recursively stage the WebUI"
+  grep -Fq 'Scripts/verify-webui.sh release-package/Resources/webui' "$workflow" || \
+    fail "$(basename "$workflow") does not verify the staged WebUI directory"
+  if grep -Fq 'Resources/webui/index.html.gz' "$workflow"; then
+    fail "$(basename "$workflow") still references the removed single-file WebUI payload"
+  fi
+done
 
 for project in "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/pyproject-next.toml"; do
   grep -Fq '"bin/*/*/*/*/*"' "$project" || \

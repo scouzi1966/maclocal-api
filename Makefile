@@ -138,7 +138,7 @@ help:
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"
 	@echo "  webui           - Build webui from llama.cpp (requires Node.js)"
-	@echo "  verify-webui    - Validate the packaged WebUI gzip and HTML payload"
+	@echo "  verify-webui    - Validate the packaged WebUI static asset tree"
 	@echo "  build-with-webui - Build with webui included"
 	@echo "  help            - Show this help"
 	@echo ""

@@ -65,8 +65,9 @@ for bundle in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMEvaluationHost.bundle AFM
 done
 remove_owned_path "$INSTALL_PREFIX/share/afm/webui"
 
-# Remove only empty AFM-owned directories. Unrelated files keep their parent
-# directories and are never traversed or deleted.
+# The WebUI directory is replaced wholesale on upgrade and is package-owned.
+# Other AFM parent directories are removed only when empty, so unrelated sibling
+# files remain untouched.
 for directory in \
   "$INSTALL_PREFIX/share/afm" \
   "$INSTALL_PREFIX/libexec/afm"; do
