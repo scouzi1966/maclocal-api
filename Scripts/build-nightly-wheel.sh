@@ -164,6 +164,7 @@ PY
 
 echo "[INFO] Building wheel..."
 rm -rf dist/macafm_next-*
+rm -rf "$REPO_ROOT/build"
 _PYTHON_HOST_PLATFORM=macosx-26.0-arm64 uv build --wheel 2>&1
 
 # ---------- clean staged assets ----------

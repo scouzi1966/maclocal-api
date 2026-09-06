@@ -26,16 +26,19 @@ for relative in "${required[@]}"; do
     fi
 done
 
-if ! find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.js' -print -quit | grep -q .; then
-    echo "[ERROR] WebUI JavaScript bundle is missing" >&2
+javascript_bundle_count="$(find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.js' | wc -l | tr -d '[:space:]')"
+if [[ "$javascript_bundle_count" != "1" ]]; then
+    echo "[ERROR] Expected one WebUI JavaScript bundle, found $javascript_bundle_count" >&2
     exit 1
 fi
-if ! find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.css' -print -quit | grep -q .; then
-    echo "[ERROR] WebUI stylesheet bundle is missing" >&2
+stylesheet_bundle_count="$(find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.css' | wc -l | tr -d '[:space:]')"
+if [[ "$stylesheet_bundle_count" != "1" ]]; then
+    echo "[ERROR] Expected one WebUI stylesheet bundle, found $stylesheet_bundle_count" >&2
     exit 1
 fi
-if ! find "$WEBUI_DIR" -maxdepth 1 -type f -name 'workbox-*.js' -print -quit | grep -q .; then
-    echo "[ERROR] WebUI service-worker runtime is missing" >&2
+workbox_runtime_count="$(find "$WEBUI_DIR" -maxdepth 1 -type f -name 'workbox-*.js' | wc -l | tr -d '[:space:]')"
+if [[ "$workbox_runtime_count" != "1" ]]; then
+    echo "[ERROR] Expected one WebUI service-worker runtime, found $workbox_runtime_count" >&2
     exit 1
 fi
 if [[ -n "$(find "$WEBUI_DIR" -type l -print -quit)" ]]; then
