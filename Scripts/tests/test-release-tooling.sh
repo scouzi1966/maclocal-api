@@ -189,6 +189,26 @@ for workflow in "$ROOT_DIR/.github/workflows/release.yml" "$ROOT_DIR/.github/wor
   fi
 done
 
+grep -Fq 'rm -rf "$REPO_ROOT/build"' "$ROOT_DIR/Scripts/build-nightly-wheel.sh" || \
+  fail "nightly wheel builds do not remove stale setuptools build output"
+
+duplicate_webui="$WORK_ROOT/duplicate-webui"
+mkdir -p "$duplicate_webui/_app/immutable/assets"
+printf '<html></html>' > "$duplicate_webui/index.html"
+printf '{}' > "$duplicate_webui/_app/version.json"
+printf '{}' > "$duplicate_webui/build.json"
+printf '{}' > "$duplicate_webui/manifest.webmanifest"
+printf 'console.log(1);' > "$duplicate_webui/_app/immutable/bundle.one.js"
+printf 'console.log(2);' > "$duplicate_webui/_app/immutable/bundle.two.js"
+printf 'body{}' > "$duplicate_webui/_app/immutable/assets/bundle.css"
+printf 'self.addEventListener("install", () => {});' > "$duplicate_webui/sw.js"
+if "$ROOT_DIR/Scripts/verify-webui.sh" "$duplicate_webui" \
+  >"$WORK_ROOT/duplicate-webui.log" 2>&1; then
+  fail "WebUI verifier accepted multiple generated JavaScript bundles"
+fi
+grep -Fq 'Expected one WebUI JavaScript bundle, found 2' "$WORK_ROOT/duplicate-webui.log" || \
+  fail "WebUI verifier did not report the duplicate JavaScript bundle count"
+
 for project in "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/pyproject-next.toml"; do
   grep -Fq '"bin/*/*/*/*/*"' "$project" || \
     fail "$(basename "$project") does not include nested Xcode 27 bundle resources"
