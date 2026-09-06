@@ -318,6 +318,7 @@ sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 if grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
   sed -i '' 's|(share/"afm/webui")\.install "Resources/webui/index.html.gz"|(share/"afm/webui").install Dir["Resources/webui/*"]|' afm-next.rb
 fi
+sed -i '' 's|File\.exist?("Resources/webui/index.html\.gz")|File.exist?("Resources/webui/index.html")|' afm-next.rb
 if ! grep -Fq '(share/"afm/webui").install Dir["Resources/webui/*"]' afm-next.rb; then
   log_error "Homebrew nightly formula does not install the required WebUI"
   exit 1

@@ -249,6 +249,7 @@ sed -i '' "s/MLX Local Models (v[0-9][^)]*)/MLX Local Models (v${VERSION}+)/" af
 if grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.rb; then
   sed -i '' 's|(share/"afm/webui")\.install "Resources/webui/index.html.gz"|(share/"afm/webui").install Dir["Resources/webui/*"]|' afm.rb
 fi
+sed -i '' 's|File\.exist?("Resources/webui/index.html\.gz")|File.exist?("Resources/webui/index.html")|' afm.rb
 if ! grep -Fq '(share/"afm/webui").install Dir["Resources/webui/*"]' afm.rb; then
   log_error "Homebrew stable formula does not install the required WebUI"
   exit 1
