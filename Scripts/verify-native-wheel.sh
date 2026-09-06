@@ -47,29 +47,44 @@ if [[ "$PACKAGE_ROOT" == "macafm_next" ]] && grep -Eq '^macafm/' <<<"$CONTENTS";
   echo "[wheel] nightly wheel contains stale stable package data" >&2
   exit 1
 fi
+if grep -Fqx "$PACKAGE_ROOT/bin/afm" <<<"$CONTENTS"; then
+  WHEEL_PACKAGE_ROOT="$PACKAGE_ROOT"
+  INSTALLED_PACKAGE_ROOT="$PACKAGE_ROOT"
+else
+  WHEEL_PACKAGE_ROOT="$(awk -v package="$PACKAGE_ROOT" '
+    $0 ~ /\.data\/purelib\// && $0 ~ ("/" package "/bin/afm") { print; exit }
+  ' <<<"$CONTENTS")"
+  WHEEL_PACKAGE_ROOT="${WHEEL_PACKAGE_ROOT%/$PACKAGE_ROOT/bin/afm}/$PACKAGE_ROOT"
+  INSTALLED_PACKAGE_ROOT="${WHEEL_PACKAGE_ROOT#*.data/purelib/}"
+fi
+[[ -n "${WHEEL_PACKAGE_ROOT:-}" ]] || {
+  echo "[wheel] missing executable payload root" >&2
+  exit 1
+}
+
 for required in \
-  "$PACKAGE_ROOT/bin/afm" \
-  "$PACKAGE_ROOT/share/webui/index.html" \
-  "$PACKAGE_ROOT/share/webui/manifest.webmanifest" \
-  "$PACKAGE_ROOT/share/webui/sw.js" \
-  "$PACKAGE_ROOT/share/webui/build.json" \
-  "$PACKAGE_ROOT/share/webui/_app/version.json"; do
+  "$WHEEL_PACKAGE_ROOT/bin/afm" \
+  "$WHEEL_PACKAGE_ROOT/share/webui/index.html" \
+  "$WHEEL_PACKAGE_ROOT/share/webui/manifest.webmanifest" \
+  "$WHEEL_PACKAGE_ROOT/share/webui/sw.js" \
+  "$WHEEL_PACKAGE_ROOT/share/webui/build.json" \
+  "$WHEEL_PACKAGE_ROOT/share/webui/_app/version.json"; do
   grep -Fqx "$required" <<<"$CONTENTS" || {
     echo "[wheel] missing required payload: $required" >&2
     exit 1
   }
 done
 
-FLAT_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Evals/comprehensive.json"
-NESTED_EVAL="$PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/comprehensive.json"
+FLAT_EVAL="$WHEEL_PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Evals/comprehensive.json"
+NESTED_EVAL="$WHEEL_PACKAGE_ROOT/bin/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/comprehensive.json"
 if ! grep -Fqx "$FLAT_EVAL" <<<"$CONTENTS" && \
    ! grep -Fqx "$NESTED_EVAL" <<<"$CONTENTS"; then
   echo "[wheel] missing bundled comprehensive evaluation suite" >&2
   exit 1
 fi
 
-FLAT_METALLIB="$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib"
-NESTED_METALLIB="$PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib"
+FLAT_METALLIB="$WHEEL_PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/default.metallib"
+NESTED_METALLIB="$WHEEL_PACKAGE_ROOT/bin/AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib"
 if grep -Fqx "$FLAT_METALLIB" <<<"$CONTENTS"; then
   WHEEL_METALLIB="$FLAT_METALLIB"
 elif grep -Fqx "$NESTED_METALLIB" <<<"$CONTENTS"; then
@@ -79,8 +94,8 @@ else
   exit 1
 fi
 
-FLAT_DWARF_METAL="$PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/metal/moe.metal"
-NESTED_DWARF_METAL="$PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/Contents/Resources/metal/moe.metal"
+FLAT_DWARF_METAL="$WHEEL_PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/metal/moe.metal"
+NESTED_DWARF_METAL="$WHEEL_PACKAGE_ROOT/bin/AFMKit_AFMKitDwarfStar.bundle/Contents/Resources/metal/moe.metal"
 if ! grep -Fqx "$FLAT_DWARF_METAL" <<<"$CONTENTS" && \
    ! grep -Fqx "$NESTED_DWARF_METAL" <<<"$CONTENTS"; then
   echo "[wheel] missing DwarfStar Metal source in flat or Xcode 27 bundle layout" >&2
@@ -94,14 +109,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-unzip -q "$WHEEL" "$PACKAGE_ROOT/*" -d "$VERIFY_DIR"
-EXTRACTED_BIN="$VERIFY_DIR/$PACKAGE_ROOT/bin/afm"
+unzip -q "$WHEEL" "$WHEEL_PACKAGE_ROOT/*" -d "$VERIFY_DIR"
+EXTRACTED_BIN="$VERIFY_DIR/$WHEEL_PACKAGE_ROOT/bin/afm"
 EXTRACTED_METALLIB="$VERIFY_DIR/$WHEEL_METALLIB"
 chmod +x "$EXTRACTED_BIN"
 
 "$SCRIPT_DIR/check-macos26-compatibility.sh" "$EXTRACTED_BIN" "$EXTRACTED_METALLIB"
 "$EXTRACTED_BIN" --version >/dev/null
-"$SCRIPT_DIR/verify-webui.sh" "$VERIFY_DIR/$PACKAGE_ROOT/share/webui"
+"$SCRIPT_DIR/verify-webui.sh" "$VERIFY_DIR/$WHEEL_PACKAGE_ROOT/share/webui"
 
 PYTHON="${AFM_WHEEL_PYTHON:-python3}"
 "$PYTHON" -m venv "$VERIFY_DIR/venv"
@@ -109,7 +124,10 @@ PIP_DISABLE_PIP_VERSION_CHECK=1 \
   "$VERIFY_DIR/venv/bin/python" -m pip install --no-deps --force-reinstall "$WHEEL" >/dev/null
 "$VERIFY_DIR/venv/bin/afm" --version >/dev/null
 
-site_metallib="$(find "$VERIFY_DIR/venv" -path "*/site-packages/$WHEEL_METALLIB" -type f -print -quit)"
+installed_metallib_relative="${WHEEL_METALLIB#$WHEEL_PACKAGE_ROOT/}"
+site_metallib="$(find "$VERIFY_DIR/venv" \
+  -path "*/site-packages/$INSTALLED_PACKAGE_ROOT/$installed_metallib_relative" \
+  -type f -print -quit)"
 if [[ -z "$site_metallib" ]]; then
   echo "[wheel] installed wheel is missing its AFMKit MLX metallib" >&2
   exit 1
