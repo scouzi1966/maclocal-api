@@ -230,7 +230,7 @@ fi
 # ---------------------------------------------------------------------------
 if $DO_WEBUI; then
   log_step "Building llama.cpp webui"
-  WEBUI_DIR="$ROOT_DIR/vendor/llama.cpp/tools/server/webui"
+  WEBUI_DIR="$ROOT_DIR/vendor/llama.cpp/tools/ui"
   if [ ! -d "$WEBUI_DIR" ]; then
     log_error "webui source not found: $WEBUI_DIR"
     log_error "Did submodules initialize correctly?"
@@ -241,11 +241,16 @@ if $DO_WEBUI; then
     npm ci
     npm run build
   )
-  if [ -f "$ROOT_DIR/vendor/llama.cpp/tools/server/public/index.html.gz" ]; then
-    mkdir -p "$ROOT_DIR/Resources/webui"
-    cp "$ROOT_DIR/vendor/llama.cpp/tools/server/public/index.html.gz" "$ROOT_DIR/Resources/webui/index.html.gz"
-    log_info "WebUI artifact copied to Resources/webui/index.html.gz"
+  WEBUI_DIST="$WEBUI_DIR/dist"
+  if [ ! -f "$WEBUI_DIST/index.html" ]; then
+    log_error "WebUI build did not produce $WEBUI_DIST/index.html"
+    exit 1
   fi
+  rm -rf "$ROOT_DIR/Resources/webui"
+  mkdir -p "$ROOT_DIR/Resources"
+  cp -R "$WEBUI_DIST" "$ROOT_DIR/Resources/webui"
+  "$SCRIPTS_DIR/verify-webui.sh" "$ROOT_DIR/Resources/webui"
+  log_info "WebUI artifacts copied to Resources/webui"
 else
   log_warn "Skipping webui build"
 fi
@@ -414,7 +419,7 @@ log_info "Metallib available for swift test (symlink -> $BUILD_CONFIG bundle)"
 if $DO_INSTALL; then
   log_step "Installing afm to $INSTALL_PREFIX/bin"
   EVAL_BUNDLE_SRC="$EVAL_BUNDLE_DIR"
-  WEBUI_SRC="$ROOT_DIR/Resources/webui/index.html.gz"
+  WEBUI_SRC="$ROOT_DIR/Resources/webui"
 
   INSTALL_PERMISSION_PROBE="$INSTALL_PREFIX/bin"
   while [ ! -e "$INSTALL_PERMISSION_PROBE" ]; do
@@ -468,8 +473,9 @@ if $DO_INSTALL; then
   run_install_command ln -sfn "$INSTALL_PREFIX/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" \
     "$INSTALL_PREFIX/bin/MacLocalAPI_AFMEvaluationHost.bundle"
 
-  if [ -f "$WEBUI_SRC" ]; then
-    run_install_command install -m 644 "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui/index.html.gz"
+  if [ -d "$WEBUI_SRC" ]; then
+    run_install_command rm -rf "$INSTALL_PREFIX/share/afm/webui"
+    run_install_command cp -R "$WEBUI_SRC" "$INSTALL_PREFIX/share/afm/webui"
   fi
 
   log_info "Installed: $INSTALL_PREFIX/bin/afm"

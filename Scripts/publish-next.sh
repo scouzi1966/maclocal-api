@@ -149,12 +149,12 @@ mkdir -p "$STAGING"
 # The server only opens the browser when the bundled WebUI can be resolved.
 # Build it on demand and treat it as a required release artifact so a nightly
 # cannot silently ship with a non-functional -w/--webui flag.
-WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
-if [ ! -f "$WEBUI" ]; then
+WEBUI="$ROOT_DIR/Resources/webui"
+if [ ! -d "$WEBUI" ]; then
   log_info "WebUI artifact missing; building it..."
   make webui
 fi
-if [ ! -f "$WEBUI" ]; then
+if [ ! -d "$WEBUI" ]; then
   log_error "Required WebUI artifact missing after build: $WEBUI"
   exit 1
 fi
@@ -176,7 +176,7 @@ done
 
 # WebUI
 mkdir -p "$STAGING/Resources/webui"
-cp "$WEBUI" "$STAGING/Resources/webui/"
+cp -R "$WEBUI/" "$STAGING/Resources/webui/"
 log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
@@ -191,13 +191,9 @@ shasum -a 256 "$TARBALL" > "$TARBALL.sha256"
 # SwiftPM resource bundles while the candidate is still local.
 "$STAGING/afm" --version
 "$STAGING/afm" --help | grep -q 'mlx'
-test -s "$STAGING/Resources/webui/index.html.gz"
-"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
+"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui"
 
-ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-next-archive-webui.html.gz"
-tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
-rm -f "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-release-archive.sh" "$TARBALL"
 
 # Build and verify the pip payload before any GitHub or Homebrew publication.
 # The wheel smoke test asserts that its bundled `afm --version` exactly matches
@@ -319,7 +315,10 @@ sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" afm-next.rb
 sed -i '' "s/version \".*\"/version \"${VERSION}\"/" afm-next.rb
 sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" afm-next.rb
 
-if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
+if grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm-next.rb; then
+  sed -i '' 's|(share/"afm/webui")\.install "Resources/webui/index.html.gz"|(share/"afm/webui").install Dir["Resources/webui/*"]|' afm-next.rb
+fi
+if ! grep -Fq '(share/"afm/webui").install Dir["Resources/webui/*"]' afm-next.rb; then
   log_error "Homebrew nightly formula does not install the required WebUI"
   exit 1
 fi

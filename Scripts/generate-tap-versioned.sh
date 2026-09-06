@@ -111,8 +111,8 @@ class ${class} < Formula
         (libexec/bundle_name).install Dir["#{bundle_name}/*"]
       end
     end
-    if File.exist?("Resources/webui/index.html.gz")
-      (share/"afm/webui").install "Resources/webui/index.html.gz"
+    if File.exist?("Resources/webui/index.html")
+      (share/"afm/webui").install Dir["Resources/webui/*"]
     end
   end
 
@@ -135,7 +135,7 @@ class ${class} < Formula
 
   test do
     assert_match "afm", shell_output("#{bin}/afm --version")
-    assert_path_exists share/"afm/webui/index.html.gz"
+    assert_path_exists share/"afm/webui/index.html"
   end
 end
 EOF
@@ -170,8 +170,8 @@ class ${class} < Formula
     libexec.install "AFMKit_AFMKitDwarfStar.bundle"
     (bin/"afm").write_env_script libexec/"afm", AFM_BUILD_VERSION: "v#{version}"
 
-    if File.exist?("Resources/webui/index.html.gz")
-      (share/"afm/webui").install "Resources/webui/index.html.gz"
+    if File.exist?("Resources/webui/index.html")
+      (share/"afm/webui").install Dir["Resources/webui/*"]
     end
     doc.install "README.md"
   end
@@ -187,7 +187,7 @@ class ${class} < Formula
   test do
     assert_match "v#{version}", shell_output("#{bin}/afm --version")
     assert_match "mlx", shell_output("#{bin}/afm --help")
-    assert_path_exists share/"afm/webui/index.html.gz"
+    assert_path_exists share/"afm/webui/index.html"
   end
 end
 EOF

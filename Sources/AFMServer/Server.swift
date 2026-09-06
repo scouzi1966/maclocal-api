@@ -1221,10 +1221,10 @@ public class Server: @unchecked Sendable {
         if webuiEnabled, let webuiFilePath = webuiPath {
             // Serve index.html with injected CSS for root path
             app.get { req -> Response in
-                return try await self.serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
+                return try await self.serveWebui(webuiFilePath: webuiFilePath, req: req)
             }
 
-            // SPA fallback for non-API routes
+            // Serve static assets when present and use the SPA fallback otherwise.
             app.get("**") { req -> Response in
                 let path = req.url.path
 
@@ -1233,7 +1233,7 @@ public class Server: @unchecked Sendable {
                     throw Abort(.notFound)
                 }
 
-                return try await self.serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
+                return try await self.serveWebui(webuiFilePath: webuiFilePath, req: req)
             }
         }
     }
@@ -2854,19 +2854,75 @@ public class Server: @unchecked Sendable {
     """
 
     /// Serve the webui with custom CSS injected
+    private func serveWebui(webuiFilePath: String, req: Request) async throws -> Response {
+        let rootURL = URL(fileURLWithPath: webuiFilePath).deletingLastPathComponent()
+        let components = req.url.path.split(separator: "/").map(String.init)
+
+        // URL paths are already decoded by Vapor. Reject traversal before the
+        // components are mapped back to filesystem paths.
+        guard !components.contains(where: { $0 == ".." || $0 == "." || $0.contains("\\") }) else {
+            throw Abort(.badRequest, reason: "Invalid WebUI asset path.")
+        }
+
+        if !components.isEmpty {
+            let assetURL = components.reduce(rootURL) { $0.appendingPathComponent($1) }
+            let standardizedRoot = rootURL.standardizedFileURL.path
+            let standardizedAsset = assetURL.standardizedFileURL.path
+            let isDirectory = (try? assetURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+
+            if standardizedAsset.hasPrefix(standardizedRoot + "/"),
+               !isDirectory,
+               FileManager.default.fileExists(atPath: standardizedAsset) {
+                let data = try Data(contentsOf: assetURL)
+                var headers = HTTPHeaders()
+                headers.add(name: .contentType, value: Self.webuiMimeType(forExtension: assetURL.pathExtension.lowercased()))
+                headers.add(
+                    name: .cacheControl,
+                    value: components.contains("_app")
+                        ? "public, max-age=31536000, immutable"
+                        : "no-cache"
+                )
+                return Response(status: .ok, headers: headers, body: .init(data: data))
+            }
+        }
+
+        return try await serveWebuiWithCustomCSS(webuiFilePath: webuiFilePath, req: req)
+    }
+
+    private static func webuiMimeType(forExtension extension: String) -> String {
+        switch `extension` {
+        case "html": return "text/html; charset=utf-8"
+        case "css": return "text/css; charset=utf-8"
+        case "js", "mjs": return "application/javascript; charset=utf-8"
+        case "json", "map": return "application/json; charset=utf-8"
+        case "webmanifest": return "application/manifest+json"
+        case "svg": return "image/svg+xml"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "ico": return "image/x-icon"
+        case "txt": return "text/plain; charset=utf-8"
+        case "woff": return "font/woff"
+        case "woff2": return "font/woff2"
+        default: return "application/octet-stream"
+        }
+    }
+
     private func serveWebuiWithCustomCSS(webuiFilePath: String, req: Request) async throws -> Response {
         let fileURL = URL(fileURLWithPath: webuiFilePath)
-        let compressedData = try Data(contentsOf: fileURL)
+        let rawData = try Data(contentsOf: fileURL)
+        let htmlData: Data
 
-        // Decompress gzip data
-        guard let decompressedData = try? Self.gunzip(compressedData),
-              var htmlString = String(data: decompressedData, encoding: .utf8) else {
-            // Fallback: serve compressed if decompression fails
-            var headers = HTTPHeaders()
-            headers.add(name: .contentType, value: "text/html; charset=utf-8")
-            headers.add(name: .contentEncoding, value: "gzip")
-            headers.add(name: "Cache-Control", value: "no-cache")
-            return Response(status: .ok, headers: headers, body: .init(data: compressedData))
+        if fileURL.pathExtension.lowercased() == "gz" {
+            guard let decompressedData = try? Self.gunzip(rawData) else {
+                throw Abort(.internalServerError, reason: "Legacy WebUI gzip payload is invalid.")
+            }
+            htmlData = decompressedData
+        } else {
+            htmlData = rawData
+        }
+
+        guard var htmlString = String(data: htmlData, encoding: .utf8) else {
+            throw Abort(.internalServerError, reason: "WebUI index is not UTF-8 HTML.")
         }
 
         // Inject custom CSS before </head>
@@ -3116,35 +3172,40 @@ public class Server: @unchecked Sendable {
         let executableDir = executableURL.deletingLastPathComponent().standardized.path
 
         // Paths to check (in order of priority)
-        let pathsToCheck = [
+        let rootsToCheck = [
             // Bundled with executable (portable distribution)
-            "\(executableDir)/Resources/webui/index.html.gz",
+            "\(executableDir)/Resources/webui",
             // One level up from executable
-            "\(executableDir)/../Resources/webui/index.html.gz",
+            "\(executableDir)/../Resources/webui",
             // Two levels up (e.g., .build/release -> .build -> project root)
-            "\(executableDir)/../../Resources/webui/index.html.gz",
+            "\(executableDir)/../../Resources/webui",
             // Three levels up for deeper nesting
-            "\(executableDir)/../../../Resources/webui/index.html.gz",
+            "\(executableDir)/../../../Resources/webui",
             // pip: webui bundled in macafm package (sibling share directory)
-            "\(executableDir)/../share/webui/index.html.gz",
+            "\(executableDir)/../share/webui",
             // Homebrew: share directory relative to bin (Apple Silicon)
-            "\(executableDir)/../share/afm/webui/index.html.gz",
+            "\(executableDir)/../share/afm/webui",
             // Homebrew: share directory relative to bin (Intel)
-            "/usr/local/share/afm/webui/index.html.gz",
+            "/usr/local/share/afm/webui",
             // Homebrew: Apple Silicon path
-            "/opt/homebrew/share/afm/webui/index.html.gz",
+            "/opt/homebrew/share/afm/webui",
             // Development: Resources folder in current working directory
-            "\(cwd)/Resources/webui/index.html.gz",
-            // Development: vendored llama.cpp webui relative to executable
-            "\(executableDir)/../../../vendor/llama.cpp/tools/server/public/index.html.gz",
-            // Development: llama.cpp submodule public folder
-            "\(cwd)/vendor/llama.cpp/tools/server/public/index.html.gz"
+            "\(cwd)/Resources/webui",
+            // Development: llama.cpp submodule UI output
+            "\(cwd)/vendor/llama.cpp/tools/ui/dist",
+            // Legacy llama.cpp builds produced a single compressed entry point.
+            "\(cwd)/vendor/llama.cpp/tools/server/public"
         ]
 
-        for path in pathsToCheck {
-            let standardizedPath = URL(fileURLWithPath: path).standardized.path
-            if fileManager.fileExists(atPath: standardizedPath) {
-                return standardizedPath
+        for root in rootsToCheck {
+            let standardizedPath = URL(fileURLWithPath: root).standardized.path
+            let index = standardizedPath + "/index.html"
+            if fileManager.fileExists(atPath: index) {
+                return index
+            }
+            let legacyIndex = standardizedPath + "/index.html.gz"
+            if fileManager.fileExists(atPath: legacyIndex) {
+                return legacyIndex
             }
         }
 

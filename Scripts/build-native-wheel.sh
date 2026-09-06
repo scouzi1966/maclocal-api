@@ -94,8 +94,10 @@ for bundle in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKi
   cp -R "$source_bundle" "$PACKAGE_ROOT/bin/"
 done
 cp "$METALLIB" "$PACKAGE_ROOT/bin/default.metallib"
-"$ROOT_DIR/Scripts/verify-webui.sh" Resources/webui/index.html.gz
-cp Resources/webui/index.html.gz "$PACKAGE_ROOT/share/webui/"
+"$ROOT_DIR/Scripts/verify-webui.sh" Resources/webui
+rm -rf "$PACKAGE_ROOT/share/webui"
+mkdir -p "$PACKAGE_ROOT/share"
+cp -R Resources/webui "$PACKAGE_ROOT/share/webui"
 
 rm -rf "$ROOT_DIR/build"
 rm -f "dist/${DIST_NAME}-"*.whl
@@ -106,9 +108,10 @@ WHEEL="$(ls -t "dist/${DIST_NAME}-"*.whl 2>/dev/null | head -1)"
 [[ -n "$WHEEL" ]] || { echo "[wheel] No wheel was produced" >&2; exit 1; }
 "$ROOT_DIR/Scripts/verify-native-wheel.sh" "$WHEEL" "$PACKAGE_ROOT"
 
-wheel_webui="$ROOT_DIR/.build/${DIST_NAME}-wheel-webui.html.gz"
-unzip -p "$WHEEL" "$PACKAGE_ROOT/share/webui/index.html.gz" > "$wheel_webui"
-"$ROOT_DIR/Scripts/verify-webui.sh" "$wheel_webui"
-rm -f "$wheel_webui"
+wheel_webui="$ROOT_DIR/.build/${DIST_NAME}-wheel-webui"
+rm -rf "$wheel_webui"
+unzip -q "$WHEEL" "$PACKAGE_ROOT/share/webui/*" -d "$wheel_webui"
+"$ROOT_DIR/Scripts/verify-webui.sh" "$wheel_webui/$PACKAGE_ROOT/share/webui"
+rm -rf "$wheel_webui"
 
 echo "[wheel] Ready: $WHEEL"

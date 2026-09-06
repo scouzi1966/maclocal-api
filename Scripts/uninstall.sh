@@ -63,12 +63,11 @@ for bundle in MacLocalAPI_AFMKit.bundle MacLocalAPI_AFMEvaluationHost.bundle AFM
   remove_owned_path "$INSTALL_PREFIX/bin/$bundle"
   remove_owned_path "$INSTALL_PREFIX/libexec/afm/$bundle"
 done
-remove_owned_path "$INSTALL_PREFIX/share/afm/webui/index.html.gz"
+remove_owned_path "$INSTALL_PREFIX/share/afm/webui"
 
 # Remove only empty AFM-owned directories. Unrelated files keep their parent
 # directories and are never traversed or deleted.
 for directory in \
-  "$INSTALL_PREFIX/share/afm/webui" \
   "$INSTALL_PREFIX/share/afm" \
   "$INSTALL_PREFIX/libexec/afm"; do
   if [[ -d "$directory" ]]; then

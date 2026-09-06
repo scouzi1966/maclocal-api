@@ -49,7 +49,11 @@ if [[ "$PACKAGE_ROOT" == "macafm_next" ]] && grep -Eq '^macafm/' <<<"$CONTENTS";
 fi
 for required in \
   "$PACKAGE_ROOT/bin/afm" \
-  "$PACKAGE_ROOT/share/webui/index.html.gz"; do
+  "$PACKAGE_ROOT/share/webui/index.html" \
+  "$PACKAGE_ROOT/share/webui/manifest.webmanifest" \
+  "$PACKAGE_ROOT/share/webui/sw.js" \
+  "$PACKAGE_ROOT/share/webui/build.json" \
+  "$PACKAGE_ROOT/share/webui/_app/version.json"; do
   grep -Fqx "$required" <<<"$CONTENTS" || {
     echo "[wheel] missing required payload: $required" >&2
     exit 1
@@ -97,6 +101,7 @@ chmod +x "$EXTRACTED_BIN"
 
 "$SCRIPT_DIR/check-macos26-compatibility.sh" "$EXTRACTED_BIN" "$EXTRACTED_METALLIB"
 "$EXTRACTED_BIN" --version >/dev/null
+"$SCRIPT_DIR/verify-webui.sh" "$VERIFY_DIR/$PACKAGE_ROOT/share/webui"
 
 PYTHON="${AFM_WHEEL_PYTHON:-python3}"
 "$PYTHON" -m venv "$VERIFY_DIR/venv"

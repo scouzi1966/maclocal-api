@@ -62,13 +62,13 @@ cat > "$fake_public_git" <<'SH'
 #!/usr/bin/env bash
 arguments=" $* "
 for ref in \
-  refs/tags/0.1.18-rc.3 \
-  'refs/tags/0.1.18-rc.3^{}' \
-  refs/tags/v0.1.18-rc.3 \
-  'refs/tags/v0.1.18-rc.3^{}'; do
+  refs/tags/0.1.18-rc.4 \
+  'refs/tags/0.1.18-rc.4^{}' \
+  refs/tags/v0.1.18-rc.4 \
+  'refs/tags/v0.1.18-rc.4^{}'; do
   [[ "$arguments" == *" $ref "* ]] || exit 2
 done
-printf '%s\t%s\n' "$EXPECTED_AFMKIT_REVISION" 'refs/tags/v0.1.18-rc.3^{}'
+printf '%s\t%s\n' "$EXPECTED_AFMKIT_REVISION" 'refs/tags/v0.1.18-rc.4^{}'
 SH
 chmod 700 "$fake_public_git"
 if ! EXPECTED_AFMKIT_REVISION="$expected_afmkit_revision" \
@@ -88,7 +88,7 @@ if (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.3'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.4'
   }
   probe_public_source() {
     return 1
@@ -112,14 +112,14 @@ IFS=$'\t' read -r release_identity release_url release_revision release_version 
 [[ "$release_url" == "https://github.com/scouzi1966/AFMKit.git" ]] || \
   fail "release source is not the canonical public HTTPS repository"
 [[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
-[[ "$release_version" == "0.1.18-rc.3" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.18-rc.3"
+[[ "$release_version" == "0.1.18-rc.4" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.18-rc.4"
 
 private_gate_log="$WORK_ROOT/private-version-error.log"
 if (
   export AFMKIT_READ_TOKEN="private-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.3'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.4'
   }
   probe_public_source() {
     [[ -z "${AFMKIT_READ_TOKEN:-}" ]]
@@ -138,7 +138,7 @@ if ! (
   export AFMKIT_READ_TOKEN="public-gate-secret"
   source "$ROOT_DIR/Scripts/check-public-release-eligibility.sh"
   read_public_release_sources() {
-    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.3'
+    echo $'afmkit\thttps://github.com/scouzi1966/AFMKit.git\t1111111111111111111111111111111111111111\t0.1.18-rc.4'
   }
   probe_public_source() {
     return 0
@@ -158,12 +158,13 @@ mkdir -p \
   "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle/Evals" \
   "$prefix/libexec/afm/AFMKit_AFMKitMLX.bundle/Contents/Resources" \
   "$prefix/libexec/afm/AFMKit_AFMKitDwarfStar.bundle/metal" \
-  "$prefix/share/afm/webui"
+  "$prefix/share/afm"
 printf 'binary' > "$prefix/bin/afm"
 printf 'unrelated' > "$prefix/bin/keep-me"
 printf 'unrelated' > "$prefix/libexec/afm/keep-me"
-printf 'unrelated' > "$prefix/share/afm/webui/keep-me"
-printf 'resource' > "$prefix/share/afm/webui/index.html.gz"
+printf 'unrelated' > "$prefix/share/afm/keep-me"
+mkdir -p "$prefix/share/afm/webui"
+printf '<html></html>' > "$prefix/share/afm/webui/index.html"
 INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/bin/afm" ]] || fail "custom-prefix binary was not removed"
 [[ ! -e "$prefix/bin/MacLocalAPI_AFMKit.bundle" ]] || fail "legacy evaluation bundle was not removed"
@@ -172,14 +173,16 @@ INSTALL_PREFIX="$prefix" "$ROOT_DIR/Scripts/uninstall.sh"
 [[ ! -e "$prefix/libexec/afm/MacLocalAPI_AFMEvaluationHost.bundle" ]] || fail "libexec evaluation bundle was not removed"
 [[ ! -e "$prefix/bin/AFMKit_AFMKitMLX.bundle" ]] || fail "custom-prefix bundle was not removed"
 [[ ! -e "$prefix/libexec/afm/AFMKit_AFMKitDwarfStar.bundle" ]] || fail "libexec bundle was not removed"
-[[ ! -e "$prefix/share/afm/webui/index.html.gz" ]] || fail "WebUI was not removed"
+[[ ! -e "$prefix/share/afm/webui" ]] || fail "WebUI was not removed"
 [[ -f "$prefix/bin/keep-me" ]] || fail "uninstall deleted an unrelated bin file"
 [[ -f "$prefix/libexec/afm/keep-me" ]] || fail "uninstall deleted an unrelated libexec file"
-[[ -f "$prefix/share/afm/webui/keep-me" ]] || fail "uninstall deleted an unrelated WebUI file"
+[[ -f "$prefix/share/afm/keep-me" ]] || fail "uninstall deleted an unrelated WebUI file"
 
 for project in "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/pyproject-next.toml"; do
   grep -Fq '"bin/*/*/*/*/*"' "$project" || \
     fail "$(basename "$project") does not include nested Xcode 27 bundle resources"
+  grep -Fq '"share/webui/**/*"' "$project" || \
+    fail "$(basename "$project") does not include the nested WebUI asset tree"
 done
 
 echo "[release-tooling-test] release lock, authentication boundaries, nested resources, and uninstall verified"
