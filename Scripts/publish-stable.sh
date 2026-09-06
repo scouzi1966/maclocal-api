@@ -153,18 +153,18 @@ done
 
 # The server only opens the browser when the bundled WebUI can be resolved.
 # Build it on demand and require it in every stable package.
-WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
-if [ ! -f "$WEBUI" ]; then
+WEBUI="$ROOT_DIR/Resources/webui"
+if [ ! -d "$WEBUI" ]; then
   log_info "WebUI artifact missing; building it..."
   make webui
 fi
-if [ ! -f "$WEBUI" ]; then
+if [ ! -d "$WEBUI" ]; then
   log_error "Required WebUI artifact missing after build: $WEBUI"
   exit 1
 fi
 "$SCRIPT_DIR/verify-webui.sh" "$WEBUI"
 mkdir -p "$STAGING/Resources/webui"
-cp "$WEBUI" "$STAGING/Resources/webui/"
+cp -R "$WEBUI/" "$STAGING/Resources/webui/"
 log_info "Included webui"
 
 cp "$ROOT_DIR/README.md" "$STAGING/" 2>/dev/null || true
@@ -174,11 +174,7 @@ TARBALL="$ROOT_DIR/afm-${TAG}-arm64.tar.gz"
 tar -czf "$TARBALL" -C "$STAGING" .
 log_info "Tarball: $TARBALL ($(du -h "$TARBALL" | cut -f1 | xargs))"
 
-"$SCRIPT_DIR/verify-webui.sh" "$STAGING/Resources/webui/index.html.gz"
-ARCHIVE_WEBUI="$ROOT_DIR/.build/afm-stable-archive-webui.html.gz"
-tar -xOzf "$TARBALL" ./Resources/webui/index.html.gz > "$ARCHIVE_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
-rm -f "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-release-archive.sh" "$TARBALL"
 
 # Step 4: Generate changelog (since last stable tag)
 log_info "Generating changelog..."
@@ -250,7 +246,10 @@ sed -i '' "s/assert_match \"v[0-9][^\"]*\"/assert_match \"v${VERSION}\"/" afm.rb
 # Update caveats version references
 sed -i '' "s/MLX Local Models (v[0-9][^)]*)/MLX Local Models (v${VERSION}+)/" afm.rb
 
-if ! grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.rb; then
+if grep -Fq '(share/"afm/webui").install "Resources/webui/index.html.gz"' afm.rb; then
+  sed -i '' 's|(share/"afm/webui")\.install "Resources/webui/index.html.gz"|(share/"afm/webui").install Dir["Resources/webui/*"]|' afm.rb
+fi
+if ! grep -Fq '(share/"afm/webui").install Dir["Resources/webui/*"]' afm.rb; then
   log_error "Homebrew stable formula does not install the required WebUI"
   exit 1
 fi

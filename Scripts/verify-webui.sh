@@ -1,30 +1,55 @@
 #!/usr/bin/env bash
 
-# Validate the generated WebUI artifact used by -w/--webui.
+# Validate the generated llama.cpp WebUI directory used by -w/--webui.
 
 set -euo pipefail
 
-WEBUI_PATH="${1:-Resources/webui/index.html.gz}"
+WEBUI_DIR="${1:-Resources/webui}"
 
-if [[ ! -s "$WEBUI_PATH" ]]; then
-    echo "[ERROR] Required WebUI artifact is missing or empty: $WEBUI_PATH" >&2
+if [[ ! -d "$WEBUI_DIR" ]]; then
+    echo "[ERROR] Required WebUI directory is missing: $WEBUI_DIR" >&2
     exit 1
 fi
 
-if ! gzip -t "$WEBUI_PATH"; then
-    echo "[ERROR] WebUI artifact is not a valid gzip stream: $WEBUI_PATH" >&2
+required=(
+    "index.html"
+    "manifest.webmanifest"
+    "sw.js"
+    "build.json"
+    "_app/version.json"
+)
+
+for relative in "${required[@]}"; do
+    if [[ ! -s "$WEBUI_DIR/$relative" ]]; then
+        echo "[ERROR] Required WebUI payload is missing or empty: $relative" >&2
+        exit 1
+    fi
+done
+
+if ! find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.js' -print -quit | grep -q .; then
+    echo "[ERROR] WebUI JavaScript bundle is missing" >&2
+    exit 1
+fi
+if ! find "$WEBUI_DIR/_app/immutable" -type f -name 'bundle*.css' -print -quit | grep -q .; then
+    echo "[ERROR] WebUI stylesheet bundle is missing" >&2
+    exit 1
+fi
+if ! find "$WEBUI_DIR" -maxdepth 1 -type f -name 'workbox-*.js' -print -quit | grep -q .; then
+    echo "[ERROR] WebUI service-worker runtime is missing" >&2
+    exit 1
+fi
+if [[ -n "$(find "$WEBUI_DIR" -type l -print -quit)" ]]; then
+    echo "[ERROR] WebUI payload must not contain symbolic links" >&2
     exit 1
 fi
 
-# Do not accept an arbitrary valid gzip file. The decompressed payload must be
-# the static HTML entry point that AFM serves at GET /.
-if ! gzip -cd "$WEBUI_PATH" | awk '
+if ! awk '
     BEGIN { IGNORECASE = 1; found = 0 }
     /<!doctype html|<html/ { found = 1 }
     END { exit(found ? 0 : 1) }
-'; then
-    echo "[ERROR] WebUI gzip does not contain an HTML document: $WEBUI_PATH" >&2
+' "$WEBUI_DIR/index.html"; then
+    echo "[ERROR] WebUI index.html is not an HTML document" >&2
     exit 1
 fi
 
-echo "[webui] verified: $WEBUI_PATH"
+echo "[webui] verified: $WEBUI_DIR"

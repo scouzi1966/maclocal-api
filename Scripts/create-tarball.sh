@@ -73,8 +73,8 @@ fi
 "$SCRIPT_DIR/check-macos26-compatibility.sh" "$BIN"
 
 # Verify webui
-WEBUI="$ROOT_DIR/Resources/webui/index.html.gz"
-if [ ! -f "$WEBUI" ]; then
+WEBUI="$ROOT_DIR/Resources/webui"
+if [ ! -d "$WEBUI" ]; then
   log_error "Missing webui: $WEBUI"
   exit 1
 fi
@@ -103,9 +103,9 @@ for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle 
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
     exit 1
   fi
-  cp -R "$BUNDLE_DIR" "$STAGING/$DIRNAME/"
+cp -R "$BUNDLE_DIR" "$STAGING/$DIRNAME/"
 done
-cp "$WEBUI" "$STAGING/$DIRNAME/Resources/webui/"
+cp -R "$WEBUI/" "$STAGING/$DIRNAME/Resources/webui/"
 
 # Create tarball
 tar -czf "$OUTPUT" -C "$STAGING" "$DIRNAME"

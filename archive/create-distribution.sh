@@ -43,10 +43,10 @@ echo -e "${BLUE}📋 Copying binary...${NC}"
 cp .build/release/afm "$DIST_DIR/"
 
 # Copy webui resources if available
-if [[ -f "Resources/webui/index.html.gz" ]]; then
+if [[ -d "Resources/webui" ]]; then
     echo -e "${BLUE}🌐 Copying webui resources...${NC}"
-    mkdir -p "$DIST_DIR/share/afm/webui"
-    cp Resources/webui/index.html.gz "$DIST_DIR/share/afm/webui/"
+    mkdir -p "$DIST_DIR/share/afm"
+    cp -R Resources/webui "$DIST_DIR/share/afm/webui"
     WEBUI_INCLUDED=true
 else
     echo -e "${YELLOW}ℹ️  WebUI not found (run 'make webui' to build it)${NC}"

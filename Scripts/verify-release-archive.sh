@@ -21,7 +21,12 @@ BIN_ENTRY="$(grep -E '(^|/)afm$' <<<"$CONTENTS" | head -1)"
 [[ -n "$BIN_ENTRY" ]] || { echo "[archive] afm executable is missing" >&2; exit 1; }
 ROOT_ENTRY="${BIN_ENTRY%afm}"
 
-for required in "${ROOT_ENTRY}Resources/webui/index.html.gz"; do
+for required in \
+  "${ROOT_ENTRY}Resources/webui/index.html" \
+  "${ROOT_ENTRY}Resources/webui/manifest.webmanifest" \
+  "${ROOT_ENTRY}Resources/webui/sw.js" \
+  "${ROOT_ENTRY}Resources/webui/build.json" \
+  "${ROOT_ENTRY}Resources/webui/_app/version.json"; do
   grep -Fqx "$required" <<<"$CONTENTS" || {
     echo "[archive] missing required payload: $required" >&2
     exit 1
@@ -70,8 +75,6 @@ chmod +x "$EXTRACTED_BIN"
   ./afm --version >/dev/null
 )
 
-ARCHIVE_WEBUI="$VERIFY_DIR/archive-webui.html.gz"
-tar -xOzf "$ARCHIVE" "${ROOT_ENTRY}Resources/webui/index.html.gz" > "$ARCHIVE_WEBUI"
-"$SCRIPT_DIR/verify-webui.sh" "$ARCHIVE_WEBUI"
+"$SCRIPT_DIR/verify-webui.sh" "$VERIFY_DIR/${ROOT_ENTRY}Resources/webui"
 
 echo "[archive] verified payload and relocated launch: $ARCHIVE"

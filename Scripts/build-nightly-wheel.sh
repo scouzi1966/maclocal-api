@@ -131,9 +131,9 @@ if [ -f "$METALLIB" ]; then
     cp "$METALLIB" macafm_next/bin/
     echo "[INFO] Included metallib"
 fi
-"$REPO_ROOT/Scripts/verify-webui.sh" Resources/webui/index.html.gz
+"$REPO_ROOT/Scripts/verify-webui.sh" Resources/webui
 mkdir -p macafm_next/share/webui
-cp Resources/webui/index.html.gz macafm_next/share/webui/
+cp -R Resources/webui/. macafm_next/share/webui/
 echo "[INFO] Included webui"
 
 # ---------- build wheel ----------
@@ -190,16 +190,11 @@ if [ "$WHL_SIZE" -lt 1 ]; then
     exit 1
 fi
 
-WHEEL_WEBUI="$REPO_ROOT/.build/afm-next-wheel-webui.html.gz"
-WHEEL_WEBUI_ENTRY=$(unzip -Z1 "$WHL" \
-    | awk '/(^|\/)macafm_next\/share\/webui\/index.html.gz$/ { print; exit }')
-if [ -z "$WHEEL_WEBUI_ENTRY" ]; then
-    echo "[ERROR] Wheel does not contain the required WebUI"
-    exit 1
-fi
-unzip -p "$WHL" "$WHEEL_WEBUI_ENTRY" > "$WHEEL_WEBUI"
-"$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI"
-rm -f "$WHEEL_WEBUI"
+WHEEL_WEBUI="$REPO_ROOT/.build/afm-next-wheel-webui"
+rm -rf "$WHEEL_WEBUI"
+unzip -q "$WHL" 'macafm_next/share/webui/*' -d "$WHEEL_WEBUI"
+"$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI/macafm_next/share/webui"
+rm -rf "$WHEEL_WEBUI"
 
 WHEEL_SMOKE=$(mktemp -d "$REPO_ROOT/.build/afm-next-wheel-smoke.XXXXXX")
 python3 -m pip install --quiet --no-deps --no-compile \

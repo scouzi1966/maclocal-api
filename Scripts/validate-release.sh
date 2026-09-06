@@ -23,7 +23,7 @@ Scripts/swiftpm-reliable.sh test -c release \
   -Xswiftc MemberImportVisibility
 
 echo "[release-gate] Building source release without local dependency overrides"
-if ! Scripts/verify-webui.sh Resources/webui/index.html.gz >/dev/null 2>&1; then
+if ! Scripts/verify-webui.sh Resources/webui >/dev/null 2>&1; then
   echo "[release-gate] Building the WebUI from its locked npm dependency graph"
   make webui
 fi

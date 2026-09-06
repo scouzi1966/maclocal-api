@@ -50,8 +50,8 @@ jobs:
         cp .build/arm64-apple-macosx/release/afm release-package/
 
         mkdir -p release-package/Resources/webui
-        cp Resources/webui/index.html.gz release-package/Resources/webui/
-        Scripts/verify-webui.sh release-package/Resources/webui/index.html.gz
+        cp -R Resources/webui/. release-package/Resources/webui/
+        Scripts/verify-webui.sh release-package/Resources/webui
 
         for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME

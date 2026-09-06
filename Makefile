@@ -44,18 +44,19 @@ submodule-status:
 # Build the webui from llama.cpp
 webui: submodules
 	@echo "🌐 Building webui..."
-	@if [ ! -d "vendor/llama.cpp/tools/server/webui" ]; then \
+	@if [ ! -d "vendor/llama.cpp/tools/ui" ]; then \
 		echo "❌ Error: webui source not found. Run 'make submodules' first."; \
 		exit 1; \
 	fi
-	@cd vendor/llama.cpp/tools/server/webui && npm ci && npm run build
-	@mkdir -p Resources/webui
-	@cp vendor/llama.cpp/tools/server/public/index.html.gz Resources/webui/
-	@Scripts/verify-webui.sh Resources/webui/index.html.gz
-	@echo "✅ WebUI built: Resources/webui/index.html.gz"
+	@cd vendor/llama.cpp/tools/ui && npm ci && npm run build
+	@rm -rf Resources/webui
+	@mkdir -p Resources
+	@cp -R vendor/llama.cpp/tools/ui/dist Resources/webui
+	@Scripts/verify-webui.sh Resources/webui
+	@echo "✅ WebUI built: Resources/webui"
 
 verify-webui:
-	@Scripts/verify-webui.sh Resources/webui/index.html.gz
+	@Scripts/verify-webui.sh Resources/webui
 
 # Build with webui included
 build-with-webui: webui build
@@ -137,7 +138,7 @@ help:
 	@echo "  run             - Build and run debug server"
 	@echo "  submodules      - Initialize git submodules"
 	@echo "  webui           - Build webui from llama.cpp (requires Node.js)"
-	@echo "  verify-webui    - Validate the packaged WebUI gzip and HTML payload"
+	@echo "  verify-webui    - Validate the packaged WebUI static asset tree"
 	@echo "  build-with-webui - Build with webui included"
 	@echo "  help            - Show this help"
 	@echo ""
