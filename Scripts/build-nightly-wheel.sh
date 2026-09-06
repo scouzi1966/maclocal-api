@@ -192,8 +192,13 @@ fi
 
 WHEEL_WEBUI="$REPO_ROOT/.build/afm-next-wheel-webui"
 rm -rf "$WHEEL_WEBUI"
-unzip -q "$WHL" 'macafm_next/share/webui/*' -d "$WHEEL_WEBUI"
-"$REPO_ROOT/Scripts/verify-webui.sh" "$WHEEL_WEBUI/macafm_next/share/webui"
+unzip -q "$WHL" -d "$WHEEL_WEBUI"
+WHEEL_WEBUI_ROOT="$(find "$WHEEL_WEBUI" -type f -path '*/macafm_next/share/webui/index.html' -print -quit)"
+if [ -z "$WHEEL_WEBUI_ROOT" ]; then
+    echo "[ERROR] Wheel does not contain the required WebUI"
+    exit 1
+fi
+"$REPO_ROOT/Scripts/verify-webui.sh" "$(dirname "$WHEEL_WEBUI_ROOT")"
 rm -rf "$WHEEL_WEBUI"
 
 WHEEL_SMOKE=$(mktemp -d "$REPO_ROOT/.build/afm-next-wheel-smoke.XXXXXX")
