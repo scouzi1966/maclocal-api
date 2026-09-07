@@ -311,6 +311,8 @@ async def send_request(session, messages, max_tokens=1024):
                     usage = chunk["usage"]
                 if "timings" in chunk:
                     timings = chunk["timings"]
+                if not chunk.get("choices"):
+                    continue
                 choice = chunk["choices"][0]
                 delta = choice.get("delta", {})
                 if choice.get("finish_reason") is not None:

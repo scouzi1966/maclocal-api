@@ -108,6 +108,47 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(result["ok"])
 
+    def test_integrity_accepts_nonempty_single_character_visible_output(self):
+        result = contracts.evaluate_integrity_contract(
+            dict(
+                visible_text="Y",
+                completion_tokens=1,
+                finish_reason="stop",
+                done_observed=True,
+                parse_error_count=0,
+            )
+        )
+        self.assertTrue(result["ok"])
+
+    def test_malformed_token_metadata_is_a_deterministic_failure(self):
+        result = contracts.evaluate_integrity_contract(
+            dict(
+                visible_text="visible",
+                completion_tokens="many",
+                finish_reason="stop",
+                done_observed=True,
+                parse_error_count="none",
+            )
+        )
+        self.assertEqual(
+            result["failures"],
+            [
+                "invalid_completion_token_metadata",
+                "invalid_parse_error_metadata",
+            ],
+        )
+
+        result = contracts.evaluate_cache_contract(
+            dict(prompt_tokens="many", cached_tokens="none")
+        )
+        self.assertEqual(
+            result["failures"],
+            [
+                "invalid_prompt_token_metadata",
+                "invalid_cached_token_metadata",
+            ],
+        )
+
     async def test_explicit_cache_contract_participates_in_deterministic_score(self):
         conversation = dict(
             name="fixture",
@@ -170,6 +211,27 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["done_observed"])
         self.assertEqual(result["parse_error_count"], 0)
 
+    async def test_metadata_only_sse_chunk_without_choices_is_valid(self):
+        body = [
+            b'data: {"usage":{"prompt_tokens":12,"completion_tokens":34,'
+            b'"prompt_tokens_details":{"cached_tokens":7}}}\n',
+            b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"data: [DONE]\n",
+        ]
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(StreamResponse(body))
+            ),
+            [],
+            max_tokens=8,
+        )
+        self.assertEqual(result["parse_error_count"], 0)
+        self.assertEqual(result["prompt_tokens"], 12)
+        self.assertEqual(result["completion_tokens"], 34)
+        self.assertEqual(result["cached_tokens"], 7)
+        self.assertEqual(result["finish_reason"], "stop")
+        self.assertTrue(result["done_observed"])
+
     async def test_invalid_utf8_is_a_sender_parse_error(self):
         result = await prefix.send_request(
             SimpleNamespace(
@@ -205,6 +267,30 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertIn("passed flag is not boolean", result["error"])
+
+    async def test_semantic_judge_must_return_exactly_configured_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            judge = Path(directory) / "semantic-judge.py"
+            judge.write_text(
+                "import json\n"
+                "print(json.dumps({'requirements': [\n"
+                "    {'id': 'setting', 'passed': True},\n"
+                "    {'id': 'unrequested', 'passed': True}\n"
+                "]}))\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                "os.environ",
+                {"AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} {judge}"},
+            ):
+                result = await contracts.evaluate_semantic_contract(
+                    [{"role": "user", "content": "fixture"}],
+                    {"visible_text": "response"},
+                    [{"id": "setting", "description": "Establishes setting."}],
+                )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("unknown requirements: unrequested", result["error"])
 
     async def test_semantic_judge_receives_structured_multiturn_transcript(self):
         with tempfile.TemporaryDirectory() as directory:

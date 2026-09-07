@@ -136,11 +136,12 @@ the judge input. The command must return:
 }
 ```
 
-Each `passed` value must be a JSON boolean. The judge is terminated and marked
-as an error if it runs longer than `AFM_SEMANTIC_JUDGE_TIMEOUT_S` (default 30
-seconds) or emits more than `AFM_SEMANTIC_JUDGE_MAX_OUTPUT_BYTES` (default 1
-MiB on either output stream). Console output prints lexical and semantic
-review evidence for both deterministic passes and failures.
+Each `passed` value must be a JSON boolean, and returned IDs must exactly match
+the configured requirement set. The judge is terminated and marked as an error
+if it runs longer than `AFM_SEMANTIC_JUDGE_TIMEOUT_S` (default 30 seconds) or
+emits more than `AFM_SEMANTIC_JUDGE_MAX_OUTPUT_BYTES` (default 1 MiB on either
+output stream). Console output prints lexical and semantic review evidence for
+both deterministic passes and failures.
 
 Semantic results are reported independently and never change deterministic
 transport/integrity/cache scores. Invalid or failing judge output is recorded as

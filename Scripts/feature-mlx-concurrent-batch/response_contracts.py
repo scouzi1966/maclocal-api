@@ -24,6 +24,19 @@ def observe_lexical(text, expected):
     }
 
 
+def _response_integer(response, key):
+    value = response.get(key)
+    if key not in response:
+        return 0, False
+    if value is None:
+        return 0, True
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0, True
+    if isinstance(value, float) and not value.is_integer():
+        return 0, True
+    return int(value), False
+
+
 def evaluate_integrity_contract(
     response,
     min_tokens=0,
@@ -33,11 +46,20 @@ def evaluate_integrity_contract(
 ):
     failures = []
     visible = response.get("visible_text", "")
-    completion_tokens = int(response.get("completion_tokens") or 0)
+    completion_tokens, invalid_completion = _response_integer(
+        response, "completion_tokens"
+    )
+    parse_error_count, invalid_parse_errors = _response_integer(
+        response, "parse_error_count"
+    )
     replacement_count = visible.count(REPLACEMENT_CHAR)
 
-    if require_visible_text and len(visible.strip()) < 2:
+    if require_visible_text and not visible.strip():
         failures.append("empty_or_near_empty_visible_text")
+    if invalid_completion:
+        failures.append("invalid_completion_token_metadata")
+    if invalid_parse_errors:
+        failures.append("invalid_parse_error_metadata")
     if replacement_count > MAX_REPLACEMENT_CHARS:
         failures.append("excess_replacement_characters")
     if min_tokens and completion_tokens < min_tokens:
@@ -46,7 +68,7 @@ def evaluate_integrity_contract(
         failures.append("missing_finish_reason")
     if require_done and not response.get("done_observed"):
         failures.append("missing_sse_done")
-    if int(response.get("parse_error_count") or 0):
+    if parse_error_count:
         failures.append("sender_parse_error")
 
     return {
@@ -63,12 +85,16 @@ def evaluate_cache_contract(response, contract=None):
     """Evaluate only explicitly requested cache accounting boundaries."""
     contract = contract or {}
     failures = []
-    prompt_tokens = int(response.get("prompt_tokens") or 0)
-    cached_tokens = int(response.get("cached_tokens") or 0)
+    prompt_tokens, invalid_prompt = _response_integer(response, "prompt_tokens")
+    cached_tokens, invalid_cached = _response_integer(response, "cached_tokens")
 
     expected_prompt = contract.get("expected_prompt_tokens")
     minimum_cached = contract.get("minimum_cached_tokens")
     maximum_cached = contract.get("maximum_cached_tokens")
+    if invalid_prompt:
+        failures.append("invalid_prompt_token_metadata")
+    if invalid_cached:
+        failures.append("invalid_cached_token_metadata")
     if expected_prompt is not None and prompt_tokens != int(expected_prompt):
         failures.append("unexpected_prompt_token_count")
     if minimum_cached is not None and cached_tokens < int(minimum_cached):
@@ -118,6 +144,9 @@ def _normalise_semantic_result(payload, requirements):
     missing_ids = sorted(expected_ids - judged_ids)
     if missing_ids:
         raise ValueError(f"semantic judge omitted requirements: {', '.join(missing_ids)}")
+    unknown_ids = sorted(judged_ids - expected_ids)
+    if unknown_ids:
+        raise ValueError(f"semantic judge returned unknown requirements: {', '.join(unknown_ids)}")
 
     return {
         "classification": "semantic_review",
