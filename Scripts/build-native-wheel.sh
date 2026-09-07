@@ -102,7 +102,7 @@ cp -R Resources/webui "$PACKAGE_ROOT/share/webui"
 rm -rf "$ROOT_DIR/build"
 rm -f "dist/${DIST_NAME}-"*.whl
 echo "[wheel] Building $CHANNEL wheel $DIST_NAME $VERSION"
-uv build --wheel
+uv build --build-constraints "$ROOT_DIR/Scripts/build-constraints.txt" --python 3.12 --wheel
 
 WHEEL="$(ls -t "dist/${DIST_NAME}-"*.whl 2>/dev/null | head -1)"
 [[ -n "$WHEEL" ]] || { echo "[wheel] No wheel was produced" >&2; exit 1; }

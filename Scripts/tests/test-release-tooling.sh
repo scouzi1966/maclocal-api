@@ -6,6 +6,10 @@ WORK_ROOT="$ROOT_DIR/.build/release-tooling-tests"
 rm -rf "$WORK_ROOT"
 mkdir -p "$WORK_ROOT"
 
+echo "[release-tooling-test] dependency policy"
+uv run --locked --python 3.9 --extra dev python Scripts/tests/test_dependency_lock.py -v
+uv run --locked --python 3.12 --extra dev python Scripts/tests/test_dependency_lock.py -v
+
 fail() {
   echo "[release-tooling-test] $*" >&2
   exit 1
