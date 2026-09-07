@@ -239,6 +239,7 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_metadata_only_sse_chunk_without_choices_is_valid(self):
         body = [
+            b'data: {"choices":[]}\n',
             b'data: {"usage":{"prompt_tokens":12,"completion_tokens":34,'
             b'"prompt_tokens_details":{"cached_tokens":7}}}\n',
             b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
@@ -320,6 +321,49 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         cache = contracts.evaluate_cache_contract(result)
         self.assertEqual(result["parse_error_count"], 0)
         self.assertEqual(cache["failures"], ["invalid_cached_token_metadata"])
+
+    async def test_malformed_usage_is_latched_and_reported_by_run_batch(self):
+        body = [
+            b'data: {"choices":[{"delta":{"content":"visible"}}]}\n',
+            b'data: {"usage":null,"choices":[]}\n',
+            b'data: {"usage":{"prompt_tokens":12,"completion_tokens":34,'
+            b'"prompt_tokens_details":{"cached_tokens":7}}}\n',
+            b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"data: [DONE]\n",
+        ]
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(StreamResponse(body))
+            ),
+            [],
+            max_tokens=8,
+        )
+        conversation = dict(name="fixture", system="system",
+                            turns=[dict(user="fixture", expected=[])])
+        with patch.object(
+            prefix,
+            "send_request",
+            AsyncMock(return_value=result),
+        ), patch.object(
+            prefix.aiohttp,
+            "ClientSession",
+            return_value=AsyncContext(object()),
+        ), contextlib.redirect_stdout(io.StringIO()) as output:
+            passed, failed, rows = await prefix.run_batch(1, [conversation])
+
+        self.assertEqual((passed, failed), (0, 1))
+        self.assertTrue(result["usage_metadata_invalid"])
+        self.assertEqual(result["parse_error_count"], 0)
+        self.assertEqual(rows[0]["status"], "CONTRACT_FAILURE")
+        self.assertEqual(
+            rows[0]["contract_failures"],
+            [
+                "invalid_completion_token_metadata",
+                "invalid_prompt_token_metadata",
+                "invalid_cached_token_metadata",
+            ],
+        )
+        self.assertIn("invalid_completion_token_metadata", output.getvalue())
 
     async def test_invalid_utf8_is_a_sender_parse_error(self):
         result = await prefix.send_request(

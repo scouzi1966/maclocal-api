@@ -289,6 +289,7 @@ async def send_request(session, messages, max_tokens=1024):
     reasoning_text = ""
     ttft = None
     usage = {}
+    invalid_usage_fields = set()
     timings = {}
     finish_reason = None
     done_observed = False
@@ -308,7 +309,38 @@ async def send_request(session, messages, max_tokens=1024):
                     break
                 chunk = json.loads(data)
                 if "usage" in chunk:
-                    usage = chunk["usage"]
+                    usage_event = chunk["usage"]
+                    if not isinstance(usage_event, dict):
+                        invalid_usage_fields.update(
+                            ("prompt_tokens", "completion_tokens", "cached_tokens")
+                        )
+                    else:
+                        usage = usage_event
+                        for key in ("prompt_tokens", "completion_tokens"):
+                            value = usage_event.get(key)
+                            if key in usage_event and (
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float))
+                                or value < 0
+                                or (isinstance(value, float) and not value.is_integer())
+                            ):
+                                invalid_usage_fields.add(key)
+                        if "prompt_tokens_details" in usage_event:
+                            details = usage_event["prompt_tokens_details"]
+                            if not isinstance(details, dict):
+                                invalid_usage_fields.add("cached_tokens")
+                            elif "cached_tokens" in details:
+                                cached_value = details["cached_tokens"]
+                                if (
+                                    isinstance(cached_value, bool)
+                                    or not isinstance(cached_value, (int, float))
+                                    or cached_value < 0
+                                    or (
+                                        isinstance(cached_value, float)
+                                        and not cached_value.is_integer()
+                                    )
+                                ):
+                                    invalid_usage_fields.add("cached_tokens")
                 if "timings" in chunk:
                     timings = chunk["timings"]
                 if "choices" not in chunk:
@@ -339,7 +371,7 @@ async def send_request(session, messages, max_tokens=1024):
     invalid_usage = not isinstance(usage, dict)
 
     def usage_value(key):
-        if invalid_usage:
+        if invalid_usage or key in invalid_usage_fields:
             return "invalid usage"
         return usage.get(key, 0)
 
@@ -371,6 +403,8 @@ async def send_request(session, messages, max_tokens=1024):
         "tg_tok_s": usage_value("completion_tokens_per_second"),
         "prompt_time_s": usage_value("prompt_time"),
         "completion_time_s": usage_value("completion_time"),
+        "usage_metadata_invalid": bool(invalid_usage_fields),
+        "invalid_usage_fields": sorted(invalid_usage_fields),
     }
 
 
@@ -458,6 +492,13 @@ def format_review_evidence(result):
     return "  " + "  ".join(notes) if notes else ""
 
 
+def printable_metric(value):
+    """Normalize malformed metadata only for display arithmetic."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return value
+
+
 async def run_batch(batch_size, conversations):
     """Run conversations at given concurrency."""
     passed = 0
@@ -481,11 +522,11 @@ async def run_batch(batch_size, conversations):
 
                 for r in outcome:
                     all_results.append(r)
-                    pt = r["prompt_tokens"]
-                    ct = r["completion_tokens"]
-                    cached = r["cached_tokens"]
-                    pp = r["pp_tok_s"]
-                    tg = r["tg_tok_s"]
+                    pt = printable_metric(r["prompt_tokens"])
+                    ct = printable_metric(r["completion_tokens"])
+                    cached = printable_metric(r["cached_tokens"])
+                    pp = printable_metric(r["pp_tok_s"])
+                    tg = printable_metric(r["tg_tok_s"])
                     ttft = r["ttft"]
                     cache_pct = (cached / pt * 100) if pt > 0 else 0
 

@@ -54,11 +54,12 @@ def evaluate_integrity_contract(
     parse_error_count, invalid_parse_errors = _response_integer(
         response, "parse_error_count"
     )
+    invalid_usage_fields = set(response.get("invalid_usage_fields") or [])
     replacement_count = visible.count(REPLACEMENT_CHAR)
 
     if require_visible_text and not visible.strip():
         failures.append("empty_or_near_empty_visible_text")
-    if invalid_completion:
+    if invalid_completion or "completion_tokens" in invalid_usage_fields:
         failures.append("invalid_completion_token_metadata")
     if invalid_parse_errors:
         failures.append("invalid_parse_error_metadata")
@@ -89,13 +90,14 @@ def evaluate_cache_contract(response, contract=None):
     failures = []
     prompt_tokens, invalid_prompt = _response_integer(response, "prompt_tokens")
     cached_tokens, invalid_cached = _response_integer(response, "cached_tokens")
+    invalid_usage_fields = set(response.get("invalid_usage_fields") or [])
 
     expected_prompt = contract.get("expected_prompt_tokens")
     minimum_cached = contract.get("minimum_cached_tokens")
     maximum_cached = contract.get("maximum_cached_tokens")
-    if invalid_prompt:
+    if invalid_prompt or "prompt_tokens" in invalid_usage_fields:
         failures.append("invalid_prompt_token_metadata")
-    if invalid_cached:
+    if invalid_cached or "cached_tokens" in invalid_usage_fields:
         failures.append("invalid_cached_token_metadata")
     if expected_prompt is not None and prompt_tokens != int(expected_prompt):
         failures.append("unexpected_prompt_token_count")
