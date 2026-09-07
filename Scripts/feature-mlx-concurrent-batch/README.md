@@ -105,6 +105,39 @@ python3 validate_multiturn_prefix.py 1 4          # specific batch sizes
 python3 validate_multiturn_prefix.py --label "overlap+prefix" 1 2 4 8
 ```
 
+#### Scoring and evidence separation
+
+Deterministic pass/fail scoring covers only complete transport and response
+integrity: nonempty visible output, bounded replacement characters, requested
+minimum completion tokens, a finish reason, an SSE `[DONE]` event, no sender
+parse errors, and any explicitly configured cache boundaries. Visible and
+reasoning channels are retained separately and never combined for scoring.
+
+`expected` lexical markers are review evidence, not pass/fail contracts. Missing
+markers remain in the raw report and console output so historical behavior can
+be investigated without treating prose phrasing or private Rust APIs as engine
+failures.
+Historical scores and raw artifacts are immutable; only newly sampled runs use
+this separated schema.
+
+An operator can opt into semantic review by setting
+`AFM_SEMANTIC_JUDGE_COMMAND` to a command that reads a JSON object from stdin
+and writes JSON to stdout. The command receives the prompt, visible response,
+and requirement descriptions. It must return:
+
+```json
+{
+  "requirements": [
+    {"id": "tokyo_setting", "passed": true, "evidence": "text quote"}
+  ],
+  "summary": "optional explanation"
+}
+```
+
+Semantic results are reported independently and never change deterministic
+transport/integrity/cache scores. Invalid or failing judge output is recorded as
+`semantic.status=error` or `semantic.ok=false`, respectively.
+
 ## Prerequisites
 
 ```bash

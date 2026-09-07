@@ -37,7 +37,9 @@ class AsyncContext:
 
 def response(text):
     return dict(text=text, completion_tokens=10, prompt_tokens=10, cached_tokens=0,
-                pp_tok_s=10, tg_tok_s=10, ttft=0.1, wall_s=1)
+                pp_tok_s=10, tg_tok_s=10, ttft=0.1, wall_s=1,
+                visible_text=text, reasoning_text='', combined_text=text,
+                finish_reason='stop', done_observed=True, parse_error_count=0)
 
 
 class FailureReportingTests(unittest.IsolatedAsyncioTestCase):
@@ -85,7 +87,7 @@ class FailureReportingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('GARBAGE', output.getvalue())
         self.assertNotIn('missing []', output.getvalue())
 
-    async def test_legitimate_missing_answer_keeps_specific_diagnostic(self):
+    async def test_lexical_missing_answer_is_review_evidence_not_contract_failure(self):
         conversation = dict(name='fixture', system='system',
                             turns=[dict(user='hi', expected=['needle'])])
         output = io.StringIO()
@@ -93,9 +95,12 @@ class FailureReportingTests(unittest.IsolatedAsyncioTestCase):
              patch.object(prefix, 'send_request', AsyncMock(return_value=response('other'))), \
              contextlib.redirect_stdout(output):
             passed, failed, rows = await prefix.run_batch(1, [conversation])
-        self.assertEqual((passed, failed), (0, 1))
+        self.assertEqual((passed, failed), (1, 0))
+        self.assertEqual(rows[0]['status'], 'OK')
+        self.assertTrue(rows[0]['ok'])
         self.assertFalse(rows[0]['is_garbage'])
-        self.assertIn("missing ['needle']", output.getvalue())
+        self.assertEqual(rows[0]['lexical_observation']['classification'], 'review_evidence')
+        self.assertIn("lexical-evidence-missing=['needle']", output.getvalue())
 
     def test_success_summary_does_not_emit_failure_warning(self):
         output = io.StringIO()
