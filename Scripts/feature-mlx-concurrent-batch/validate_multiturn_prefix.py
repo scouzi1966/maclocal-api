@@ -230,7 +230,9 @@ CONVERSATIONS = [
         "turns": [
             {
                 "user": (
-                    "Implement a complete LRU cache in Rust with the following requirements: "
+                    "Do not call tools or inspect files. Write the complete implementation "
+                    "directly in this response. Implement a complete LRU cache in Rust "
+                    "with the following requirements: "
                     "generic key/value types, O(1) get/put, configurable capacity, "
                     "thread-safe with fine-grained locking, iterator support, "
                     "and TTL-based expiration. Include comprehensive tests."
