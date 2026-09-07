@@ -78,9 +78,17 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         )
         prompt = conversation["turns"][0]["user"]
 
-        self.assertTrue(prompt.startswith("Do not call tools or inspect files."))
-        self.assertIn("directly in this response", prompt)
-        self.assertIn("Implement a complete LRU cache in Rust", prompt)
+        self.assertEqual(
+            prompt,
+            (
+                "Do not call tools or inspect files. Write the complete implementation "
+                "directly in this response. Implement a complete LRU cache in Rust "
+                "with the following requirements: "
+                "generic key/value types, O(1) get/put, configurable capacity, "
+                "thread-safe with fine-grained locking, iterator support, "
+                "and TTL-based expiration. Include comprehensive tests."
+            ),
+        )
 
     def test_integrity_requires_complete_transport_and_output(self):
         result = contracts.evaluate_integrity_contract(
