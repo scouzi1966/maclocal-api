@@ -51,8 +51,10 @@ afm = "macafm.cli:main"
 
 [project.optional-dependencies]
 dev = [
-    "build",
-    "twine",
+  "build",
+  # No secure requests/Twine graph supports Python 3.9 after CVE-2026-25645.
+  # Keep upload tooling on the same isolated Python 3.12 packaging environment.
+  "twine>=6.2; python_version >= '3.10'",
 ]
 
 [tool.setuptools]

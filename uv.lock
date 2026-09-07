@@ -404,14 +404,13 @@ source = { editable = "." }
 dev = [
     { name = "build", version = "1.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "build", version = "1.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "twine", version = "1.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "twine", version = "7.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "twine", marker = "python_full_version >= '3.10'" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'" },
-    { name = "twine", marker = "extra == 'dev'" },
+    { name = "twine", marker = "python_full_version >= '3.10' and extra == 'dev'", specifier = ">=6.2" },
 ]
 provides-extras = ["dev"]
 
@@ -489,15 +488,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pkginfo"
-version = "1.12.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/24/03/e26bf3d6453b7fda5bd2b84029a426553bb373d6277ef6b5ac8863421f87/pkginfo-1.12.1.2.tar.gz", hash = "sha256:5cd957824ac36f140260964eba3c6be6442a8359b8c48f4adf90210f33a04b7b", size = 451828, upload-time = "2025-02-19T15:27:37.188Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/3d/f4f2ba829efb54b6cd2d91349c7463316a9cc55a43fc980447416c88540f/pkginfo-1.12.1.2-py3-none-any.whl", hash = "sha256:c783ac885519cab2c34927ccfa6bf64b5a704d7c69afaea583dd9b7afe969343", size = 32717, upload-time = "2025-02-19T15:27:33.071Z" },
-]
-
-[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -535,29 +525,8 @@ wheels = [
 
 [[package]]
 name = "readme-renderer"
-version = "44.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version > '3.9' and python_full_version < '3.10'",
-    "python_full_version <= '3.9'",
-]
-dependencies = [
-    { name = "docutils", marker = "python_full_version < '3.10'" },
-    { name = "nh3", marker = "python_full_version < '3.10'" },
-    { name = "pygments", marker = "python_full_version < '3.10'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/a9/104ec9234c8448c4379768221ea6df01260cd6c2ce13182d4eac531c8342/readme_renderer-44.0.tar.gz", hash = "sha256:8712034eabbfa6805cacf1402b4eeb2a73028f72d1166d6f5cb7f9c047c5d1e1", size = 32056, upload-time = "2024-07-08T15:00:57.805Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/67/921ec3024056483db83953ae8e48079ad62b92db7880013ca77632921dd0/readme_renderer-44.0-py3-none-any.whl", hash = "sha256:2fbca89b81a08526aadf1357a8c2ae889ec05fb03f5da67f9769c9a592166151", size = 13310, upload-time = "2024-07-08T15:00:56.577Z" },
-]
-
-[[package]]
-name = "readme-renderer"
 version = "45.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.10'",
-]
 dependencies = [
     { name = "docutils", marker = "python_full_version >= '3.10'" },
     { name = "nh3", marker = "python_full_version >= '3.10'" },
@@ -570,24 +539,8 @@ wheels = [
 
 [[package]]
 name = "requests"
-version = "2.15.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version > '3.9' and python_full_version < '3.10'",
-    "python_full_version <= '3.9'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/ed/3adebdc29ca33f11bca00c38c72125cd4a51091e13685375ba4426fb59dc/requests-2.15.1.tar.gz", hash = "sha256:e5659b9315a0610505e050bb7190bf6fa2ccee1ac295f2b760ef9d8a03ebbb2e", size = 548172, upload-time = "2017-05-27T02:14:22.414Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/a5/e04c4607dc96e3e6b22dfa13ba8776c64bb65cb97ab90f05a3ee14096a0a/requests-2.15.1-py2.py3-none-any.whl", hash = "sha256:ff753b2196cd18b1bbeddc9dcd5c864056599f7a7d9a4fb5677e723efa2b7fb9", size = 558730, upload-time = "2017-05-27T02:14:19.048Z" },
-]
-
-[[package]]
-name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.10'",
-]
 dependencies = [
     { name = "certifi", marker = "python_full_version >= '3.10'" },
     { name = "charset-normalizer", marker = "python_full_version >= '3.10'" },
@@ -604,8 +557,7 @@ name = "requests-toolbelt"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "requests", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "requests", marker = "python_full_version >= '3.10'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
@@ -645,15 +597,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/46/f5af3402b579fd5e11573ce652019a67074317e18c1935cc0b4ba9b35552/secretstorage-3.5.0-py3-none-any.whl", hash = "sha256:0ce65888c0725fcb2c5bc0fdb8e5438eece02c523557ea40ce0703c266248137", size = 15554, upload-time = "2025-11-23T19:02:51.545Z" },
-]
-
-[[package]]
-name = "setuptools"
-version = "82.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/db/cfac1baf10650ab4d1c111714410d2fbb77ac5a616db26775db562c8fab2/setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9", size = 1152316, upload-time = "2026-03-09T12:47:17.221Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb", size = 1006223, upload-time = "2026-03-09T12:47:15.026Z" },
 ]
 
 [[package]]
@@ -711,51 +654,15 @@ wheels = [
 ]
 
 [[package]]
-name = "tqdm"
-version = "4.70.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "python_full_version < '3.10' and sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ffd99576daa5cc077722fc7d5bbc00bd133fa0c698dc6/tqdm-4.70.0.tar.gz", hash = "sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220", size = 795438, upload-time = "2026-07-27T11:33:15.271Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/1c/01bfd571a64e7f270e6bab5e33777debe0edc56759233ce84f27dec92d14/tqdm-4.70.0-py3-none-any.whl", hash = "sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953", size = 80184, upload-time = "2026-07-27T11:33:13.167Z" },
-]
-
-[[package]]
-name = "twine"
-version = "1.15.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version > '3.9' and python_full_version < '3.10'",
-    "python_full_version <= '3.9'",
-]
-dependencies = [
-    { name = "pkginfo", marker = "python_full_version < '3.10'" },
-    { name = "readme-renderer", version = "44.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "requests", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "requests-toolbelt", marker = "python_full_version < '3.10'" },
-    { name = "setuptools", marker = "python_full_version < '3.10'" },
-    { name = "tqdm", marker = "python_full_version < '3.10'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/57/3f42ab50113b4b418eda2e7bc68843206b9bafe00bd856e48e0f7b1dce1a/twine-1.15.0.tar.gz", hash = "sha256:a3d22aab467b4682a22de4a422632e79d07eebd07ff2a7079effb13f8a693787", size = 139576, upload-time = "2019-09-17T15:42:12.726Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/0e/9e833399b84e9232a7f86a8f4351d6687dbab0b03a2a6e352d431463fa68/twine-1.15.0-py2.py3-none-any.whl", hash = "sha256:630fadd6e342e725930be6c696537e3f9ccc54331742b16245dab292a17d0460", size = 35436, upload-time = "2019-09-17T15:42:04.53Z" },
-]
-
-[[package]]
 name = "twine"
 version = "7.0.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.10'",
-]
 dependencies = [
     { name = "id", marker = "python_full_version >= '3.10'" },
     { name = "keyring", marker = "python_full_version >= '3.10' and platform_machine != 'ppc64le' and platform_machine != 's390x'" },
     { name = "packaging", marker = "python_full_version >= '3.10'" },
-    { name = "readme-renderer", version = "45.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "requests", version = "2.34.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "readme-renderer", marker = "python_full_version >= '3.10'" },
+    { name = "requests", marker = "python_full_version >= '3.10'" },
     { name = "requests-toolbelt", marker = "python_full_version >= '3.10'" },
     { name = "rfc3986", marker = "python_full_version >= '3.10'" },
     { name = "rich", marker = "python_full_version >= '3.10'" },
