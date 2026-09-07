@@ -72,6 +72,16 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evidence["missing"], ["said"])
         self.assertEqual(evidence["observed"], ["voice"])
 
+    def test_coding_long_decode_requires_direct_output_without_tools(self):
+        conversation = next(
+            item for item in prefix.CONVERSATIONS if item["name"] == "coding-longdecode"
+        )
+        prompt = conversation["turns"][0]["user"]
+
+        self.assertTrue(prompt.startswith("Do not call tools or inspect files."))
+        self.assertIn("directly in this response", prompt)
+        self.assertIn("Implement a complete LRU cache in Rust", prompt)
+
     def test_integrity_requires_complete_transport_and_output(self):
         result = contracts.evaluate_integrity_contract(
             dict(
