@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -169,6 +170,115 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["done_observed"])
         self.assertEqual(result["parse_error_count"], 0)
 
+    async def test_invalid_utf8_is_a_sender_parse_error(self):
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(
+                    StreamResponse([b"data: \xff\xfe\n", b"data: [DONE]\n"])
+                )
+            ),
+            [],
+            max_tokens=8,
+        )
+        self.assertEqual(result["visible_text"], "")
+        self.assertEqual(result["parse_error_count"], 1)
+        self.assertTrue(result["done_observed"])
+
+    async def test_semantic_judge_requires_actual_json_booleans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            judge = Path(directory) / "semantic-judge.py"
+            judge.write_text(
+                "import json\n"
+                "print(json.dumps({'requirements': "
+                "[{'id': 'setting', 'passed': 'false'}]}))\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                "os.environ",
+                {"AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} {judge}"},
+            ):
+                result = await contracts.evaluate_semantic_contract(
+                    [{"role": "user", "content": "fixture"}],
+                    {"visible_text": "response"},
+                    [{"id": "setting", "description": "Establishes setting."}],
+                )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("passed flag is not boolean", result["error"])
+
+    async def test_semantic_judge_receives_structured_multiturn_transcript(self):
+        with tempfile.TemporaryDirectory() as directory:
+            judge = Path(directory) / "semantic-judge.py"
+            received = Path(directory) / "received.json"
+            judge.write_text(
+                "import json, sys\n"
+                "payload = json.load(sys.stdin)\n"
+                f"with open({json.dumps(str(received))}, 'w', encoding='utf-8') as output:\n"
+                "    output.write(json.dumps(payload))\n"
+                "print(json.dumps({'requirements': "
+                "[{'id': 'continuity', 'passed': True}]}))\n",
+                encoding="utf-8",
+            )
+            transcript = [
+                {"role": "system", "content": "system context"},
+                {"role": "user", "content": "first request"},
+                {"role": "assistant", "content": "prior visible answer"},
+                {"role": "user", "content": "continue that answer"},
+            ]
+            with patch.dict(
+                "os.environ",
+                {"AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} {judge}"},
+            ):
+                result = await contracts.evaluate_semantic_contract(
+                    transcript,
+                    {"visible_text": "current visible answer"},
+                    [{"id": "continuity", "description": "Continues the story."}],
+                )
+                payload = json.loads(received.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "evaluated")
+        self.assertTrue(result["ok"])
+        self.assertEqual(payload["messages"], transcript)
+        self.assertEqual(payload["prompt"], "continue that answer")
+        self.assertEqual(payload["response"], "current visible answer")
+
+    async def test_hanging_semantic_judge_fails_closed_after_timeout(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} -c 'import time; time.sleep(1)'",
+                "AFM_SEMANTIC_JUDGE_TIMEOUT_S": "0.05",
+            },
+        ):
+            result = await contracts.evaluate_semantic_contract(
+                [{"role": "user", "content": "fixture"}],
+                {"visible_text": "response"},
+                [{"id": "setting", "description": "Establishes setting."}],
+            )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("TimeoutError", result["error"])
+
+    async def test_semantic_judge_output_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            judge = Path(directory) / "semantic-judge.py"
+            judge.write_text("print('12345')\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} {judge}",
+                    "AFM_SEMANTIC_JUDGE_MAX_OUTPUT_BYTES": "4",
+                },
+            ):
+                result = await contracts.evaluate_semantic_contract(
+                    [{"role": "user", "content": "fixture"}],
+                    {"visible_text": "response"},
+                    [{"id": "setting", "description": "Establishes setting."}],
+                )
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("stdout exceeded the output limit", result["error"])
+
     async def test_external_semantic_judge_is_reported_separately(self):
         with tempfile.TemporaryDirectory() as directory:
             judge = Path(directory) / "semantic-judge.py"
@@ -227,7 +337,66 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rows[0]["semantic_review"]["status"], "evaluated")
             self.assertFalse(rows[0]["semantic_review"]["ok"])
             self.assertTrue(rows[0]["ok"])
-            self.assertIn("semantic=evaluated", output.getvalue())
+            self.assertIn("semantic=ok:false(setting:fail)", output.getvalue())
+
+    async def test_review_evidence_is_visible_on_contract_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            judge = Path(directory) / "semantic-judge.py"
+            judge.write_text(
+                "import json, sys\n"
+                "json.load(sys.stdin)\n"
+                "print(json.dumps({'requirements': "
+                "[{'id': 'setting', 'passed': False}]}))\n",
+                encoding="utf-8",
+            )
+            conversation = dict(
+                name="fixture",
+                system="system",
+                turns=[
+                    dict(
+                        user="fixture",
+                        expected=["needle"],
+                        semantic_requirements=[
+                            {"id": "setting", "description": "Establishes setting."}
+                        ],
+                    )
+                ],
+            )
+            response = dict(
+                text="other",
+                visible_text="other",
+                reasoning_text="needle only in reasoning",
+                combined_text="otherneedle only in reasoning",
+                completion_tokens=10,
+                prompt_tokens=10,
+                cached_tokens=0,
+                pp_tok_s=10,
+                tg_tok_s=10,
+                ttft=0.1,
+                wall_s=1,
+                finish_reason="stop",
+                done_observed=False,
+                parse_error_count=0,
+            )
+            with patch.dict(
+                "os.environ",
+                {"AFM_SEMANTIC_JUDGE_COMMAND": f"{sys.executable} {judge}"},
+            ), patch.object(
+                prefix,
+                "send_request",
+                AsyncMock(return_value=response),
+            ), patch.object(
+                prefix.aiohttp,
+                "ClientSession",
+                return_value=AsyncContext(object()),
+            ), contextlib.redirect_stdout(io.StringIO()) as output:
+                passed, failed, rows = await prefix.run_batch(1, [conversation])
+
+            self.assertEqual((passed, failed), (0, 1))
+            self.assertEqual(rows[0]["contract_failures"], ["missing_sse_done"])
+            self.assertEqual(rows[0]["lexical_observation"]["missing"], ["needle"])
+            self.assertIn("lexical-evidence-missing=['needle']", output.getvalue())
+            self.assertIn("semantic=ok:false(setting:fail)", output.getvalue())
 
 
 if __name__ == "__main__":

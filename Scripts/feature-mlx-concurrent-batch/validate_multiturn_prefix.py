@@ -297,15 +297,15 @@ async def send_request(session, messages, max_tokens=1024):
 
     async with session.post(URL, json=payload) as resp:
         resp.raise_for_status()
-        async for line in resp.content:
-            line = line.decode().strip()
-            if not line.startswith("data: "):
-                continue
-            data = line[6:]
-            if data == "[DONE]":
-                done_observed = True
-                break
+        async for raw_line in resp.content:
             try:
+                line = raw_line.decode("utf-8").strip()
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data == "[DONE]":
+                    done_observed = True
+                    break
                 chunk = json.loads(data)
                 if "usage" in chunk:
                     usage = chunk["usage"]
@@ -387,9 +387,9 @@ async def run_conversation(session, conv):
             require_done=turn.get("require_done", True),
         )
         cache = evaluate_cache_contract(r, turn.get("cache_contract"))
-        lexical = observe_lexical(r["combined_text"], turn.get("expected", []))
+        lexical = observe_lexical(r["visible_text"], turn.get("expected", []))
         semantic = await evaluate_semantic_contract(
-            turn["user"], r, turn.get("semantic_requirements", [])
+            messages, r, turn.get("semantic_requirements", [])
         )
         deterministic_failures = integrity["failures"] + cache["failures"]
 
@@ -413,6 +413,30 @@ async def run_conversation(session, conv):
         turn_results.append(r)
 
     return turn_results
+
+
+def format_review_evidence(result):
+    """Return concise, non-scoring evidence shown for both outcomes."""
+    notes = []
+    lexical = result.get("lexical_observation", {})
+    if lexical.get("missing"):
+        notes.append(f"lexical-evidence-missing={lexical['missing']}")
+
+    semantic = result.get("semantic_review", {})
+    status = semantic.get("status", "not_evaluated")
+    if status == "evaluated":
+        outcomes = [
+            f"{requirement['id']}:{'pass' if requirement['passed'] else 'fail'}"
+            for requirement in semantic.get("requirements", [])
+        ]
+        suffix = f"({','.join(outcomes)})" if outcomes else ""
+        notes.append(f"semantic=ok:{str(semantic.get('ok')).lower()}{suffix}")
+    elif status == "error":
+        error = str(semantic.get("error", "semantic judge error"))[:240]
+        notes.append(f"semantic=error({error})")
+    else:
+        notes.append(f"semantic={status}")
+    return "  " + "  ".join(notes) if notes else ""
 
 
 async def run_batch(batch_size, conversations):
@@ -446,27 +470,25 @@ async def run_batch(batch_size, conversations):
                     ttft = r["ttft"]
                     cache_pct = (cached / pt * 100) if pt > 0 else 0
 
+                    review_note = format_review_evidence(r)
                     if r["ok"]:
                         passed += 1
                         r['status'] = 'OK'
-                        lexical_note = ""
-                        if r["missing"]:
-                            lexical_note = f"  lexical-evidence-missing={r['missing']}"
-                        semantic_status = r["semantic_review"]["status"]
-                        if semantic_status != "not_evaluated":
-                            lexical_note += f"  semantic={semantic_status}"
                         print(f"  OK    {r['name']:30s}  "
                               f"pp={pt:5d} ({cached:4d} cached {cache_pct:4.0f}%) {pp:7.1f} t/s  "
                               f"tg={ct:4d} tok {tg:6.1f} t/s  "
-                              f"TTFT={ttft:.2f}s  wall={r['wall_s']:.1f}s{lexical_note}")
+                              f"TTFT={ttft:.2f}s  wall={r['wall_s']:.1f}s{review_note}")
                     else:
                         failed += 1
                         if r.get("is_garbage"):
                             r['status'] = 'GARBAGE'
-                            print(f"  FAIL  {r['name']:30s}  GARBAGE")
+                            print(f"  FAIL  {r['name']:30s}  GARBAGE{review_note}")
                         else:
                             r['status'] = 'CONTRACT_FAILURE'
-                            print(f"  FAIL  {r['name']:30s}  {r['contract_failures']}")
+                            print(
+                                f"  FAIL  {r['name']:30s}  "
+                                f"{r['contract_failures']}{review_note}"
+                            )
 
     return passed, failed, all_results
 

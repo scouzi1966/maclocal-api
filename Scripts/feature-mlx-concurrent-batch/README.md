@@ -122,8 +122,10 @@ this separated schema.
 
 An operator can opt into semantic review by setting
 `AFM_SEMANTIC_JUDGE_COMMAND` to a command that reads a JSON object from stdin
-and writes JSON to stdout. The command receives the prompt, visible response,
-and requirement descriptions. It must return:
+and writes JSON to stdout. The command receives the full visible transcript
+(system prompt, prior assistant turns, and current user turn), the visible
+response, and requirement descriptions. Reasoning output is not included in
+the judge input. The command must return:
 
 ```json
 {
@@ -133,6 +135,12 @@ and requirement descriptions. It must return:
   "summary": "optional explanation"
 }
 ```
+
+Each `passed` value must be a JSON boolean. The judge is terminated and marked
+as an error if it runs longer than `AFM_SEMANTIC_JUDGE_TIMEOUT_S` (default 30
+seconds) or emits more than `AFM_SEMANTIC_JUDGE_MAX_OUTPUT_BYTES` (default 1
+MiB on either output stream). Console output prints lexical and semantic
+review evidence for both deterministic passes and failures.
 
 Semantic results are reported independently and never change deterministic
 transport/integrity/cache scores. Invalid or failing judge output is recorded as
