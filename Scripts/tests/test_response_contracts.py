@@ -138,6 +138,32 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    def test_negative_token_metadata_is_invalid(self):
+        result = contracts.evaluate_integrity_contract(
+            dict(
+                visible_text="visible",
+                completion_tokens=-1,
+                finish_reason="stop",
+                done_observed=True,
+                parse_error_count=0,
+            )
+        )
+        self.assertEqual(
+            result["failures"],
+            ["invalid_completion_token_metadata"],
+        )
+
+        result = contracts.evaluate_cache_contract(
+            dict(prompt_tokens=-1, cached_tokens=-1)
+        )
+        self.assertEqual(
+            result["failures"],
+            [
+                "invalid_prompt_token_metadata",
+                "invalid_cached_token_metadata",
+            ],
+        )
+
         result = contracts.evaluate_cache_contract(
             dict(prompt_tokens="many", cached_tokens="none")
         )
@@ -231,6 +257,69 @@ class ResponseContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["cached_tokens"], 7)
         self.assertEqual(result["finish_reason"], "stop")
         self.assertTrue(result["done_observed"])
+
+    async def test_malformed_falsy_choices_remain_parse_errors(self):
+        body = [
+            b'data: {"usage":{"prompt_tokens":12,"completion_tokens":34},"choices":null}\n',
+            b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"data: [DONE]\n",
+        ]
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(StreamResponse(body))
+            ),
+            [],
+            max_tokens=8,
+        )
+        self.assertEqual(result["parse_error_count"], 1)
+        self.assertEqual(result["prompt_tokens"], 12)
+        self.assertEqual(result["completion_tokens"], 34)
+
+    async def test_malformed_usage_container_is_deterministic_metadata_failure(self):
+        body = [
+            b'data: {"choices":[{"delta":{"content":"visible"}}]}\n',
+            b'data: {"usage":null,"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"data: [DONE]\n",
+        ]
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(StreamResponse(body))
+            ),
+            [],
+            max_tokens=8,
+        )
+        integrity = contracts.evaluate_integrity_contract(result)
+        cache = contracts.evaluate_cache_contract(result)
+        self.assertEqual(result["parse_error_count"], 0)
+        self.assertEqual(
+            integrity["failures"],
+            ["invalid_completion_token_metadata"],
+        )
+        self.assertEqual(
+            cache["failures"],
+            [
+                "invalid_prompt_token_metadata",
+                "invalid_cached_token_metadata",
+            ],
+        )
+
+    async def test_malformed_cached_token_details_are_deterministic(self):
+        body = [
+            b'data: {"usage":{"prompt_tokens":12,"completion_tokens":34,'
+            b'"prompt_tokens_details":null},'
+            b'"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"data: [DONE]\n",
+        ]
+        result = await prefix.send_request(
+            SimpleNamespace(
+                post=lambda *_args, **_kwargs: AsyncContext(StreamResponse(body))
+            ),
+            [],
+            max_tokens=8,
+        )
+        cache = contracts.evaluate_cache_contract(result)
+        self.assertEqual(result["parse_error_count"], 0)
+        self.assertEqual(cache["failures"], ["invalid_cached_token_metadata"])
 
     async def test_invalid_utf8_is_a_sender_parse_error(self):
         result = await prefix.send_request(

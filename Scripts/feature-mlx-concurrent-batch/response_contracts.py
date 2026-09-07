@@ -34,6 +34,8 @@ def _response_integer(response, key):
         return 0, True
     if isinstance(value, float) and not value.is_integer():
         return 0, True
+    if value < 0:
+        return 0, True
     return int(value), False
 
 

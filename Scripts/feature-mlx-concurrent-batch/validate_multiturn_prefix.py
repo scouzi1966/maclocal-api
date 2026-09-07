@@ -311,7 +311,10 @@ async def send_request(session, messages, max_tokens=1024):
                     usage = chunk["usage"]
                 if "timings" in chunk:
                     timings = chunk["timings"]
-                if not chunk.get("choices"):
+                if "choices" not in chunk:
+                    continue
+                choices = chunk["choices"]
+                if isinstance(choices, list) and not choices:
                     continue
                 choice = chunk["choices"][0]
                 delta = choice.get("delta", {})
@@ -331,11 +334,25 @@ async def send_request(session, messages, max_tokens=1024):
 
     elapsed = time.monotonic() - start
 
-    # Extract cached tokens from usage
-    cached = 0
-    ptd = usage.get("prompt_tokens_details", {})
-    if isinstance(ptd, dict):
-        cached = ptd.get("cached_tokens", 0)
+    # Preserve malformed usage as deterministic invalid metadata rather than
+    # converting it to an exception or a misleading zero.
+    invalid_usage = not isinstance(usage, dict)
+
+    def usage_value(key):
+        if invalid_usage:
+            return "invalid usage"
+        return usage.get(key, 0)
+
+    cached = "invalid usage"
+    if not invalid_usage:
+        if "prompt_tokens_details" not in usage:
+            cached = 0
+        else:
+            details = usage["prompt_tokens_details"]
+            if not isinstance(details, dict):
+                cached = "invalid usage details"
+            else:
+                cached = details.get("cached_tokens", 0)
 
     return {
         "text": visible_text,
@@ -347,13 +364,13 @@ async def send_request(session, messages, max_tokens=1024):
         "parse_error_count": parse_error_count,
         "wall_s": elapsed,
         "ttft": ttft or 0,
-        "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
+        "prompt_tokens": usage_value("prompt_tokens"),
+        "completion_tokens": usage_value("completion_tokens"),
         "cached_tokens": cached,
-        "pp_tok_s": usage.get("prompt_tokens_per_second", 0),
-        "tg_tok_s": usage.get("completion_tokens_per_second", 0),
-        "prompt_time_s": usage.get("prompt_time", 0),
-        "completion_time_s": usage.get("completion_time", 0),
+        "pp_tok_s": usage_value("prompt_tokens_per_second"),
+        "tg_tok_s": usage_value("completion_tokens_per_second"),
+        "prompt_time_s": usage_value("prompt_time"),
+        "completion_time_s": usage_value("completion_time"),
     }
 
 
