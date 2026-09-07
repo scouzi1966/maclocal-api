@@ -18,11 +18,13 @@ This is not an independent socket capture: the sender normally stops at `[DONE]`
 without reading the following blank line or exhausting the response iterator.
 Missing finish/DONE evidence must not be interpreted as proof of an engine bug.
 
-The original request, parser, merged scoring text, assertions, and timing
-expressions are unchanged. Parse errors from the existing sender and from the
-post-request evidence observer are distinguished. Evidence never repairs the
-scoring input. Lexical-gate concerns remain tracked separately in issue #265;
-new evidence cannot retroactively reclassify responses that were not retained.
+The original request and timing expressions remain authoritative for the sender.
+The sender keeps visible and reasoning channels separate and records finish,
+DONE, and parse-error state for deterministic integrity contracts. Parse errors
+from the sender and from the post-request evidence observer are distinguished.
+Evidence never repairs the scoring input. Lexical observations and semantic
+review remain separated from deterministic scoring, and new evidence cannot
+retroactively reclassify responses that were not retained.
 The prefix report's existing Turn 1 “cold” label is also not proof of a cold
 cache: earlier batch sizes may have warmed its prefix. Use actual cache metrics.
 

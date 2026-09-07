@@ -105,6 +105,48 @@ python3 validate_multiturn_prefix.py 1 4          # specific batch sizes
 python3 validate_multiturn_prefix.py --label "overlap+prefix" 1 2 4 8
 ```
 
+#### Scoring and evidence separation
+
+Deterministic pass/fail scoring covers only complete transport and response
+integrity: nonempty visible output, bounded replacement characters, requested
+minimum completion tokens, a finish reason, an SSE `[DONE]` event, no sender
+parse errors, and any explicitly configured cache boundaries. Visible and
+reasoning channels are retained separately and never combined for scoring.
+
+`expected` lexical markers are review evidence, not pass/fail contracts. Missing
+markers remain in the raw report and console output so historical behavior can
+be investigated without treating prose phrasing or private Rust APIs as engine
+failures.
+Historical scores and raw artifacts are immutable; only newly sampled runs use
+this separated schema.
+
+An operator can opt into semantic review by setting
+`AFM_SEMANTIC_JUDGE_COMMAND` to a command that reads a JSON object from stdin
+and writes JSON to stdout. The command receives the full visible transcript
+(system prompt, prior assistant turns, and current user turn), the visible
+response, and requirement descriptions. Reasoning output is not included in
+the judge input. The command must return:
+
+```json
+{
+  "requirements": [
+    {"id": "tokyo_setting", "passed": true, "evidence": "text quote"}
+  ],
+  "summary": "optional explanation"
+}
+```
+
+Each `passed` value must be a JSON boolean, and returned IDs must exactly match
+the configured requirement set. The judge is terminated and marked as an error
+if it runs longer than `AFM_SEMANTIC_JUDGE_TIMEOUT_S` (default 30 seconds) or
+emits more than `AFM_SEMANTIC_JUDGE_MAX_OUTPUT_BYTES` (default 1 MiB on either
+output stream). Console output prints lexical and semantic review evidence for
+both deterministic passes and failures.
+
+Semantic results are reported independently and never change deterministic
+transport/integrity/cache scores. Invalid or failing judge output is recorded as
+`semantic.status=error` or `semantic.ok=false`, respectively.
+
 ## Prerequisites
 
 ```bash

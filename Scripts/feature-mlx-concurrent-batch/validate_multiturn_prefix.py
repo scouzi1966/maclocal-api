@@ -17,6 +17,12 @@ Usage:
 import asyncio, aiohttp, json, time, sys, os
 from batch_validation_report import BatchReport
 from batch_stream_evidence import capture_stream_evidence, record_stream_parse_error
+from response_contracts import (
+    evaluate_cache_contract,
+    evaluate_integrity_contract,
+    evaluate_semantic_contract,
+    observe_lexical,
+)
 
 URL = os.environ.get("AFM_CHAT_COMPLETIONS_URL", "http://localhost:9999/v1/chat/completions")
 MODEL = os.environ.get("AFM_MODEL", "mlx-community/Qwen3.5-35B-A3B-4bit")
@@ -129,11 +135,19 @@ CONVERSATIONS = [
             {
                 "user": "Write a Python function to validate email addresses using regex. Include edge cases.",
                 "expected": ["def ", "re.", "import re", "@"],
+                "semantic_requirements": [
+                    {"id": "regex_validation", "description": "Implements a Python email-validation function using regex."},
+                    {"id": "edge_cases", "description": "Explains or tests representative edge cases."},
+                ],
                 "max_tokens": 4096,
             },
             {
                 "user": "Now add unit tests for that function using pytest. Cover valid, invalid, and edge cases.",
                 "expected": ["def test", "pytest", "assert"],
+                "semantic_requirements": [
+                    {"id": "pytest_tests", "description": "Provides pytest tests for the validation function."},
+                    {"id": "coverage_categories", "description": "Covers valid, invalid, and edge-case inputs."},
+                ],
                 "max_tokens": 4096,
             },
             {
@@ -150,16 +164,28 @@ CONVERSATIONS = [
             {
                 "user": "Explain the difference between Type I and Type II errors in hypothesis testing, with examples from clinical trials.",
                 "expected": ["type i", "type ii", "null hypothesis"],
+                "semantic_requirements": [
+                    {"id": "error_definitions", "description": "Correctly distinguishes Type I and Type II errors."},
+                    {"id": "clinical_examples", "description": "Uses clinically relevant examples."},
+                ],
                 "max_tokens": 4096,
             },
             {
                 "user": "How does sample size affect statistical power? Walk through a power analysis for a two-sample t-test.",
                 "expected": ["power", "sample size", "effect"],
+                "semantic_requirements": [
+                    {"id": "sample_size_power", "description": "Explains the relationship between sample size and statistical power."},
+                    {"id": "power_analysis", "description": "Walks through a two-sample t-test power analysis."},
+                ],
                 "max_tokens": 4096,
             },
             {
                 "user": "Now compare frequentist vs Bayesian approaches to the same clinical trial scenario. When should we prefer each?",
                 "expected": ["bayesian", "frequentist", "prior"],
+                "semantic_requirements": [
+                    {"id": "framework_comparison", "description": "Compares frequentist and Bayesian approaches in the clinical scenario."},
+                    {"id": "preference_criteria", "description": "Explains when each framework is preferable."},
+                ],
                 "max_tokens": 4096,
             },
         ],
@@ -171,16 +197,29 @@ CONVERSATIONS = [
             {
                 "user": "Write the opening scene of a noir detective story set in a rain-soaked Tokyo alley. First person, present tense.",
                 "expected": ["rain", "tokyo"],
+                "semantic_requirements": [
+                    {"id": "noir_scene", "description": "Writes an opening scene with noir atmosphere."},
+                    {"id": "tokyo_setting", "description": "Establishes a recognizable Tokyo setting without requiring the literal word Tokyo."},
+                    {"id": "first_person_present", "description": "Uses first-person, present-tense narration."},
+                ],
                 "max_tokens": 4096,
             },
             {
                 "user": "Continue the story. The detective finds a clue — a business card with a number that doesn't exist. Build tension.",
                 "expected": ["card", "number"],
+                "semantic_requirements": [
+                    {"id": "clue_continuity", "description": "Continues the story from the established scene."},
+                    {"id": "tension", "description": "Uses the impossible business-card clue to build tension."},
+                ],
                 "max_tokens": 4096,
             },
             {
                 "user": "Now write the confrontation scene where the detective meets the antagonist. Use subtext in the dialogue — they both know more than they say.",
                 "expected": ["said", "voice"],
+                "semantic_requirements": [
+                    {"id": "confrontation", "description": "Depicts the detective confronting the antagonist."},
+                    {"id": "dialogue_subtext", "description": "Uses dialogue or staging in which both characters imply more than they state."},
+                ],
                 "max_tokens": 4096,
             },
         ],
@@ -197,6 +236,12 @@ CONVERSATIONS = [
                     "and TTL-based expiration. Include comprehensive tests."
                 ),
                 "expected": ["struct", "impl", "fn ", "pub"],
+                "semantic_requirements": [
+                    {"id": "rust_lru", "description": "Implements an LRU cache in Rust."},
+                    {"id": "api_requirements", "description": "Addresses generic key/value types, configurable capacity, and the requested operations."},
+                    {"id": "concurrency_ttl_iterator", "description": "Addresses thread safety, TTL expiration, and iterator support."},
+                    {"id": "tests", "description": "Includes meaningful tests for the implementation."},
+                ],
                 "max_tokens": 4096,
                 "min_tokens": 500,
             },
@@ -215,6 +260,11 @@ CONVERSATIONS = [
                     "and constitutional AI. Include citations and compare approaches."
                 ),
                 "expected": ["attention", "transformer", "mamba"],
+                "semantic_requirements": [
+                    {"id": "transformer_improvements", "description": "Reviews the requested transformer architecture improvements."},
+                    {"id": "comparative_synthesis", "description": "Compares approaches rather than only listing them."},
+                    {"id": "citations", "description": "Provides citations or clearly attributable references."},
+                ],
                 "max_tokens": 4096,
                 "min_tokens": 500,
             },
@@ -235,65 +285,127 @@ async def send_request(session, messages, max_tokens=1024):
         "stream": True,
         "temperature": 0.3,
     }
-    text = ""
+    visible_text = ""
+    reasoning_text = ""
     ttft = None
     usage = {}
+    invalid_usage_fields = set()
     timings = {}
+    finish_reason = None
+    done_observed = False
+    parse_error_count = 0
     start = time.monotonic()
 
     async with session.post(URL, json=payload) as resp:
         resp.raise_for_status()
-        async for line in resp.content:
-            line = line.decode().strip()
-            if not line.startswith("data: "):
-                continue
-            data = line[6:]
-            if data == "[DONE]":
-                break
+        async for raw_line in resp.content:
             try:
+                line = raw_line.decode("utf-8").strip()
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data == "[DONE]":
+                    done_observed = True
+                    break
                 chunk = json.loads(data)
                 if "usage" in chunk:
-                    usage = chunk["usage"]
+                    usage_event = chunk["usage"]
+                    if not isinstance(usage_event, dict):
+                        invalid_usage_fields.update(
+                            ("prompt_tokens", "completion_tokens", "cached_tokens")
+                        )
+                    else:
+                        usage = usage_event
+                        for key in ("prompt_tokens", "completion_tokens"):
+                            value = usage_event.get(key)
+                            if key in usage_event and (
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float))
+                                or value < 0
+                                or (isinstance(value, float) and not value.is_integer())
+                            ):
+                                invalid_usage_fields.add(key)
+                        if "prompt_tokens_details" in usage_event:
+                            details = usage_event["prompt_tokens_details"]
+                            if not isinstance(details, dict):
+                                invalid_usage_fields.add("cached_tokens")
+                            elif "cached_tokens" in details:
+                                cached_value = details["cached_tokens"]
+                                if (
+                                    isinstance(cached_value, bool)
+                                    or not isinstance(cached_value, (int, float))
+                                    or cached_value < 0
+                                    or (
+                                        isinstance(cached_value, float)
+                                        and not cached_value.is_integer()
+                                    )
+                                ):
+                                    invalid_usage_fields.add("cached_tokens")
                 if "timings" in chunk:
                     timings = chunk["timings"]
-                delta = chunk["choices"][0].get("delta", {})
-                content = delta.get("content", "") or delta.get("reasoning_content", "")
-                if content:
+                if "choices" not in chunk:
+                    continue
+                choices = chunk["choices"]
+                if isinstance(choices, list) and not choices:
+                    continue
+                choice = chunk["choices"][0]
+                delta = choice.get("delta", {})
+                if choice.get("finish_reason") is not None:
+                    finish_reason = choice["finish_reason"]
+                visible_delta = delta.get("content", "") or ""
+                reasoning_delta = delta.get("reasoning_content", "") or ""
+                if visible_delta or reasoning_delta:
                     if ttft is None:
                         ttft = time.monotonic() - start
-                    text += content
+                    visible_text += visible_delta
+                    reasoning_text += reasoning_delta
             except Exception:
+                parse_error_count += 1
                 record_stream_parse_error()
                 pass
 
     elapsed = time.monotonic() - start
 
-    # Extract cached tokens from usage
-    cached = 0
-    ptd = usage.get("prompt_tokens_details", {})
-    if isinstance(ptd, dict):
-        cached = ptd.get("cached_tokens", 0)
+    # Preserve malformed usage as deterministic invalid metadata rather than
+    # converting it to an exception or a misleading zero.
+    invalid_usage = not isinstance(usage, dict)
+
+    def usage_value(key):
+        if invalid_usage or key in invalid_usage_fields:
+            return "invalid usage"
+        return usage.get(key, 0)
+
+    cached = "invalid usage"
+    if not invalid_usage:
+        if "prompt_tokens_details" not in usage:
+            cached = 0
+        else:
+            details = usage["prompt_tokens_details"]
+            if not isinstance(details, dict):
+                cached = "invalid usage details"
+            else:
+                cached = details.get("cached_tokens", 0)
 
     return {
-        "text": text,
+        "text": visible_text,
+        "visible_text": visible_text,
+        "reasoning_text": reasoning_text,
+        "combined_text": visible_text + reasoning_text,
+        "finish_reason": finish_reason,
+        "done_observed": done_observed,
+        "parse_error_count": parse_error_count,
         "wall_s": elapsed,
         "ttft": ttft or 0,
-        "prompt_tokens": usage.get("prompt_tokens", 0),
-        "completion_tokens": usage.get("completion_tokens", 0),
+        "prompt_tokens": usage_value("prompt_tokens"),
+        "completion_tokens": usage_value("completion_tokens"),
         "cached_tokens": cached,
-        "pp_tok_s": usage.get("prompt_tokens_per_second", 0),
-        "tg_tok_s": usage.get("completion_tokens_per_second", 0),
-        "prompt_time_s": usage.get("prompt_time", 0),
-        "completion_time_s": usage.get("completion_time", 0),
+        "pp_tok_s": usage_value("prompt_tokens_per_second"),
+        "tg_tok_s": usage_value("completion_tokens_per_second"),
+        "prompt_time_s": usage_value("prompt_time"),
+        "completion_time_s": usage_value("completion_time"),
+        "usage_metadata_invalid": bool(invalid_usage_fields),
+        "invalid_usage_fields": sorted(invalid_usage_fields),
     }
-
-
-def check_response(text, expected):
-    lower = text.lower()
-    missing = [s for s in expected if s.lower() not in lower]
-    is_garbage = len(text.strip()) < 2 or text.count('\ufffd') > 5
-    return {"missing": missing, "ok": len(missing) == 0 and not is_garbage,
-            "is_garbage": is_garbage}
 
 
 # ─── Conversation runner ──────────────────────────────────────────────────────
@@ -320,12 +432,33 @@ async def run_conversation(session, conv):
                 f"{elapsed:.1f}s: {detail}"
             ) from exc
 
-        check = check_response(r["text"], turn["expected"])
+        integrity = evaluate_integrity_contract(
+            r,
+            min_tokens=turn.get("min_tokens", 0),
+            require_visible_text=turn.get("require_visible_text", True),
+            require_finish_reason=turn.get("require_finish_reason", True),
+            require_done=turn.get("require_done", True),
+        )
+        cache = evaluate_cache_contract(r, turn.get("cache_contract"))
+        lexical = observe_lexical(r["visible_text"], turn.get("expected", []))
+        semantic = await evaluate_semantic_contract(
+            messages, r, turn.get("semantic_requirements", [])
+        )
+        deterministic_failures = integrity["failures"] + cache["failures"]
+
         r["turn"] = i + 1
         r["name"] = f"{conv['name']}/t{i+1}"
-        r["ok"] = check["ok"]
-        r["is_garbage"] = check["is_garbage"]
-        r["missing"] = check["missing"]
+        r["ok"] = not deterministic_failures
+        r["contract_failures"] = deterministic_failures
+        r["integrity_contract"] = integrity
+        r["cache_contract"] = cache
+        r["lexical_observation"] = lexical
+        r["semantic_review"] = semantic
+        r["is_garbage"] = (
+            "empty_or_near_empty_visible_text" in integrity["failures"]
+            or "excess_replacement_characters" in integrity["failures"]
+        )
+        r["missing"] = lexical["missing"]
         r["min_tokens"] = turn.get("min_tokens", 0)
 
         # Add assistant response to conversation history
@@ -333,6 +466,37 @@ async def run_conversation(session, conv):
         turn_results.append(r)
 
     return turn_results
+
+
+def format_review_evidence(result):
+    """Return concise, non-scoring evidence shown for both outcomes."""
+    notes = []
+    lexical = result.get("lexical_observation", {})
+    if lexical.get("missing"):
+        notes.append(f"lexical-evidence-missing={lexical['missing']}")
+
+    semantic = result.get("semantic_review", {})
+    status = semantic.get("status", "not_evaluated")
+    if status == "evaluated":
+        outcomes = [
+            f"{requirement['id']}:{'pass' if requirement['passed'] else 'fail'}"
+            for requirement in semantic.get("requirements", [])
+        ]
+        suffix = f"({','.join(outcomes)})" if outcomes else ""
+        notes.append(f"semantic=ok:{str(semantic.get('ok')).lower()}{suffix}")
+    elif status == "error":
+        error = str(semantic.get("error", "semantic judge error"))[:240]
+        notes.append(f"semantic=error({error})")
+    else:
+        notes.append(f"semantic={status}")
+    return "  " + "  ".join(notes) if notes else ""
+
+
+def printable_metric(value):
+    """Normalize malformed metadata only for display arithmetic."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return value
 
 
 async def run_batch(batch_size, conversations):
@@ -358,36 +522,33 @@ async def run_batch(batch_size, conversations):
 
                 for r in outcome:
                     all_results.append(r)
-                    pt = r["prompt_tokens"]
-                    ct = r["completion_tokens"]
-                    cached = r["cached_tokens"]
-                    pp = r["pp_tok_s"]
-                    tg = r["tg_tok_s"]
+                    pt = printable_metric(r["prompt_tokens"])
+                    ct = printable_metric(r["completion_tokens"])
+                    cached = printable_metric(r["cached_tokens"])
+                    pp = printable_metric(r["pp_tok_s"])
+                    tg = printable_metric(r["tg_tok_s"])
                     ttft = r["ttft"]
                     cache_pct = (cached / pt * 100) if pt > 0 else 0
 
+                    review_note = format_review_evidence(r)
                     if r["ok"]:
                         passed += 1
-                        too_short = r["min_tokens"] > 0 and ct < r["min_tokens"] * 0.5
-                        if too_short:
-                            failed += 1
-                            passed -= 1
-                            print(f"  FAIL  {r['name']:30s}  TOO SHORT ({ct} tok)")
-                            r['status'] = 'TOO_SHORT'
-                        else:
-                            r['status'] = 'OK'
-                            print(f"  OK    {r['name']:30s}  "
-                                  f"pp={pt:5d} ({cached:4d} cached {cache_pct:4.0f}%) {pp:7.1f} t/s  "
-                                  f"tg={ct:4d} tok {tg:6.1f} t/s  "
-                                  f"TTFT={ttft:.2f}s  wall={r['wall_s']:.1f}s")
+                        r['status'] = 'OK'
+                        print(f"  OK    {r['name']:30s}  "
+                              f"pp={pt:5d} ({cached:4d} cached {cache_pct:4.0f}%) {pp:7.1f} t/s  "
+                              f"tg={ct:4d} tok {tg:6.1f} t/s  "
+                              f"TTFT={ttft:.2f}s  wall={r['wall_s']:.1f}s{review_note}")
                     else:
                         failed += 1
                         if r.get("is_garbage"):
                             r['status'] = 'GARBAGE'
-                            print(f"  FAIL  {r['name']:30s}  GARBAGE")
+                            print(f"  FAIL  {r['name']:30s}  GARBAGE{review_note}")
                         else:
-                            r['status'] = 'MISSING'
-                            print(f"  FAIL  {r['name']:30s}  missing {r['missing']}")
+                            r['status'] = 'CONTRACT_FAILURE'
+                            print(
+                                f"  FAIL  {r['name']:30s}  "
+                                f"{r['contract_failures']}{review_note}"
+                            )
 
     return passed, failed, all_results
 

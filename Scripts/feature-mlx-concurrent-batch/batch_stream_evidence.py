@@ -98,7 +98,7 @@ class StreamEvidence:
                     parse_errors=self.parse_errors, parse_error_count=self.parse_error_count,
                     parse_errors_truncated=self.parse_error_count > len(self.parse_errors),
                     request_error=None if error is None else dict(type=type(error).__name__, message=str(error)),
-                    scoring_note='Observability only; original sender text and predicates are unchanged')
+                    scoring_note='Observability only; evidence is not used by sender contracts')
 
     def publish(self, error):
         self.path.parent.mkdir(parents=True, exist_ok=True)
