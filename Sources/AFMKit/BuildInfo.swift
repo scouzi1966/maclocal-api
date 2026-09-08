@@ -4,7 +4,7 @@
 import Foundation
 
 public struct BuildInfo {
-    public static let version: String? = "v0.9.19"
+    public static let version: String? = "v0.9.20"
     static let commit: String? = nil
 
     /// True only when the executable was compiled with the toolchain required
