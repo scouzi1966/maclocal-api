@@ -83,7 +83,6 @@ struct StreamingStopSequenceFilter {
 }
 
 struct MLXChatCompletionsController: RouteCollection {
-    private static let degenerateTailRegex = try! NSRegularExpression(pattern: "([!?.:,;`~_\\-*=|])\\1{79,}$")
 
     /// Max time (seconds) to wait for a concurrent slot before returning 503.
     /// RotatingKVCache models run serial, so queued requests can wait a long time.
@@ -1839,19 +1838,7 @@ struct MLXChatCompletionsController: RouteCollection {
     }
 
     private func sanitizeDegenerateTail(_ text: String) -> String {
-        var cleaned = text
-
-        if let badChar = cleaned.lastIndex(of: "�"), cleaned.distance(from: badChar, to: cleaned.endIndex) < 512 {
-            cleaned = String(cleaned[..<badChar])
-        }
-
-        let nsrange = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
-        guard let match = Self.degenerateTailRegex.firstMatch(in: cleaned, range: nsrange),
-              let range = Range(match.range, in: cleaned) else {
-            return cleaned
-        }
-
-        return String(cleaned[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        AFMDegenerateTailSanitizer.sanitize(text)
     }
 
     static func requiresStructuredOutputSanitization(_ responseFormat: ResponseFormat?) -> Bool {
