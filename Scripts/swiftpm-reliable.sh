@@ -2,10 +2,11 @@
 # Run SwiftPM with a targeted recovery for Xcode 27's explicit-module scanner.
 #
 # The swiftbuild driver can leave generated C modules unresolved (commonly
-# CAsyncHTTPClient, CSystem, CNIO*, and _NumericsShims). Xcode 27 Beta 3 is a
-# known-bad toolchain, so select the native driver up front there. Other Xcode
-# versions start normally and use the native driver only after the exact scanner
-# failure signature. Checkouts and source patches are always preserved.
+# CAsyncHTTPClient, CSystem, CNIO*, and _NumericsShims). Xcode 27 can also lose
+# the executable target's WMO dependency file after compiling the complete
+# graph. Select the native driver up front for Xcode 27 instead of paying for a
+# doomed swiftbuild pass followed by a complete native rebuild. Checkouts and
+# source patches are always preserved.
 
 set -uo pipefail
 
@@ -117,6 +118,39 @@ test_scratch_path() {
     printf '%s\n' "$ROOT_DIR/.build"
 }
 
+test_package_root() {
+    local previous=""
+    local argument
+    for argument in "$@"; do
+        if [[ "$previous" == "--package-path" ]]; then
+            printf '%s\n' "$argument"
+            return
+        fi
+        case "$argument" in
+            --package-path=*)
+                printf '%s\n' "${argument#*=}"
+                return
+                ;;
+        esac
+        previous="$argument"
+    done
+    printf '%s\n' "$ROOT_DIR"
+}
+
+INVOCATION_PACKAGE_ROOT="$(test_package_root "$@")"
+if [[ "$INVOCATION_PACKAGE_ROOT" != /* ]]; then
+    INVOCATION_PACKAGE_ROOT="$ROOT_DIR/$INVOCATION_PACKAGE_ROOT"
+fi
+INVOCATION_PACKAGE_ROOT="$(cd "$INVOCATION_PACKAGE_ROOT" && pwd)"
+DIRECT_PACKAGE_INVOCATION=0
+if [[ -z "${MACLOCAL_AFMKIT_PATH:-}" && "$INVOCATION_PACKAGE_ROOT" != "$ROOT_DIR" ]]; then
+    # The wrapper is also used to test AFMKit's self-contained vendored MLX
+    # packages. SwiftPM owns dependency invalidation for those package roots;
+    # applying maclocal-api's resolved-AFMKit identity gate to their scratch
+    # trees turns every retry into an unrelated clean MLX rebuild.
+    DIRECT_PACKAGE_INVOCATION=1
+fi
+
 swift_package_clean() {
     if [[ -n "$LOCAL_PACKAGE_ROOT" ]]; then
         swift package \
@@ -153,7 +187,18 @@ stage_xctest_metallib() {
     # makes the next incremental CodeSign fail before tests can run.
     local architecture
     architecture="$(uname -m)"
-    local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/MacLocalAPIPackageTests.xctest/Contents/MacOS"
+    local package_root
+    package_root="$(test_package_root "$@")"
+    if [[ "$package_root" != /* ]]; then
+        package_root="$ROOT_DIR/$package_root"
+    fi
+    local package_name
+    package_name="$(sed -nE 's/^[[:space:]]*name:[[:space:]]*"([^"]+)".*/\1/p' "$package_root/Package.swift" | head -1)"
+    [[ -n "$package_name" ]] || {
+        echo "[swiftpm-reliable] Cannot determine package name from $package_root/Package.swift" >&2
+        return 1
+    }
+    local predicted_dir="$scratch_path/${architecture}-apple-macosx/$configuration/${package_name}PackageTests.xctest/Contents/MacOS"
     mkdir -p "$predicted_dir"
 
     stage_metallib() {
@@ -165,6 +210,17 @@ stage_xctest_metallib() {
     }
 
     stage_metallib "$predicted_dir" || return $?
+
+    # Also cover existing test bundles whose synthesized name differs from the
+    # manifest name. This makes an incremental retry self-healing while the
+    # predicted path above handles a completely fresh build.
+    while IFS= read -r existing_dir; do
+        [[ "$existing_dir" == "$predicted_dir" ]] && continue
+        stage_metallib "$existing_dir" || return $?
+    done < <(
+        find "$scratch_path/${architecture}-apple-macosx/$configuration" \
+            -type d -path '*.xctest/Contents/MacOS' -print 2>/dev/null
+    )
 
     echo "[swiftpm-reliable] Staged MLX metallib for XCTest: $predicted_dir/mlx.metallib" >&2
 }
@@ -261,40 +317,86 @@ fi
 # development fingerprints the complete package, including its vendored MLX
 # sources, so the consumer cannot reuse stale provider products.
 AFMKIT_SOURCE_STAMP="$STATE_DIR/afmkit-source.sha256"
+AFMKIT_SOURCE_ID_STAMP="$STATE_DIR/afmkit-source.id"
 if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
-    AFMKIT_SOURCE_FINGERPRINT="$({
-        printf '%s\n' "$AFMKIT_SOURCE_ID"
-        {
-            printf '%s\0' "$AFMKIT_SOURCE_ROOT/Package.swift"
-            find "$AFMKIT_SOURCE_ROOT/Sources" -type f -print0
-            if [[ -d "$AFMKIT_SOURCE_ROOT/Packages" ]]; then
-                find "$AFMKIT_SOURCE_ROOT/Packages" -type f -print0
-            fi
-            if [[ -d "$AFMKIT_SOURCE_ROOT/vendor/ds4" ]]; then
-                find "$AFMKIT_SOURCE_ROOT/vendor/ds4" -type f -print0
-            fi
-            if [[ -d "$AFMKIT_SOURCE_ROOT/vendor/MLX" ]]; then
-                find "$AFMKIT_SOURCE_ROOT/vendor/MLX" -type f -print0
-            fi
-        } | sort -z | xargs -0 shasum -a 256
-    } | shasum -a 256 | awk '{print $1}')"
+    if git -C "$AFMKIT_SOURCE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        # Hash the committed identity plus only tracked diffs and untracked
+        # source files. The former implementation reread the complete 6+ GB
+        # vendored MLX tree (including local build products) on every command.
+        AFMKIT_SOURCE_FINGERPRINT="$({
+            printf '%s\n' "$AFMKIT_SOURCE_ID"
+            git -C "$AFMKIT_SOURCE_ROOT" rev-parse HEAD
+            git -C "$AFMKIT_SOURCE_ROOT" diff \
+                --no-ext-diff --binary --submodule=diff HEAD -- \
+                Package.swift Sources Packages vendor/ds4 vendor/MLX
+            while IFS= read -r -d '' relative_path; do
+                printf '%s\0' "$relative_path"
+                shasum -a 256 "$AFMKIT_SOURCE_ROOT/$relative_path"
+            done < <(
+                git -C "$AFMKIT_SOURCE_ROOT" ls-files -z \
+                    --others --exclude-standard -- \
+                    Package.swift Sources Packages vendor/ds4 vendor/MLX
+            )
+            git -C "$AFMKIT_SOURCE_ROOT" submodule status --recursive -- vendor/ds4 2>/dev/null || true
+        } | shasum -a 256 | awk '{print $1}')"
+    else
+        AFMKIT_SOURCE_FINGERPRINT="$({
+            printf '%s\n' "$AFMKIT_SOURCE_ID"
+            find \
+                "$AFMKIT_SOURCE_ROOT/Package.swift" \
+                "$AFMKIT_SOURCE_ROOT/Sources" \
+                "$AFMKIT_SOURCE_ROOT/Packages" \
+                "$AFMKIT_SOURCE_ROOT/vendor/ds4" \
+                "$AFMKIT_SOURCE_ROOT/vendor/MLX" \
+                -type f \
+                -not -path '*/.git/*' \
+                -not -path '*/.build/*' \
+                -not -path '*/build/*' \
+                -print0 2>/dev/null \
+                | sort -z \
+                | xargs -0 shasum -a 256
+        } | shasum -a 256 | awk '{print $1}')"
+    fi
 else
     AFMKIT_SOURCE_FINGERPRINT="$(printf '%s\n' "$AFMKIT_SOURCE_ID" | shasum -a 256 | awk '{print $1}')"
 fi
 PREVIOUS_AFMKIT_SOURCE_FINGERPRINT="$(cat "$AFMKIT_SOURCE_STAMP" 2>/dev/null || true)"
-if [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
-    echo "[swiftpm-reliable] AFMKit source changed; invalidating stale compiled products." >&2
-    AFMKIT_SCRATCH_PATH="$(test_scratch_path "$@")"
-    if [[ "$AFMKIT_SCRATCH_PATH" != /* ]]; then
-        AFMKIT_SCRATCH_PATH="$ROOT_DIR/$AFMKIT_SCRATCH_PATH"
+PREVIOUS_AFMKIT_SOURCE_ID="$(cat "$AFMKIT_SOURCE_ID_STAMP" 2>/dev/null || true)"
+if [[ "$DIRECT_PACKAGE_INVOCATION" == "1" ]]; then
+    echo "[swiftpm-reliable] Direct package test; preserving its incremental products." >&2
+elif [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
+    if [[ -n "$PREVIOUS_AFMKIT_SOURCE_ID" && "$AFMKIT_SOURCE_ID" == "$PREVIOUS_AFMKIT_SOURCE_ID" ]]; then
+        # Native SwiftPM replans the local package and recompiles the affected
+        # target/dependent chain. Keep unrelated Vapor/NIO/MLX objects: erasing
+        # the entire scratch tree here turned every one-file provider edit into
+        # a 1,300-target clean build.
+        echo "[swiftpm-reliable] AFMKit source changed; preserving incremental native products." >&2
+    else
+        echo "[swiftpm-reliable] AFMKit source identity changed; invalidating compiled products." >&2
+        AFMKIT_SCRATCH_PATH="$(test_scratch_path "$@")"
+        if [[ "$AFMKIT_SCRATCH_PATH" != /* ]]; then
+            AFMKIT_SCRATCH_PATH="$ROOT_DIR/$AFMKIT_SCRATCH_PATH"
+        fi
+        rm -rf \
+            "$AFMKIT_SCRATCH_PATH/out" \
+            "$AFMKIT_SCRATCH_PATH/arm64-apple-macosx" \
+            "$AFMKIT_SCRATCH_PATH/debug" \
+            "$AFMKIT_SCRATCH_PATH/release"
     fi
-    rm -rf \
-        "$AFMKIT_SCRATCH_PATH/out" \
-        "$AFMKIT_SCRATCH_PATH/arm64-apple-macosx" \
-        "$AFMKIT_SCRATCH_PATH/debug" \
-        "$AFMKIT_SCRATCH_PATH/release"
-    printf '%s\n' "$AFMKIT_SOURCE_FINGERPRINT" > "$AFMKIT_SOURCE_STAMP"
 fi
+# Migrate state written by the older fingerprint-only wrapper without forcing
+# a clean build on the next ordinary source edit.
+if [[ ! -f "$AFMKIT_SOURCE_ID_STAMP" ]]; then
+    printf '%s\n' "$AFMKIT_SOURCE_ID" > "$AFMKIT_SOURCE_ID_STAMP"
+fi
+
+record_afmkit_source_state() {
+    [[ "$DIRECT_PACKAGE_INVOCATION" == "1" ]] && return 0
+    # A failed compile must not bless its source fingerprint: the next run must
+    # still know that those provider changes have not produced a valid binary.
+    printf '%s\n' "$AFMKIT_SOURCE_FINGERPRINT" > "$AFMKIT_SOURCE_STAMP"
+    printf '%s\n' "$AFMKIT_SOURCE_ID" > "$AFMKIT_SOURCE_ID_STAMP"
+}
 
 # A normal Release build emits modules without `-enable-testing`. Xcode 27's
 # native SwiftPM driver may then incorrectly reuse those modules for a Release
@@ -324,11 +426,11 @@ printf '%s\n' "$SUBCOMMAND" > "$OPERATION_STAMP"
 DRIVER="${AFM_SWIFTPM_DRIVER:-auto}"
 DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$DRIVER" == "native" ]] ||
-   [[ "$DRIVER" == "auto" && "$DEVELOPER_DIR" == *"Xcode-27.0.0-Beta.3.app/Contents/Developer" ]]; then
+   [[ "$DRIVER" == "auto" && "$DEVELOPER_DIR" == *"Xcode-27"*".app/Contents/Developer" ]]; then
     # Keep the driver stamp outside .build: `swift package clean` removes that
     # directory as part of scanner recovery, but must not invalidate the driver
     # identity and force another clean on the next invocation.
-    DRIVER_STAMP="$STATE_DIR/native-driver-xcode27-beta3"
+    DRIVER_STAMP="$STATE_DIR/native-driver-xcode27"
     DRIVER_ID="$DEVELOPER_DIR|$(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
     CURRENT_ID="$(cat "$DRIVER_STAMP" 2>/dev/null || true)"
     if [[ "$CURRENT_ID" != "$DRIVER_ID" ]]; then
@@ -348,8 +450,9 @@ if [[ "$DRIVER" == "native" ]] ||
         mkdir -p "$ROOT_DIR/.build"
         printf '%s\n' "$DRIVER_ID" > "$DRIVER_STAMP"
     fi
-    echo "[swiftpm-reliable] Using native driver for Xcode 27 Beta 3." >&2
+    echo "[swiftpm-reliable] Using native driver for Xcode 27." >&2
     if run_native "$PRIMARY_LOG" "$@"; then
+        record_afmkit_source_state
         exit 0
     else
         STATUS=$?
@@ -358,6 +461,7 @@ if [[ "$DRIVER" == "native" ]] ||
         echo "[swiftpm-reliable] Native generated build state is invalid; cleaning products and retrying once." >&2
         swift_package_clean
         if run_native "$RETRY_LOG" "$@"; then
+            record_afmkit_source_state
             exit 0
         else
             STATUS=$?
@@ -371,7 +475,7 @@ elif [[ "$DRIVER" != "auto" && "$DRIVER" != "swiftbuild" ]]; then
 fi
 
 if [[ "$DRIVER" == "swiftbuild" ]]; then
-    rm -f "$STATE_DIR/native-driver-xcode27-beta3"
+    rm -f "$STATE_DIR/native-driver-xcode27"
 fi
 
 set +e
@@ -385,6 +489,7 @@ STATUS=${PIPESTATUS[0]}
 set -e
 
 if [[ $STATUS -eq 0 ]]; then
+    record_afmkit_source_state
     exit 0
 fi
 
@@ -398,6 +503,7 @@ swift_package_clean
 
 if run_native "$RETRY_LOG" "$@"; then
     STATUS=0
+    record_afmkit_source_state
 else
     STATUS=$?
 fi

@@ -22,11 +22,13 @@ if [[ "$LOCAL_AFMKIT_PATH" == "$WORK_ROOT"/* ]]; then
   exit 2
 fi
 
-rm -rf "$PACKAGE_ROOT"
 mkdir -p "$PACKAGE_ROOT"
 # The production release lock intentionally pins published packages. Do not
 # copy it into this disposable workspace, which substitutes local paths.
-cp "$ROOT_DIR/Package.swift" "$PACKAGE_ROOT/"
-cp -R "$ROOT_DIR/Sources" "$ROOT_DIR/Tests" "$PACKAGE_ROOT/"
+rm -f "$PACKAGE_ROOT/Package.resolved"
+rsync -a "$ROOT_DIR/Package.swift" "$PACKAGE_ROOT/Package.swift"
+mkdir -p "$PACKAGE_ROOT/Sources" "$PACKAGE_ROOT/Tests"
+rsync -a --delete "$ROOT_DIR/Sources/" "$PACKAGE_ROOT/Sources/"
+rsync -a --delete "$ROOT_DIR/Tests/" "$PACKAGE_ROOT/Tests/"
 
 printf '%s\n' "$PACKAGE_ROOT"
