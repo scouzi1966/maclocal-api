@@ -488,13 +488,14 @@ public final class AFMTerminalChat: @unchecked Sendable {
         configuration: TerminalChatConfiguration,
         terminal: TerminalIO = TerminalIO(),
         capabilities: TerminalCapabilities = .detect(),
-        sessionStore: TUISessionStore = TUISessionStore()
+        sessionStore: TUISessionStore = TUISessionStore(),
+        engine: AFMEngine? = nil
     ) {
         self.configuration = configuration
         self.terminal = terminal
         self.capabilities = capabilities
         self.store = sessionStore
-        self.engine = AFMEngine(backend: configuration.backend, config: configuration.engine)
+        self.engine = engine ?? AFMEngine(backend: configuration.backend, config: configuration.engine)
         self.session = TUISession(
             backend: configuration.backendName,
             model: configuration.modelName,

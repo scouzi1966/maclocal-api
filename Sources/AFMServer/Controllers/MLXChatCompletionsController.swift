@@ -849,6 +849,16 @@ struct MLXChatCompletionsController: RouteCollection {
                 error: OpenAIError(message: message, type: "server_busy"),
                 status: status
             )
+        } catch let providerError as AFMError {
+            if requestRegistered {
+                await inflightRegistry.release(id: reqId, registration: requestRegistration)
+            }
+            let mapped = AFMProviderHTTPError(providerError)
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(message: providerError.localizedDescription, type: mapped.type),
+                status: mapped.status
+            )
         } catch let serviceError as MLXServiceError {
             if requestRegistered {
                 await inflightRegistry.release(id: reqId, registration: requestRegistration)

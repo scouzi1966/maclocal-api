@@ -172,6 +172,7 @@ can display local images inline; Terminal.app uses an explicit `/image` Quick Lo
 |---|---|---|
 | **MLX** | Open models, VLMs, agent controls, performance tuning | `afm mlx -m <model>` |
 | **Apple Foundation Models** | Zero-download system model and `.fmadapter` LoRA adapters | `afm` |
+| **Private Cloud Compute** | Apple cloud inference on macOS 27 with development provisioning | `afm pcc serve` ([setup](docs/private-cloud-compute.md)) |
 | **DwarfStar** | Compatible fixed-schedule Metal checkpoints | `afm mlx -m <owner/repo>` (auto-resolved) or `afm mlx -m <checkpoint.gguf> --mlx-runtime dwarfstar` |
 | **Gateway** | One model list for Ollama, LM Studio, Jan, and other local servers | `afm --gateway` |
 
