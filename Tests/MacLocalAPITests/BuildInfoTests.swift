@@ -7,7 +7,7 @@ final class BuildInfoTests: XCTestCase {
     }
 
     func testBaseVersionIsNextRelease() {
-        XCTAssertEqual(BuildInfo.resolvedVersion(override: nil), "v0.9.18")
+        XCTAssertEqual(BuildInfo.resolvedVersion(override: nil), "v0.9.20")
     }
 
     func testBuildVersionOverridePreservesVersionPrefix() {
@@ -25,6 +25,6 @@ final class BuildInfoTests: XCTestCase {
     }
 
     func testBlankBuildVersionOverrideUsesBaseVersion() {
-        XCTAssertEqual(BuildInfo.resolvedVersion(override: "  "), "v0.9.18")
+        XCTAssertEqual(BuildInfo.resolvedVersion(override: "  "), "v0.9.20")
     }
 }
