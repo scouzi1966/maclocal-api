@@ -18,10 +18,10 @@ extension TelegramReplyFormat: ExpressibleByArgument {}
 // (a nonisolated context), so these opt out of the main-actor isolation that
 // Swift 6 infers for top-level globals. Signal-handler access is inherently
 // single-threaded with respect to the run loop, so the unsafety is contained.
-nonisolated(unsafe) private var globalServer: Server?
-nonisolated(unsafe) private var shouldKeepRunning = true
+nonisolated(unsafe) var globalServer: Server?
+nonisolated(unsafe) var shouldKeepRunning = true
 
-private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws {
+func runTerminalChat(_ configuration: TerminalChatConfiguration, engine: AFMEngine? = nil) throws {
     let outputIsolation = try TerminalOutputIsolation()
     defer { outputIsolation.restore() }
     let terminal = TerminalIO(
@@ -40,7 +40,8 @@ private func runTerminalChat(_ configuration: TerminalChatConfiguration) throws 
             try await AFMTerminalChat(
                 configuration: configuration,
                 terminal: terminal,
-                capabilities: capabilities
+                capabilities: capabilities,
+                engine: engine
             ).run()
         } catch {
             errorBox.value = error
@@ -2133,6 +2134,7 @@ struct RootCommand: ParsableCommand {
         """,
         version: MacLocalAPI.buildVersion,
         subcommands: [
+            PCCCommand.self,
             MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
             DwarfStarBenchmarkCommand.self,
             VisionCommand.self,

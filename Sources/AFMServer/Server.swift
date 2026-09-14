@@ -757,7 +757,7 @@ public class Server: @unchecked Sendable {
 
             let payload: [String: Any] = [
                 "version": BuildInfo.fullVersion,
-                "backend": self.mlxModelID == nil ? "Apple Foundation Models / router" : "MLX",
+                "backend": self.afmModel?.descriptor.displayName ?? (self.mlxModelID == nil ? "Apple Foundation Models / router" : "MLX"),
                 "modelCache": modelCache,
                 "persistence": URL(fileURLWithPath: home).appendingPathComponent(".afm").path,
                 "streaming": self.streamingEnabled,
@@ -892,7 +892,7 @@ public class Server: @unchecked Sendable {
                             id: mlxModelID,
                             object: "model",
                             created: Int(Date().timeIntervalSince1970),
-                            owned_by: "mlx",
+                            owned_by: loadedDescriptor?.providerID.rawValue.hasPrefix("apple.") == true ? "apple" : "mlx",
                             loaded: true,
                             max_context_length: self.contextWindow
                         )
