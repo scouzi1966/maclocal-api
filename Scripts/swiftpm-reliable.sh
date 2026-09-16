@@ -366,10 +366,20 @@ if [[ "$DIRECT_PACKAGE_INVOCATION" == "1" ]]; then
     echo "[swiftpm-reliable] Direct package test; preserving its incremental products." >&2
 elif [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
     if [[ -n "$PREVIOUS_AFMKIT_SOURCE_ID" && "$AFMKIT_SOURCE_ID" == "$PREVIOUS_AFMKIT_SOURCE_ID" ]]; then
-        # Native SwiftPM replans the local package and recompiles the affected
-        # target/dependent chain. Keep unrelated Vapor/NIO/MLX objects: erasing
-        # the entire scratch tree here turned every one-file provider edit into
-        # a 1,300-target clean build.
+        # Native SwiftPM can reuse a stale dependency source list even after
+        # its Package.swift changes (e.g. a newly added CDwarfStarImage.c).
+        # Invalidate only the generated plan, not compiled objects. This makes
+        # it discover new sources without a 1,300-target clean rebuild.
+        AFMKIT_BUILD_PLAN_CONFIGURATION="$(test_configuration "$@")"
+        case "$AFMKIT_BUILD_PLAN_CONFIGURATION" in
+            debug|release)
+                AFMKIT_BUILD_PLAN="$(test_scratch_path "$@")/$AFMKIT_BUILD_PLAN_CONFIGURATION.yaml"
+                if [[ -f "$AFMKIT_BUILD_PLAN" ]]; then
+                    rm -f "$AFMKIT_BUILD_PLAN"
+                    echo "[swiftpm-reliable] Invalidated the generated local-provider build plan." >&2
+                fi
+                ;;
+        esac
         echo "[swiftpm-reliable] AFMKit source changed; preserving incremental native products." >&2
     else
         echo "[swiftpm-reliable] AFMKit source identity changed; invalidating compiled products." >&2
