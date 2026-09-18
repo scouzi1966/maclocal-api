@@ -193,7 +193,10 @@ stage_xctest_metallib() {
         package_root="$ROOT_DIR/$package_root"
     fi
     local package_name
-    package_name="$(sed -nE 's/^[[:space:]]*name:[[:space:]]*"([^"]+)".*/\1/p' "$package_root/Package.swift" | head -1)"
+    # AFMKit declares helper targets before `let package`. Their `name:` is
+    # not the package name (e.g. Cmlx); predicting that bundle loses the staged
+    # metallib whenever SwiftPM recreates the real XCTest executable.
+    package_name="$(sed -nE '/^[[:space:]]*let[[:space:]]+package[[:space:]]*=[[:space:]]*Package[[:space:]]*\(/,$s/^[[:space:]]*name:[[:space:]]*"([^"]+)".*/\1/p' "$package_root/Package.swift" | head -1)"
     [[ -n "$package_name" ]] || {
         echo "[swiftpm-reliable] Cannot determine package name from $package_root/Package.swift" >&2
         return 1
