@@ -29,5 +29,5 @@ Cursor settings → Models → "Add Model":
 
 ## Tips
 
-- Cursor sends large prompts (system + repo context); `--enable-prefix-caching` is a big win.
+- Cursor sends large prompts (system + repo context); default prefix caching is a big win.
 - For Composer multi-turn loops, `--concurrent 2` lets Cursor's parallel calls share the model.

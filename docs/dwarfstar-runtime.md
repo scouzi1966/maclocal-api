@@ -56,8 +56,9 @@ checkpoint required by DwarfStar before it joins a mixed scheduling epoch.
 
 ## Prefix Cache
 
-`--enable-prefix-caching` enables both resident exact-prefix reuse and
-DwarfStar's persistent disk KV store. The default disk location is
+Prefix caching is enabled by default and covers both resident exact-prefix
+reuse and DwarfStar's persistent disk KV store. Use
+`--disable-prefix-caching` to opt out. The default disk location is
 `~/Library/Caches/AFM/DwarfStarPrefixCache/<checkpoint-key>`, isolated by model
 path, size, and modification time. Set `AFM_DWARFSTAR_PREFIX_CACHE` to place it
 on another volume and `AFM_DWARFSTAR_PREFIX_CACHE_MB` to change the default

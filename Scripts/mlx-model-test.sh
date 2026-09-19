@@ -53,7 +53,7 @@
 #                          --verbose / --very-verbose
 #                          --no-streaming
 #                          --raw            skip <think> tag extraction
-#                          --enable-prefix-caching
+#                          --disable-prefix-caching
 #                          --tool-call-parser <hermes|llama3_json|gemma|mistral|qwen3_xml>
 #                          --fix-tool-args
 #   media:               Comma-separated media paths for VLM (auto-injects --vlm)
@@ -256,7 +256,7 @@ OPTIONS
   --reanalyse <jsonl>   Re-run smart analysis on existing JSONL results (no tests)
                         Implies --smart. Combine with --smart to pick tools.
   --afm <flags>         Extra CLI flags passed to afm server (quoted string)
-                        e.g. --afm "--concurrent 50 --enable-prefix-caching"
+                        e.g. --afm "--concurrent 50 --disable-prefix-caching"
   --no-report           Skip HTML report generation (JSONL only, for automation)
   -h, --help            Show this help
 
@@ -358,7 +358,7 @@ PROMPTS FILE FORMAT
     instructions_json:   JSON string form of server-level instructions
     tools:               OpenAI tools array encoded as JSON
     afm:                 Extra CLI flags passed to afm server
-                         (e.g. afm: --verbose --enable-prefix-caching)
+                         (e.g. afm: --verbose --disable-prefix-caching)
     media:               Comma-separated media file paths for VLM testing
                          (e.g. media: media/puppy.png)
                          Auto-injects --vlm into afm args.
@@ -377,7 +377,7 @@ PROMPTS FILE FORMAT
     --verbose / --very-verbose  Debug logging
     --no-streaming              Disable streaming
     --raw                       Skip <think> tag extraction
-    --enable-prefix-caching     KV cache reuse across requests
+    --disable-prefix-caching    Disable default KV cache reuse across requests
     --tool-call-parser <name>   Force tool call parser
     --chat-template <tpl>       Override chat template
 
@@ -390,7 +390,7 @@ PROMPTS FILE FORMAT
 
     max_tokens: 1000
     temperature: 0.7
-    afm: --enable-prefix-caching
+    afm: --disable-prefix-caching
 
     [all]
     What is 2+2? Explain step by step.
@@ -440,10 +440,10 @@ PROMPTS FILE FORMAT
     temperature: 1.2
     top_p: 0.95
 
-    # With prefix caching
-    [mlx-community/SmolLM3-3B-4bit @ cached]
+    # Without prefix caching (explicit opt-out)
+    [mlx-community/SmolLM3-3B-4bit @ no-cache]
     temperature: 0.7
-    afm: --enable-prefix-caching
+    afm: --disable-prefix-caching
     Write a short story about a robot discovering music.
     Now continue the story with a second chapter.
 

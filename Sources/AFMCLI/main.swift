@@ -289,7 +289,8 @@ struct MlxCommand: ParsableCommand {
           --prefill-step-size: Override prompt tokens per GPU pass (default: architecture-tuned)
           --mlx-runtime: Runtime backend: auto, mlx, or dwarfstar (default: auto)
           --gguf-file: Exact GGUF path inside a Hugging Face repository; otherwise AFM selects the largest model artifact that fits memory
-          --enable-prefix-caching / --no-enable-prefix-caching: KV cache reuse across requests
+          --disable-prefix-caching: Disable the radix prefix cache (enabled by default)
+          --enable-prefix-caching: Deprecated compatibility option; prefix caching is already enabled by default
           --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
           --mtp-depth: MTP draft depth compatibility setting
           --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
@@ -394,7 +395,8 @@ struct MlxCommand: ParsableCommand {
           - afm mlx -m org/model -s "Explain quicksort" --temperature 0.7
           - afm mlx -m org/model --vlm --media photo.jpg -s "Describe this image"
           - afm mlx -m org/model --no-think --tool-call-parser qwen3_xml
-          - afm mlx -m org/model --kv-bits 4 --enable-prefix-caching
+          - afm mlx -m org/model --kv-bits 4
+          - afm mlx -m org/model --disable-prefix-caching
           - 'curl http://127.0.0.1:9999/v1/chat/completions -d ''{"model":"m","messages":[{"role":"user","content":"Hi"}],"stream":true}'''
           - MACAFM_MLX_MODEL_CACHE=/path/to/cache afm mlx -m org/model
         ---
@@ -537,8 +539,19 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Default chat template kwargs as JSON (e.g. '{\"enable_thinking\": false}')")
     var defaultChatTemplateKwargs: String?
 
-    @Flag(name: .long, help: "Enable radix tree prefix caching for KV cache reuse across requests")
-    var enablePrefixCaching: Bool = false
+    @Flag(
+        name: .customLong("disable-prefix-caching"),
+        help: "Disable radix tree prefix caching. Prefix caching is enabled by default."
+    )
+    var disablePrefixCaching: Bool = false
+
+    @Flag(
+        name: .customLong("enable-prefix-caching"),
+        help: "Deprecated compatibility option. Prefix caching is enabled by default; use --disable-prefix-caching to opt out."
+    )
+    var deprecatedEnablePrefixCaching: Bool = false
+
+    var enablePrefixCaching: Bool { !disablePrefixCaching }
 
     @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
     var mtp: Bool = false
@@ -622,6 +635,22 @@ struct MlxCommand: ParsableCommand {
     var helpJson: Bool = false
 
     func run() throws {
+        if deprecatedEnablePrefixCaching {
+            if disablePrefixCaching {
+                fputs(
+                    "Warning: --enable-prefix-caching is deprecated and ignored; " +
+                    "--disable-prefix-caching takes precedence.\n",
+                    stderr
+                )
+            } else {
+                fputs(
+                    "Warning: --enable-prefix-caching is deprecated because prefix caching " +
+                    "is now enabled by default. Use --disable-prefix-caching to opt out.\n",
+                    stderr
+                )
+            }
+        }
+
         if helpJson {
             printHelpJson(command: "afm mlx")
             return

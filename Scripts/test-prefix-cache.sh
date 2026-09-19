@@ -151,13 +151,13 @@ run_ab_comparison() {
 
   # Cache ON
   echo "  [Cache ON]"
-  start_server "--enable-prefix-caching" "$log_on" || return 1
+  start_server "" "$log_on" || return 1
   run_requests "$body_source" "$count" "on"
   stop_server; echo ""
 
   # Cache OFF
   echo "  [Cache OFF]"
-  start_server "" "$log_off" || return 1
+  start_server "--disable-prefix-caching" "$log_off" || return 1
   run_requests "$body_source" "$count" "off"
   stop_server; echo ""
 

@@ -429,7 +429,7 @@ extension MlxCommand {
         if !openReport { args.append("--no-open") }
         if vlm { args.append("--vlm") }
         if let kvBits { args += ["--kv-bits", String(kvBits)] }
-        if enablePrefixCaching { args.append("--enable-prefix-caching") }
+        if disablePrefixCaching { args.append("--disable-prefix-caching") }
         if mlxKernels != "native" { args += ["--mlx-kernels", shellQuote(mlxKernels)] }
         if let temperature { args += ["--temperature", String(temperature)] }
         if maxTokens != 8_192 { args += ["--max-tokens", String(maxTokens)] }

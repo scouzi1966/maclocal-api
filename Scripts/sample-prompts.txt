@@ -7,7 +7,6 @@
 # These apply to all models unless overridden
 max_tokens: 2000
 temperature: 0.7
-afm: --enable-prefix-caching
 
 # ── Prompts for ALL models ──
 # Every model gets these prompts (plus any model-specific ones)
@@ -55,6 +54,5 @@ afm: --top-p 0.95
 
 [mlx-community/SmolLM3-3B-4bit @ with-caching]
 temperature: 0.7
-afm: --enable-prefix-caching
 Write a short story about a robot discovering music.
 Now continue the story with a second chapter.

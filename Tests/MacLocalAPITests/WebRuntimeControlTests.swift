@@ -53,7 +53,7 @@ final class WebRuntimeControlTests: XCTestCase {
                 "--gguf-file": "model-q4.gguf",
                 "--mtp-model": "mlx-community/example-mtp"
             ],
-            flags: ["--mtp", "--no-think"],
+            flags: ["--mtp", "--no-think", "--disable-prefix-caching"],
             dryRun: false
         )
 
@@ -62,6 +62,7 @@ final class WebRuntimeControlTests: XCTestCase {
         XCTAssertTrue(arguments.contains("--gguf-file"))
         XCTAssertTrue(arguments.contains("--mtp-model"))
         XCTAssertTrue(arguments.contains("--mtp"))
+        XCTAssertTrue(arguments.contains("--disable-prefix-caching"))
         XCTAssertEqual(Array(arguments.suffix(5)), ["--hostname", "127.0.0.1", "--port", "10001", "--webui"])
     }
 

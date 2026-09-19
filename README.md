@@ -293,7 +293,8 @@ Defaults are a good starting point. Use these when the workload calls for them:
 
 ```bash
 # Reuse prompt KV across requests
-afm mlx -m <model> --enable-prefix-caching
+afm mlx -m <model>                         # prefix caching is enabled by default
+afm mlx -m <model> --disable-prefix-caching # explicit opt-out
 
 # Save memory on long context
 afm mlx -m <model> --kv-bits 8

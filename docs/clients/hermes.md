@@ -8,7 +8,7 @@
 
 ```bash
 afm mlx -m mlx-community/Qwen3-Coder-Next-4bit \
-  --port 9999 --enable-prefix-caching --concurrent 4
+  --port 9999 --concurrent 4
 ```
 
 ## 2. Configure Hermes
@@ -37,5 +37,5 @@ Hermes will issue chat completions with tool calling. afm's auto-detected tool f
 ## Tips
 
 - For Hermes' self-improvement loops (trajectory generation), enable structured output: pass `response_format: {"type":"json_schema","json_schema":{...,"strict":true}}` and turn on `--enable-grammar-constraints` server-side.
-- Multi-step trajectories benefit from `--enable-prefix-caching`.
+- Multi-step trajectories benefit from prefix caching, which is enabled by default. Use `--disable-prefix-caching` only when diagnosing cache behavior.
 - Deterministic seeds: pass `seed: <int>` per request — afm threads it through end-to-end (logged via `--vv` for reproducibility).
