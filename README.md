@@ -30,15 +30,9 @@
 
 ## What's new
 
-### [AFM v0.9.18.1](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.18.1)
+### [AFM v0.9.19](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.19)
 
-AFM v0.9.18.1 is a focused stable hotfix over v0.9.18. It ensures stable
-release builds include the Apple Foundation Models provider and rejects release
-artifacts that do not link `FoundationModels.framework`.
-
-#### v0.9.17 model highlights
-
-[![AFM v0.9.17 — four new models with standard and MTP Qwen launch commands](assets/afm-0.9.17-models-deep-dive-social-v8-mtp.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.17)
+[![AFM v0.9.19 release highlights, installation instructions, new capabilities, and recently released models](assets/afm-0.9.19-release-infographic.png)](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.19)
 
 AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run Hugging Face MLX models or Apple’s on-device Foundation Model, then connect the clients and SDKs you already use.
 
@@ -54,19 +48,19 @@ AFM turns an Apple Silicon Mac into a private, OpenAI-compatible AI server. Run 
 ## Install
 
 > [!NOTE]
-> **Stable v0.9.18.1 is the recommended release.** It fixes stable packaging so
-> the Apple Foundation Models provider is present and adds a release gate that
-> rejects artifacts without `FoundationModels.framework`. Install `afm-next`
-> only to preview changes made after v0.9.18.1.
+> **Stable v0.9.19 is the recommended release.** It expands model support,
+> OpenAI Responses and Anthropic Messages compatibility, image endpoints,
+> native checkpoint conversion, and runtime reliability. Install `afm-next`
+> only to preview changes made after v0.9.19.
 >
-> **v0.9.18.1 is a focused hotfix over v0.9.18.** Use this stable release unless
-> a newer nightly explicitly lists a post-v0.9.18.1 change you need.
+> Use this stable release unless a newer nightly explicitly lists a
+> post-v0.9.19 change you need.
 
-|  | Stable (v0.9.18.1) | Nightly (afm-next) |
+|  | Stable (v0.9.19) | Nightly (afm-next) |
 |---|---|---|
 | **Homebrew** | `brew install scouzi1966/afm/afm` | `brew install scouzi1966/afm/afm-next` |
 | **pip** | `pip install macafm` | `pip install --extra-index-url https://maclocal-ai.pages.dev/afm/wheels/simple/ macafm-next` |
-| **Release notes** | [v0.9.18.1](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.18.1) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
+| **Release notes** | [v0.9.19](https://github.com/scouzi1966/maclocal-api/releases/tag/v0.9.19) | [Latest nightly](https://github.com/scouzi1966/maclocal-api/releases) |
 
 ### Install a previous version
 
