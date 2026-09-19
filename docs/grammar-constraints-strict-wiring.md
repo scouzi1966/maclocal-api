@@ -33,7 +33,7 @@ Principles:
 | `--enable-grammar-constraints` | Admin gate — enables xgrammar engine | Required for grammar activation |
 | `--tool-call-parser afm_adaptive_xml` | Tool call parsing format | **Independent** — grammar works with any parser (regression guard tested) |
 | `--concurrent N` | Batch mode (N>1) | Grammar supported — uses `scheduler.tokenizer` for setup |
-| `--enable-prefix-caching` | KV cache reuse | **Independent** — grammar is per-request logit processor, cache is prompt-level |
+| Default prefix caching (`--disable-prefix-caching` opts out) | KV cache reuse | **Independent** — grammar is per-request logit processor, cache is prompt-level |
 
 **Design note:** `hasStrictTools()` returns `true` if *any* tool in the request has `strict: true`. This activates grammar for the entire generation — token-level constraints can't be applied per-tool since generation is a single sequence. A request mixing `strict: true` and non-strict tools gets full grammar enforcement.
 

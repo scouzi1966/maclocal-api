@@ -6,13 +6,12 @@
 
 ```bash
 afm mlx -m mlx-community/Qwen3-Coder-Next-4bit \
-  -t 1.0 --top-p 0.95 --max-tokens 8192 \
-  --enable-prefix-caching
+  -t 1.0 --top-p 0.95 --max-tokens 8192
 ```
 
 Recommended:
 - **Model**: `mlx-community/Qwen3-Coder-Next-4bit` (best small coder model with XML tool calling)
-- **Prefix caching**: OpenCode reuses a long system prompt — `--enable-prefix-caching` makes turn-2+ near-instant
+- **Prefix caching**: enabled by default; OpenCode's reused system prompt makes turn 2+ much faster. Use `--disable-prefix-caching` only to opt out.
 - **Concurrency**: add `--concurrent 4` if you run multiple OpenCode sessions
 
 ## 2. Configure OpenCode

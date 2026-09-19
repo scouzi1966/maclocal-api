@@ -80,7 +80,7 @@ start_server() {
 
   local flags=""
   [[ "$parser" != "none" ]] && flags="--tool-call-parser $parser"
-  [[ "$cache" == "cache" ]] && flags="$flags --enable-prefix-caching"
+  [[ "$cache" == "nocache" ]] && flags="$flags --disable-prefix-caching"
   [[ "$grammar" == "grammar" ]] && flags="$flags --enable-grammar-constraints"
 
   AFM_DEBUG=1 MACAFM_MLX_MODEL_CACHE="$MODEL_CACHE" \

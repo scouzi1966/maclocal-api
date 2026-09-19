@@ -16,7 +16,7 @@ This emits a JSON block with `baseUrl`, `api: "openai-completions"`, model metad
 
 ```bash
 afm mlx -m mlx-community/Qwen3-Coder-Next-4bit \
-  --port 9999 --enable-prefix-caching
+  --port 9999
 ```
 
 (`--openclaw-config` defaults to port 9999 unless you pass `-p`.)

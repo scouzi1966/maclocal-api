@@ -544,7 +544,8 @@ public class Server: @unchecked Sendable {
     ]
     private static let mlxWebFlagOptions: Set<String> = [
         "--verbose", "--very-verbose", "--vv", "--no-streaming", "--raw", "--vlm",
-        "--trust-remote-code", "--fix-tool-args", "--enable-prefix-caching", "--mtp",
+        "--trust-remote-code", "--fix-tool-args", "--disable-prefix-caching",
+        "--enable-prefix-caching", "--mtp",
         "--dspark-strict", "--enable-grammar-constraints", "--no-think", "--gpu-profile",
         "--gpu-profile-bw"
     ]
@@ -1965,7 +1966,7 @@ public class Server: @unchecked Sendable {
           {key:'--vlm',label:'Vision model (VLM)',type:'flag',backends:'mlx'},
           {key:'--raw',label:'Raw model output',type:'flag',backends:'mlx'},
           {key:'--trust-remote-code',label:'Trust remote code',type:'flag',backends:'mlx'},
-          {key:'--enable-prefix-caching',label:'Prefix caching',type:'flag',backends:'mlx'}
+          {key:'--disable-prefix-caching',label:'Disable prefix caching',type:'flag',backends:'mlx'}
         ]},
         {name:'Tools + reasoning',fields:[
           {key:'--tool-call-parser',label:'Tool-call parser',type:'select',backends:'mlx',wide:true,choices:['','none','afm_adaptive_xml','hermes','llama3_json','gemma','mistral','qwen3_xml']},
@@ -2784,7 +2785,7 @@ public class Server: @unchecked Sendable {
         var radixFill = single('afm:radix_cache_fill_perc');
         liveTiles.push({ key: 'radix', lbl: 'Prefix cache fill',
           val: radixFill == null ? '—' : fmtPct(radixFill),
-          sub: radixFill == null ? '--enable-prefix-caching off' : 'radix tree',
+          sub: radixFill == null ? '--disable-prefix-caching active' : 'radix tree',
           barPct: radixFill });
         renderTiles(document.getElementById('afm-live-grid'), liveTiles);
         var sparkHost = document.getElementById('afm-spark');

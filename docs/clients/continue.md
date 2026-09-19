@@ -6,7 +6,7 @@
 
 ```bash
 afm mlx -m mlx-community/Qwen3-Coder-Next-4bit \
-  --port 9999 --enable-prefix-caching
+  --port 9999
 ```
 
 ## 2. Configure Continue
@@ -41,5 +41,5 @@ Continue's chat, edit, and tab-autocomplete will all run against afm.
 ## Tips
 
 - For autocomplete latency, prefer a smaller model (e.g. `mlx-community/Qwen3-1.7B-4bit`) on a separate port.
-- Continue sends large repo-context prompts; `--enable-prefix-caching` is a big win.
+- Continue sends large repo-context prompts; default prefix caching is a big win.
 - Tool calling: Continue uses tools for some workflows (search, edit). The auto-detected tool format handles it.

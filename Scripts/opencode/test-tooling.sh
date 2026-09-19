@@ -41,7 +41,7 @@ for MODEL in "${MODELS[@]}"; do
     echo "[$(date +%H:%M:%S)] Starting afm: $MODEL on port $TEST_PORT with --vv"
     AFM_DEBUG=1 MACAFM_MLX_MODEL_CACHE=/Volumes/edata/models/vesta-test-cache \
         "$AFM_BIN" mlx -m "$MODEL" --port $TEST_PORT \
-        --enable-prefix-caching --tool-call-parser afm_adaptive_xml \
+        --tool-call-parser afm_adaptive_xml \
         --vv --seed 0 \
         > "$REPORT_DIR/${MODEL_SLUG}-afm.log" 2>&1 &
     AFM_PID=$!

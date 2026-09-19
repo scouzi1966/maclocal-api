@@ -2,7 +2,8 @@
 #
 # Benchmark: AFM prefix cache performance
 #
-# Runs identical and prefix-sharing requests with and without --enable-prefix-caching,
+# Runs identical and prefix-sharing requests with default-on prefix caching and
+# with the explicit --disable-prefix-caching opt-out.
 # measuring TTFT (prompt_time), cached_tokens, and decode speed.
 # Generates JPEG comparison charts.
 #
@@ -40,7 +41,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: $0 [--model MODEL] [--runs N] [--max-tokens N] [--port PORT] [--extra-flags FLAGS]"
       echo ""
-      echo "Benchmarks AFM prefix cache: with vs without --enable-prefix-caching."
+      echo "Benchmarks AFM prefix cache: default-on vs --disable-prefix-caching."
       echo "Generates JPEG charts in test-reports/prefix-cache-bench-TIMESTAMP/"
       exit 0
       ;;
@@ -246,10 +247,11 @@ echo ""
 # Phase 1: WITHOUT prefix caching
 # ══════════════════════════════════════════════════════════════════════════════
 
-echo "━━━ Phase 1: WITHOUT --enable-prefix-caching ━━━"
+echo "━━━ Phase 1: WITH --disable-prefix-caching ━━━"
 kill_port $PORT
 
 MACAFM_MLX_MODEL_CACHE="$CACHE_DIR" "$BIN" mlx -m "$MODEL" -p "$PORT" \
+  --disable-prefix-caching \
   $EXTRA_FLAGS \
   > "$REPORT_DIR/afm-nocache.log" 2>&1 &
 AFM_PID=$!
@@ -348,11 +350,10 @@ echo "  Server stopped."
 # ══════════════════════════════════════════════════════════════════════════════
 
 echo ""
-echo "━━━ Phase 2: WITH --enable-prefix-caching ━━━"
+echo "━━━ Phase 2: WITH default prefix caching ━━━"
 kill_port $PORT
 
 MACAFM_MLX_MODEL_CACHE="$CACHE_DIR" "$BIN" mlx -m "$MODEL" -p "$PORT" \
-  --enable-prefix-caching \
   $EXTRA_FLAGS \
   > "$REPORT_DIR/afm-cache.log" 2>&1 &
 AFM_PID=$!

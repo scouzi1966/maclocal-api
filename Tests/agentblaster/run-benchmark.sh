@@ -81,7 +81,7 @@ trap cleanup EXIT INT TERM
 
 echo "--- launching afm on :$PORT (--no-think, prefix-cache, grammar, adaptive-xml, concurrent 4) ---"
 "$BIN" mlx -m "$MODEL" --port "$PORT" --no-think \
-  --enable-prefix-caching --enable-grammar-constraints \
+  --enable-grammar-constraints \
   --tool-call-parser afm_adaptive_xml --concurrent 4 \
   > "$OUTPUT_DIR/afm-server.log" 2>&1 &
 AFM_PID=$!
