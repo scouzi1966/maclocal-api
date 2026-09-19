@@ -2133,6 +2133,7 @@ struct RootCommand: ParsableCommand {
         """,
         version: MacLocalAPI.buildVersion,
         subcommands: [
+            SplashCommand.self,
             MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
             DwarfStarBenchmarkCommand.self,
             VisionCommand.self,
@@ -2342,7 +2343,14 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "splash" {
+    // Dispatch before AFM parsing so native Splash flags and '--' are preserved.
+    do {
+        try SplashCommand.launch(Array(CommandLine.arguments.dropFirst(2)))
+    } catch {
+        SplashCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
     if CommandLine.arguments.count != 3 {
         fputs("Invalid TUI preview invocation.\n", stderr)
         exit(EXIT_FAILURE)

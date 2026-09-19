@@ -143,6 +143,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0")
     ],
     targets: [
+        // App-owned external CLI integration; deliberately independent of providers.
+        .target(name: "AFMExternalCLI"),
         .target(
             name: "AFMKitCoreCompatibility",
             dependencies: [
@@ -284,6 +286,7 @@ let package = Package(
         .executableTarget(
             name: "AFMCLI",
             dependencies: [
+                "AFMExternalCLI",
                 "AFMKit",
                 "AFMTerminalUI",
                 .product(name: "AFMKitCore", package: "AFMKit"),
@@ -339,6 +342,7 @@ let package = Package(
         .testTarget(
             name: "MacLocalAPITests",
             dependencies: [
+                "AFMExternalCLI",
                 "AFMKit",
                 "AFMKitFoundationModels",
                 "AFMKitFoundationModels27",
