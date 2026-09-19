@@ -123,6 +123,8 @@ PYTHON="${AFM_WHEEL_PYTHON:-python3}"
 PIP_DISABLE_PIP_VERSION_CHECK=1 \
   "$VERIFY_DIR/venv/bin/python" -m pip install --no-deps --force-reinstall "$WHEEL" >/dev/null
 "$VERIFY_DIR/venv/bin/afm" --version >/dev/null
+"$VERIFY_DIR/venv/bin/afm" splash --version >/dev/null
+"$VERIFY_DIR/venv/bin/afm" splash-api --help >/dev/null
 
 installed_metallib_relative="${WHEEL_METALLIB#$WHEEL_PACKAGE_ROOT/}"
 site_metallib="$(find "$VERIFY_DIR/venv" \

@@ -172,7 +172,8 @@ can display local images inline; Terminal.app uses an explicit `/image` Quick Lo
 |---|---|---|
 | **MLX** | Open models, VLMs, agent controls, performance tuning | `afm mlx -m <model>` |
 | **Apple Foundation Models** | Zero-download system model and `.fmadapter` LoRA adapters | `afm` |
-| **Splash CLI** | Splash's separately installed CLI and native C++/Metal runtime | `afm splash serve --model <Splash-package>` ([setup](docs/splash-cli.md)) |
+| **Splash CLI** | Bundled Splash 1.0 CLI and native C++/Metal runtime | `afm splash serve --model <Splash-package>` ([setup](docs/splash-cli.md)) |
+| **Splash native API** | AFMKit provider using the pinned native engine and Swift tokenization | `afm splash-api --model /path/to/package` ([scope](docs/splash-cli.md)) |
 | **DwarfStar** | Compatible fixed-schedule Metal checkpoints | `afm mlx -m <owner/repo>` (auto-resolved) or `afm mlx -m <checkpoint.gguf> --mlx-runtime dwarfstar` |
 | **Gateway** | One model list for Ollama, LM Studio, Jan, and other local servers | `afm --gateway` |
 

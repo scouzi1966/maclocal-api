@@ -287,6 +287,7 @@ let package = Package(
             name: "AFMCLI",
             dependencies: [
                 "AFMExternalCLI",
+                .product(name: "AFMKitSplash", package: "AFMKit"),
                 "AFMKit",
                 "AFMTerminalUI",
                 .product(name: "AFMKitCore", package: "AFMKit"),

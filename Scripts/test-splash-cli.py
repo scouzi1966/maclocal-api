@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,11 +20,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / ".build/release/afm")
     args = parser.parse_args()
-    binary = args.binary.resolve(strict=True)
+    source_binary = args.binary.resolve(strict=True)
     staging = ROOT / ".build-splash-cli-tests"
     staging.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=staging) as directory:
         root = Path(directory)
+        # Keep missing-runtime checks deterministic even when the input binary
+        # has a correctly staged Splash runtime beside it.
+        binary = root / "afm"
+        shutil.copy2(source_binary, binary)
         fixture = root / "native splash fixture"
         fixture.write_text(f"""#!{sys.executable}
 import json, os, signal, sys
@@ -74,8 +79,12 @@ else:
         env.pop("AFM_SPLASH_EXECUTABLE")
         env["PATH"] = str(root)
         result = subprocess.run([str(binary), "splash", "--help"], env=env, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
-        assert result.returncode != 0 and "brew install incoai/tap/splash" in result.stderr, result
-    print("PASS: argv, stdio, environment, cwd, PID, native help/version, exit status, signals, missing install, and recursion")
+        assert result.returncode != 0 and "Bundled Splash is missing" in result.stderr, result
+        # Parser validation must reject invalid limits before any runtime load.
+        for option in ["--port", "--max-context", "--max-memory-bytes"]:
+            result = subprocess.run([str(binary), "splash-api", "--model", "/not-opened", option, "0"], capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+            assert result.returncode != 0 and "must be positive" in result.stderr, result
+    print("PASS: argv, stdio, environment, cwd, PID, native help/version, exit status, signals, missing install, recursion, and API parser validation")
 
 
 if __name__ == "__main__":
