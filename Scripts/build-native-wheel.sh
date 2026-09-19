@@ -85,7 +85,8 @@ fi
 
 mkdir -p "$PACKAGE_ROOT/bin" "$PACKAGE_ROOT/share/webui"
 cp "$BIN" "$PACKAGE_ROOT/bin/"
-for bundle in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+"$ROOT_DIR/Scripts/stage-splash-runtime.sh" "$(dirname "$BIN")"
+for bundle in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
   source_bundle="$(dirname "$BIN")/$bundle"
   [[ -d "$source_bundle" ]] || {
     echo "[wheel] Required runtime bundle missing: $source_bundle" >&2

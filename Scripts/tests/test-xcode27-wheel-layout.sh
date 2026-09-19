@@ -12,6 +12,8 @@ mkdir -p \
   "$WORK_ROOT/AFMKit_AFMKitMLX.bundle/Contents/Resources"
 cp "$SOURCE_BIN" "$WORK_ROOT/afm"
 cp -R "$SOURCE_DIR/AFMKit_AFMKitDwarfStar.bundle" "$WORK_ROOT/"
+cp -R "$SOURCE_DIR/AFMKit_AFMKitSplash.bundle" "$WORK_ROOT/"
+cp -R "$SOURCE_DIR/splash-runtime" "$WORK_ROOT/"
 cp "$ROOT_DIR/Sources/AFMEvaluationHost/Resources/Evals/comprehensive.json" \
   "$WORK_ROOT/MacLocalAPI_AFMEvaluationHost.bundle/Contents/Resources/Evals/"
 
