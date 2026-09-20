@@ -324,24 +324,13 @@ AFMKIT_SOURCE_ID_STAMP="$STATE_DIR/afmkit-source.id"
 if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
     if git -C "$AFMKIT_SOURCE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         # Hash the committed identity plus only tracked diffs and untracked
-        # source files. The former implementation reread the complete 6+ GB
-        # vendored MLX tree (including local build products) on every command.
-        AFMKIT_SOURCE_FINGERPRINT="$({
-            printf '%s\n' "$AFMKIT_SOURCE_ID"
-            git -C "$AFMKIT_SOURCE_ROOT" rev-parse HEAD
-            git -C "$AFMKIT_SOURCE_ROOT" diff \
-                --no-ext-diff --binary --submodule=diff HEAD -- \
-                Package.swift Sources Packages vendor/ds4 vendor/MLX
-            while IFS= read -r -d '' relative_path; do
-                printf '%s\0' "$relative_path"
-                shasum -a 256 "$AFMKIT_SOURCE_ROOT/$relative_path"
-            done < <(
-                git -C "$AFMKIT_SOURCE_ROOT" ls-files -z \
-                    --others --exclude-standard -- \
-                    Package.swift Sources Packages vendor/ds4 vendor/MLX
-            )
-            git -C "$AFMKIT_SOURCE_ROOT" submodule status --recursive -- vendor/ds4 2>/dev/null || true
-        } | shasum -a 256 | awk '{print $1}')"
+        # source files, including DS4's independent submodule working tree.
+        # The former implementation reread the complete 6+ GB vendored MLX
+        # tree (including local build products) on every command.
+        AFMKIT_SOURCE_FINGERPRINT="$(
+            "$ROOT_DIR/Scripts/afmkit-source-fingerprint.sh" \
+                "$AFMKIT_SOURCE_ROOT" "$AFMKIT_SOURCE_ID"
+        )"
     else
         AFMKIT_SOURCE_FINGERPRINT="$({
             printf '%s\n' "$AFMKIT_SOURCE_ID"
