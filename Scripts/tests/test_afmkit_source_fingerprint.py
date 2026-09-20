@@ -7,6 +7,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "afmkit-source-fingerprint.sh"
+WRAPPER = Path(__file__).resolve().parents[1] / "swiftpm-reliable.sh"
 
 
 def run(*args, cwd=None):
@@ -74,6 +75,19 @@ class AFMKitSourceFingerprintTests(unittest.TestCase):
         output.parent.mkdir()
         output.write_bytes(b"generated")
         self.assertEqual(self.fingerprint(), baseline)
+
+    def test_helper_failure_and_wrapper_handling_fail_closed(self):
+        missing = Path(self.temporary_directory.name) / "missing-afmkit"
+        result = subprocess.run(
+            (str(SCRIPT), str(missing), "workspace:test"),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        wrapper = WRAPPER.read_text()
+        self.assertIn("if ! AFMKIT_SOURCE_FINGERPRINT=\"$(", wrapper)
+        self.assertIn("Refusing to reuse potentially stale compiled products.", wrapper)
 
 
 if __name__ == "__main__":

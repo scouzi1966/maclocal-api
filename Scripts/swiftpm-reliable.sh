@@ -327,10 +327,14 @@ if [[ -n "${MACLOCAL_AFMKIT_PATH:-}" ]]; then
         # source files, including DS4's independent submodule working tree.
         # The former implementation reread the complete 6+ GB vendored MLX
         # tree (including local build products) on every command.
-        AFMKIT_SOURCE_FINGERPRINT="$(
+        if ! AFMKIT_SOURCE_FINGERPRINT="$(
             "$ROOT_DIR/Scripts/afmkit-source-fingerprint.sh" \
                 "$AFMKIT_SOURCE_ROOT" "$AFMKIT_SOURCE_ID"
-        )"
+        )"; then
+            echo "[swiftpm-reliable] Unable to fingerprint the writable AFMKit source tree." >&2
+            echo "[swiftpm-reliable] Refusing to reuse potentially stale compiled products." >&2
+            exit 1
+        fi
     else
         AFMKIT_SOURCE_FINGERPRINT="$({
             printf '%s\n' "$AFMKIT_SOURCE_ID"
