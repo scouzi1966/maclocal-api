@@ -140,11 +140,10 @@ What is 2+2? Show your work.
 What is 15*23? Show your work.
 What is the square root of 144? Show your work.
 
-# --enable-prefix-caching: reuse KV cache across requests (2nd+ should be faster)
+# Prefix caching is enabled by default (2nd+ request should be faster).
 [mlx-community/SmolLM3-3B-4bit @ with-cache]
 temperature: 0.0
 max_tokens: 300
-afm: --enable-prefix-caching
 What is 2+2? Show your work.
 What is 15*23? Show your work.
 What is the square root of 144? Show your work.

@@ -40,7 +40,7 @@ cd Tests/agentblaster
 ```
 
 `run-benchmark.sh` launches afm with the agentic flag set
-(`--no-think --enable-prefix-caching --enable-grammar-constraints --tool-call-parser afm_adaptive_xml --concurrent 4`),
+(`--no-think --enable-grammar-constraints --tool-call-parser afm_adaptive_xml --concurrent 4`; prefix caching is on by default),
 registers an `openai`-contract provider pointed at it (with `/metrics`), runs the suites, prints a
 summary, and **kills the server on exit** (trap). Per-run artifacts land under
 `/tmp/agentblaster-runs/<timestamp>/` (`results.jsonl`, `raw/`, `metrics/prometheus-summary.json`).

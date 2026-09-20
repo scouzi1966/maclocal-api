@@ -10,6 +10,10 @@ echo "[release-tooling-test] dependency policy"
 uv run --locked --python 3.9 --extra dev python Scripts/tests/test_dependency_lock.py -v
 uv run --locked --python 3.12 --extra dev python Scripts/tests/test_dependency_lock.py -v
 
+echo "[release-tooling-test] SwiftPM wrapper helpers"
+python3 "$ROOT_DIR/Scripts/tests/test_swiftpm_package_name.py" -v
+python3 "$ROOT_DIR/Scripts/tests/test_afmkit_source_fingerprint.py" -v
+
 fail() {
   echo "[release-tooling-test] $*" >&2
   exit 1

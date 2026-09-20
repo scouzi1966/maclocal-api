@@ -141,10 +141,10 @@ start_server() {
       extra_args+=(--enable-grammar-constraints --concurrent 2)
       ;;
     grammar-enabled-prefix-cache)
-      extra_args+=(--enable-grammar-constraints --enable-prefix-caching)
+      extra_args+=(--enable-grammar-constraints)
       ;;
     grammar-enabled-concurrent-cache)
-      extra_args+=(--enable-grammar-constraints --concurrent 2 --enable-prefix-caching)
+      extra_args+=(--enable-grammar-constraints --concurrent 2)
       ;;
     *)
       echo "Unknown AFM profile: $profile" >&2

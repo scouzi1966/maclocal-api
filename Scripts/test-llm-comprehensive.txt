@@ -225,6 +225,7 @@ Describe Tokyo as a structured record with at least 3 landmarks.
 [@ agent-no-cache-sequence]
 temperature: 0.0
 max_tokens: 20000
+afm: --disable-prefix-caching
 expect_by_prompt: [{"cached_input_tokens_max":0},{"cached_input_tokens_max":0},{"cached_input_tokens_max":0}]
 system_json: "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nWhen modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor for HTTP, MLX for inference, and async/await for concurrency."
 Read the file Sources/AFMCLI/main.swift and summarize how the CLI starts the server.
@@ -240,7 +241,6 @@ Write an XCTest that verifies the proposed --timeout flag rejects non-positive v
 [@ agent-cached-sequence]
 temperature: 0.0
 max_tokens: 20000
-afm: --enable-prefix-caching
 requires: prefix_cache
 expect_by_prompt: [{},{"cached_input_tokens_min":1,"allow_safe_partial_cache_miss":true},{"cached_input_tokens_min":1,"allow_safe_partial_cache_miss":true}]
 system_json: "You are an expert coding assistant. You have access to the following tools:\n\n1. read_file(path: string) - Read contents of a file\n2. write_file(path: string, content: string) - Write content to a file\n3. run_command(cmd: string) - Execute a shell command\n4. search_code(query: string, path: string) - Search for code patterns\n5. list_files(path: string) - List directory contents\n\nWhen modifying code, first read the existing file, understand the context, then make targeted changes. Never overwrite entire files when a small edit suffices. Follow the project's existing coding conventions. Write tests for new functionality. Handle errors gracefully.\n\nProject context: Swift macOS application using Vapor for HTTP, MLX for inference, and async/await for concurrency."

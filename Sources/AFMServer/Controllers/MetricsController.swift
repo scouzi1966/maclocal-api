@@ -144,7 +144,7 @@ struct MetricsController: RouteCollection {
         if let fill = snapshot.prefixCacheFill {
             gauge(
                 "afm:radix_cache_fill_perc",
-                "Radix prefix cache fill as a fraction in [0, 1] (current entries / configured capacity). Omitted when --enable-prefix-caching is off.",
+                "Radix prefix cache fill as a fraction in [0, 1] (current entries / configured capacity). Omitted when --disable-prefix-caching is active.",
                 formatDouble(fill)
             )
         }

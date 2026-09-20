@@ -1672,7 +1672,7 @@ print(''.join(parts))
   fi
 
   # Test: 8 concurrent shared-prefix requests keep an uncached suffix and do not bleed across divergence.
-  # When the server is started with --enable-prefix-caching --concurrent 8, this exercises the batched path.
+  # With default prefix caching and --concurrent 8, this exercises the batched path.
   concurrent_nonce="CONCURRENT-CACHE-$(date +%s%N)"
   concurrent_prefix="Shared cache branch probe $concurrent_nonce."
   concurrent_warmup="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is 0."
