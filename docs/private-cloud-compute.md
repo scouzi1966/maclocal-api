@@ -46,22 +46,44 @@ AFM's identity. AFM's embedded Info.plist uses `com.scouzi1966.afm`.
    this Mac, and authorize your Apple Development signing certificate.
 3. Ensure the matching Apple Development certificate/private key is available
    in your keychain. Xcode's Accounts settings can manage development identities.
-4. Build AFM and package it:
+4. Run the build-and-sign entry point from this PR's checkout:
 
 ```bash
-Scripts/swiftpm-reliable.sh build -c release --product afm
-security find-identity -v -p codesigning
-
-Scripts/package-pcc-app.py \
-  --binary .build/release/afm \
-  --profile /path/to/AFM-development.provisionprofile \
-  --identity "Apple Development: Your Name (CERTIFICATE-ID)" \
-  --output .build/pcc/AFM.app
+python3 Scripts/build-pcc-app.py
 ```
 
-Use the exact identity name or SHA-1 printed by `security`. Add `--check-only`
-to validate prerequisites without creating an app. If using a custom scratch
-directory, supply that build's `afm` executable with `--binary`.
+The script prompts without echo for the local provisioning-profile path and the
+Apple Development identity name or SHA-1. Inspect identities locally with
+`security find-identity -v -p codesigning`; do not post that output. The private
+key stays in your keychain. No Apple account password or API key is needed.
+
+It checks the platform, invokes the consumer-boundary check and
+`Scripts/swiftpm-reliable.sh build -c release --product afm`, using a fresh
+isolated scratch directory under `.build-pcc/`. It then runs the existing
+packager's `--check-only` preflight, packages/signs the app, and verifies the
+signature. It does not clean another build directory, run status, or generate
+any response. Build products are retained for inspection.
+
+The default output is a new timestamped app under
+`~/Library/Developer/AFM-PCC/`. Use `--output /path/to/new/AFM.app` to choose a
+location. To sign an existing build without starting any compilation:
+
+```bash
+python3 Scripts/build-pcc-app.py --binary /absolute/path/to/afm
+```
+
+`--profile /path/to/development.provisionprofile` and
+`--identity "LOCAL-SIGNING-IDENTITY"` are also accepted for local automation;
+prefer the prompts to keep real values out of command text and shell history.
+The script never prints the complete credential-bearing command on failure.
+Keep shell tracing disabled. Generated apps, embedded profiles, entitlements,
+and raw signing diagnostics can contain developer identifiers and should stay
+private; share only redacted error summaries.
+
+For preflight only on an existing binary, use the lower-level
+`Scripts/package-pcc-app.py --binary ... --profile ... --identity ...
+--output ... --check-only`. The build script and this command share the same
+provisioning/signature validation implementation.
 
 The packager rejects expired profiles, missing PCC, a different App ID (including
 Vesta), wildcard App IDs, unregistered devices, and unmatched certificates. It
@@ -77,10 +99,11 @@ the app. The exact entitlement claims are saved in
 run after signing. The bundle is for local development, not notarized distribution.
 
 ```bash
-codesign --verify --deep --strict .build/pcc/AFM.app
-codesign --display --entitlements - --xml .build/pcc/AFM.app
-.build/pcc/AFM.app/Contents/MacOS/afm pcc status --json
-.build/pcc/AFM.app/Contents/MacOS/afm pcc respond "Reply with OK" --no-streaming
+PCC_APP="/absolute/path/to/the/generated/AFM.app"
+codesign --verify --deep --strict "$PCC_APP"
+"$PCC_APP/Contents/MacOS/afm" pcc status --json
+# Optional live inference, only when you explicitly intend to send a PCC request:
+"$PCC_APP/Contents/MacOS/afm" pcc respond "Reply with OK" --no-streaming
 ```
 
 Keep the binary inside the bundle. To expose it on PATH, use a shell launcher
@@ -117,6 +140,7 @@ automatically PCC-authorized by adding an entitlement or notarizing it.
 ## Validation
 
 ```bash
+python3 Scripts/test-pcc-build.py
 python3 Scripts/test-pcc-packaging.py
 Scripts/swiftpm-reliable.sh test -c release --filter 'PCCConfigurationTests|PCCHTTPTests'
 python3 Scripts/test-pcc-cli.py --binary .build/release/afm
