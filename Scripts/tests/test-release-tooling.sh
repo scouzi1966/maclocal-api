@@ -65,21 +65,31 @@ pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
 print(pin["state"]["revision"])
 PY
 )"
+expected_afmkit_version="$(python3 - "$ROOT_DIR/Package.resolved" <<'PY'
+import json
+import sys
+
+lock = json.load(open(sys.argv[1]))
+pin = next(pin for pin in lock["pins"] if pin["identity"] == "afmkit")
+print(pin["state"]["version"])
+PY
+)"
 fake_public_git="$WORK_ROOT/git-public"
 cat > "$fake_public_git" <<'SH'
 #!/usr/bin/env bash
 arguments=" $* "
 for ref in \
-  refs/tags/0.1.18-rc.4 \
-  'refs/tags/0.1.18-rc.4^{}' \
-  refs/tags/v0.1.18-rc.4 \
-  'refs/tags/v0.1.18-rc.4^{}'; do
+  "refs/tags/$EXPECTED_AFMKIT_VERSION" \
+  "refs/tags/$EXPECTED_AFMKIT_VERSION^{}" \
+  "refs/tags/v$EXPECTED_AFMKIT_VERSION" \
+  "refs/tags/v$EXPECTED_AFMKIT_VERSION^{}"; do
   [[ "$arguments" == *" $ref "* ]] || exit 2
 done
-printf '%s\t%s\n' "$EXPECTED_AFMKIT_REVISION" 'refs/tags/v0.1.18-rc.4^{}'
+printf '%s\t%s\n' "$EXPECTED_AFMKIT_REVISION" "refs/tags/v$EXPECTED_AFMKIT_VERSION^{}"
 SH
 chmod 700 "$fake_public_git"
 if ! EXPECTED_AFMKIT_REVISION="$expected_afmkit_revision" \
+   EXPECTED_AFMKIT_VERSION="$expected_afmkit_version" \
    AFMKIT_GIT_COMMAND="$fake_public_git" \
    "$ROOT_DIR/Scripts/resolve-release-dependencies.sh" --check-access \
    >"$WORK_ROOT/public-access.log" 2>&1; then
@@ -120,7 +130,9 @@ IFS=$'\t' read -r release_identity release_url release_revision release_version 
 [[ "$release_url" == "https://github.com/scouzi1966/AFMKit.git" ]] || \
   fail "release source is not the canonical public HTTPS repository"
 [[ "$release_revision" =~ ^[0-9a-f]{40}$ ]] || fail "release lock revision is not immutable"
-[[ "$release_version" == "0.1.18-rc.4" ]] || fail "release manifest is not pinned to exact AFMKit 0.1.18-rc.4"
+[[ "$release_version" == "$expected_afmkit_version" ]] || fail "release version differs from the tracked AFMKit lock"
+grep -Fq "exact: \"$release_version\"" "$ROOT_DIR/Package.swift" || \
+  fail "release manifest is not pinned to the locked AFMKit version"
 
 private_gate_log="$WORK_ROOT/private-version-error.log"
 if (
