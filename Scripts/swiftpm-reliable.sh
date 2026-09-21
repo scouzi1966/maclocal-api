@@ -19,6 +19,31 @@ if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
 fi
 shift
 
+# --skip-build must not enter the build-to-test invalidation path: that would
+# delete the very executable SwiftPM has been instructed to reuse. Check before
+# preparing workspaces, staging resources, or invoking any build tooling.
+SKIP_BUILD=0
+SKIP_CONFIGURATION=debug
+previous_argument=""
+for argument in "$@"; do
+    [[ "$argument" != "--skip-build" ]] || SKIP_BUILD=1
+    if [[ "$previous_argument" == "-c" || "$previous_argument" == "--configuration" ]]; then
+        SKIP_CONFIGURATION="$argument"
+    fi
+    case "$argument" in
+        --configuration=*) SKIP_CONFIGURATION="${argument#*=}" ;;
+    esac
+    previous_argument="$argument"
+done
+if [[ "$SUBCOMMAND" == "test" && "$SKIP_BUILD" == "1" ]]; then
+    previous_test_operation="$(cat "$ROOT_DIR/.build-reliable-state/last-operation-${SKIP_CONFIGURATION}" 2>/dev/null || true)"
+    if [[ "$previous_test_operation" != "test" ]]; then
+        echo "[swiftpm-reliable] Cannot use --skip-build without a preceding test build for ${SKIP_CONFIGURATION}." >&2
+        echo "[swiftpm-reliable] Existing products were preserved. Run this test command without --skip-build first." >&2
+        exit 2
+    fi
+fi
+
 SWIFT_VERSION_OUTPUT="$(swift --version 2>&1)" || {
     echo "[swiftpm-reliable] Unable to run the selected Swift compiler." >&2
     exit 1
@@ -361,6 +386,10 @@ PREVIOUS_AFMKIT_SOURCE_ID="$(cat "$AFMKIT_SOURCE_ID_STAMP" 2>/dev/null || true)"
 if [[ "$DIRECT_PACKAGE_INVOCATION" == "1" ]]; then
     echo "[swiftpm-reliable] Direct package test; preserving its incremental products." >&2
 elif [[ "$AFMKIT_SOURCE_FINGERPRINT" != "$PREVIOUS_AFMKIT_SOURCE_FINGERPRINT" ]]; then
+    if [[ "$SKIP_BUILD" == "1" ]]; then
+        echo "[swiftpm-reliable] AFMKit changed; refusing --skip-build without deleting existing products. Rerun without --skip-build." >&2
+        exit 2
+    fi
     if [[ -n "$PREVIOUS_AFMKIT_SOURCE_ID" && "$AFMKIT_SOURCE_ID" == "$PREVIOUS_AFMKIT_SOURCE_ID" ]]; then
         # Native SwiftPM can reuse a stale dependency source list even after
         # its Package.swift changes (e.g. a newly added CDwarfStarImage.c).
@@ -440,6 +469,10 @@ if [[ "$DRIVER" == "native" ]] ||
     DRIVER_ID="$DEVELOPER_DIR|$(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
     CURRENT_ID="$(cat "$DRIVER_STAMP" 2>/dev/null || true)"
     if [[ "$CURRENT_ID" != "$DRIVER_ID" ]]; then
+        if [[ "$SKIP_BUILD" == "1" ]]; then
+            echo "[swiftpm-reliable] Build driver changed; refusing --skip-build without deleting existing products. Rerun without --skip-build." >&2
+            exit 2
+        fi
         if [[ -n "$CURRENT_ID" || -d "$ROOT_DIR/.build/out" ]]; then
             echo "[swiftpm-reliable] Isolating native-driver products from swiftbuild products." >&2
             # Preserve dependency clones and downloaded artifacts. Only products,
