@@ -465,7 +465,15 @@ struct MLXChatCompletionsController: RouteCollection {
             service.resetRequestPeakMemory()
 
             let isWebUI = req.headers.first(name: .origin) != nil
-            let extractThinking = !rawOutput || isWebUI
+            // A constrained response is application data, even when string
+            // values spell model control markers such as <think> or
+            // <|channel|>.  Running the reasoning/channel parser over that
+            // JSON corrupts valid schema-constrained content by moving those
+            // literal bytes into reasoning_content.  Structured output is
+            // already deferred and sanitized as one complete value below, so
+            // keep it opaque at this boundary.
+            let extractThinking = (!rawOutput || isWebUI)
+                && !Self.requiresStructuredOutputSanitization(effectiveResponseFormat)
 
             if chatRequest.stream == true && streamingEnabled {
                 return try await createStreamingResponse(

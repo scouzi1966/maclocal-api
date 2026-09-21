@@ -1137,6 +1137,118 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testNonStreamingStructuredOutputPreservesLiteralReasoningMarkers() async throws {
+        let marker = "<think>kept</think> </think:opensource> <|channel>thought <|channel|>final <|content_thinking|> to=self<|message|> <tool_call>literal</tool_call>"
+        let content = "{\"note\":\"\(marker)\"}"
+        let rawModelOutput = content + "</think>"
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: rawModelOutput,
+                promptTokens: 8,
+                completionTokens: 4,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: false,
+            toolsJSON: "[]",
+            responseFormatJSON: """
+            {"type":"json_schema","json_schema":{"name":"markers","strict":true,"schema":{"type":"object","properties":{"note":{"type":"string"}},"required":["note"],"additionalProperties":false}}}
+            """
+        )
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            guard let response = try? JSONDecoder().decode(
+                ChatCompletionResponse.self,
+                from: Data(res.body.string.utf8)
+            ) else {
+                XCTFail("Expected decodable ChatCompletionResponse: \(res.body.string)")
+                return
+            }
+            XCTAssertEqual(response.choices.first?.message.content, content)
+            XCTAssertNil(response.choices.first?.message.reasoningContent)
+        }
+    }
+
+    func testStreamingStructuredOutputPreservesLiteralReasoningMarkers() async throws {
+        let marker = "<think>kept</think> </think:opensource> <|channel>thought <|channel|>final <|content_thinking|> to=self<|message|> <tool_call>literal</tool_call>"
+        let content = "{\"note\":\"\(marker)\"}"
+        let rawModelOutput = content + "</think>"
+        let split = rawModelOutput.index(rawModelOutput.startIndex, offsetBy: 23)
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: String(rawModelOutput[..<split])),
+                AFMServerStreamChunk(text: String(rawModelOutput[split...])),
+                AFMServerStreamChunk(
+                    text: "",
+                    promptTokens: 8,
+                    completionTokens: 4,
+                    cachedTokens: 0,
+                    promptTime: 0.01,
+                    generateTime: 0.01
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: true,
+            toolsJSON: "[]",
+            responseFormatJSON: """
+            {"type":"json_schema","json_schema":{"name":"markers","strict":true,"schema":{"type":"object","properties":{"note":{"type":"string"}},"required":["note"],"additionalProperties":false}}}
+            """
+        )
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            let payloads = res.body.string
+                .split(separator: "\n")
+                .compactMap { line -> [String: Any]? in
+                    guard line.hasPrefix("data: "), line != "data: [DONE]" else { return nil }
+                    return (try? JSONSerialization.jsonObject(
+                        with: Data(String(line.dropFirst(6)).utf8)
+                    )) as? [String: Any]
+                }
+            let deltas = payloads.compactMap { payload -> [String: Any]? in
+                (payload["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any]
+            }
+            let emittedContent = deltas.compactMap { $0["content"] as? String }.joined()
+            let emittedReasoning = deltas.compactMap { $0["reasoning_content"] as? String }.joined()
+            XCTAssertEqual(emittedContent, content)
+            XCTAssertTrue(emittedReasoning.isEmpty, res.body.string)
+        }
+    }
+
     func testStrictToolGrammarHeaderSkippedWhenFormatUnsupported() async throws {
         let service = FakeMLXChatService(
             supportsStrictToolGrammar: false,
