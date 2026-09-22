@@ -131,7 +131,10 @@ function failureCauseFor(filename, bucket, result) {
     return 'engine/runtime likely';
   }
   if (bucket === buckets.modelAgentBehaviorQuality) {
-    return 'model behavior likely';
+    // The suite category describes the assertion, not the cause of a miss.
+    // Prompt construction, tool parsing and model choices can all affect these
+    // cases; only explicit per-case evidence may attribute them to the model.
+    return 'unresolved';
   }
   if (/^(structured|structured-stress|grammar-[a-z0-9-]+)-/.test(filename)) {
     return 'engine/runtime likely';
@@ -243,7 +246,7 @@ const summary = {
     forcedParserCompatibility: serializableBucket(buckets.forcedParserCompatibility),
   },
   failureTaxonomy: {
-    note: 'Broad, ownership-agnostic attribution only; engine/runtime likely does not decide whether the fix belongs in AFM, AFMKit, MLXSwift, or another runtime dependency.',
+    note: 'Broad, ownership-agnostic triage, not causal proof. Behavior-suite failures remain unresolved without explicit per-case attribution; engine/runtime likely does not decide which runtime dependency owns the fix.',
     totalFailuresAndErrors: Object.values(failureTaxonomy)
       .reduce((total, bucket) => total + bucket.count, 0),
     buckets: Object.fromEntries(Object.entries(failureTaxonomy).map(([label, bucket]) => [label, {
@@ -278,7 +281,7 @@ const markdown = `# Promptfoo result categories\n\n` +
   `|---|---:|---:|---:|---:|---:|---:|\n` +
   `${rows.join('\n')}\n\n` +
   `## Broad failure taxonomy\n\n` +
-  `These are broad, ownership-agnostic attributions. Engine/runtime likely identifies the failing layer without deciding whether the fix belongs in AFM, AFMKit, MLXSwift, or another runtime dependency.\n\n` +
+  `These are broad, ownership-agnostic triage labels, not causal proof. Behavior-suite failures remain unresolved without explicit per-case attribution. Engine/runtime likely points to a possible engine-layer failure without deciding which runtime dependency owns the fix.\n\n` +
   `| Attribution | Failures and errors | Unique failing cases |\n` +
   `|---|---:|---:|\n` +
   `${Object.entries(summary.failureTaxonomy.buckets).map(([label, bucket]) =>
