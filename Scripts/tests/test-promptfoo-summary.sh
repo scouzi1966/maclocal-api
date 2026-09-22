@@ -36,7 +36,10 @@ write_report() {
 write_report structured 1 0 0 native-pass true
 write_report grammar-schema-concurrent 0 1 0 native-fail false
 # Merely mentioning Promptfoo in an assertion reason is not a harness failure.
+# Nor does a behavior-suite filename prove that the model caused the miss.
 write_report opencode-default 0 1 0 behavior-fail false '' 'Expected output to mention promptfoo'
+write_report agentic-default 0 1 0 reviewed-model-fail false 'model behavior likely'
+write_report toolcall-quality-default 0 0 1 behavior-transport-error false '' 'HTTP 500 internal server error'
 write_report opencode-adaptive-xml 0 1 0 forced-fail false
 write_report pi-adaptive-xml-grammar 0 0 1 forced-error false
 write_report toolcall-default 0 1 0 unresolved-fail false
@@ -52,17 +55,21 @@ jq -e '
   .categories.nativeProtocolConformance.cases == 4 and
   .categories.nativeProtocolConformance.successes == 1 and
   .categories.nativeProtocolConformance.failures == 3 and
-  .categories.modelAgentBehaviorQuality.cases == 1 and
-  .categories.modelAgentBehaviorQuality.failures == 1 and
+  .categories.modelAgentBehaviorQuality.cases == 3 and
+  .categories.modelAgentBehaviorQuality.failures == 2 and
+  .categories.modelAgentBehaviorQuality.errors == 1 and
   .categories.forcedParserCompatibility.cases == 3 and
   .categories.forcedParserCompatibility.failures == 2 and
   .categories.forcedParserCompatibility.errors == 1 and
-  .failureTaxonomy.totalFailuresAndErrors == 7 and
-  .failureTaxonomy.buckets["engine/runtime likely"].count == 1 and
+  .failureTaxonomy.totalFailuresAndErrors == 9 and
+  .failureTaxonomy.buckets["engine/runtime likely"].count == 2 and
   .failureTaxonomy.buckets["model behavior likely"].count == 1 and
   .failureTaxonomy.buckets["test harness"].count == 2 and
   .failureTaxonomy.buckets["forced-parser experiment"].count == 2 and
-  .failureTaxonomy.buckets.unresolved.count == 1
+  .failureTaxonomy.buckets.unresolved.count == 2 and
+  (.failureTaxonomy.buckets.unresolved.records | any(.case == "behavior-fail")) and
+  (.failureTaxonomy.buckets["model behavior likely"].records | any(.case == "reviewed-model-fail")) and
+  (.failureTaxonomy.buckets["engine/runtime likely"].records | any(.case == "behavior-transport-error"))
 ' "$summary" >/dev/null
 
 rg -q 'Native protocol conformance' "$work_root/promptfoo-summary-$slug.md"

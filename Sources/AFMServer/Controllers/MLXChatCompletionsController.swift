@@ -344,6 +344,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             }
 
+            if let reason = service.reasoningRequestValidationError(
+                chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs) {
+                throw Abort(.badRequest, reason: reason)
+            }
+
             if let requestedModelRaw = chatRequest.model?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedModelRaw.isEmpty,
                service.normalizeModel(requestedModelRaw) != modelID {
@@ -465,7 +470,15 @@ struct MLXChatCompletionsController: RouteCollection {
             service.resetRequestPeakMemory()
 
             let isWebUI = req.headers.first(name: .origin) != nil
-            let extractThinking = !rawOutput || isWebUI
+            // A constrained response is application data, even when string
+            // values spell model control markers such as <think> or
+            // <|channel|>.  Running the reasoning/channel parser over that
+            // JSON corrupts valid schema-constrained content by moving those
+            // literal bytes into reasoning_content.  Structured output is
+            // already deferred and sanitized as one complete value below, so
+            // keep it opaque at this boundary.
+            let extractThinking = (!rawOutput || isWebUI)
+                && !Self.requiresStructuredOutputSanitization(effectiveResponseFormat)
 
             if chatRequest.stream == true && streamingEnabled {
                 return try await createStreamingResponse(
@@ -847,6 +860,24 @@ struct MLXChatCompletionsController: RouteCollection {
                 req: req,
                 error: OpenAIError(message: message, type: "server_busy"),
                 status: status
+            )
+        } catch AFMError.generationFailed(let reason) {
+            if requestRegistered {
+                await inflightRegistry.release(id: reqId, registration: requestRegistration)
+            }
+            // A valid request that the provider could not complete is not a
+            // client validation error (including a missing required tool call).
+            let message = AFMError.generationFailed(reason).localizedDescription
+            req.logger.error("[\(Self.timestamp())] MLX generation error: \(message)")
+            return try await createErrorResponse(
+                req: req,
+                error: OpenAIError(
+                    message: message,
+                    type: "server_error",
+                    code: "generation_failed",
+                    requestId: reqId.isEmpty ? nil : reqId
+                ),
+                status: .internalServerError
             )
         } catch let serviceError as MLXServiceError {
             if requestRegistered {
@@ -1771,7 +1802,16 @@ struct MLXChatCompletionsController: RouteCollection {
                     }
                     req.logger.error("[\(Self.timestamp())] MLX stream error: \(error)")
                     let streamError: OpenAIError
-                    if let serviceError = error as? MLXServiceError {
+                    if case AFMError.generationFailed = error {
+                        // SSE headers are already committed. Report the same
+                        // failure in-band, without a successful finish event.
+                        streamError = OpenAIError(
+                            message: error.localizedDescription,
+                            type: "server_error",
+                            code: "generation_failed",
+                            requestId: streamReqId.isEmpty ? nil : streamReqId
+                        )
+                    } else if let serviceError = error as? MLXServiceError {
                         let code: String
                         switch serviceError {
                         case .visionAssetsUnavailable:

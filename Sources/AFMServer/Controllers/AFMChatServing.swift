@@ -173,6 +173,7 @@ protocol AFMChatServing: Sendable {
     func resetRequestPeakMemory()
     func currentRequestPeakMemoryGib() -> Double?
     func effectiveResponseFormat(requestFormat: ResponseFormat?) -> ResponseFormat?
+    func reasoningRequestValidationError(chatTemplateKwargs: [String: AnyCodable]?) -> String?
 
     func generate(
         model: String,
@@ -262,6 +263,7 @@ protocol AFMChatServing: Sendable {
 }
 
 extension AFMChatServing {
+    func reasoningRequestValidationError(chatTemplateKwargs: [String: AnyCodable]?) -> String? { nil }
     var toolCallParser: String? { servingConfiguration.toolCallParser }
     var supportsStrictToolGrammar: Bool { servingConfiguration.supportsStrictToolGrammar }
     var thinkStartTag: String? { servingConfiguration.thinkStartTag }

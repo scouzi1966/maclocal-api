@@ -56,7 +56,31 @@ for parsed_var in ("NS_C", "S_C", "C1", "C2"):
         raise SystemExit(f"pairwise JSON parsing does not tolerate empty {parsed_var} input")
 if "--max-time \"$REQUEST_TIMEOUT\"" not in pairwise:
     raise SystemExit("pairwise requests do not use the configurable assertion timeout")
+
+think_section = source.split("# Section 4: Think/Reasoning extraction", 1)[1].split("fi # section 4", 1)[0]
+probe = re.search(r"probe_resp=\$\(api_call '(.*)'\)", think_section)
+stream = re.search(r"stream_resp=\$\(api_stream '(.*)'\)", think_section)
+assert probe and stream, "reasoning probe/stream fixture missing"
+probe_request = json.loads(probe.group(1))
+stream_request = json.loads(stream.group(1))
+probe_request.pop("stream")
+stream_request.pop("stream")
+assert probe_request == stream_request, "streaming reasoning must use the same prompt, budget and sampling"
+
+capability = source.split('STRICT_TOOL_GRAMMAR_CAPABILITY=$(python3 - "$model_config"', 1)[1].split("\nPY", 1)[0]
+assert '"glm5_next"' in capability and '"glm5_next_text"' in capability
+assert 'if [ "$STRICT_TOOL_GRAMMAR_CAPABILITY" = "auto" ]' in source
+concurrent = source.split('# Test: 8 concurrent shared-prefix requests', 1)[1].split('# Section 7:', 1)[0]
+assert 'rm -rf "$concurrent_tmpdir"' not in concurrent, "cache isolation response evidence must survive"
+assert '"$RAW_REQUEST_DIR/concurrent.XXXXXX"' in concurrent
+assert 'request_$i.json' in concurrent and 'resp_$i.json' in concurrent
+for helper, next_helper in (("api_call", "api_call_headers"), ("api_call_headers", "api_stream"), ("api_stream", "extract_content")):
+    definition = source.split(f"{helper}() {{", 1)[1].split(f"{next_helper}() {{", 1)[0]
+    assert '--fail-with-body' in definition and '${record}.request.json' in definition
+    assert 'cat "$record"' in definition
 PY
+
+python3 "$ROOT_DIR/Scripts/tests/test_assertion_response_evidence.py"
 
 if rg -q "find .*\\.xctest/Contents/MacOS" "$ROOT_DIR/Scripts/swiftpm-reliable.sh"; then
     echo "swiftpm-reliable must not mutate existing signed XCTest bundles" >&2

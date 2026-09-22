@@ -196,8 +196,11 @@ That wrapper:
 - assigns every failure or error to exactly one broad attribution bucket:
   `engine/runtime likely`, `model behavior likely`, `test harness`,
   `forced-parser experiment`, or `unresolved`
-- treats those attributions as triage guidance, not proof of ownership;
-  `engine/runtime likely` identifies an engine-layer defect without deciding
+- treats those attributions as triage guidance, not causal proof;
+  behavior-suite failures remain `unresolved` unless explicit per-case
+  metadata attributes them to the model or diagnostic evidence supports an
+  engine/harness classification; a suite category alone never proves the cause
+- `engine/runtime likely` points to a possible engine-layer defect without deciding
   whether the fix belongs in AFM, AFMKit, MLXSwift, or another dependency
 - includes only reports written by the current wrapper invocation, so a failed
   rerun cannot inherit a stale result from the output directory

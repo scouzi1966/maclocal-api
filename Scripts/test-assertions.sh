@@ -96,6 +96,8 @@ TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 REPORT_FILE="$REPORT_DIR/assertions-report-${TIMESTAMP}.html"
 JSONL_FILE="$REPORT_DIR/assertions-report-${TIMESTAMP}.jsonl"
 mkdir -p "$REPORT_DIR"
+RAW_REQUEST_DIR="$REPORT_DIR/assertions-requests-${TIMESTAMP}"
+mkdir -p "$RAW_REQUEST_DIR"
 WORK_ROOT="${AFM_ASSERTIONS_WORK_ROOT:-$REPORT_DIR/work}"
 mkdir -p "$WORK_ROOT"
 TRANSPORT_FAILURE_FILE=$(mktemp "$WORK_ROOT/transport-failure.XXXXXX")
@@ -249,25 +251,52 @@ trap finish_assertions EXIT
 # Helper: call API and return full JSON response
 api_call() {
   local body="$1"
-  curl -sf --max-time "$REQUEST_TIMEOUT" "$BASE_URL/v1/chat/completions" \
+  local record
+  record=$(mktemp "$RAW_REQUEST_DIR/json.XXXXXX")
+  printf '%s\n' "$body" > "${record}.request.json"
+  local status=0
+  curl -s --fail-with-body --max-time "$REQUEST_TIMEOUT" \
+    -D "${record}.headers" -o "$record" "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
-    -d "$body" 2>/dev/null || echo '{"error":"curl_failed"}'
+    -d "$body" 2>/dev/null || status=$?
+  if [ -s "$record" ]; then cat "$record"
+  elif [ "$status" -ne 0 ]; then echo '{"error":"curl_failed"}'
+  fi
 }
 
 # Helper: call API and return response headers (one per line)
 api_call_headers() {
   local body="$1"
-  curl -sf --max-time "$REQUEST_TIMEOUT" -D - -o /dev/null "$BASE_URL/v1/chat/completions" \
+  local record
+  record=$(mktemp "$RAW_REQUEST_DIR/headers.XXXXXX")
+  printf '%s\n' "$body" > "${record}.request.json"
+  local status=0
+  curl -s --fail-with-body --max-time "$REQUEST_TIMEOUT" -D "$record" \
+    -o "${record}.body" "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
-    -d "$body" 2>/dev/null || echo 'ERROR'
+    -d "$body" 2>/dev/null || status=$?
+  if [ "$status" -eq 22 ]; then
+    printf 'HTTP request failed while checking response headers; see %s\n' "$record" > "$REQUEST_FAILURE_FILE"
+  fi
+  if [ -s "$record" ]; then cat "$record"
+  elif [ "$status" -ne 0 ]; then echo 'ERROR'
+  fi
 }
 
 # Helper: call API streaming and return raw SSE
 api_stream() {
   local body="$1"
-  curl -sf --max-time "$REQUEST_TIMEOUT" -N "$BASE_URL/v1/chat/completions" \
+  local record
+  record=$(mktemp "$RAW_REQUEST_DIR/sse.XXXXXX")
+  printf '%s\n' "$body" > "${record}.request.json"
+  local status=0
+  curl -s --fail-with-body --max-time "$REQUEST_TIMEOUT" -N \
+    -D "${record}.headers" -o "$record" "$BASE_URL/v1/chat/completions" \
     -H 'Content-Type: application/json' \
-    -d "$body" 2>/dev/null || echo 'ERROR'
+    -d "$body" 2>/dev/null || status=$?
+  if [ -s "$record" ]; then cat "$record"
+  elif [ "$status" -ne 0 ]; then echo 'ERROR'
+  fi
 }
 
 # Helper: extract content from API response
@@ -657,9 +686,14 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
 
 text_config = config.get("text_config") or {}
 model_type = str(text_config.get("model_type") or config.get("model_type") or "").lower()
-# DeepSeek V4 uses native DSML and Muse uses ATEM. Both support tool calls,
-# but neither protocol is currently backed by the strict xgrammar tool path.
-print("false" if model_type in {"deepseek_v4", "deepseekv4", "muse_glimmer", "muse_glimmer_text"} else "true")
+# These native protocols support tool calls but are not backed by the XML
+# strict-tool grammar path. An explicit parser capability override above takes
+# precedence, including runs with an opt-in adaptive XML parser.
+native_non_xml = {
+    "deepseek_v4", "deepseekv4", "muse_glimmer", "muse_glimmer_text",
+    "glm5_next", "glm5_next_text",
+}
+print("false" if model_type in native_non_xml else "true")
 PY
     )
   fi
@@ -1060,7 +1094,9 @@ else:
 
   # Test: streaming think extraction
   t0=$(now_ms)
-  stream_resp=$(api_stream '{"messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":100,"stream":true,"temperature":0}')
+  # Use the same reasoning request as the non-streaming probe. A plain 2+2
+  # question may legitimately elicit no reasoning even when step-by-step does.
+  stream_resp=$(api_stream '{"messages":[{"role":"user","content":"What is 2+2? Think step by step."}],"max_tokens":100,"stream":true,"temperature":0}')
   dur=$(( $(now_ms) - t0 ))
   stream_think_valid=$(echo "$stream_resp" | python3 -c "
 import sys, json
@@ -1679,15 +1715,16 @@ print(''.join(parts))
   api_call "{\"messages\":[{\"role\":\"user\",\"content\":\"$concurrent_warmup\"}],\"max_tokens\":20,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" >/dev/null
 
   t0=$(now_ms)
-  concurrent_tmpdir=$(mktemp -d "$WORK_ROOT/afm-concurrent.XXXXXX")
+  concurrent_tmpdir=$(mktemp -d "$RAW_REQUEST_DIR/concurrent.XXXXXX")
   concurrent_tokens=()
   for i in 1 2 3 4 5 6 7 8; do
     token="$i"
     concurrent_tokens+=("$token")
     prompt="$concurrent_prefix Return a JSON object whose only field is marker and whose integer value is $token."
+    printf '%s\n' "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":64,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" > "$concurrent_tmpdir/request_$i.json"
     curl -s --max-time 60 "$BASE_URL/v1/chat/completions" \
       -H 'Content-Type: application/json' \
-      -d "{\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":64,\"stream\":false,\"temperature\":0,\"seed\":42${THINKING_OFF_JSON_FRAGMENT}}" \
+      -d "@$concurrent_tmpdir/request_$i.json" \
       -o "$concurrent_tmpdir/resp_$i.json" \
       -w "%{http_code}" > "$concurrent_tmpdir/code_$i.txt" 2>/dev/null &
   done
@@ -1743,7 +1780,7 @@ PY
 
   if [ "$MODEL_SUPPORTS_STRUCTURED_OUTPUT" != "true" ]; then
     run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "model supports strict JSON marker output" "SKIP" "$dur"
-    rm -rf "$concurrent_tmpdir"
+    # Retain request/response evidence for capability skips as well as failures.
   else
 
   concurrent_content_state=$(python3 - "$concurrent_tmpdir" "${concurrent_tokens[@]}" <<'PY'
@@ -1776,7 +1813,7 @@ PY
   else
     run_test "Cache" "Concurrent x8 shared-prefix: divergent suffix responses stay isolated" "each of 8 responses keeps only its own marker" "$concurrent_content_state" "$dur"
   fi
-  rm -rf "$concurrent_tmpdir"
+  # Preserve bodies, finish reasons and reasoning for cache-isolation triage.
   fi
 fi
 

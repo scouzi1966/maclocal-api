@@ -112,6 +112,28 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertTrue(filter.stopped)
     }
 
+    func testUnsupportedReasoningIsRejectedBeforeStreamingOrGeneration() async throws {
+        let service = FakeMLXChatService(streamingResult: makeStreamingResult(chunks: []))
+        service.reasoningValidationMessage = "This checkpoint cannot disable reasoning."
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        for stream in [false, true] {
+            for control in [#""reasoning_effort":"none""#,
+                            #""chat_template_kwargs":{"reasoning_effort":"off"}"#] {
+                let body = ByteBuffer(string: "{\"model\":\"test-model\",\"stream\":\(stream),\(control),\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}")
+                try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+                    headers: requestHeaders(for: body), body: body) { response async in
+                    XCTAssertEqual(response.status, .badRequest)
+                    XCTAssertContains(response.body.string, "invalid_request_error")
+                    XCTAssertContains(response.body.string, "cannot disable reasoning")
+                    XCTAssertFalse(response.headers.first(name: .contentType)?.contains("text/event-stream") == true)
+                }
+            }
+        }
+        XCTAssertEqual(service.generateCount, 0)
+        XCTAssertEqual(service.releaseSlotCount, 0)
+    }
+
     func testStreamingControllerNeverEmitsSplitStopDelimiter() async throws {
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(chunks: [
@@ -344,6 +366,213 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             XCTAssertContains(res.body.string, "\"finish_reason\":\"tool_calls\"")
             XCTAssertContains(res.body.string, "data: [DONE]")
         }
+    }
+
+    func testRequiredToolTokenLimitPreservesHTTPAndSSEUsageWithoutInventingCall() async throws {
+        let chunks = makeStreamingResult(chunks: [
+            AFMServerStreamChunk(text: "<think>unfinished plan"),
+            AFMServerStreamChunk(text: "", promptTokens: 10, completionTokens: 2),
+        ])
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            generateResult: (
+                modelID: "test-model", content: "<think>unfinished plan",
+                promptTokens: 10, completionTokens: 2, tokenLogprobs: nil,
+                toolCalls: nil, cachedTokens: 0, promptTime: 0.01,
+                generateTime: 0.02, stoppedBySequence: false
+            ),
+            streamingResult: (
+                modelID: chunks.modelID, stream: chunks.stream, promptTokens: 10,
+                toolCallStartTag: nil, toolCallEndTag: nil,
+                thinkStartTag: "<think>", thinkEndTag: "</think>"
+            )
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+
+        for stream in [false, true] {
+            let choice = stream ? #"{"type":"function","function":{"name":"get_weather"}}"# : #""required""#
+            let body = ByteBuffer(string: """
+                {"model":"test-model","messages":[{"role":"user","content":"Check weather"}],
+                 "stream":\(stream),"stream_options":{"include_usage":true},"max_tokens":2,
+                 "tools":\(Self.weatherToolsJSON),"tool_choice":\(choice)}
+                """)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+            ) { response async throws in
+                XCTAssertEqual(response.status, .ok)
+                let payloads: [[String: Any]]
+                if stream {
+                    XCTAssertContains(response.body.string, "data: [DONE]")
+                    payloads = try response.body.string.split(separator: "\n").compactMap { line in
+                        guard line.hasPrefix("data: "), line != "data: [DONE]" else { return nil }
+                        return try JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) as? [String: Any]
+                    }
+                } else {
+                    payloads = [try XCTUnwrap(JSONSerialization.jsonObject(
+                        with: Data(buffer: response.body)
+                    ) as? [String: Any])]
+                }
+                XCTAssertFalse(payloads.contains { $0["error"] != nil })
+                let choices = payloads.flatMap { $0["choices"] as? [[String: Any]] ?? [] }
+                XCTAssertTrue(choices.contains { $0["finish_reason"] as? String == "length" })
+                XCTAssertFalse(choices.contains { $0["finish_reason"] as? String == "tool_calls" })
+                for choice in choices {
+                    for field in ["message", "delta"] {
+                        let message = choice[field] as? [String: Any]
+                        XCTAssertTrue((message?["tool_calls"] as? [[String: Any]] ?? []).isEmpty)
+                    }
+                }
+                let usage = try XCTUnwrap(payloads.compactMap { $0["usage"] as? [String: Any] }.last)
+                XCTAssertEqual(usage["prompt_tokens"] as? Int, 10)
+                XCTAssertEqual(usage["completion_tokens"] as? Int, 2)
+            }
+        }
+    }
+
+    func testRequiredToolGenerationFailureIsServerErrorAndReleasesSerialRequest() async throws {
+        let service = FakeMLXChatService(
+            generationError: .generationFailed("The model returned no tool call while tool calling was required."),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        app.middleware.use(RequestIDMiddleware())
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+
+        for choice in [#""required""#, #"{"type":"function","function":{"name":"get_weather"}}"#] {
+            let body = try requestBody(stream: false, toolChoiceJSON: choice)
+            try await app.testable().test(.POST, "/v1/chat/completions",
+                headers: requestHeaders(for: body, requestID: "req_generation_failure"), body: body
+            ) { response async throws in
+                XCTAssertEqual(response.status, .internalServerError)
+                let object = try XCTUnwrap(JSONSerialization.jsonObject(
+                    with: Data(buffer: response.body)) as? [String: Any])
+                let error = try XCTUnwrap(object["error"] as? [String: Any])
+                XCTAssertEqual(error["type"] as? String, "server_error")
+                XCTAssertEqual(error["code"] as? String, "generation_failed")
+                XCTAssertEqual(error["request_id"] as? String, "req_generation_failure")
+                XCTAssertNil(object["choices"])
+                XCTAssertContains(error["message"] as? String ?? "", "no tool call")
+            }
+        }
+        XCTAssertEqual(service.generateCount, 2, "Exactly one attempt per request; no hidden retries")
+        XCTAssertEqual(service.releaseSlotCount, 2)
+        let count = await app.inflightRegistry.count
+        XCTAssertEqual(count, 0)
+    }
+
+    func testGenerationFailureDuringCollectionAndSSEPreservesErrorAndReleasesLease() async throws {
+        let releases = OSAllocatedUnfairLock(initialState: 0)
+        let admitter = AnyAFMGenerationAdmitter { _ in
+            AFMGenerationLease(
+                telemetryToken: AFMInferenceRequestToken(rawValue: UUID()),
+                release: { releases.withLock { $0 += 1 } }
+            )
+        }
+        let service = FakeMLXChatService(maxConcurrent: 2, providerGenerationAdmitter: admitter,
+            streamingHandler: { _ in
+                let stream = AsyncThrowingStream<AFMServerStreamChunk, Error> { continuation in
+                    continuation.yield(AFMServerStreamChunk(text: "partial answer"))
+                    continuation.finish(throwing: AFMError.generationFailed(
+                        "The model returned no tool call while tool calling was required."))
+                }
+                return (modelID: "test-model", stream: stream, promptTokens: 2,
+                    toolCallStartTag: nil, toolCallEndTag: nil, thinkStartTag: nil, thinkEndTag: nil)
+            })
+        app.middleware.use(RequestIDMiddleware())
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+
+        for stream in [false, true] {
+            let body = try requestBody(stream: stream, toolChoiceJSON: #""required""#)
+            try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+                headers: requestHeaders(for: body, requestID: "req_stream_failure"), body: body
+            ) { response async throws in
+                let payloads: [[String: Any]]
+                if stream {
+                    XCTAssertEqual(response.status, .ok, "Headers were committed before generation failed")
+                    XCTAssertEqual(response.headers.contentType, .init(type: "text", subType: "event-stream"))
+                    let lines = response.body.string.split(separator: "\n")
+                    XCTAssertEqual(lines.filter { $0 == "data: [DONE]" }.count, 1)
+                    payloads = try lines.compactMap { line in
+                        guard line.hasPrefix("data: "), line != "data: [DONE]" else { return nil }
+                        return try JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) as? [String: Any]
+                    }
+                    let choices = payloads.flatMap { $0["choices"] as? [[String: Any]] ?? [] }
+                    XCTAssertTrue(choices.compactMap { $0["finish_reason"] as? String }.isEmpty,
+                        "Do not report a successful final choice after a generation failure")
+                    XCTAssertFalse(response.body.string.contains("⚠️"))
+                } else {
+                    XCTAssertEqual(response.status, .internalServerError)
+                    payloads = [try XCTUnwrap(JSONSerialization.jsonObject(
+                        with: Data(buffer: response.body)) as? [String: Any])]
+                    XCTAssertNil(payloads.first?["choices"])
+                }
+                let errors = payloads.compactMap { $0["error"] as? [String: Any] }
+                XCTAssertEqual(errors.count, 1)
+                XCTAssertEqual(errors.first?["type"] as? String, "server_error")
+                XCTAssertEqual(errors.first?["code"] as? String, "generation_failed")
+                XCTAssertEqual(errors.first?["request_id"] as? String, "req_stream_failure")
+            }
+        }
+        XCTAssertEqual(service.recordedStreamingToolChoices.count, 2, "No hidden retries")
+        let registry = app.inflightRegistry
+        let cleanedUp = await waitUntil { await registry.count == 0 && releases.withLock { $0 } == 2 }
+        XCTAssertTrue(cleanedUp, "Both requests release their registry entries and admission leases")
+    }
+
+    func testProviderValidationFailuresRemainClientErrors() async throws {
+        for failure in [AFMError.invalidRequest("Invalid tool schema"), .unsupportedCapability("tools")] {
+            let service = FakeMLXChatService(generationError: failure,
+                streamingResult: makeStreamingResult(chunks: []))
+            let controller = MLXChatCompletionsController(modelID: "test-model", service: service,
+                temperature: nil, repetitionPenalty: nil)
+            let body = try requestBody(stream: false)
+            let request = Request(application: app, method: .POST, url: "/v1/chat/completions",
+                headers: requestHeaders(for: body), collectedBody: body,
+                on: app.eventLoopGroup.next())
+            let response = try await controller.chatCompletions(req: request)
+            XCTAssertEqual(response.status, .badRequest)
+            XCTAssertFalse(response.body.string?.contains("generation_failed") == true)
+            XCTAssertEqual(service.generateCount, 1)
+        }
+    }
+
+    func testResponsesAndMessagesPropagateGenerationFailureBeforeStreamingHeaders() async throws {
+        let service = FakeMLXChatService(
+            generationError: .generationFailed("The model returned no tool call while tool calling was required."),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        let controller = MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil)
+        try ResponsesController(defaultModelID: "test-model", chatHandler: { request in
+            try await controller.chatCompletions(req: request)
+        }).boot(routes: app)
+        try MessagesController(model: "test-model", chatHandler: { request in
+            try await controller.chatCompletions(req: request)
+        }).boot(routes: app)
+
+        for stream in [false, true] {
+            for endpoint in ["responses", "messages"] {
+                let input = endpoint == "responses"
+                    ? #""input":"Check weather","max_output_tokens":32"#
+                    : #""messages":[{"role":"user","content":"Check weather"}],"max_tokens":32"#
+                let body = ByteBuffer(string: "{\"model\":\"test-model\",\"stream\":\(stream),\(input)}")
+                try await app.testable(method: .running(port: 0)).test(.POST, "/v1/\(endpoint)",
+                    headers: requestHeaders(for: body), body: body
+                ) { response async in
+                    XCTAssertEqual(response.status, .internalServerError)
+                    XCTAssertFalse(response.headers.contentType?.subType == "event-stream")
+                    if endpoint == "messages" {
+                        XCTAssertContains(response.body.string, #""type":"api_error""#)
+                        XCTAssertContains(response.body.string, "no tool call")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(service.generateCount, 4)
+        XCTAssertEqual(service.releaseSlotCount, 4)
     }
 
     func testStreamingControllerSerializesDeepseekProviderToolCallWithoutLeakingDSML() async throws {
@@ -1137,6 +1366,118 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testNonStreamingStructuredOutputPreservesLiteralReasoningMarkers() async throws {
+        let marker = "<think>kept</think> </think:opensource> <|channel>thought <|channel|>final <|content_thinking|> to=self<|message|> <tool_call>literal</tool_call>"
+        let content = "{\"note\":\"\(marker)\"}"
+        let rawModelOutput = content + "</think>"
+        let service = FakeMLXChatService(
+            generateResult: (
+                modelID: "test-model",
+                content: rawModelOutput,
+                promptTokens: 8,
+                completionTokens: 4,
+                tokenLogprobs: nil,
+                toolCalls: nil,
+                cachedTokens: 0,
+                promptTime: 0.01,
+                generateTime: 0.01,
+                stoppedBySequence: false
+            ),
+            streamingResult: makeStreamingResult(chunks: [])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: false,
+            toolsJSON: "[]",
+            responseFormatJSON: """
+            {"type":"json_schema","json_schema":{"name":"markers","strict":true,"schema":{"type":"object","properties":{"note":{"type":"string"}},"required":["note"],"additionalProperties":false}}}
+            """
+        )
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            guard let response = try? JSONDecoder().decode(
+                ChatCompletionResponse.self,
+                from: Data(res.body.string.utf8)
+            ) else {
+                XCTFail("Expected decodable ChatCompletionResponse: \(res.body.string)")
+                return
+            }
+            XCTAssertEqual(response.choices.first?.message.content, content)
+            XCTAssertNil(response.choices.first?.message.reasoningContent)
+        }
+    }
+
+    func testStreamingStructuredOutputPreservesLiteralReasoningMarkers() async throws {
+        let marker = "<think>kept</think> </think:opensource> <|channel>thought <|channel|>final <|content_thinking|> to=self<|message|> <tool_call>literal</tool_call>"
+        let content = "{\"note\":\"\(marker)\"}"
+        let rawModelOutput = content + "</think>"
+        let split = rawModelOutput.index(rawModelOutput.startIndex, offsetBy: 23)
+        let service = FakeMLXChatService(
+            streamingResult: makeStreamingResult(chunks: [
+                AFMServerStreamChunk(text: String(rawModelOutput[..<split])),
+                AFMServerStreamChunk(text: String(rawModelOutput[split...])),
+                AFMServerStreamChunk(
+                    text: "",
+                    promptTokens: 8,
+                    completionTokens: 4,
+                    cachedTokens: 0,
+                    promptTime: 0.01,
+                    generateTime: 0.01
+                ),
+            ])
+        )
+        try MLXChatCompletionsController(
+            modelID: "test-model",
+            service: service,
+            temperature: nil,
+            repetitionPenalty: nil
+        ).boot(routes: app)
+
+        let body = try requestBody(
+            stream: true,
+            toolsJSON: "[]",
+            responseFormatJSON: """
+            {"type":"json_schema","json_schema":{"name":"markers","strict":true,"schema":{"type":"object","properties":{"note":{"type":"string"}},"required":["note"],"additionalProperties":false}}}
+            """
+        )
+
+        try await app.testable(method: .running(port: 0)).test(
+            .POST,
+            "/v1/chat/completions",
+            headers: requestHeaders(for: body),
+            body: body
+        ) { res async in
+            XCTAssertEqual(res.status, .ok)
+            let payloads = res.body.string
+                .split(separator: "\n")
+                .compactMap { line -> [String: Any]? in
+                    guard line.hasPrefix("data: "), line != "data: [DONE]" else { return nil }
+                    return (try? JSONSerialization.jsonObject(
+                        with: Data(String(line.dropFirst(6)).utf8)
+                    )) as? [String: Any]
+                }
+            let deltas = payloads.compactMap { payload -> [String: Any]? in
+                (payload["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any]
+            }
+            let emittedContent = deltas.compactMap { $0["content"] as? String }.joined()
+            let emittedReasoning = deltas.compactMap { $0["reasoning_content"] as? String }.joined()
+            XCTAssertEqual(emittedContent, content)
+            XCTAssertTrue(emittedReasoning.isEmpty, res.body.string)
+        }
+    }
+
     func testStrictToolGrammarHeaderSkippedWhenFormatUnsupported() async throws {
         let service = FakeMLXChatService(
             supportsStrictToolGrammar: false,
@@ -1799,6 +2140,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServing,
     AFMGenerationAdmitterProviding, @unchecked Sendable
 {
+    var reasoningValidationMessage: String?
+    func reasoningRequestValidationError(chatTemplateKwargs: [String: AnyCodable]?) -> String? {
+        guard chatTemplateKwargs?["reasoning_effort"] != nil else { return nil }
+        return reasoningValidationMessage
+    }
     let maxConcurrent: Int
     var generatedStreamOwnsSlotReservation: Bool { maxConcurrent >= 2 }
     let toolCallParser: String?
@@ -1821,6 +2167,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         )
     }
     private let generateResult: AFMChatGenerationResult
+    private let generationError: AFMError?
     private let streamingResult: AFMChatStreamingResult
     private let streamingHandler: (([Message]) -> AFMChatStreamingResult)?
     private let mediaValidationError: MLXServiceError?
@@ -1861,6 +2208,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
         streamCollectionProbe: CancellationProbe? = nil,
         providerGenerationAdmitter: AnyAFMGenerationAdmitter? = nil,
         generateResult: AFMChatGenerationResult? = nil,
+        generationError: AFMError? = nil,
         streamingResult: AFMChatStreamingResult
     ) {
         self.maxConcurrent = maxConcurrent
@@ -1888,6 +2236,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
             generateTime: 0,
             stoppedBySequence: false
         )
+        self.generationError = generationError
         self.streamingResult = streamingResult
         self.streamingHandler = nil
     }
@@ -1934,6 +2283,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
             stoppedBySequence: false
         )
         self.streamingResult = FakeMLXChatService.emptyStreamingResult
+        self.generationError = nil
         self.streamingHandler = streamingHandler
     }
 
@@ -2011,6 +2361,7 @@ private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServin
             _recordedIgnoreEndOfSequence.append(AFMGenerationContext.ignoreEndOfSequence)
         }
         recordGenerateTools(tools)
+        if let generationError { throw generationError }
         if let generateProbe {
             try await generateProbe.suspendUntilCancelled()
         }
