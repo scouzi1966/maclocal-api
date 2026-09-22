@@ -136,6 +136,10 @@ final class AFMKitMLXChatServingAdapter: AFMChatServing, AFMGenerationAdmitterPr
         fixedModelID
     }
 
+    func reasoningRequestValidationError(chatTemplateKwargs: [String: AnyCodable]?) -> String? {
+        mlxServing?.reasoningRequestValidationError(chatTemplateKwargs: chatTemplateKwargs)
+    }
+
     func loadedModelDescriptor(model: String) -> AFMModelDescriptor? {
         guard normalizeModel(model) == fixedModelID else { return nil }
         if let mlxMediaServing {

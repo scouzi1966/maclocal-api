@@ -344,6 +344,11 @@ struct MLXChatCompletionsController: RouteCollection {
                 )
             }
 
+            if let reason = service.reasoningRequestValidationError(
+                chatTemplateKwargs: chatRequest.effectiveChatTemplateKwargs) {
+                throw Abort(.badRequest, reason: reason)
+            }
+
             if let requestedModelRaw = chatRequest.model?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedModelRaw.isEmpty,
                service.normalizeModel(requestedModelRaw) != modelID {

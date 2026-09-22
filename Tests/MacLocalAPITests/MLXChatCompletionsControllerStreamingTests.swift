@@ -112,6 +112,28 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertTrue(filter.stopped)
     }
 
+    func testUnsupportedReasoningIsRejectedBeforeStreamingOrGeneration() async throws {
+        let service = FakeMLXChatService(streamingResult: makeStreamingResult(chunks: []))
+        service.reasoningValidationMessage = "This checkpoint cannot disable reasoning."
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        for stream in [false, true] {
+            for control in [#""reasoning_effort":"none""#,
+                            #""chat_template_kwargs":{"reasoning_effort":"off"}"#] {
+                let body = ByteBuffer(string: "{\"model\":\"test-model\",\"stream\":\(stream),\(control),\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}")
+                try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+                    headers: requestHeaders(for: body), body: body) { response async in
+                    XCTAssertEqual(response.status, .badRequest)
+                    XCTAssertContains(response.body.string, "invalid_request_error")
+                    XCTAssertContains(response.body.string, "cannot disable reasoning")
+                    XCTAssertFalse(response.headers.first(name: .contentType)?.contains("text/event-stream") == true)
+                }
+            }
+        }
+        XCTAssertEqual(service.generateCount, 0)
+        XCTAssertEqual(service.releaseSlotCount, 0)
+    }
+
     func testStreamingControllerNeverEmitsSplitStopDelimiter() async throws {
         let service = FakeMLXChatService(
             streamingResult: makeStreamingResult(chunks: [
@@ -1911,6 +1933,11 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
 private final class FakeMLXChatService: AFMChatServing, AFMMLXMediaRequestServing,
     AFMGenerationAdmitterProviding, @unchecked Sendable
 {
+    var reasoningValidationMessage: String?
+    func reasoningRequestValidationError(chatTemplateKwargs: [String: AnyCodable]?) -> String? {
+        guard chatTemplateKwargs?["reasoning_effort"] != nil else { return nil }
+        return reasoningValidationMessage
+    }
     let maxConcurrent: Int
     var generatedStreamOwnsSlotReservation: Bool { maxConcurrent >= 2 }
     let toolCallParser: String?
