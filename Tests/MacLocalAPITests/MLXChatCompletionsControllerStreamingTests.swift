@@ -368,6 +368,69 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         }
     }
 
+    func testRequiredToolTokenLimitPreservesHTTPAndSSEUsageWithoutInventingCall() async throws {
+        let chunks = makeStreamingResult(chunks: [
+            AFMServerStreamChunk(text: "<think>unfinished plan"),
+            AFMServerStreamChunk(text: "", promptTokens: 10, completionTokens: 2),
+        ])
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            generateResult: (
+                modelID: "test-model", content: "<think>unfinished plan",
+                promptTokens: 10, completionTokens: 2, tokenLogprobs: nil,
+                toolCalls: nil, cachedTokens: 0, promptTime: 0.01,
+                generateTime: 0.02, stoppedBySequence: false
+            ),
+            streamingResult: (
+                modelID: chunks.modelID, stream: chunks.stream, promptTokens: 10,
+                toolCallStartTag: nil, toolCallEndTag: nil,
+                thinkStartTag: "<think>", thinkEndTag: "</think>"
+            )
+        )
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+
+        for stream in [false, true] {
+            let choice = stream ? #"{"type":"function","function":{"name":"get_weather"}}"# : #""required""#
+            let body = ByteBuffer(string: """
+                {"model":"test-model","messages":[{"role":"user","content":"Check weather"}],
+                 "stream":\(stream),"stream_options":{"include_usage":true},"max_tokens":2,
+                 "tools":\(Self.weatherToolsJSON),"tool_choice":\(choice)}
+                """)
+            try await app.testable(method: .running(port: 0)).test(
+                .POST, "/v1/chat/completions", headers: requestHeaders(for: body), body: body
+            ) { response async throws in
+                XCTAssertEqual(response.status, .ok)
+                let payloads: [[String: Any]]
+                if stream {
+                    XCTAssertContains(response.body.string, "data: [DONE]")
+                    payloads = try response.body.string.split(separator: "\n").compactMap { line in
+                        guard line.hasPrefix("data: "), line != "data: [DONE]" else { return nil }
+                        return try JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8)) as? [String: Any]
+                    }
+                } else {
+                    payloads = [try XCTUnwrap(JSONSerialization.jsonObject(
+                        with: Data(buffer: response.body)
+                    ) as? [String: Any])]
+                }
+                XCTAssertFalse(payloads.contains { $0["error"] != nil })
+                let choices = payloads.flatMap { $0["choices"] as? [[String: Any]] ?? [] }
+                XCTAssertTrue(choices.contains { $0["finish_reason"] as? String == "length" })
+                XCTAssertFalse(choices.contains { $0["finish_reason"] as? String == "tool_calls" })
+                for choice in choices {
+                    for field in ["message", "delta"] {
+                        let message = choice[field] as? [String: Any]
+                        XCTAssertTrue((message?["tool_calls"] as? [[String: Any]] ?? []).isEmpty)
+                    }
+                }
+                let usage = try XCTUnwrap(payloads.compactMap { $0["usage"] as? [String: Any] }.last)
+                XCTAssertEqual(usage["prompt_tokens"] as? Int, 10)
+                XCTAssertEqual(usage["completion_tokens"] as? Int, 2)
+            }
+        }
+    }
+
     func testStreamingControllerSerializesDeepseekProviderToolCallWithoutLeakingDSML() async throws {
         let toolCall = ResponseToolCall(
             index: 0,
