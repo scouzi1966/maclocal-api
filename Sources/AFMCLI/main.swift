@@ -1,5 +1,6 @@
 import AFMKit
 import AFMKitCore
+import AFMKitSplash
 import AFMKitDwarfStar
 import AFMKitMLX
 import AFMServer
@@ -2162,6 +2163,8 @@ struct RootCommand: ParsableCommand {
         """,
         version: MacLocalAPI.buildVersion,
         subcommands: [
+            SplashCommand.self,
+            SplashAPICommand.self,
             MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
             DwarfStarBenchmarkCommand.self,
             VisionCommand.self,
@@ -2371,7 +2374,16 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
-if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "splash" {
+    // Dispatch before AFM parsing so native Splash flags and '--' are preserved.
+    do {
+        try SplashCommand.launch(Array(CommandLine.arguments.dropFirst(2)))
+    } catch {
+        SplashCommand.exit(withError: error)
+    }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "splash-api" {
+    SplashAPICommand.main(Array(CommandLine.arguments.dropFirst(2)))
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
     if CommandLine.arguments.count != 3 {
         fputs("Invalid TUI preview invocation.\n", stderr)
         exit(EXIT_FAILURE)
@@ -3020,4 +3032,51 @@ private func makeTelegramConfiguration(
         replyFormat: replyFormat,
         requiredPrefix: effectivePrefix
     )
+}
+
+// The application only wires the generic provider to its existing HTTP boundary.
+func runSplashAPI(_ command: SplashAPICommand) throws {
+    try AFMSplashRuntime.checkPlatform()
+    let runtime = try AFMSplashRuntime.bundled()
+    try runtime.validate()
+    let modelURL = URL(fileURLWithPath: command.model).standardizedFileURL
+    let modelID = command.modelID ?? modelURL.lastPathComponent
+    let registry = AFMProviderRegistry()
+    try registry.register(AFMSplashProviderFactory())
+    var values: [String: AFMJSONValue] = [
+        "modelPath": .string(modelURL.path), "runtimePath": .string(runtime.root.path)
+    ]
+    if let context = command.maxContext { values["maxContext"] = .integer(context) }
+    if let memory = command.maxMemoryBytes {
+        guard let value = Int(exactly: memory) else { throw ValidationError("Memory budget is too large") }
+        values["maxMemoryBytes"] = .integer(value)
+    }
+    let model = try registry.makeModel(providerID: "splash", modelID: AFMModelID(rawValue: modelID), configuration: .init(values: values))
+    let failure = Mutex<(any Error)?>(nil)
+    let task = Task {
+        do {
+            _ = try await model.load()
+            try Task.checkCancellation()
+            let server = try await Server(
+                port: command.port, hostname: command.hostname, verbose: command.verbose,
+                streamingEnabled: true, instructions: "You are a helpful assistant.",
+                gatewayEnabled: false, prewarmEnabled: false, forceDisableThinking: true,
+                mlxModelID: modelID, afmModel: model, contextWindow: command.maxContext)
+            try Task.checkCancellation()
+            globalServer = server
+            try await server.start()
+        } catch { failure.withLock { $0 = error } }
+        await model.unload()
+        shouldKeepRunning = false
+    }
+    signal(SIGINT, handleShutdown)
+    signal(SIGTERM, handleShutdown)
+    let runLoop = RunLoop.current
+    while shouldKeepRunning && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+    task.cancel()
+    // Drain cancellation before exit so the child engine cannot outlive AFM.
+    let finished = Mutex(false)
+    Task { await task.value; finished.withLock { $0 = true } }
+    while !finished.withLock({ $0 }) && runLoop.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {}
+    if let error = failure.withLock({ $0 }), !(error is CancellationError) { throw error }
 }

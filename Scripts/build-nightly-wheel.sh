@@ -118,7 +118,8 @@ sed -i '' "s/^version = .*/version = \"${PYTHON_VERSION}\"/" pyproject-next.toml
 echo "[INFO] Staging assets into macafm_next/"
 mkdir -p macafm_next/bin
 cp "$BIN" macafm_next/bin/
-for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+"$REPO_ROOT/Scripts/stage-splash-runtime.sh" "$(dirname "$BIN")"
+for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
     BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
     if [ ! -d "$BUNDLE_DIR" ]; then
         echo "[ERROR] Required runtime bundle missing: $BUNDLE_DIR"

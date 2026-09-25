@@ -106,18 +106,22 @@ class ${class} < Formula
 
   def install
     bin.install "afm"
-    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle", "AFMKit_AFMKitSplash.bundle", "splash-runtime"].each do |bundle_name|
       if File.directory?(bundle_name)
         (libexec/bundle_name).install Dir["#{bundle_name}/*"]
       end
     end
+    # SwiftPM's Splash resource accessor resolves beside the real executable,
+    # including when launched through Homebrew's top-level bin symlink.
+    bin.install_symlink libexec/"AFMKit_AFMKitSplash.bundle"
+    bin.install_symlink libexec/"splash-runtime"
     if File.exist?("Resources/webui/index.html")
       (share/"afm/webui").install Dir["Resources/webui/*"]
     end
   end
 
   def post_install
-    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle"].each do |bundle_name|
+    ["MacLocalAPI_AFMEvaluationHost.bundle", "AFMKit_AFMKitMLX.bundle", "AFMKit_AFMKitDwarfStar.bundle", "AFMKit_AFMKitSplash.bundle", "splash-runtime"].each do |bundle_name|
       bundle_src = libexec/bundle_name
       bundle_dst = HOMEBREW_PREFIX/"bin"/bundle_name
       bundle_dst.unlink if bundle_dst.symlink? || bundle_dst.exist?
@@ -168,6 +172,8 @@ class ${class} < Formula
     libexec.install "MacLocalAPI_AFMEvaluationHost.bundle"
     libexec.install "AFMKit_AFMKitMLX.bundle"
     libexec.install "AFMKit_AFMKitDwarfStar.bundle"
+    libexec.install "AFMKit_AFMKitSplash.bundle"
+    libexec.install "splash-runtime"
     (bin/"afm").write_env_script libexec/"afm", AFM_BUILD_VERSION: "v#{version}"
 
     if File.exist?("Resources/webui/index.html")
