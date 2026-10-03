@@ -292,7 +292,7 @@ struct MlxCommand: ParsableCommand {
           --disable-prefix-caching: Disable the radix prefix cache (enabled by default)
           --enable-prefix-caching: Deprecated compatibility option; prefix caching is already enabled by default
           --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
-          --mtp-depth: MTP draft depth compatibility setting
+          --mtp-depth: Maximum MTP draft depth for supported model runtimes
           --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
           --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
@@ -553,10 +553,10 @@ struct MlxCommand: ParsableCommand {
 
     var enablePrefixCaching: Bool { !disablePrefixCaching }
 
-    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Supported Qwen models use an in-checkpoint or matching external MTP head; concurrent and batch requests may fall back to autoregressive decoding.")
     var mtp: Bool = false
 
-    @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
+    @Option(name: .long, help: "Maximum number of MTP draft tokens per verification cycle for supported model runtimes. Greater depth can reduce throughput when drafts are rejected; benchmark with your model and workload.")
     var mtpDepth: Int = 1
 
     @Option(name: .customLong("mtp-model"), help: "Override the automatically selected MTP head with a Hugging Face repo, local directory, or .safetensors file.")
