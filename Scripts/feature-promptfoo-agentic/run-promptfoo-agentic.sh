@@ -83,7 +83,13 @@ wait_for_health() {
       echo "AFM server exited before becoming healthy on :${port}" >&2
       return 1
     fi
-    if curl -sf "$health_url" >/dev/null 2>&1; then
+    local listener_pid
+    listener_pid=$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    if [[ -n "$listener_pid" && "$listener_pid" != "$server_pid" ]]; then
+      echo "Port $port belongs to another process; refusing to test it" >&2
+      return 1
+    fi
+    if [[ "$listener_pid" == "$server_pid" ]] && curl -sf "$health_url" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1

@@ -4,6 +4,7 @@ import csv
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
@@ -65,6 +66,44 @@ class ServerOwnershipTests(unittest.TestCase):
         with patch.object(module.subprocess, 'run', return_value=Mock(stdout='456\n')):
             with self.assertRaisesRegex(RuntimeError, 'another process'):
                 module.listener_owned_by(Mock(pid=123), 9999)
+
+
+class ShellServerOwnershipTests(unittest.TestCase):
+    def check_listener(self, relative_path, function, shell, owner):
+        source = (SCRIPT.parent.parent / relative_path).read_text()
+        function_source = function + '() {' + source.split(function + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
+        program = f"""
+PORT=9999
+SERVER_PID=123
+TIMEOUT_LOAD=1
+port=9999
+server_pid=123
+load_timeout=1
+lsof() {{ echo {owner}; }}
+kill() {{ return 0; }}
+curl() {{ echo HTTP_CALLED > /dev/fd/3; return 0; }}
+{function_source}
+{function}
+"""
+        result = subprocess.run([shell, '-c', 'exec 3>&1\n' + program], capture_output=True, text=True)
+        if owner == 123:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('HTTP_CALLED', result.stdout)
+        else:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('HTTP_CALLED', result.stdout)
+
+    def test_comprehensive_own_listener(self):
+        self.check_listener('Scripts/mlx-model-test.sh', 'wait_for_server', 'bash', 123)
+
+    def test_comprehensive_foreign_listener(self):
+        self.check_listener('Scripts/mlx-model-test.sh', 'wait_for_server', 'bash', 456)
+
+    def test_promptfoo_own_listener(self):
+        self.check_listener('Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh', 'wait_for_health', 'zsh', 123)
+
+    def test_promptfoo_foreign_listener(self):
+        self.check_listener('Scripts/feature-promptfoo-agentic/run-promptfoo-agentic.sh', 'wait_for_health', 'zsh', 456)
 
 
 if __name__ == '__main__':
