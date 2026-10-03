@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'test-external-benchmarks.py'
 spec = importlib.util.spec_from_file_location('external_benchmarks', SCRIPT)
@@ -49,6 +50,21 @@ class ContextCompletenessTests(unittest.TestCase):
         path = self.results / 'benchmark_results.csv'
         path.write_text(path.read_text().replace(',30,', ',nan,', 1))
         self.assertFalse(module.validate_context(self.root)['passed'])
+
+
+class ServerOwnershipTests(unittest.TestCase):
+    def test_own_listener_is_ready(self):
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='123\n')):
+            self.assertTrue(module.listener_owned_by(Mock(pid=123), 9999))
+
+    def test_no_listener_is_not_ready(self):
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='')):
+            self.assertFalse(module.listener_owned_by(Mock(pid=123), 9999))
+
+    def test_foreign_listener_is_rejected(self):
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='456\n')):
+            with self.assertRaisesRegex(RuntimeError, 'another process'):
+                module.listener_owned_by(Mock(pid=123), 9999)
 
 
 if __name__ == '__main__':

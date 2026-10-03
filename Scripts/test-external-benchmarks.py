@@ -70,12 +70,29 @@ def stop(process):
             process.wait()
 
 
-def run(command, log, cwd=None):
+def listener_owned_by(process, port):
+    result = subprocess.run(['lsof', '-nP', '-t', f'-iTCP:{port}', '-sTCP:LISTEN'],
+                            capture_output=True, text=True)
+    owners = {int(value) for value in result.stdout.split()}
+    if owners and owners != {process.pid}:
+        raise RuntimeError(f'Port {port} belongs to another process; refusing to test it')
+    return owners == {process.pid}
+
+
+def run(command, log, cwd=None, owner=None):
     with log.open('w') as output:
         process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
                                    cwd=cwd, start_new_session=True)
         try:
-            return process.wait(timeout=TEST_TIMEOUT)
+            deadline = time.monotonic() + TEST_TIMEOUT
+            while time.monotonic() < deadline:
+                if owner is not None and owner.poll() is not None:
+                    raise RuntimeError('Candidate server exited during the test')
+                try:
+                    return process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            raise TimeoutError('Benchmark timed out')
         finally:
             stop(process)
 
@@ -97,6 +114,9 @@ def server(args, phase, output):
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError(f'Server exited: {process.returncode}')
+                if not listener_owned_by(process, args.port):
+                    time.sleep(1)
+                    continue
                 try:
                     with urllib.request.urlopen(f'http://127.0.0.1:{args.port}/v1/models', timeout=3) as response:
                         models = json.load(response)
@@ -106,7 +126,7 @@ def server(args, phase, output):
                     time.sleep(1)
             else:
                 raise RuntimeError('Model load timed out')
-            yield
+            yield process
         finally:
             stop(process)
 
@@ -170,8 +190,8 @@ def main():
         (output / 'test-command.json').write_text(json.dumps(command, indent=2))
         print(f'Starting {phase}: {output}', flush=True)
         try:
-            with server(args, phase, output):
-                code = run(command, output / f'{phase}.log', args.context_harness if phase == 'context' else None)
+            with server(args, phase, output) as owner:
+                code = run(command, output / f'{phase}.log', args.context_harness if phase == 'context' else None, owner=owner)
             result = {'exit_code': code, 'passed': code == 0}
             if phase == 'context':
                 completeness = validate_context(output)
