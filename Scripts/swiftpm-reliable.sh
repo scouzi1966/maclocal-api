@@ -125,41 +125,41 @@ test_configuration() {
 }
 
 test_scratch_path() {
+    # The local workspace prepends defaults; explicit caller options occur
+    # later. Match SwiftPM's last-option precedence when staging resources.
     local previous=""
+    local value="$ROOT_DIR/.build"
     local argument
     for argument in "$@"; do
         if [[ "$previous" == "--scratch-path" ]]; then
-            printf '%s\n' "$argument"
-            return
+            value="$argument"
+        else
+            case "$argument" in
+                --scratch-path=*) value="${argument#*=}" ;;
+            esac
         fi
-        case "$argument" in
-            --scratch-path=*)
-                printf '%s\n' "${argument#*=}"
-                return
-                ;;
-        esac
         previous="$argument"
     done
-    printf '%s\n' "$ROOT_DIR/.build"
+    printf '%s\n' "$value"
 }
 
 test_package_root() {
+    # The local workspace prepends defaults; explicit caller options occur
+    # later. Match SwiftPM's last-option precedence when staging resources.
     local previous=""
+    local value="$ROOT_DIR"
     local argument
     for argument in "$@"; do
         if [[ "$previous" == "--package-path" ]]; then
-            printf '%s\n' "$argument"
-            return
+            value="$argument"
+        else
+            case "$argument" in
+                --package-path=*) value="${argument#*=}" ;;
+            esac
         fi
-        case "$argument" in
-            --package-path=*)
-                printf '%s\n' "${argument#*=}"
-                return
-                ;;
-        esac
         previous="$argument"
     done
-    printf '%s\n' "$ROOT_DIR"
+    printf '%s\n' "$value"
 }
 
 INVOCATION_PACKAGE_ROOT="$(test_package_root "$@")"
