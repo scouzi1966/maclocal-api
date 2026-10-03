@@ -14,6 +14,8 @@ port="${AFM_PROMPTFOO_PORT:-9999}"
 no_think="${AFM_NO_THINK:-0}"
 dspark_support="${AFM_DSPARK_SUPPORT:-}"
 mtp_model="${AFM_MTP_MODEL:-}"
+mtp_depth="${AFM_MTP_DEPTH:-}"
+prefill_step_size="${AFM_PREFILL_STEP_SIZE:-}"
 load_timeout="${AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS:-60}"
 summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
@@ -33,6 +35,14 @@ if [[ "$load_timeout" != <-> || "$load_timeout" -lt 1 ]]; then
 fi
 if [[ -n "$dspark_support" && ! -f "$dspark_support" ]]; then
   echo "AFM_DSPARK_SUPPORT must name an existing support GGUF file" >&2
+  exit 1
+fi
+if [[ -n "$mtp_depth" && ( "${AFM_MTP:-0}" != "1" || "$mtp_depth" != <-> || "$mtp_depth" -lt 1 ) ]]; then
+  echo "AFM_MTP_DEPTH requires AFM_MTP=1 and a positive integer" >&2
+  exit 1
+fi
+if [[ -n "$prefill_step_size" && ( "$prefill_step_size" != <-> || "$prefill_step_size" -lt 1 ) ]]; then
+  echo "AFM_PREFILL_STEP_SIZE must be a positive integer" >&2
   exit 1
 fi
 if [[ -n "$mtp_model" && ( "${AFM_MTP:-0}" != "1" || ! -d "$mtp_model" ) ]]; then
@@ -163,9 +173,15 @@ start_server() {
   # MTP path without accepting an arbitrary string of shell arguments.
   if [[ "${AFM_MTP:-0}" == "1" ]]; then
     extra_args+=(--mtp)
+    if [[ -n "$mtp_depth" ]]; then
+      extra_args+=(--mtp-depth "$mtp_depth")
+    fi
     if [[ -n "$mtp_model" ]]; then
       extra_args+=(--mtp-model "$mtp_model")
     fi
+  fi
+  if [[ -n "$prefill_step_size" ]]; then
+    extra_args+=(--prefill-step-size "$prefill_step_size")
   fi
   if [[ -n "$dspark_support" ]]; then
     extra_args+=(--dspark-support "$dspark_support")
