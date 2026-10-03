@@ -2380,6 +2380,15 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview
     } catch {
         DwarfStarBenchmarkCommand.exit(withError: error)
     }
+} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "pcc" {
+    // Parse independently so root options cannot consume PCC options.
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    do {
+        var cmd = try PCCCommand.parseAsRoot(args)
+        try cmd.run()
+    } catch {
+        PCCCommand.exit(withError: error)
+    }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
     let args = Array(CommandLine.arguments.dropFirst(2))
     do {
