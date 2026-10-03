@@ -164,6 +164,12 @@ def main():
     args = parser.parse_args()
     for name in ['binary', 'model', 'llmprobe', 'context_harness', 'context_python']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
+    if args.phase in ('all', 'context'):
+        dependencies = subprocess.run(
+            [str(args.context_python), '-c', 'import openai, matplotlib, numpy, psutil'],
+            capture_output=True, text=True)
+        if dependencies.returncode:
+            parser.error('Context Python requires openai, matplotlib, numpy and psutil; install them before starting model tests')
     args.output = args.output.absolute()
     args.output.mkdir(parents=True, exist_ok=False)
     metadata = {'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
