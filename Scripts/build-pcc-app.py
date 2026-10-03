@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import getpass
+import os
 import pathlib
 import platform
 import subprocess
@@ -73,7 +74,7 @@ def build_and_sign(args):
         subprocess.run([
             str(ROOT / "Scripts/swiftpm-reliable.sh"), "build", "-c", "release",
             "--product", "afm", "--scratch-path", str(scratch),
-        ], cwd=ROOT, check=True)
+        ], cwd=ROOT, check=True, env={**os.environ, "AFM_ENABLE_PCC": "1"})
         binary = built_binary(scratch)
 
     package_command = [

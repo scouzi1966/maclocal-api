@@ -1,5 +1,11 @@
 # Private Cloud Compute from the AFM CLI
 
+PCC is deferred from releases. Normal builds omit its command, configuration,
+and dedicated tests. Only `Scripts/build-pcc-app.py` opts in automatically;
+manual wrapper builds must set `AFM_ENABLE_PCC=1`. `make build` and `build.sh`
+force PCC off even if that variable is inherited. No normal build needs
+a PCC profile or development signing identity.
+
 `afm pcc` uses the native macOS 27 Private Cloud Compute (PCC) provider already
 shipped by the pinned AFMKit package. Requests leave the Mac for Apple's PCC;
 there is no automatic fallback to on-device generation and no API key to configure.
@@ -139,10 +145,18 @@ automatically PCC-authorized by adding an entitlement or notarizing it.
 
 ## Validation
 
+After a normal build, verify PCC is absent without running a model:
+
+```bash
+python3 Scripts/test-pcc-cli.py --binary .build/release/afm --expect-disabled
+```
+
+For an explicitly enabled development build:
+
 ```bash
 python3 Scripts/test-pcc-build.py
 python3 Scripts/test-pcc-packaging.py
-Scripts/swiftpm-reliable.sh test -c release --filter 'PCCConfigurationTests|PCCHTTPTests'
+AFM_ENABLE_PCC=1 Scripts/swiftpm-reliable.sh test -c release --filter 'PCCConfigurationTests|PCCHTTPTests'
 python3 Scripts/test-pcc-cli.py --binary .build/release/afm
 ```
 

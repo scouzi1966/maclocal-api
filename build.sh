@@ -25,6 +25,9 @@
 
 set -euo pipefail
 
+# PCC is deferred from normal builds, regardless of the caller's environment.
+export AFM_ENABLE_PCC=0
+
 # ROOT_DIR is the directory containing this script (the repo root).
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$ROOT_DIR/Scripts"

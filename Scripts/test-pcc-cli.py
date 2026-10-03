@@ -10,6 +10,7 @@ import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--binary", default=".build/release/afm")
+parser.add_argument("--expect-disabled", action="store_true", help="Verify normal builds omit PCC")
 args = parser.parse_args()
 checks = 0
 
@@ -22,6 +23,13 @@ def check(arguments, expected, success=False, stdin=None):
     checks += 1
     return result
 
+
+if args.expect_disabled:
+    help_result = check(["--help"], "USAGE:", success=True)
+    assert "pcc" not in help_result.stdout.lower(), help_result.stdout
+    check(["pcc", "status"], "unexpected arguments")
+    print(f"PCC disabled: {checks} checks passed; no inference requests sent.")
+    raise SystemExit(0)
 
 check(["pcc", "--help"], "Private Cloud Compute", success=True)
 for command in ["status", "respond", "chat", "serve"]:

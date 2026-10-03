@@ -4,6 +4,9 @@ import Foundation
 
 // Strip absolute build paths from __FILE__ macros in C++ warnings (privacy: don't leak dev machine paths)
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+// PCC is deferred from normal builds; only the dedicated development script opts in.
+let pccEnabled = ProcessInfo.processInfo.environment["AFM_ENABLE_PCC"] == "1"
+let pccSwiftSettings: [SwiftSetting] = pccEnabled ? [.define("AFM_ENABLE_PCC")] : []
 let foundationModelsDependencies: [Target.Dependency] = [
     .product(name: "AFMKitApple", package: "AFMKit")
 ]
@@ -206,6 +209,7 @@ let package = Package(
                 "AFMKitFoundationModels",
                 .product(name: "AFMKitServices", package: "AFMKit")
             ],
+            exclude: pccEnabled ? [] : ["PCCConfiguration.swift"],
             swiftSettings: [
                 // Enable optimizations for release builds
                 .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
@@ -296,8 +300,8 @@ let package = Package(
             exclude: [
                 // Embedded into the binary's __TEXT,__info_plist section via linker flags below.
                 "Info.plist"
-            ],
-            swiftSettings: [
+            ] + (pccEnabled ? [] : ["PCCCommand.swift"]),
+            swiftSettings: pccSwiftSettings + [
                 // Xcode 27 Beta 3 reports a false circular reference when this
                 // two-file CLI target is compiled with whole-module/Cross-
                 // module optimization. Runtime libraries retain their Release
@@ -354,6 +358,7 @@ let package = Package(
                 .product(name: "XCTVapor", package: "vapor"),
                 .product(name: "VaporTesting", package: "vapor")
             ],
+            exclude: pccEnabled ? [] : ["PCCConfigurationTests.swift", "PCCHTTPTests.swift"],
             resources: [
                 .copy("Fixtures")
             ],

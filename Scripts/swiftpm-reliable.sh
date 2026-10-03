@@ -2,8 +2,8 @@
 # Run SwiftPM with a targeted recovery for Xcode 27's explicit-module scanner.
 #
 # The swiftbuild driver can leave generated C modules unresolved (commonly
-# CAsyncHTTPClient, CSystem, CNIO*, and _NumericsShims). Xcode 27 Beta 3 is a
-# known-bad toolchain, so select the native driver up front there. Other Xcode
+# CAsyncHTTPClient, CSystem, CNIO*, and _NumericsShims). Xcode 27 Betas 3 and 4 are
+# known-bad toolchains, so select the native driver up front there. Other Xcode
 # versions start normally and use the native driver only after the exact scanner
 # failure signature. Checkouts and source patches are always preserved.
 
@@ -324,7 +324,7 @@ printf '%s\n' "$SUBCOMMAND" > "$OPERATION_STAMP"
 DRIVER="${AFM_SWIFTPM_DRIVER:-auto}"
 DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
 if [[ "$DRIVER" == "native" ]] ||
-   [[ "$DRIVER" == "auto" && "$DEVELOPER_DIR" == *"Xcode-27.0.0-Beta.3.app/Contents/Developer" ]]; then
+   [[ "$DRIVER" == "auto" && ( "$DEVELOPER_DIR" == *"Xcode-27.0.0-Beta.3.app/Contents/Developer" || "$DEVELOPER_DIR" == *"Xcode-27.0.0-Beta.4.app/Contents/Developer" ) ]]; then
     # Keep the driver stamp outside .build: `swift package clean` removes that
     # directory as part of scanner recovery, but must not invalidate the driver
     # identity and force another clean on the next invocation.
@@ -348,7 +348,7 @@ if [[ "$DRIVER" == "native" ]] ||
         mkdir -p "$ROOT_DIR/.build"
         printf '%s\n' "$DRIVER_ID" > "$DRIVER_STAMP"
     fi
-    echo "[swiftpm-reliable] Using native driver for Xcode 27 Beta 3." >&2
+    echo "[swiftpm-reliable] Using native driver for the selected toolchain." >&2
     if run_native "$PRIMARY_LOG" "$@"; then
         exit 0
     else

@@ -9,6 +9,12 @@ import Foundation
 import Synchronization
 import Darwin
 
+#if AFM_ENABLE_PCC
+private let pccSubcommands: [ParsableCommand.Type] = [PCCCommand.self]
+#else
+private let pccSubcommands: [ParsableCommand.Type] = []
+#endif
+
 // CLI-only conformance: AFMServer's TelegramReplyFormat stays free of ArgumentParser; the
 // `@Option` flag parsing it needs is supplied here. It's a String-RawRepresentable enum, so
 // ExpressibleByArgument's default rawValue-based init applies — an empty conformance suffices.
@@ -2134,12 +2140,11 @@ struct RootCommand: ParsableCommand {
         """,
         version: MacLocalAPI.buildVersion,
         subcommands: [
-            PCCCommand.self,
             MlxCommand.self, MLXConvertCommand.self, MLXAlignExecutorCommand.self,
             DwarfStarBenchmarkCommand.self,
             VisionCommand.self,
             SpeechCommand.self, EmbeddingsCommand.self,
-        ]
+        ] + pccSubcommands
     )
 
     @Option(name: [.customShort("s"), .long], help: "Run a single prompt without starting the server")
@@ -2344,6 +2349,13 @@ struct RootCommand: ParsableCommand {
 
 // Manual dispatch for subcommands to avoid flag conflicts between root and subcommands.
 // Subcommands are still registered in RootCommand.configuration so they appear in -h.
+#if AFM_ENABLE_PCC
+// Keep PCC options independent of the root parser.
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "pcc" {
+    PCCCommand.main(Array(CommandLine.arguments.dropFirst(2)))
+}
+#endif
+
 if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview" {
     if CommandLine.arguments.count != 3 {
         fputs("Invalid TUI preview invocation.\n", stderr)
@@ -2379,15 +2391,6 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "__tui-preview
         }
     } catch {
         DwarfStarBenchmarkCommand.exit(withError: error)
-    }
-} else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "pcc" {
-    // Parse independently so root options cannot consume PCC options.
-    let args = Array(CommandLine.arguments.dropFirst(2))
-    do {
-        var cmd = try PCCCommand.parseAsRoot(args)
-        try cmd.run()
-    } catch {
-        PCCCommand.exit(withError: error)
     }
 } else if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "mlx" {
     let args = Array(CommandLine.arguments.dropFirst(2))

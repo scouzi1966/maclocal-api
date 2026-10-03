@@ -15,7 +15,7 @@ resolve-release-dependencies: verify-afmkit-consumer-boundary
 # Build the release binary (portable by default)
 build: resolve-release-dependencies
 	@echo "🔨 Building AFM..."
-	@Scripts/swiftpm-reliable.sh build -c release \
+	@AFM_ENABLE_PCC=0 Scripts/swiftpm-reliable.sh build -c release \
 		--product afm \
 		-Xswiftc -disable-upcoming-feature \
 		-Xswiftc MemberImportVisibility

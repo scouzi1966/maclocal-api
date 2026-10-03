@@ -57,6 +57,7 @@ class PCCBuildTests(unittest.TestCase):
         self.assertTrue(commands[1][0].endswith("swiftpm-reliable.sh"))
         self.assertEqual(commands[1][1:6], ["build", "-c", "release", "--product", "afm"])
         self.assertIn(str(self.root / ".build-pcc"), commands[1][-1])
+        self.assertEqual(run.call_args_list[1].kwargs["env"]["AFM_ENABLE_PCC"], "1")
         self.assertEqual(commands[2][-1], "--check-only")
 
     def test_failed_preflight_never_signs(self):
