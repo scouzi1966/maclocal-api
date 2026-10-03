@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import subprocess
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'test-external-benchmarks.py'
@@ -62,6 +63,28 @@ class ContextCompletenessTests(unittest.TestCase):
         path = self.results / 'benchmark_results.csv'
         path.write_text(path.read_text().replace(',30,', ',nan,', 1))
         self.assertFalse(module.validate_context(self.root)['passed'])
+
+
+class ServerConfigurationTests(unittest.TestCase):
+    def arguments(self, **overrides):
+        return SimpleNamespace(**dict(dict(binary=Path('/candidate/afm'), model=Path('/model'),
+            port=9999, mtp=False, mtp_depth=3, prefill_step_size=None), **overrides))
+
+    def test_mtp_and_prefill_reach_both_suites(self):
+        args = self.arguments(mtp=True, mtp_depth=4, prefill_step_size=8192)
+        for phase in ('llmprobe', 'context'):
+            command = module.server_command(args, phase)
+            self.assertIn('--mtp', command)
+            self.assertEqual(command[command.index('--mtp-depth') + 1], '4')
+            self.assertEqual(command[command.index('--prefill-step-size') + 1], '8192')
+            self.assertEqual(command[command.index('--port') + 1], '9999')
+
+    def test_default_stays_non_speculative(self):
+        command = module.server_command(self.arguments(), 'context')
+        self.assertNotIn('--mtp', command)
+        self.assertNotIn('--mtp-depth', command)
+        self.assertNotIn('--prefill-step-size', command)
+        self.assertIn('--no-think', command)
 
 
 class ServerOwnershipTests(unittest.TestCase):

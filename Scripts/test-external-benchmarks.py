@@ -104,15 +104,24 @@ def run(command, log, cwd=None, owner=None):
             stop(process)
 
 
+def server_command(args, phase):
+    command = [str(args.binary), 'mlx', '-m', str(args.model), '--hostname', '127.0.0.1',
+               '--port', str(args.port), '--enable-grammar-constraints']
+    if args.mtp:
+        command += ['--mtp', '--mtp-depth', str(args.mtp_depth)]
+    if args.prefill_step_size is not None:
+        command += ['--prefill-step-size', str(args.prefill_step_size)]
+    if phase == 'context':
+        command.append('--no-think')
+    return command
+
+
 @contextlib.contextmanager
 def server(args, phase, output):
     with socket.socket() as sock:
         if sock.connect_ex(('127.0.0.1', args.port)) == 0:
             raise RuntimeError(f'Port {args.port} is occupied; no existing process will be stopped')
-    command = [str(args.binary), 'mlx', '-m', str(args.model), '--hostname', '127.0.0.1',
-               '--port', str(args.port), '--enable-grammar-constraints']
-    if phase == 'context':
-        command.append('--no-think')
+    command = server_command(args, phase)
     (output / 'server-command.json').write_text(json.dumps(command, indent=2))
     with (output / 'server.log').open('w') as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -168,7 +177,12 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='New output directory')
     parser.add_argument('--port', type=int, default=9999)
     parser.add_argument('--phase', choices=['all', 'llmprobe', 'context'], default='all')
+    parser.add_argument('--mtp', action='store_true', help='Exercise MTP in both external suites')
+    parser.add_argument('--mtp-depth', type=int, default=3)
+    parser.add_argument('--prefill-step-size', type=int)
     args = parser.parse_args()
+    if args.mtp_depth < 1 or (args.prefill_step_size is not None and args.prefill_step_size < 1):
+        parser.error('MTP depth and explicit prefill step size must be positive')
     for name in ['binary', 'model', 'llmprobe', 'context_harness', 'context_python']:
         setattr(args, name, existing_path(getattr(args, name)))
     if args.phase in ('all', 'context'):
@@ -180,7 +194,11 @@ def main():
     args.output = args.output.absolute()
     args.output.mkdir(parents=True, exist_ok=False)
     metadata = {'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
-                'model': str(args.model), 'speculation': 'off', 'harnesses': {}}
+                'model': str(args.model), 'speculation': 'mtp' if args.mtp else 'off',
+                'mtp_depth': args.mtp_depth if args.mtp else None,
+                'prefill_step_size': args.prefill_step_size,
+                'qwen_environment': {k: v for k, v in os.environ.items() if k.startswith('AFM_QWEN_')},
+                'harnesses': {}}
     for name, path in [('llmprobe', args.llmprobe.parent), ('context', args.context_harness)]:
         metadata['harnesses'][name] = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
     (args.output / 'metadata.json').write_text(json.dumps(metadata, indent=2))
