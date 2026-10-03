@@ -39,6 +39,9 @@ their own upstream provenance and do not replace AFM's internal assertions.
 A context process exiting zero is insufficient: all requested sizes and
 trials, positive finite metrics, and saved responses must be present. This
 checks completion, not a performance regression threshold or response quality.
+The upstream CSV reports peak throughput across the two trials, not their
+average. Preserve the per-trial log when quoting those figures, and report
+actual prompt-token counts alongside nominal context sizes.
 A nonzero llmprobe result is retained as a failure for review, including any
 unsupported surfaces and inconclusive cases reported by that tool.
 
