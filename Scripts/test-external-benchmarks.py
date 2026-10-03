@@ -111,6 +111,8 @@ def server_command(args, phase):
         command += ['--mtp', '--mtp-depth', str(args.mtp_depth)]
     if args.prefill_step_size is not None:
         command += ['--prefill-step-size', str(args.prefill_step_size)]
+    if args.concurrent_capacity != 1:
+        command += ['--concurrent', str(args.concurrent_capacity)]
     if phase == 'context':
         command.append('--no-think')
     return command
@@ -180,9 +182,13 @@ def main():
     parser.add_argument('--mtp', action='store_true', help='Exercise MTP in both external suites')
     parser.add_argument('--mtp-depth', type=int, default=3)
     parser.add_argument('--prefill-step-size', type=int)
+    parser.add_argument('--concurrent-capacity', type=int, default=1,
+                        help='AFM server capacity; Context still sends one request at a time')
     args = parser.parse_args()
     if args.mtp_depth < 1 or (args.prefill_step_size is not None and args.prefill_step_size < 1):
         parser.error('MTP depth and explicit prefill step size must be positive')
+    if args.concurrent_capacity < 1:
+        parser.error('Concurrent server capacity must be positive')
     for name in ['binary', 'model', 'llmprobe', 'context_harness', 'context_python']:
         setattr(args, name, existing_path(getattr(args, name)))
     if args.phase in ('all', 'context'):
@@ -197,6 +203,7 @@ def main():
                 'model': str(args.model), 'speculation': 'mtp' if args.mtp else 'off',
                 'mtp_depth': args.mtp_depth if args.mtp else None,
                 'prefill_step_size': args.prefill_step_size,
+                'server_concurrent_capacity': args.concurrent_capacity,
                 'qwen_environment': {k: v for k, v in os.environ.items() if k.startswith('AFM_QWEN_')},
                 'harnesses': {}}
     for name, path in [('llmprobe', args.llmprobe.parent), ('context', args.context_harness)]:

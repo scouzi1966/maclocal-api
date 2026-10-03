@@ -68,7 +68,8 @@ class ContextCompletenessTests(unittest.TestCase):
 class ServerConfigurationTests(unittest.TestCase):
     def arguments(self, **overrides):
         return SimpleNamespace(**dict(dict(binary=Path('/candidate/afm'), model=Path('/model'),
-            port=9999, mtp=False, mtp_depth=3, prefill_step_size=None), **overrides))
+            port=9999, mtp=False, mtp_depth=3, prefill_step_size=None,
+            concurrent_capacity=1), **overrides))
 
     def test_mtp_and_prefill_reach_both_suites(self):
         args = self.arguments(mtp=True, mtp_depth=4, prefill_step_size=8192)
@@ -85,6 +86,12 @@ class ServerConfigurationTests(unittest.TestCase):
         self.assertNotIn('--mtp-depth', command)
         self.assertNotIn('--prefill-step-size', command)
         self.assertIn('--no-think', command)
+        self.assertNotIn('--concurrent', command)
+
+    def test_server_capacity_reaches_both_suites(self):
+        for phase in ('llmprobe', 'context'):
+            command = module.server_command(self.arguments(concurrent_capacity=2), phase)
+            self.assertEqual(command[command.index('--concurrent') + 1], '2')
 
 
 class ServerOwnershipTests(unittest.TestCase):
