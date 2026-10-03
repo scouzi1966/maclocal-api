@@ -23,6 +23,13 @@ TEST_TIMEOUT = 10800
 STOP_TIMEOUT = 30
 
 
+def existing_path(path):
+    # Validate the target without replacing a virtualenv's Python symlink:
+    # invoking its resolved base interpreter loses the environment's packages.
+    path.resolve(strict=True)
+    return path.absolute()
+
+
 def validate_context(root):
     """The upstream process can exit zero after partial runs; require every trial."""
     errors = []
@@ -163,7 +170,7 @@ def main():
     parser.add_argument('--phase', choices=['all', 'llmprobe', 'context'], default='all')
     args = parser.parse_args()
     for name in ['binary', 'model', 'llmprobe', 'context_harness', 'context_python']:
-        setattr(args, name, getattr(args, name).resolve(strict=True))
+        setattr(args, name, existing_path(getattr(args, name)))
     if args.phase in ('all', 'context'):
         dependencies = subprocess.run(
             [str(args.context_python), '-c', 'import openai, matplotlib, numpy, psutil'],

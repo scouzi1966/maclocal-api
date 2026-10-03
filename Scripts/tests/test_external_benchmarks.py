@@ -38,6 +38,17 @@ class ContextCompletenessTests(unittest.TestCase):
     def test_complete_run_passes(self):
         self.assertTrue(module.validate_context(self.root)['passed'])
 
+    def test_python_symlink_preserves_virtualenv_entrypoint(self):
+        base = self.root / 'base-python'
+        base.touch()
+        interpreter = self.root / 'venv-python'
+        interpreter.symlink_to(base)
+        self.assertEqual(module.existing_path(interpreter), interpreter)
+
+    def test_missing_input_is_rejected(self):
+        with self.assertRaises(FileNotFoundError):
+            module.existing_path(self.root / 'missing-python')
+
     def test_exit_zero_with_missing_trial_fails(self):
         path = self.root / 'context.log'
         path.write_text(path.read_text().replace('  Run 2/2...\n  generation_tps: 30.0\n  Completion tokens: 128', '', 1))
