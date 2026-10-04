@@ -67,7 +67,7 @@ Same-harness CLI-only comparison (first repaired arm versus unpatched control):
 
 All twelve measured outputs match exactly. All prefill cells pass the 3%
 regression gate. These numbers do not replace the faster historical baseline.
-Reversed-order repeats and long-context requalification remain required.
+Subsequent repeats and long-context measurements are recorded below.
 
 The repeated repaired arm produced 89.24 / 85.34 / 80.21 / 86.26 tok/s;
 all twelve outputs again match the unpatched CLI-profile control exactly.
@@ -75,6 +75,16 @@ The final retained-binary control produced 96.13 / 97.54 / 88.64 / 97.15.
 Thus the 9–13% historical short-context deficit remains reproducible; do not
 mark the overall regression resolved. A draft-shortlist-off diagnostic produced
 87.26 / 83.69 / 78.79 / 84.56, so it is not promoted.
+
+Disabling verifier QMM produced 84.09 / 87.08 / 78.94 / 82.73, with no
+across-context win, so it is also not promoted. No experimental overrides are
+added to the CLI profile from these screens.
+
+The repaired CLI-only long sweep (two measured trials per context after a
+separate warmup) reports means of 81.83 at 2K, 71.80 at 8K, 76.07 at 16K, and
+69.65 tok/s at 32K. This uses different prompt-marker scheduling from the
+initial qualification; do not claim a causal delta against its independent
+CSV phase peaks. Evidence: `cache-only-head-api-profile-fixed-long-20261004`.
 
 ## Regression gate usage
 
