@@ -77,6 +77,34 @@ XCTest. The comprehensive suite with `codex-glm` as judge is running from the
 frozen `candidate-runtime-hc-20261004` binary. Broader release qualification
 and historical-performance recovery are still pending.
 
+## Rejected submission-cadence screen
+
+Same native checkpoint, frozen experimental binary, matched prompts, three
+trials, MTP depth 3. Only the diagnostic scheduling override differs; ordinary
+qualification uses the CLI profile without overrides. These are decode means:
+
+| Verifier cadence | 0.5K | 1K | 2K | 4K |
+|---|---:|---:|---:|---:|
+| Existing 2 | 87.59 | 85.89 | 79.35 | 84.99 |
+| 0 | 81.28 | 78.41 | 69.17 | 75.21 |
+| 1 | 89.67 | 86.00 | 79.48 | 85.84 |
+| 4 | 88.91 | 85.06 | 76.34 | 84.89 |
+| 8 | 88.16 | 84.37 | 77.80 | 84.10 |
+
+All outputs are identical to the existing cadence. No setting is promoted:
+cadence 0 is materially worse, 4 fails the 3% gate at 2K, 8 is not a win,
+and 1's small gains do not recover the historical deficit or justify another
+release setting. Same-checkpoint reference remains unavailable for native
+community; the overlay reference is not substituted here.
+
+Separate host diagnostics show the current verifier's build/submission phase
+absorbs work that the retained binary waits for in its decision phase. Summing
+both is necessary: calling the difference a 6x graph-build regression would
+be false. For measured 128-token requests, current build+decision is about
+28.9–31.8 ms/cycle versus retained 26.5–29.1 ms/cycle. Draft acceptance varies
+by prompt/output trajectory. These profiled runs are attribution evidence,
+not clean speed gates. The regression checker now explicitly rejects them.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
