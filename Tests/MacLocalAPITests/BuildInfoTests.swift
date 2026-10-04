@@ -7,7 +7,9 @@ final class BuildInfoTests: XCTestCase {
     }
 
     func testBaseVersionIsNextRelease() {
-        XCTAssertEqual(BuildInfo.resolvedVersion(override: nil), "v0.9.20")
+        XCTAssertEqual(BuildInfo.version, "v0.9.20")
+        let expected = BuildInfo.commit.map { "v0.9.20-\($0)" } ?? "v0.9.20"
+        XCTAssertEqual(BuildInfo.resolvedVersion(override: nil), expected)
     }
 
     func testBuildVersionOverridePreservesVersionPrefix() {
@@ -25,6 +27,7 @@ final class BuildInfoTests: XCTestCase {
     }
 
     func testBlankBuildVersionOverrideUsesBaseVersion() {
-        XCTAssertEqual(BuildInfo.resolvedVersion(override: "  "), "v0.9.20")
+        XCTAssertEqual(BuildInfo.resolvedVersion(override: "  "),
+                       BuildInfo.resolvedVersion(override: nil))
     }
 }
