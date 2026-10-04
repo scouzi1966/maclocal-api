@@ -31,6 +31,10 @@ checkpoint's historical performance gap remains a separate open gate.
 All eight experimental metrics pass the 3% regression threshold against the
 control. All twelve AFM output texts are exactly unchanged. This does not
 establish broader semantic quality parity with the reference.
+Cross-engine checks confirm all twelve prompt hashes and prompt-token counts
+match. Only two generated texts are byte-identical across engines; semantic
+quality must therefore be assessed independently rather than inferred from
+the timing match.
 
 The earlier roughly 30% 2K decode shortfall does not reproduce with this exact
 prompt set. Earlier full runs used different cold markers; do not attribute
