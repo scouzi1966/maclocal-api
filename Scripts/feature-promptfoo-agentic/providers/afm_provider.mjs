@@ -186,6 +186,21 @@ export default class AfmPromptfooProvider {
         args.push('--mtp');
         if (mtpModel) args.push('--mtp-model', mtpModel);
       }
+      for (const [name, flag] of [
+        ['AFM_MTP_DEPTH', '--mtp-depth'],
+        ['AFM_PREFILL_STEP_SIZE', '--prefill-step-size'],
+        ['AFM_CONCURRENT_CAPACITY', '--concurrent'],
+      ]) {
+        const value = readEnv(name);
+        if (!value) continue;
+        if (!/^\d+$/.test(value) || Number(value) < 1 ||
+            (name === 'AFM_MTP_DEPTH' && mtp !== '1')) {
+          throw new Error(name === 'AFM_MTP_DEPTH'
+            ? 'AFM_MTP_DEPTH requires AFM_MTP=1 and a positive integer'
+            : `${name} must be a positive integer`);
+        }
+        args.push(flag, value);
+      }
       if (dsparkSupport) {
         if (!statSync(dsparkSupport).isFile()) {
           throw new Error('AFM_DSPARK_SUPPORT must name an existing support GGUF file');

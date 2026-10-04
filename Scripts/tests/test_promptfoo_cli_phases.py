@@ -105,7 +105,9 @@ class PromptfooCLIPhasesTests(unittest.TestCase):
                        FIXTURE_SERVER_MARKER=str(work / 'server-alive'),
                        FIXTURE_PROVIDER_SCRIPT=str(provider_script),
                        FIXTURE_FAIL_API='1' if fail_api else '0')
-            if mode == 'mtp': env.update(AFM_MTP='1', AFM_MTP_MODEL=str(head))
+            if mode == 'mtp': env.update(AFM_MTP='1', AFM_MTP_MODEL=str(head),
+                                         AFM_MTP_DEPTH='3', AFM_PREFILL_STEP_SIZE='8192',
+                                         AFM_CONCURRENT_CAPACITY='2')
             if mode == 'dspark': env.update(AFM_DSPARK_SUPPORT=str(support))
             if mode == 'invalid-head': env.update(AFM_MTP_MODEL=str(head))
             result = subprocess.run(
@@ -128,7 +130,12 @@ class PromptfooCLIPhasesTests(unittest.TestCase):
                 self.assertEqual(args.count('--no-think'), 1)
                 self.assertEqual(args.count('--mtp'), int(mode == 'mtp'))
                 self.assertEqual(args.count('--dspark-support'), int(mode == 'dspark'))
-                if mode == 'mtp': self.assertEqual(args[args.index('--mtp-model') + 1], str(head))
+                if mode == 'mtp':
+                    self.assertEqual(args[args.index('--mtp-model') + 1], str(head))
+                    for flag, value in [('--mtp-depth', '3'), ('--prefill-step-size', '8192'),
+                                        ('--concurrent', '2')]:
+                        self.assertEqual(args.count(flag), 1)
+                        self.assertEqual(args[args.index(flag) + 1], value)
                 if mode == 'dspark': self.assertEqual(args[args.index('--dspark-support') + 1], str(support))
             summary = json.loads((reports / 'promptfoo-summary-fixture_model.json').read_text())
             category = summary['categories']['nativeProtocolConformance']
