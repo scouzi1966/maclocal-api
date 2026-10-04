@@ -30,6 +30,23 @@ class ContextRegressionTests(unittest.TestCase):
     def test_equal_passes(self):
         self.assertTrue(self.check(self.fixture(), self.fixture())["passed"])
 
+    def test_diagnostic_runs_rejected_on_either_side(self):
+        for side in (0, 1):
+            for nested in (False, True):
+                pair = [self.fixture(), self.fixture()]
+                metadata = pair[side][0]
+                target = metadata["experiment"] if nested else metadata
+                target["diagnostic_only"] = True
+                with self.assertRaisesRegex(ValueError, "Diagnostic"):
+                    self.check(*pair)
+
+    def test_changed_checkpoint_config_rejected(self):
+        old, new = self.fixture(), self.fixture()
+        old[0]["config_sha256"] = "before"
+        new[0]["config_sha256"] = "after"
+        with self.assertRaisesRegex(ValueError, "configuration"):
+            self.check(old, new)
+
     def test_twenty_percent_loss_fails(self):
         self.assertFalse(self.check(self.fixture(), self.fixture(80))["performance_passed"])
 

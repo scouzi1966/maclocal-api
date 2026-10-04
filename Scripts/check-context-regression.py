@@ -64,8 +64,13 @@ def compare(baseline, candidate, tolerance):
         raise ValueError("Invalid tolerance")
     old_meta, old, old_text = load_run(baseline)
     new_meta, new, new_text = load_run(candidate)
+    for metadata in (old_meta, new_meta):
+        if metadata.get("diagnostic_only") or metadata["experiment"].get("diagnostic_only"):
+            raise ValueError("Diagnostic runs cannot qualify clean performance")
     if old_meta["checkpoint"] != new_meta["checkpoint"]:
         raise ValueError("Checkpoint paths differ")
+    if old_meta.get("config_sha256") != new_meta.get("config_sha256"):
+        raise ValueError("Checkpoint configuration digests differ")
     if old_meta.get("community_revision") != new_meta.get("community_revision"):
         raise ValueError("Checkpoint revisions differ")
     if old_meta.get("benchmark_arguments") != new_meta.get("benchmark_arguments"):
