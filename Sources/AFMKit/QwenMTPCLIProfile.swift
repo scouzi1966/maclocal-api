@@ -4,6 +4,7 @@ import Foundation
 public enum QwenMTPCLIProfile: String, CaseIterable, Sendable {
     case off
     case throughputV1 = "throughput-v1"
+    case throughputV2 = "throughput-v2"
 
     public static let environmentKey = "AFM_QWEN_MTP_PROFILE"
 
@@ -13,7 +14,7 @@ public enum QwenMTPCLIProfile: String, CaseIterable, Sendable {
         public var errorDescription: String? {
             switch self {
             case .unknown(let value):
-                return "Unknown Qwen MTP profile '\(value)'; use throughput-v1 or off."
+                return "Unknown Qwen MTP profile '\(value)'; use throughput-v1, throughput-v2 or off."
             }
         }
     }

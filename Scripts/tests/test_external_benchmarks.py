@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline completeness regression tests; never start a model."""
 import csv
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -59,6 +60,21 @@ class ContextCompletenessTests(unittest.TestCase):
         (self.results / 'response_32k.txt').unlink()
         self.assertFalse(module.validate_context(self.root)['passed'])
 
+    def test_duplicate_or_out_of_range_trial_fails(self):
+        path = self.root / 'context.log'
+        original = path.read_text()
+        for number in ('1', '99'):
+            path.write_text(original.replace('Run 2/2', f'Run {number}/2', 1))
+            self.assertFalse(module.validate_context(self.root)['passed'])
+
+    def test_vision_requires_config_and_present_weights(self):
+        (self.root / 'config.json').write_text(json.dumps({'vision_config': {'depth': 27}}))
+        (self.root / 'model.safetensors.index.json').write_text(json.dumps({
+            'weight_map': {'vision_tower.blocks.0.weight': 'vision.safetensors'}}))
+        self.assertFalse(module.checkpoint_has_vision(self.root))
+        (self.root / 'vision.safetensors').touch()
+        self.assertTrue(module.checkpoint_has_vision(self.root))
+
     def test_nonfinite_metrics_fail(self):
         path = self.results / 'benchmark_results.csv'
         path.write_text(path.read_text().replace(',30,', ',nan,', 1))
@@ -92,6 +108,14 @@ class ServerConfigurationTests(unittest.TestCase):
         for phase in ('llmprobe', 'context'):
             command = module.server_command(self.arguments(concurrent_capacity=2), phase)
             self.assertEqual(command[command.index('--concurrent') + 1], '2')
+
+    def test_vision_and_named_profile_reach_both_suites(self):
+        args = self.arguments(vlm=True, qwen_mtp_profile='throughput-v2')
+        for phase in ('llmprobe', 'context'):
+            command = module.server_command(args, phase)
+            self.assertIn('--vlm', command)
+            self.assertEqual(command[command.index('--qwen-mtp-profile') + 1], 'throughput-v2')
+        self.assertNotIn('--no-think', module.server_command(args, 'llmprobe'))
 
 
 class ServerOwnershipTests(unittest.TestCase):

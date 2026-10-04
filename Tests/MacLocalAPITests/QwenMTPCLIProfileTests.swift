@@ -13,6 +13,8 @@ final class QwenMTPCLIProfileTests: XCTestCase {
             environment: [QwenMTPCLIProfile.environmentKey: " Throughput-V1\n"]), .throughputV1)
         XCTAssertEqual(try QwenMTPCLIProfile.resolve(option: nil,
             environment: [QwenMTPCLIProfile.environmentKey: "OFF"]), .off)
+        XCTAssertEqual(try QwenMTPCLIProfile.resolve(option: nil,
+            environment: [QwenMTPCLIProfile.environmentKey: " Throughput-V2\n"]), .throughputV2)
     }
 
     func testExplicitCLISelectionOverridesEvenInvalidEnvironment() throws {
@@ -29,7 +31,7 @@ final class QwenMTPCLIProfileTests: XCTestCase {
     func testInvalidEnvironmentReportsSupportedChoicesBeforeLoading() {
         XCTAssertThrowsError(try QwenMTPCLIProfile.resolve(option: nil,
             environment: [QwenMTPCLIProfile.environmentKey: "fastest"])) { error in
-            XCTAssertTrue(error.localizedDescription.contains("throughput-v1 or off"))
+            XCTAssertTrue(error.localizedDescription.contains("throughput-v2 or off"))
         }
     }
 }

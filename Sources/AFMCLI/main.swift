@@ -294,7 +294,7 @@ struct MlxCommand: ParsableCommand {
           --enable-prefix-caching: Deprecated compatibility option; prefix caching is already enabled by default
           --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
           --mtp-depth: Maximum MTP draft depth for supported model runtimes
-          --qwen-mtp-profile: Select the Qwen Next MTP tuning profile (throughput-v1 or off)
+          --qwen-mtp-profile: Select the Qwen Next MTP tuning profile (throughput-v1, throughput-v2 or off)
           --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
           --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
@@ -561,7 +561,7 @@ struct MlxCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum number of MTP draft tokens per verification cycle for supported model runtimes. Greater depth can reduce throughput when drafts are rejected; benchmark with your model and workload.")
     var mtpDepth: Int = 1
 
-    @Option(name: .customLong("qwen-mtp-profile"), help: "Qwen Next MTP tuning profile: throughput-v1 or off. Overrides AFM_QWEN_MTP_PROFILE; individual tuning overrides remain effective. Use with --mtp.")
+    @Option(name: .customLong("qwen-mtp-profile"), help: "Qwen Next MTP tuning profile: throughput-v1, throughput-v2 or off. Overrides AFM_QWEN_MTP_PROFILE; individual tuning overrides remain effective. Use with --mtp.")
     var qwenMTPProfile: QwenMTPCLIProfile?
 
     @Option(name: .customLong("mtp-model"), help: "Override the automatically selected MTP head with a Hugging Face repo, local directory, or .safetensors file.")
