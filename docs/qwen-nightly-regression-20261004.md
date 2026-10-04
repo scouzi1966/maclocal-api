@@ -47,7 +47,36 @@ The provider fix routes both owners through the resolver and adds fresh-process
 activation tests. The corrected arithmetic remains unchanged. Performance and
 quality requalification are still required; this fix is not proof of parity.
 
-## Regression gate
+## Profile repair validation (interim)
+
+Kernel-owner activation passes in three fresh test processes: profile absent,
+`throughput-v2`, and v2 with both affected flags explicitly set to zero.
+Release rebuild passed. The repaired diagnostic binary SHA256 is
+`7418ee0092d3598d8f72275414731c4d91e80b570726902b09bb7fc27cd531b2`.
+The provider change is `f69eae4a`; it changes configuration lookup only,
+not projection arithmetic.
+
+Same-harness CLI-only comparison (first repaired arm versus unpatched control):
+
+| Context | Unpatched CLI v2 | Repaired CLI v2 | Decode improvement |
+|---|---:|---:|---:|
+| 0.5K | 81.11 | 87.90 | +8.4% |
+| 1K | 77.68 | 85.07 | +9.5% |
+| 2K | 70.85 | 79.74 | +12.6% |
+| 4K | 78.89 | 85.74 | +8.7% |
+
+All twelve measured outputs match exactly. All prefill cells pass the 3%
+regression gate. These numbers do not replace the faster historical baseline.
+Reversed-order repeats and long-context requalification remain required.
+
+The repeated repaired arm produced 89.24 / 85.34 / 80.21 / 86.26 tok/s;
+all twelve outputs again match the unpatched CLI-profile control exactly.
+The final retained-binary control produced 96.13 / 97.54 / 88.64 / 97.15.
+Thus the 9–13% historical short-context deficit remains reproducible; do not
+mark the overall regression resolved. A draft-shortlist-off diagnostic produced
+87.26 / 83.69 / 78.79 / 84.56, so it is not promoted.
+
+## Regression gate usage
 
 `Scripts/check-context-regression.py BASELINE_CASE CANDIDATE_CASE` checks raw
 trial completeness, matching checkpoint metadata, prompt hashes, token counts,
