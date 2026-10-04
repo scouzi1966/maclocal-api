@@ -89,9 +89,11 @@ set -e
 [[ "$invalid_status" == "1" ]]
 [[ "$invalid_output" == "AFM_NO_THINK must be 0 or 1" ]]
 
-tuned_line="$(trace_launch default AFM_MTP=1 AFM_MTP_DEPTH=4 AFM_PREFILL_STEP_SIZE=8192 | server_argv)"
+tuned_line="$(trace_launch default AFM_MTP=1 AFM_MTP_DEPTH=4 AFM_PREFILL_STEP_SIZE=8192 AFM_CONCURRENT_CAPACITY=2 | server_argv)"
 [[ "$tuned_line" == *"--mtp-depth 4"* ]]
 [[ "$tuned_line" == *"--prefill-step-size 8192"* ]]
+[[ "$tuned_line" == *"--concurrent 2"* ]]
+[[ "$(print -r -- "$tuned_line" | occurrences --concurrent)" == "1" ]]
 
 for bad_value in 0 -1 invalid; do
   set +e
@@ -99,9 +101,13 @@ for bad_value in 0 -1 invalid; do
   depth_status=$?
   prefill_output="$(AFM_PREFILL_STEP_SIZE="$bad_value" "$runner" all 2>&1)"
   prefill_status=$?
+  capacity_output="$(AFM_CONCURRENT_CAPACITY="$bad_value" "$runner" all 2>&1)"
+  capacity_status=$?
   set -e
   [[ "$depth_status" == "1" ]]
   [[ "$depth_output" == "AFM_MTP_DEPTH requires AFM_MTP=1 and a positive integer" ]]
+  [[ "$capacity_status" == "1" ]]
+  [[ "$capacity_output" == "AFM_CONCURRENT_CAPACITY must be a positive integer" ]]
   [[ "$prefill_status" == "1" ]]
   [[ "$prefill_output" == "AFM_PREFILL_STEP_SIZE must be a positive integer" ]]
 done

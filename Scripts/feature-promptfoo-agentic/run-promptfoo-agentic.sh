@@ -16,6 +16,7 @@ dspark_support="${AFM_DSPARK_SUPPORT:-}"
 mtp_model="${AFM_MTP_MODEL:-}"
 mtp_depth="${AFM_MTP_DEPTH:-}"
 prefill_step_size="${AFM_PREFILL_STEP_SIZE:-}"
+concurrent_capacity="${AFM_CONCURRENT_CAPACITY:-}"
 load_timeout="${AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS:-60}"
 summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
@@ -43,6 +44,10 @@ if [[ -n "$mtp_depth" && ( "${AFM_MTP:-0}" != "1" || "$mtp_depth" != <-> || "$mt
 fi
 if [[ -n "$prefill_step_size" && ( "$prefill_step_size" != <-> || "$prefill_step_size" -lt 1 ) ]]; then
   echo "AFM_PREFILL_STEP_SIZE must be a positive integer" >&2
+  exit 1
+fi
+if [[ -n "$concurrent_capacity" && ( "$concurrent_capacity" != <-> || "$concurrent_capacity" -lt 1 ) ]]; then
+  echo "AFM_CONCURRENT_CAPACITY must be a positive integer" >&2
   exit 1
 fi
 if [[ -n "$mtp_model" && ( "${AFM_MTP:-0}" != "1" || ! -d "$mtp_model" ) ]]; then
@@ -137,6 +142,12 @@ start_server() {
   fi
   local -a extra_args=()
   local log_file="${out_dir}/server-${profile}.log"
+
+  # Explicit concurrency phases retain their two-slot test contract. Other
+  # phases may qualify a chosen scheduler capacity without duplicate flags.
+  if [[ -n "$concurrent_capacity" && "$profile" != grammar-enabled-concurrent && "$profile" != grammar-enabled-concurrent-cache ]]; then
+    extra_args+=(--concurrent "$concurrent_capacity")
+  fi
 
   case "$profile" in
     default)
