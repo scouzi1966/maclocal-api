@@ -1,6 +1,7 @@
 """Exercise skip-build rejection before the wrapper can invalidate products."""
 
 import os
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -66,6 +67,33 @@ class SkipBuildTests(unittest.TestCase):
     def test_existing_test_build_reaches_normal_validation(self):
         (self.state / "last-operation-release").write_text("test\n")
         result = self.invoke("--skip-build", "--configuration", "release")
+        self.assertNotIn("Cannot use --skip-build", result.stderr)
+        self.assertIn("Unable to run the selected Swift compiler", result.stderr)
+        self.assert_preserved()
+
+    def custom_stamp(self, scratch):
+        key = hashlib.sha256(os.fsencode(scratch.resolve())).hexdigest()[:20]
+        return self.state / f"last-operation-release-{key}"
+
+    def test_custom_scratch_does_not_reuse_default_test_stamp(self):
+        (self.state / "last-operation-release").write_text("test\n")
+        result = self.invoke("-c", "release", "--skip-build", "--scratch-path", "provider-tests")
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("fixture compiler reached", result.stderr)
+        self.assert_preserved()
+
+    def test_custom_test_survives_build_in_default_scratch(self):
+        (self.state / "last-operation-release").write_text("build\n")
+        self.custom_stamp(self.root / "provider-tests").write_text("test\n")
+        result = self.invoke("-c", "release", "--skip-build", "--scratch-path=provider-tests")
+        self.assertNotIn("Cannot use --skip-build", result.stderr)
+        self.assertIn("Unable to run the selected Swift compiler", result.stderr)
+        self.assert_preserved()
+
+    def test_last_scratch_option_selects_stamp_and_normalizes_path(self):
+        self.custom_stamp(self.root / "provider-tests").write_text("test\n")
+        result = self.invoke("-c", "release", "--skip-build", "--scratch-path", "/unused",
+                             "--scratch-path=./provider-tests")
         self.assertNotIn("Cannot use --skip-build", result.stderr)
         self.assertIn("Unable to run the selected Swift compiler", result.stderr)
         self.assert_preserved()

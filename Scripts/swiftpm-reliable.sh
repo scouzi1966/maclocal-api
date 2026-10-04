@@ -19,6 +19,36 @@ if [[ "$SUBCOMMAND" != "build" && "$SUBCOMMAND" != "test" ]]; then
 fi
 shift
 
+# Build/test transitions belong to a product directory, not the repository.
+# A consumer build must not invalidate a separate provider XCTest scratch tree.
+operation_stamp_path() {
+    local configuration="$1"
+    shift
+    local scratch="$ROOT_DIR/.build"
+    local previous=""
+    local argument
+    for argument in "$@"; do
+        if [[ "$previous" == "--scratch-path" ]]; then
+            scratch="$argument"
+        else
+            case "$argument" in
+                --scratch-path=*) scratch="${argument#*=}" ;;
+            esac
+        fi
+        previous="$argument"
+    done
+    python3 - "$ROOT_DIR" "$scratch" "$configuration" <<'PYCODE'
+import hashlib
+import os
+import sys
+root, scratch, configuration = sys.argv[1:]
+scratch = os.path.realpath(os.path.join(root, scratch))
+default = os.path.realpath(os.path.join(root, ".build"))
+suffix = "" if scratch == default else "-" + hashlib.sha256(os.fsencode(scratch)).hexdigest()[:20]
+print(os.path.join(root, ".build-reliable-state", "last-operation-" + configuration + suffix))
+PYCODE
+}
+
 # --skip-build must not enter the build-to-test invalidation path: that would
 # delete the very executable SwiftPM has been instructed to reuse. Check before
 # preparing workspaces, staging resources, or invoking any build tooling.
@@ -36,7 +66,8 @@ for argument in "$@"; do
     previous_argument="$argument"
 done
 if [[ "$SUBCOMMAND" == "test" && "$SKIP_BUILD" == "1" ]]; then
-    previous_test_operation="$(cat "$ROOT_DIR/.build-reliable-state/last-operation-${SKIP_CONFIGURATION}" 2>/dev/null || true)"
+    skip_operation_stamp="$(operation_stamp_path "$SKIP_CONFIGURATION" "$@")" || exit $?
+    previous_test_operation="$(cat "$skip_operation_stamp" 2>/dev/null || true)"
     if [[ "$previous_test_operation" != "test" ]]; then
         echo "[swiftpm-reliable] Cannot use --skip-build without a preceding test build for ${SKIP_CONFIGURATION}." >&2
         echo "[swiftpm-reliable] Existing products were preserved. Run this test command without --skip-build first." >&2
@@ -448,7 +479,7 @@ if [[ "$SUBCOMMAND" == "test" ]]; then
         "$SCRATCH_PATH" \
         "$STATE_DIR" || exit $?
 fi
-OPERATION_STAMP="$STATE_DIR/last-operation-${CONFIGURATION}"
+OPERATION_STAMP="$(operation_stamp_path "$CONFIGURATION" "$@")" || exit $?
 PREVIOUS_OPERATION="$(cat "$OPERATION_STAMP" 2>/dev/null || true)"
 if [[ "$SUBCOMMAND" == "test" && "$PREVIOUS_OPERATION" == "build" ]]; then
     echo "[swiftpm-reliable] Release build preceded tests; invalidating non-testable products." >&2
