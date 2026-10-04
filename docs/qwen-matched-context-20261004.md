@@ -65,8 +65,13 @@ All eight native metrics pass the 3% gate; all twelve texts are identical.
 The reference did not load this native checkpoint in the tested configuration.
 Do not substitute its overlay numbers as native engine parity. This change
 does not recover the native checkpoint's historical decode high-water mark.
-API qualification is running on the experimental binary; broader release
-qualification is still pending.
+API qualification completed on the experimental binary: **116/116 passed,
+two capability skips**. Coverage includes prefix cache, concurrent/batch
+dispatch, grammar, tool parsing, stop/streaming, and sampling interactions.
+Evidence: `dynamic-rows-native-api/assertions/`. This is not a rerun of source
+XCTest. The comprehensive suite with `codex-glm` as judge is running from the
+frozen `candidate-runtime-hc-20261004` binary. Broader release qualification
+and historical-performance recovery are still pending.
 
 ## Evidence root
 
