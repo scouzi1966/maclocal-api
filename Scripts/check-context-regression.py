@@ -14,10 +14,54 @@ from statistics import mean
 
 DEFAULT_TOLERANCE_PERCENT = 3.0
 METRICS = ("prompt_tps_e2e", "generation_tps")
+HASH_CHUNK_BYTES = 1024 * 1024
 
 
 def records(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def verify_runtime_provenance(directory, metadata, server):
+    proof_paths = [directory / f"provenance-{stage}.json" for stage in ("before", "after")]
+    keys = ("pinned_binary", "runtime_manifest")
+    if not any(key in metadata for key in keys) and not any(path.exists() for path in proof_paths):
+        return "legacy-unverified"
+    pinned = metadata.get("pinned_binary")
+    manifest = metadata.get("runtime_manifest")
+    if (not isinstance(pinned, str) or not pinned or not Path(pinned).is_absolute()
+            or server[0] != pinned or not isinstance(manifest, dict) or not manifest):
+        raise ValueError("Incomplete or mismatched pinned runtime provenance")
+    for name, digest in manifest.items():
+        if (not isinstance(name, str) or not name or Path(name).is_absolute()
+                or ".." in Path(name).parts or not isinstance(digest, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+            raise ValueError("Invalid pinned runtime manifest")
+    binary_digest = metadata.get("binary_sha256")
+    if manifest.get(Path(pinned).name) != binary_digest:
+        raise ValueError("Pinned executable disagrees with recorded binary hash")
+    for path in proof_paths:
+        proof = json.loads(path.read_text())
+        if (not isinstance(proof, dict) or proof.get("binary_sha256") != binary_digest
+                or proof.get("runtime_manifest") != manifest):
+            raise ValueError("Pinned runtime before/after proof disagrees with metadata")
+    # Archives may be relocated. Prefer their retained layout; otherwise verify
+    # the original pinned path. Never substitute the mutable source executable.
+    roots = (directory / "runtime", directory.parent / "runtime", Path(pinned).parent)
+    root = next((candidate for candidate in roots if candidate.is_dir()), None)
+    if root is None:
+        raise ValueError("Pinned runtime payload is unavailable for verification")
+    observed = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(HASH_CHUNK_BYTES), b""):
+                digest.update(chunk)
+        observed[str(path.relative_to(root))] = digest.hexdigest()
+    if observed != manifest:
+        raise ValueError("Retained pinned executable or resource bytes changed")
+    return "pinned-runtime-sha256-verified"
 
 
 def load_run(directory):
@@ -29,6 +73,7 @@ def load_run(directory):
     server = json.loads((directory / "server-command.json").read_text())
     if not isinstance(server, list) or len(server) < 2 or not all(isinstance(x, str) for x in server):
         raise ValueError("Missing server startup arguments")
+    metadata["runtime_provenance"] = verify_runtime_provenance(directory, metadata, server)
     metadata["server_arguments"] = server[1:]  # Binary identity is tracked separately.
     trials = records(directory / "raw-trial-results.jsonl")
     transcripts = records(directory / "paired-transcripts.jsonl")
@@ -126,6 +171,8 @@ def compare(baseline, candidate, tolerance):
                 tolerance_percent=tolerance, cells=cells,
                 baseline_binary_sha256=old_meta["binary_sha256"],
                 candidate_binary_sha256=new_meta["binary_sha256"],
+                baseline_runtime_provenance=old_meta.get("runtime_provenance", "legacy-unverified"),
+                candidate_runtime_provenance=new_meta.get("runtime_provenance", "legacy-unverified"),
                 note="Failing output equivalence needs separate quality review; never a release approval.")
 
 

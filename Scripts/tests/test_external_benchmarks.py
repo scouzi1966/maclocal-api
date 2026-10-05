@@ -18,28 +18,80 @@ spec.loader.exec_module(module)
 
 class ProbeCoverageTests(unittest.TestCase):
     def fixture(self):
-        return {'conformance': {'passed': 3, 'total': 3, 'results': [
-            {'id': case, 'outcome': 'pass'}
-            for case in ('chat-vision', 'responses-vision', 'messages-vision')]}}
+        # JSON v2 full-run schema from llmprobe 3952b5d9. Successful MUST
+        # assertions are not serialized: 125 case rows score 283 assertions.
+        return json.loads((Path(__file__).parent / 'fixtures/llmprobe-full-v2.json').read_text())
 
     def test_expected_vision_passes_only_when_all_surfaces_pass(self):
         self.assertTrue(module.validate_llmprobe(self.fixture(), True)['passed'])
         for outcome in ('unsupported', 'inconclusive', 'fail'):
             report = self.fixture()
-            report['conformance']['results'][0]['outcome'] = outcome
+            next(row for row in report['conformance']['results']
+                 if row['id'] == 'chat-vision')['outcome'] = outcome
             self.assertFalse(module.validate_llmprobe(report, True)['passed'])
 
     def test_missing_vision_cannot_hide_behind_perfect_headline(self):
         report = self.fixture()
         report['conformance']['results'] = []
         self.assertFalse(module.validate_llmprobe(report, True)['passed'])
-        self.assertTrue(module.validate_llmprobe(report, False)['passed'])
+        self.assertFalse(module.validate_llmprobe(report, False)['passed'])
 
     def test_missing_or_failing_conformance_fails(self):
         self.assertFalse(module.validate_llmprobe({})['passed'])
         report = self.fixture()
         report['conformance']['passed'] = 2
         self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+    def test_real_schema_allows_optional_unsupported_and_inconclusive(self):
+        report = self.fixture()
+        self.assertNotEqual(len(report['conformance']['results']), report['conformance']['total'])
+        self.assertTrue(module.validate_llmprobe(report)['passed'])
+
+    def test_empty_truncated_reduced_and_duplicate_results_fail(self):
+        for selection in (lambda rows: [], lambda rows: rows[:-1],
+                          lambda rows: rows[:1], lambda rows: rows + [rows[0]]):
+            report = self.fixture()
+            report['conformance']['results'] = selection(report['conformance']['results'])
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+    def test_failed_skipped_invalid_cases_cannot_hide_behind_headline(self):
+        for outcome in ('fail', 'skipped', 'unknown', None):
+            report = self.fixture()
+            report['conformance']['results'][0]['outcome'] = outcome
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
+        report = self.fixture()
+        report['conformance']['results'][0]['failures'] = [{'severity': 'MUST'}]
+        self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+    def test_surface_tallies_must_match_headline_and_exercised_surfaces(self):
+        for key in ('total', 'passed'):
+            report = self.fixture()
+            report['conformance'][key] += 1
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
+        report = self.fixture()
+        report['conformance']['bySurface'][0]['surface'] = 'invented'
+        self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+    def test_full_run_metadata_is_required(self):
+        for key, value in (('depth', 'quick'), ('mode', 'eval'),
+                           ('budget', {'exhausted': True}), ('phases', {})):
+            report = self.fixture()
+            report['run'][key] = value
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+    def test_malformed_rows_metadata_and_tallies_fail_closed(self):
+        for value in (None, [], 'invalid'):
+            for key in ('run', 'conformance'):
+                report = self.fixture()
+                report[key] = value
+                self.assertFalse(module.validate_llmprobe(report)['passed'])
+            report = self.fixture()
+            report['conformance']['results'][0] = value
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
+        for value in (True, '283', 0, -1, None):
+            report = self.fixture()
+            report['conformance'].update(total=value, passed=value)
+            self.assertFalse(module.validate_llmprobe(report)['passed'])
 
 
 class ContextCompletenessTests(unittest.TestCase):

@@ -728,6 +728,16 @@ struct MlxCommand: ParsableCommand {
                 "--qwen-ngram-residency must be one of: mapped, prewarm")
         }
 
+        // Reject an invalid profile before destructive capture-file preparation.
+        // Publish the resolved selection below, before provider initialization.
+        let selectedQwenProfile: QwenMTPCLIProfile?
+        do {
+            selectedQwenProfile = try QwenMTPCLIProfile.resolve(
+                option: qwenMTPProfile, environment: ProcessInfo.processInfo.environment)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+
         // GPU capture: set MTL_CAPTURE_ENABLED before Metal device is created
         if let capturePath = gpuCapture {
             setenv("MTL_CAPTURE_ENABLED", "1", 1)
@@ -769,13 +779,6 @@ struct MlxCommand: ParsableCommand {
 
         // Set process-start configuration before any provider/model initializes.
         // Profile expansion and kernel settings remain owned by AFMKit.
-        let selectedQwenProfile: QwenMTPCLIProfile?
-        do {
-            selectedQwenProfile = try QwenMTPCLIProfile.resolve(
-                option: qwenMTPProfile, environment: ProcessInfo.processInfo.environment)
-        } catch {
-            throw ValidationError(error.localizedDescription)
-        }
         if let selectedQwenProfile {
             setenv(QwenMTPCLIProfile.environmentKey, selectedQwenProfile.rawValue, 1)
         }
