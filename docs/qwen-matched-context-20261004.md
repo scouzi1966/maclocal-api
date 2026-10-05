@@ -292,6 +292,41 @@ fast-binary gap remains open. Concurrent aggregate throughput, cache-enabled
 performance and the separate AFM-converted checkpoint are not refreshed by
 this matrix. Evidence: `tiny-fixed-*` and `tiny-image-fixed-native-full/`.
 
+## MTP-off shared-profile diagnostic
+
+The existing throughput-v2 CLI profile also affects shared decode components
+when `--mtp` is omitted. Server logs confirm the embedded predictor remains
+disabled. This is not a default change or a claim of complete qualification.
+Same native checkpoint, three fixed trials per context:
+
+| Configuration | 0.5K decode | 1K decode | 2K decode | 4K decode |
+|---|---:|---:|---:|---:|
+| No profile, MTP off | 35.53 | 35.49 | 34.29 | 34.47 |
+| throughput-v2, MTP off | 40.13 | 40.37 | 38.92 | 38.98 |
+| Profile, CPU n-gram disabled | 39.66 | 39.60 | 38.26 | 38.25 |
+| Profile, quantized HC disabled | 36.42 | 36.36 | 34.63 | 35.03 |
+
+The full profile improves decode about 13–14% with effectively unchanged
+prefill. All twelve outputs in each arm match the ordinary MTP-off control.
+The one-switch ablations point primarily to corrected HC fusion, with a smaller
+CPU n-gram contribution. They are diagnostic-only and cannot pass the clean
+release gate. Seventeen existing fusion/lookup/cache-history tests pass under
+throughput-v2 without skips. Full no-MTP/profile llmprobe and Context
+qualification completed in `native-off-profile-full-qualification/`:
+283/283 conformance, 100% capability and fidelity, and 6/8 agentic tasks.
+The two unsuccessful tasks are the same as the no-profile baseline:
+`coding-follow-test-output` and `coding-already-done`, both involving an
+unexpected `path` argument to `list_files`; the first also edits before tests.
+These are not attributed to the model or engine solely from this comparison.
+All three vision API probes pass, including the tiny-image regression case.
+The seven-size Context sweep completed through 32K without a crash; the saved
+32K response is coherent but cut at the requested 128-token limit. This is not
+a substitute for broad semantic quality evaluation. llmprobe still reports
+SHOULD warnings for the Responses error message and Messages token-count
+estimate. Full Promptfoo and comprehensive AI-judge qualification of this
+additional MTP-off/profile combination remain outstanding.
+No same-checkpoint native reference result exists; the overlay is not substituted.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
