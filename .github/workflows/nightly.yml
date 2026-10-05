@@ -46,7 +46,8 @@ jobs:
         Scripts/verify-webui.sh release-package/Resources/webui
 
         # Copy required runtime resource bundles beside the executable.
-        for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+        Scripts/stage-splash-runtime.sh "$(dirname "$BIN")"
+        for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
           BUNDLE_DIR=$(dirname "$BIN")/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

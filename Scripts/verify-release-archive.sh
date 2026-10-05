@@ -73,6 +73,8 @@ chmod +x "$EXTRACTED_BIN"
 (
   cd "$(dirname "$EXTRACTED_BIN")"
   ./afm --version >/dev/null
+  ./afm splash --version >/dev/null
+  ./afm splash-api --help >/dev/null
 )
 
 "$SCRIPT_DIR/verify-webui.sh" "$VERIFY_DIR/${ROOT_ENTRY}Resources/webui"

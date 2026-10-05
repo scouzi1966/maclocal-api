@@ -164,7 +164,8 @@ cp "$BIN" "$STAGING/"
 
 # Runtime resource bundles must remain beside the relocated executable: the AFM
 # host supplies evaluation suites, MLX its metallib, and DwarfStar Metal sources.
-for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+"$ROOT_DIR/Scripts/stage-splash-runtime.sh" "$(dirname "$BIN")"
+for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
   BUNDLE_DIR="$(dirname "$BIN")/$BUNDLE_NAME"
   if [ ! -d "$BUNDLE_DIR" ]; then
     log_error "Required runtime bundle missing: $BUNDLE_DIR"
