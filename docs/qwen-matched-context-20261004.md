@@ -117,6 +117,21 @@ to the public tuning surface. Evidence: `native-hc-qmm-control/` and
 `native-hc-qmm-off/`. No model weights were changed. The comprehensive judge
 continues to use the earlier frozen `415f1a...` binary, not this experiment.
 
+## Rejected HC activation lookup
+
+A BF16 lookup replacing only `silu(down/4)` and `2*sigmoid(inject/4)`
+passed exhaustive 65,536-pattern equivalence and all seven HC policy tests.
+Native decode was 89.15/86.02/79.33/85.74 tok/s, versus the clean control's
+89.59/85.95/77.87/85.94. All twelve responses were unchanged, but the gain
+was not material or consistent. Overlay decode was 113.21/111.14/92.24/99.20,
+including a 6.69% 2K regression versus control; reference there is 99.29.
+This isolated slowdown needs a restored control repeat before assigning its
+cause. The experiment is not promoted regardless: its code and test were
+removed, while patch files and raw measurements remain in the evidence root.
+The rebuilt restored control returned 113.51/111.12/99.79/99.36 tok/s;
+all eight performance cells passed and all twelve responses were unchanged.
+Do not promote the discarded experiment using its unit equivalence alone.
+
 ## Native reference compatibility check
 
 The latest reference release remains mlx-serve 26.10.1. A fresh direct native
