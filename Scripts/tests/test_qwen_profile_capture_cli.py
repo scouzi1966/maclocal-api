@@ -2,7 +2,8 @@
 """Black-box regression: invalid profile must not destroy an existing capture.
 
 Run after building the release binary, with no concurrent performance workload:
-  python3 Scripts/tests/test_qwen_profile_capture_cli.py --binary /path/to/afm
+  python3 Scripts/tests/test_qwen_profile_capture_cli.py --binary /path/to/afm \
+      --artifacts /Volumes/edata/afm-release-artifacts/capture-regression
 """
 import argparse
 import os
