@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline completeness regression tests; never start a model."""
 import csv
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -13,6 +14,32 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'test-external-benchmarks.py'
 spec = importlib.util.spec_from_file_location('external_benchmarks', SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+class ProbeCoverageTests(unittest.TestCase):
+    def fixture(self):
+        return {'conformance': {'passed': 3, 'total': 3, 'results': [
+            {'id': case, 'outcome': 'pass'}
+            for case in ('chat-vision', 'responses-vision', 'messages-vision')]}}
+
+    def test_expected_vision_passes_only_when_all_surfaces_pass(self):
+        self.assertTrue(module.validate_llmprobe(self.fixture(), True)['passed'])
+        for outcome in ('unsupported', 'inconclusive', 'fail'):
+            report = self.fixture()
+            report['conformance']['results'][0]['outcome'] = outcome
+            self.assertFalse(module.validate_llmprobe(report, True)['passed'])
+
+    def test_missing_vision_cannot_hide_behind_perfect_headline(self):
+        report = self.fixture()
+        report['conformance']['results'] = []
+        self.assertFalse(module.validate_llmprobe(report, True)['passed'])
+        self.assertTrue(module.validate_llmprobe(report, False)['passed'])
+
+    def test_missing_or_failing_conformance_fails(self):
+        self.assertFalse(module.validate_llmprobe({})['passed'])
+        report = self.fixture()
+        report['conformance']['passed'] = 2
+        self.assertFalse(module.validate_llmprobe(report)['passed'])
 
 
 class ContextCompletenessTests(unittest.TestCase):
@@ -59,6 +86,21 @@ class ContextCompletenessTests(unittest.TestCase):
         (self.results / 'response_32k.txt').unlink()
         self.assertFalse(module.validate_context(self.root)['passed'])
 
+    def test_duplicate_or_out_of_range_trial_fails(self):
+        path = self.root / 'context.log'
+        original = path.read_text()
+        for number in ('1', '99'):
+            path.write_text(original.replace('Run 2/2', f'Run {number}/2', 1))
+            self.assertFalse(module.validate_context(self.root)['passed'])
+
+    def test_vision_requires_config_and_present_weights(self):
+        (self.root / 'config.json').write_text(json.dumps({'vision_config': {'depth': 27}}))
+        (self.root / 'model.safetensors.index.json').write_text(json.dumps({
+            'weight_map': {'vision_tower.blocks.0.weight': 'vision.safetensors'}}))
+        self.assertFalse(module.checkpoint_has_vision(self.root))
+        (self.root / 'vision.safetensors').touch()
+        self.assertTrue(module.checkpoint_has_vision(self.root))
+
     def test_nonfinite_metrics_fail(self):
         path = self.results / 'benchmark_results.csv'
         path.write_text(path.read_text().replace(',30,', ',nan,', 1))
@@ -92,6 +134,14 @@ class ServerConfigurationTests(unittest.TestCase):
         for phase in ('llmprobe', 'context'):
             command = module.server_command(self.arguments(concurrent_capacity=2), phase)
             self.assertEqual(command[command.index('--concurrent') + 1], '2')
+
+    def test_vision_and_named_profile_reach_both_suites(self):
+        args = self.arguments(vlm=True, qwen_mtp_profile='throughput-v2')
+        for phase in ('llmprobe', 'context'):
+            command = module.server_command(args, phase)
+            self.assertIn('--vlm', command)
+            self.assertEqual(command[command.index('--qwen-mtp-profile') + 1], 'throughput-v2')
+        self.assertNotIn('--no-think', module.server_command(args, 'llmprobe'))
 
 
 class ServerOwnershipTests(unittest.TestCase):

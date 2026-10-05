@@ -40,6 +40,8 @@ def validate_context(root):
         runs = re.split(r'  Run (\d+)/(\d+)\.\.\.', body)
         if len(runs) != 1 + 3 * RUNS:
             errors.append(f'{context}: incomplete trial count')
+        if runs[1::3] != [str(number) for number in range(1, RUNS + 1)]:
+            errors.append(f'{context}: missing, duplicate or reordered trial identifiers')
         for i in range(1, len(runs), 3):
             number, total, sample = runs[i:i + 3]
             speed = re.findall(r'^\s+generation_tps: ([\d.]+)\s*$', sample, re.M)
@@ -65,6 +67,23 @@ def validate_context(root):
                 errors.append(f'{context}: missing response')
     return {'passed': not errors, 'errors': errors, 'expected_contexts': CONTEXTS,
             'note': 'Completeness only; speed and response quality require review.'}
+
+
+def validate_llmprobe(report, expect_vision=False):
+    """A 100% headline can hide HTTP 500s classified as unsupported capabilities."""
+    errors = []
+    conformance = report.get('conformance', {})
+    if not conformance.get('total') or conformance.get('passed') != conformance.get('total'):
+        errors.append('Incomplete or failing mandatory conformance')
+    cases = {row['id']: row for row in conformance.get('results', [])}
+    if expect_vision:
+        for case in ('chat-vision', 'responses-vision', 'messages-vision'):
+            result = cases.get(case, {})
+            if result.get('outcome') != 'pass':
+                errors.append(f'{case}: expected checkpoint capability not passed: '
+                              f'{result.get("reason", result.get("outcome", "missing"))}')
+    return {'passed': not errors, 'errors': errors,
+            'note': 'Protocol/capability coverage gate; agentic quality still needs separate review.'}
 
 
 def stop(process):
@@ -104,9 +123,27 @@ def run(command, log, cwd=None, owner=None):
             stop(process)
 
 
+def checkpoint_has_vision(model):
+    """Require both configuration and present indexed vision weight shards."""
+    config = model / 'config.json'
+    index = model / 'model.safetensors.index.json'
+    if not config.is_file() or not index.is_file():
+        return False
+    if not json.loads(config.read_text()).get('vision_config'):
+        return False
+    weights = json.loads(index.read_text()).get('weight_map', {})
+    shards = {value for key, value in weights.items()
+              if re.search(r'(^|\.)(vision_tower|visual|vision_model)\.', key)}
+    return bool(shards) and all((model / shard).is_file() for shard in shards)
+
+
 def server_command(args, phase):
     command = [str(args.binary), 'mlx', '-m', str(args.model), '--hostname', '127.0.0.1',
                '--port', str(args.port), '--enable-grammar-constraints']
+    if getattr(args, 'vlm', False) or checkpoint_has_vision(args.model):
+        command.append('--vlm')
+    if getattr(args, 'qwen_mtp_profile', None):
+        command += ['--qwen-mtp-profile', args.qwen_mtp_profile]
     if args.mtp:
         command += ['--mtp', '--mtp-depth', str(args.mtp_depth)]
     if args.prefill_step_size is not None:
@@ -181,6 +218,8 @@ def main():
     parser.add_argument('--phase', choices=['all', 'llmprobe', 'context'], default='all')
     parser.add_argument('--mtp', action='store_true', help='Exercise MTP in both external suites')
     parser.add_argument('--mtp-depth', type=int, default=3)
+    parser.add_argument('--vlm', action='store_true', help='Enable vision explicitly; indexed vision checkpoints are detected automatically')
+    parser.add_argument('--qwen-mtp-profile', choices=['off', 'throughput-v1', 'throughput-v2'])
     parser.add_argument('--prefill-step-size', type=int)
     parser.add_argument('--concurrent-capacity', type=int, default=1,
                         help='AFM server capacity; Context still sends one request at a time')
@@ -204,6 +243,8 @@ def main():
                 'mtp_depth': args.mtp_depth if args.mtp else None,
                 'prefill_step_size': args.prefill_step_size,
                 'server_concurrent_capacity': args.concurrent_capacity,
+                'vision_enabled': args.vlm or checkpoint_has_vision(args.model),
+                'qwen_mtp_profile': args.qwen_mtp_profile,
                 'qwen_environment': {k: v for k, v in os.environ.items() if k.startswith('AFM_QWEN_')},
                 'harnesses': {}}
     for name, path in [('llmprobe', args.llmprobe.parent), ('context', args.context_harness)]:
@@ -238,6 +279,11 @@ def main():
             elif not (output / 'llmprobe.json').is_file():
                 result['passed'] = False
                 result['error'] = 'Missing llmprobe report'
+            else:
+                coverage = validate_llmprobe(json.loads((output / 'llmprobe.json').read_text()),
+                                            expect_vision=args.vlm or checkpoint_has_vision(args.model))
+                result['coverage'] = coverage
+                result['passed'] = result['passed'] and coverage['passed']
         except Exception as error:
             result = {'passed': False, 'error': str(error)}
         results[phase] = result

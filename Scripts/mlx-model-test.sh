@@ -1971,6 +1971,23 @@ $test_spec"
 TEST RESULT:
 $jsonl_line"
 
+        paired_evidence=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import json, sys
+from mlx_model_test_oracle import paired_judge_evidence
+result = json.load(sys.stdin)
+with open(sys.argv[1]) as source:
+    records = [json.loads(line) for line in source if line.strip()]
+peers = paired_judge_evidence(result, records)
+if peers:
+    print(json.dumps(peers))
+' "$RESULTS_FILE")
+        if [ -n "$paired_evidence" ]; then
+          PERTEST_INPUT="$PERTEST_INPUT
+
+PAIRED RESULTS (comparison evidence only; score the TEST RESULT above):
+$paired_evidence"
+        fi
+
         case "$tool" in
           claude)
             PERTEST_SCORE=$(echo "$PERTEST_INPUT" | "$tool" -p - 2>"$TEST_WORK_ROOT/smart-${tool}-stderr-$$.log")

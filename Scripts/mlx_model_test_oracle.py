@@ -6,6 +6,32 @@ import re
 from pathlib import Path
 
 
+def paired_judge_evidence(result, records):
+    """Supply actual paired responses when an intent asks for seed comparison.
+
+    Do not infer success, or pair different checkpoints/prompts/baselines. The
+    judge still sees both complete records, including their runtime arguments.
+    """
+    pairs = {
+        "streaming-seeded": "non-streaming-seeded",
+        "non-streaming-seeded": "streaming-seeded",
+        "stop-seed-run1": "stop-seed-run2",
+        "stop-seed-run2": "stop-seed-run1",
+        "seed-42-run1": "seed-42-run2",
+        "seed-42-run2": "seed-42-run1",
+    }
+    peer = pairs.get(result.get("label"))
+    if peer is None or result.get("is_baseline"):
+        return []
+    return [record for record in records
+            if record.get("label") == peer
+            and record.get("model") == result.get("model")
+            and record.get("prompt") == result.get("prompt")
+            and not record.get("is_baseline")
+            and not record.get("_meta")
+            and record.get("status") != "SKIP"]
+
+
 def configuration_allows_safe_partial_cache_miss(config):
     """Return whether correctness may require a cold fallback for a hybrid cache."""
     text_config = config.get("text_config") or {}

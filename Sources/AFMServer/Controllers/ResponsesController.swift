@@ -1,4 +1,5 @@
 import Vapor
+import AFMKit
 import Foundation
 
 /// A small, transport-owned JSON value used by the Responses adapter. Keeping
@@ -85,6 +86,25 @@ actor ResponsesStore {
     }
 }
 
+/// Keep validation failures on this surface readable by OpenAI clients.
+/// Responses returned by the handler pass through unchanged; only thrown HTTP
+/// errors are rendered here, without changing the inference path.
+private struct ResponsesErrorMiddleware: AsyncMiddleware {
+    func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
+        do {
+            return try await next.respond(to: request)
+        } catch let error as AbortError {
+            let response = Response(status: error.status, headers: error.headers)
+            try response.content.encode(OpenAIError(
+                message: error.reason,
+                type: error.status.code < HTTPResponseStatus.internalServerError.code
+                    ? "invalid_request_error" : "server_error"
+            ))
+            return response
+        }
+    }
+}
+
 /// Implements the OpenAI Responses surface by translating it at the HTTP
 /// boundary into the already-qualified Chat Completions pipeline. This keeps
 /// model loading, media preflight, structured output, tools, and reasoning in
@@ -107,7 +127,7 @@ struct ResponsesController: RouteCollection {
     }
 
     func boot(routes: RoutesBuilder) throws {
-        let v1 = routes.grouped("v1")
+        let v1 = routes.grouped("v1").grouped(ResponsesErrorMiddleware())
         v1.on(.POST, "responses", body: .collect(maxSize: "100mb"), use: createResponse)
         v1.get("responses", ":response_id", use: getResponse)
         v1.on(.OPTIONS, "responses", use: handleOptions)
@@ -133,7 +153,12 @@ struct ResponsesController: RouteCollection {
         guard let inputData = req.body.data.map({ Data(buffer: $0) }) else {
             throw Abort(.badRequest, reason: "Missing request body")
         }
-        let request = try JSONDecoder().decode(ResponsesJSON.self, from: inputData)
+        let request: ResponsesJSON
+        do {
+            request = try JSONDecoder().decode(ResponsesJSON.self, from: inputData)
+        } catch is DecodingError {
+            throw Abort(.badRequest, reason: "Request body must be valid JSON")
+        }
         guard let body = request.objectValue else {
             throw Abort(.badRequest, reason: "Request body must be a JSON object")
         }
