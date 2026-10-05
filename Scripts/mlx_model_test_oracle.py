@@ -17,6 +17,8 @@ def paired_judge_evidence(result, records):
         "non-streaming-seeded": "streaming-seeded",
         "stop-seed-run1": "stop-seed-run2",
         "stop-seed-run2": "stop-seed-run1",
+        "seed-42-run1": "seed-42-run2",
+        "seed-42-run2": "seed-42-run1",
     }
     peer = pairs.get(result.get("label"))
     if peer is None or result.get("is_baseline"):

@@ -117,8 +117,6 @@ to the public tuning surface. Evidence: `native-hc-qmm-control/` and
 `native-hc-qmm-off/`. No model weights were changed. The comprehensive judge
 continues to use the earlier frozen `415f1a...` binary, not this experiment.
 
-## Evidence root
-
 ## Native reference compatibility check
 
 The latest reference release remains mlx-serve 26.10.1. A fresh direct native
@@ -145,6 +143,20 @@ harness now supplies the matching checkpoint/prompt peer, without changing
 the measured results or manufacturing success; three pairing tests pass.
 The original judge scores are retained, with a separate paired-evidence
 rescore rather than silently overwriting the original report.
+
+The completed comprehensive run contains 91/91 successful harness executions
+(not 91 independent protocol assertions). Original `codex-glm` scores are
+82 × 5, 7 × 4, 2 × 3. Paired-evidence rescoring gives both seeded transport
+variants 4/5: exact determinism, minor poem grammar. The other 3/5 is degraded
+long-form fluency with repetition penalty; its cause is not assigned to the
+engine without further isolation. There are no scores of 1 or 2.
+
+Editing the running shell harness interrupted its final HTML-report step after
+all 91 judge scores were saved. HTML was regenerated from those saved results;
+no inference rerun or score replacement was performed. Future harness edits
+must wait for the active shell process to exit.
+
+## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
 
