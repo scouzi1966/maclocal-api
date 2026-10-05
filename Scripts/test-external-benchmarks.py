@@ -198,10 +198,88 @@ def validate_context(root):
 def validate_llmprobe(report, expect_vision=False):
     """A 100% headline can hide HTTP 500s classified as unsupported capabilities."""
     errors = []
+    # Full conformance registry in llmprobe 3952b5d9 (conformance/index.ts,
+    # shared.ts and surfaces.ts). These are case identities, NOT the assertion
+    # denominator: JSON v2 omits successful assertions, and one case may assert
+    # several MUSTs. Keep this coverage contract when upgrading the harness.
+    shared = set('''basic streaming parity usage stream-usage finish-length
+        limits-max-tokens limits-stop unicode errors tool-serialization
+        tool-stream-reassembly tool-result-turn parallel-tools tool-choice-none
+        parallel-tools-off tool-arg-types json-mode structured-outputs
+        structured-markers structured-terminates tool-args-literal-delimiter
+        vision logprobs seed top-p reasoning reasoning-cap reasoning-scratchpad
+        reasoning-roundtrip prompt-caching prompt-cache-prefix rate-limit-headers
+        concurrency concurrency-cache'''.split())
+    expected = {'models-list', 'count-tokens', 'embeddings-basic', 'embeddings-dimensions',
+                'completions-basic', 'images-generate', 'images-edit', 'audio-speech'}
+    for surface in ('chat', 'responses', 'messages'):
+        omitted = {'logprobs', 'seed'} if surface != 'chat' else set()
+        if surface == 'responses':
+            omitted.add('limits-stop')
+        if surface == 'messages':
+            omitted.update(('json-mode', 'structured-outputs', 'structured-markers', 'structured-terminates'))
+        expected.update(f'{surface}-{name}' for name in shared - omitted)
+    expected.update('''chat-n-choices chat-max-tokens-alias chat-assistant-prefill
+        chat-stop-string chat-template-kwargs chat-sampling-extensions
+        responses-reasoning-effort-none responses-event-order responses-previous-response-id
+        responses-background responses-mcp-tools messages-event-order
+        messages-max-tokens-required messages-stop-sequence-echo messages-assistant-prefill
+        messages-thinking-budget messages-system-blocks messages-content-blocks
+        messages-top-k messages-cache-control messages-error-envelope'''.split())
+    if not isinstance(report, dict):
+        return {'passed': False, 'errors': ['Malformed llmprobe report']}
+    run = report.get('run', {})
+    def object_value(value):
+        return value if isinstance(value, dict) else {}
+    run = object_value(run)
+    phases = object_value(run.get('phases'))
+    if (report.get('version') != 2 or not isinstance(run, dict)
+            or run.get('depth') != 'full' or run.get('mode') != 'probe'
+            or object_value(run.get('budget')).get('exhausted') is not False
+            or any(object_value(phases.get(phase)).get('status') != 'measured'
+                   for phase in ('coverage', 'conformance', 'capability', 'agentic', 'fidelity'))):
+        errors.append('Missing or incomplete full probe run metadata')
     conformance = report.get('conformance', {})
-    if not conformance.get('total') or conformance.get('passed') != conformance.get('total'):
+    if not isinstance(conformance, dict):
+        conformance = {}
+    total, passed = conformance.get('total'), conformance.get('passed')
+    if type(total) is not int or total <= 0 or type(passed) is not int or passed != total:
         errors.append('Incomplete or failing mandatory conformance')
-    cases = {row['id']: row for row in conformance.get('results', [])}
+    rows = conformance.get('results', [])
+    cases = {}
+    if not isinstance(rows, list):
+        errors.append('Malformed conformance results')
+        rows = []
+    for row in rows:
+        if (not isinstance(row, dict) or not isinstance(row.get('id'), str) or not row['id']
+                or not isinstance(row.get('surface'), str)):
+            errors.append('Malformed conformance case')
+            continue
+        if row['id'] in cases:
+            errors.append(f'Duplicate conformance case: {row["id"]}')
+        cases[row['id']] = row
+        if row.get('outcome') not in ('pass', 'unsupported', 'inconclusive'):
+            errors.append(f'{row["id"]}: failed, skipped or invalid outcome')
+        failures = row.get('failures')
+        if not isinstance(failures, list) or any(
+                not isinstance(failure, dict) or failure.get('severity') == 'MUST'
+                for failure in failures):
+            errors.append(f'{row["id"]}: malformed or failed mandatory assertions')
+    if expected - cases.keys():
+        errors.append('Missing full conformance cases: ' + ', '.join(sorted(expected - cases.keys())))
+    surfaces = conformance.get('bySurface', [])
+    if (not isinstance(surfaces, list) or not surfaces
+            or any(not isinstance(row, dict) or not isinstance(row.get('surface'), str)
+                   or type(row.get('total')) is not int or row['total'] < 0
+                   or type(row.get('passed')) is not int or row['passed'] != row['total']
+                   for row in surfaces)):
+        errors.append('Malformed or failing per-surface conformance')
+    elif (len({row['surface'] for row in surfaces}) != len(surfaces)
+          or sum(row['total'] for row in surfaces) != total
+          or sum(row['passed'] for row in surfaces) != passed
+          or {row.get('surface') for row in cases.values()
+              if row.get('outcome') in ('pass', 'fail')} != {row['surface'] for row in surfaces}):
+        errors.append('Conformance surface totals disagree with results/headline')
     if expect_vision:
         for case in ('chat-vision', 'responses-vision', 'messages-vision'):
             result = cases.get(case, {})

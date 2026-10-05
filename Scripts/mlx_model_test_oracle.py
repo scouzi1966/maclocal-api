@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 
 
@@ -21,15 +22,47 @@ def paired_judge_evidence(result, records):
         "seed-42-run2": "seed-42-run1",
     }
     peer = pairs.get(result.get("label"))
-    if peer is None or result.get("is_baseline"):
+    if peer is None:
+        return []
+
+    streaming_pair = result.get("label") in ("streaming-seeded", "non-streaming-seeded")
+    required = ("model", "prompt", "temperature", "max_tokens", "max_completion_tokens",
+                "system_prompt", "developer_prompt", "server_instructions", "afm_args")
+    optional = ("top_p", "top_k", "min_p", "seed", "logprobs", "top_logprobs",
+                "presence_penalty", "repetition_penalty", "frequency_penalty", "stop",
+                "response_format", "media", "tools", "required_capabilities",
+                "safe_partial_cache_miss", "system_fingerprint")
+    missing = object()
+
+    def identity(record):
+        if (record.get("status") != "OK" or record.get("transport_status") != "pass"
+                or record.get("overall_status") != "pass"
+                or record.get("assertion_status") not in ("pass", "not_configured")
+                or record.get("assertion_failures") or record.get("error")
+                or record.get("is_baseline") or record.get("_meta")
+                or not isinstance(record.get("content"), str)
+                or not isinstance(record.get("afm_args"), str)
+                or any(key not in record for key in required)
+                or not record.get("model") or not record.get("prompt")):
+            return None
+        try:
+            args = shlex.split(record["afm_args"])
+        except (TypeError, ValueError):
+            return None
+        if streaming_pair:
+            args = [arg for arg in args if arg != "--no-streaming"]
+        fields = [record[key] for key in required if key != "afm_args"]
+        fields += [record.get(key, missing) for key in optional]
+        if not streaming_pair:
+            fields.append(record.get("stream", missing))
+        return fields + [args]
+
+    expected = identity(result)
+    if expected is None:
         return []
     return [record for record in records
-            if record.get("label") == peer
-            and record.get("model") == result.get("model")
-            and record.get("prompt") == result.get("prompt")
-            and not record.get("is_baseline")
-            and not record.get("_meta")
-            and record.get("status") != "SKIP"]
+            if isinstance(record, dict) and record.get("label") == peer
+            and identity(record) == expected]
 
 
 def configuration_allows_safe_partial_cache_miss(config):
