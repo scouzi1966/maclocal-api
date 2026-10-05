@@ -222,6 +222,28 @@ tok/s; no same-checkpoint reference is available. Its historical speed deficit
 remains open. Evidence: `provenance-native-{control,restored}/` and
 `provenance-overlay-{control,restored,reference}/`.
 
+## Tiny-image coverage regression and fix
+
+Full rebuilt-native llmprobe exposed a coverage loss masked by its headline:
+280/280 conformance versus the previous 283/283. Chat, Responses and Messages
+vision probes returned HTTP 500 for the probe's 1x1 image and were classified
+as unsupported, while the 64x64 image smoke passed. Agentic outcomes remain
+6/8, with the same two invalid `list_files(path=...)` tasks; capability and
+fidelity scores are 100%. The subsequent 0.5K–32K Context sweep completed.
+
+Cause: removing blanket 1024x1024 resizing exposed the shared processor's
+rejection of images smaller than its 32-pixel patch group. Provider `aba2fe7f`
+lets the Qwen3VL processor used by Qwen Next upscale valid tiny inputs using
+its existing minimum pixel budget. Ordinary geometry and text execution are
+unchanged; other shared-helper callers retain their prior default policy.
+Review also corrected fractional aspect-ratio validation. Six focused tests
+pass; live tiny-image requalification is pending on the rebuilt artifact.
+
+The external qualification gate now rejects missing/unsupported expected vision
+probes even with a perfect reduced conformance headline. Its 22 offline tests
+pass, and it rejects the saved 280/280 report. Independent review found no
+remaining issue in these fixes. Do not count that report as release-qualified.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`

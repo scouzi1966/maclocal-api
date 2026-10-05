@@ -16,6 +16,32 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+class ProbeCoverageTests(unittest.TestCase):
+    def fixture(self):
+        return {'conformance': {'passed': 3, 'total': 3, 'results': [
+            {'id': case, 'outcome': 'pass'}
+            for case in ('chat-vision', 'responses-vision', 'messages-vision')]}}
+
+    def test_expected_vision_passes_only_when_all_surfaces_pass(self):
+        self.assertTrue(module.validate_llmprobe(self.fixture(), True)['passed'])
+        for outcome in ('unsupported', 'inconclusive', 'fail'):
+            report = self.fixture()
+            report['conformance']['results'][0]['outcome'] = outcome
+            self.assertFalse(module.validate_llmprobe(report, True)['passed'])
+
+    def test_missing_vision_cannot_hide_behind_perfect_headline(self):
+        report = self.fixture()
+        report['conformance']['results'] = []
+        self.assertFalse(module.validate_llmprobe(report, True)['passed'])
+        self.assertTrue(module.validate_llmprobe(report, False)['passed'])
+
+    def test_missing_or_failing_conformance_fails(self):
+        self.assertFalse(module.validate_llmprobe({})['passed'])
+        report = self.fixture()
+        report['conformance']['passed'] = 2
+        self.assertFalse(module.validate_llmprobe(report)['passed'])
+
+
 class ContextCompletenessTests(unittest.TestCase):
     def setUp(self):
         work = SCRIPT.parent.parent / '.build/external-benchmark-tests'

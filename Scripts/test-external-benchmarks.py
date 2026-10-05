@@ -69,6 +69,23 @@ def validate_context(root):
             'note': 'Completeness only; speed and response quality require review.'}
 
 
+def validate_llmprobe(report, expect_vision=False):
+    """A 100% headline can hide HTTP 500s classified as unsupported capabilities."""
+    errors = []
+    conformance = report.get('conformance', {})
+    if not conformance.get('total') or conformance.get('passed') != conformance.get('total'):
+        errors.append('Incomplete or failing mandatory conformance')
+    cases = {row['id']: row for row in conformance.get('results', [])}
+    if expect_vision:
+        for case in ('chat-vision', 'responses-vision', 'messages-vision'):
+            result = cases.get(case, {})
+            if result.get('outcome') != 'pass':
+                errors.append(f'{case}: expected checkpoint capability not passed: '
+                              f'{result.get("reason", result.get("outcome", "missing"))}')
+    return {'passed': not errors, 'errors': errors,
+            'note': 'Protocol/capability coverage gate; agentic quality still needs separate review.'}
+
+
 def stop(process):
     if process.poll() is None:
         os.killpg(process.pid, signal.SIGTERM)
@@ -262,6 +279,11 @@ def main():
             elif not (output / 'llmprobe.json').is_file():
                 result['passed'] = False
                 result['error'] = 'Missing llmprobe report'
+            else:
+                coverage = validate_llmprobe(json.loads((output / 'llmprobe.json').read_text()),
+                                            expect_vision=args.vlm or checkpoint_has_vision(args.model))
+                result['coverage'] = coverage
+                result['passed'] = result['passed'] and coverage['passed']
         except Exception as error:
             result = {'passed': False, 'error': str(error)}
         results[phase] = result
