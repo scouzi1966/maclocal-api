@@ -420,6 +420,11 @@ struct ResponsesController: RouteCollection {
         }
         if let effort = request["reasoning"]?["effort"]?.stringValue {
             body["reasoning_effort"] = .string(effort)
+            if effort == "none" {
+                body["chat_template_kwargs"] = .object([
+                    "enable_thinking": .bool(false)
+                ])
+            }
         }
         if let tools = request["tools"]?.arrayValue {
             body["tools"] = .array(tools.compactMap { tool in
