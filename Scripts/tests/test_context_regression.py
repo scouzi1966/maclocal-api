@@ -30,7 +30,10 @@ class ContextRegressionTests(unittest.TestCase):
             return gate.compare(Path("old"), Path("new"), 3)
 
     def test_equal_passes(self):
-        self.assertTrue(self.check(self.fixture(), self.fixture())["passed"])
+        result = self.check(self.fixture(), self.fixture())
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["baseline_runtime_provenance"], "legacy-unverified")
+        self.assertEqual(result["candidate_runtime_provenance"], "legacy-unverified")
 
     def test_diagnostic_runs_rejected_on_either_side(self):
         for side in (0, 1):
@@ -182,6 +185,72 @@ class ContextRegressionTests(unittest.TestCase):
             save_lines("raw-trial-results.jsonl", rows)
             with self.assertRaisesRegex(ValueError, "Invalid throughput"):
                 gate.load_run(root)
+
+
+class RuntimeProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        work = Path(__file__).resolve().parents[2] / '.build/context-provenance-tests'
+        work.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=work)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        runtime = self.root / 'runtime'
+        runtime.mkdir()
+        self.binary = runtime / 'afm'
+        self.binary.write_bytes(b'executable fixture')
+        self.resource = runtime / 'default.metallib'
+        self.resource.write_bytes(b'shader fixture')
+        manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in (self.binary, self.resource)}
+        self.metadata = dict(pinned_binary='/original/report/runtime/afm',
+                             binary_sha256=manifest['afm'], runtime_manifest=manifest)
+        self.command = [self.metadata['pinned_binary'], 'mlx']
+        for stage in ('before', 'after'):
+            (self.root / f'provenance-{stage}.json').write_text(json.dumps(
+                dict(binary_sha256=manifest['afm'], runtime_manifest=manifest)))
+
+    def verify(self):
+        return gate.verify_runtime_provenance(self.root, self.metadata, self.command)
+
+    def test_complete_relocated_evidence_verifies(self):
+        self.assertEqual(self.verify(), 'pinned-runtime-sha256-verified')
+
+    def test_missing_proof_cannot_claim_verification(self):
+        (self.root / 'provenance-after.json').unlink()
+        with self.assertRaises(OSError):
+            self.verify()
+
+    def test_tampered_binary_or_resource_fails(self):
+        for path in (self.binary, self.resource):
+            previous = path.read_bytes()
+            path.write_bytes(b'tampered')
+            with self.assertRaisesRegex(ValueError, 'bytes changed'):
+                self.verify()
+            path.write_bytes(previous)
+
+    def test_wrong_command_and_recorded_hash_fail(self):
+        self.command[0] = '/another/afm'
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.command[0] = self.metadata['pinned_binary']
+        self.metadata['binary_sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'binary hash'):
+            self.verify()
+
+    def test_incomplete_metadata_or_tampered_proof_fails(self):
+        manifest = self.metadata.pop('runtime_manifest')
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.metadata['runtime_manifest'] = manifest
+        (self.root / 'provenance-before.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'proof disagrees'):
+            self.verify()
+
+    def test_legacy_acceptance_is_explicitly_unverified(self):
+        legacy = self.root / 'legacy'
+        legacy.mkdir()
+        self.assertEqual(gate.verify_runtime_provenance(legacy, {}, ['/old/afm', 'mlx']),
+                         'legacy-unverified')
 
 
 if __name__ == "__main__":
