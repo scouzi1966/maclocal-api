@@ -105,6 +105,18 @@ be false. For measured 128-token requests, current build+decision is about
 by prompt/output trajectory. These profiled runs are attribution evidence,
 not clean speed gates. The regression checker now explicitly rejects them.
 
+## Rejected HC-only projection routing
+
+A temporary `AFM_QWEN_VERIFY_HC_QMM=0` screen bypassed the custom batched
+projection only for the HyperConnection role; other projections retained the
+profile. Seven projection-policy tests passed before benchmarking. Same-binary
+three-trial decode means (on/off) were 89.14/80.24, 85.72/86.61, 79.18/77.19,
+86.42/87.87 tok/s at 0.5/1/2/4K. Outputs differed. There is no consistent
+benefit and the 0.5K loss is 9.98%, so the switch was removed rather than added
+to the public tuning surface. Evidence: `native-hc-qmm-control/` and
+`native-hc-qmm-off/`. No model weights were changed. The comprehensive judge
+continues to use the earlier frozen `415f1a...` binary, not this experiment.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
