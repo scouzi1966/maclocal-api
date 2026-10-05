@@ -56,6 +56,51 @@ final class ResponsesControllerTests: XCTestCase {
         XCTAssertEqual(imageURL["url"] as? String, "data:image/png;base64,ZmFrZQ==")
     }
 
+    func testReasoningEffortNoneDisablesChatTemplateThinking() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+
+        try await post(#"{"input":"Say hello","reasoning":{"effort":"none"}}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+
+        let lastRecorded = await recorder.last()
+        let chatBody = try XCTUnwrap(lastRecorded).foundationObject
+        XCTAssertEqual(chatBody["reasoning_effort"] as? String, "none")
+        let template = try XCTUnwrap(chatBody["chat_template_kwargs"] as? [String: Any])
+        XCTAssertEqual(template["enable_thinking"] as? Bool, false)
+    }
+
+    func testOtherReasoningEffortsPreserveExistingTranslation() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+
+        for effort in ["low", "medium", "high", "xhigh"] {
+            try await post(#"{"input":"Say hello","reasoning":{"effort":"\#(effort)"}}"#) { response in
+                XCTAssertEqual(response.status, .ok)
+            }
+
+            let lastRecorded = await recorder.last()
+            let chatBody = try XCTUnwrap(lastRecorded).foundationObject
+            XCTAssertEqual(chatBody["reasoning_effort"] as? String, effort)
+            XCTAssertNil(chatBody["chat_template_kwargs"])
+        }
+    }
+
+    func testOmittedReasoningPreservesProviderDefault() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+
+        try await post(#"{"input":"Say hello"}"#) { response in
+            XCTAssertEqual(response.status, .ok)
+        }
+
+        let lastRecorded = await recorder.last()
+        let chatBody = try XCTUnwrap(lastRecorded).foundationObject
+        XCTAssertNil(chatBody["reasoning_effort"])
+        XCTAssertNil(chatBody["chat_template_kwargs"])
+    }
+
     func testStreamingResponseEmitsOrderedResponsesLifecycle() async throws {
         try register(content: "hello")
         let body = #"{"model":"test-model","input":"Say hello.","stream":true}"#

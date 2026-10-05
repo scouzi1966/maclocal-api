@@ -124,6 +124,10 @@ struct MessagesController: RouteCollection {
         }
         if object["thinking"]?["type"]?.stringValue == "enabled" {
             request["reasoning_effort"] = .string("low")
+        } else if object["thinking"]?["type"]?.stringValue == "disabled" {
+            request["chat_template_kwargs"] = .object([
+                "enable_thinking": .bool(false)
+            ])
         }
         if assistantPrefill != nil {
             // A final assistant turn is continuation text, not a new reasoning
