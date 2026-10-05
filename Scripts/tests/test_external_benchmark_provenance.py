@@ -75,14 +75,16 @@ class ProvenanceTests(unittest.TestCase):
                             second['files']['model.safetensors']['sha256'])
 
     def test_metadata_mode_does_not_read_or_claim_weight_verification(self):
+        (self.model / 'lookup.ngram').write_bytes(b'synthetic lookup table')
         original = module.sha256_file
         def reject_weight_read(path):
-            self.assertNotEqual(path.suffix, '.safetensors')
+            self.assertNotIn(path.suffix, {'.safetensors', '.ngram'})
             return original(path)
         with patch.object(module, 'sha256_file', side_effect=reject_weight_read):
             identity = module.checkpoint_identity(self.model, 'metadata')
         self.assertFalse(identity['weight_payloads_verified'])
         self.assertNotIn('sha256', identity['files']['model.safetensors'])
+        self.assertNotIn('sha256', identity['files']['lookup.ngram'])
         self.assertIn('sha256', identity['files']['config.json'])
 
     def test_weight_rewrite_with_restored_mtime_still_detected(self):

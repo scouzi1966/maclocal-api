@@ -23,7 +23,7 @@ LOAD_TIMEOUT = 900
 TEST_TIMEOUT = 10800
 STOP_TIMEOUT = 30
 HASH_CHUNK_BYTES = 1024 * 1024
-WEIGHT_SUFFIXES = {'.safetensors', '.gguf', '.bin', '.npz'}
+WEIGHT_SUFFIXES = {'.safetensors', '.gguf', '.bin', '.npz', '.ngram'}
 
 
 def sha256_file(path):
