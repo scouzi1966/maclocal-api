@@ -327,6 +327,23 @@ estimate. Full Promptfoo and comprehensive AI-judge qualification of this
 additional MTP-off/profile combination remain outstanding.
 No same-checkpoint native reference result exists; the overlay is not substituted.
 
+The same diagnostic on the shared ddalcu overlay does not reproduce the native
+13–14% decode gain. Three-trial means (MTP off in both engines):
+
+| Context | AFM profile prefill/decode | Reference prefill/decode |
+|---|---:|---:|
+| 0.5K | 941.26 / 69.33 | 1014.62 / 72.01 |
+| 1K | 1075.84 / 68.79 | 1171.51 / 69.68 |
+| 2K | 1213.00 / 62.20 | 1285.04 / 63.28 |
+| 4K | 1249.16 / 62.61 | 1356.80 / 64.78 |
+
+All twelve outputs match the ordinary overlay MTP-off control. This single
+diagnostic is inside 10% at every cell, but is not a repeatability guarantee or
+a default-policy decision. Evidence: `overlay-off-throughput-profile-diagnostic/`;
+reference: `tiny-fixed-overlay-reference-mtp-off/`. The native checkpoint uses
+quantized HC injection weights while this overlay uses BF16 injection weights,
+so a native-specific fusion gain must not be advertised as universal.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
