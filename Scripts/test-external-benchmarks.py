@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -21,6 +22,131 @@ RUNS = 2
 LOAD_TIMEOUT = 900
 TEST_TIMEOUT = 10800
 STOP_TIMEOUT = 30
+HASH_CHUNK_BYTES = 1024 * 1024
+WEIGHT_SUFFIXES = {'.safetensors', '.gguf', '.bin', '.npz'}
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(HASH_CHUNK_BYTES), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def manifest_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def file_identity(path, content=True):
+    before = path.stat()
+    record = dict(size=before.st_size, mtime_ns=before.st_mtime_ns,
+                  ctime_ns=before.st_ctime_ns, inode=before.st_ino, device=before.st_dev,
+                  resolved_path=str(path.resolve(strict=True)))
+    if content:
+        record['sha256'] = sha256_file(path)
+    after = path.stat()
+    if any(getattr(before, field) != getattr(after, field)
+           for field in ('st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_ino', 'st_dev', 'st_mode')):
+        raise RuntimeError(f'Input changed while fingerprinting: {path}')
+    return record
+
+
+def checkpoint_identity(model, verification='sha256'):
+    """Metadata mode never claims weight payloads have been content-verified."""
+    files = {}
+    for path in sorted(model.rglob('*')):
+        relative = path.relative_to(model)
+        if any(part.startswith('.') for part in relative.parts) or not path.is_file():
+            continue
+        files[str(relative)] = file_identity(
+            path, content=verification == 'sha256' or path.suffix not in WEIGHT_SUFFIXES)
+    if 'config.json' not in files or not any(Path(name).suffix in WEIGHT_SUFFIXES for name in files):
+        raise ValueError('Checkpoint must contain config.json and local weight files')
+    content = {name: {'sha256': record['sha256'], 'size': record['size']}
+               if 'sha256' in record else record for name, record in files.items()}
+    return dict(verification=verification, weight_payloads_verified=verification == 'sha256',
+                manifest_sha256=manifest_digest(content), files=files)
+
+
+def checkpoint_mutation_identity(identity):
+    # Avoid rereading hundreds of GB between phases. Config/tokenizer hashes and
+    # weight file identity, size, mtime and ctime still detect ordinary mutations.
+    return {name: {key: value for key, value in record.items()
+                   if key != 'sha256' or Path(name).suffix not in WEIGHT_SUFFIXES}
+            for name, record in identity['files'].items()}
+
+
+def harness_identity(path, entrypoint=None):
+    root = Path(subprocess.check_output(
+        ['git', '-C', str(path), 'rev-parse', '--show-toplevel'], text=True).strip())
+    revision = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    status = subprocess.check_output(
+        ['git', '-C', str(root), 'status', '--porcelain=v1', '--untracked-files=all'], text=True)
+    names = subprocess.check_output(
+        ['git', '-C', str(root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard']).split(b'\0')
+    paths = {root / os.fsdecode(name) for name in names if name}
+    # Generated distribution files may be ignored by Git but are what Node runs.
+    if entrypoint is not None:
+        paths.update(p for p in entrypoint.parent.rglob('*') if p.is_file())
+    files = {str(p.relative_to(root)): file_identity(p) if p.is_file() else {'missing': True}
+             for p in sorted(paths)}
+    return dict(revision=revision, status=status, files=files,
+                manifest_sha256=manifest_digest(files))
+
+
+def runtime_identity(directory):
+    return {str(path.relative_to(directory)): sha256_file(path)
+            for path in sorted(directory.rglob('*')) if path.is_file()}
+
+
+def pin_runtime(binary, destination):
+    """Copy the relocatable release layout, dereferencing mutable source links."""
+    binary = binary.resolve(strict=True)
+    destination.mkdir()
+    sources = [binary] + [path for path in sorted(binary.parent.iterdir())
+                          if path != binary and path.suffix in {'.bundle', '.dylib', '.metallib'}]
+    before = {}
+    for source in sources:
+        paths = sorted(source.rglob('*')) if source.is_dir() else [source]
+        before.update({str(p.relative_to(binary.parent)): file_identity(p)
+                       for p in paths if p.is_file()})
+        target = destination / source.name
+        if source.is_dir():
+            shutil.copytree(source, target, symlinks=False)
+        else:
+            shutil.copy2(source, target)
+    expected = {name: identity['sha256'] for name, identity in before.items()}
+    if runtime_identity(destination) != expected:
+        raise RuntimeError('Runtime changed while copying the pinned release layout')
+    for name, identity in before.items():
+        if file_identity(binary.parent / name) != identity:
+            raise RuntimeError('Source runtime changed while pinning')
+    for path in destination.rglob('*'):
+        if path.is_file():
+            path.chmod(path.stat().st_mode & ~0o222)
+    return destination / binary.name, expected
+
+
+def verify_provenance(args, metadata):
+    if str(args.binary) != metadata['pinned_binary']:
+        raise RuntimeError('Server executable does not match the pinned command')
+    runtime = runtime_identity(args.binary.parent)
+    if runtime != metadata['runtime_manifest']:
+        raise RuntimeError('Pinned executable or runtime resources changed')
+    checkpoint = checkpoint_identity(args.model, verification='metadata')
+    if checkpoint_mutation_identity(checkpoint) != checkpoint_mutation_identity(metadata['checkpoint']):
+        raise RuntimeError('Checkpoint changed during benchmark qualification')
+    harnesses = {}
+    for name, path, entrypoint in [('llmprobe', args.llmprobe.parent, args.llmprobe),
+                                    ('context', args.context_harness, None)]:
+        harnesses[name] = harness_identity(path, entrypoint)
+        if harnesses[name] != metadata['harnesses'][name]:
+            raise RuntimeError(f'{name} harness changed during benchmark qualification')
+    return dict(binary_sha256=runtime[args.binary.name], runtime_manifest=runtime,
+                checkpoint_mutation_manifest_sha256=manifest_digest(checkpoint_mutation_identity(checkpoint)),
+                harness_manifest_sha256={name: identity['manifest_sha256']
+                                         for name, identity in harnesses.items()})
 
 
 def existing_path(path):
@@ -161,6 +287,9 @@ def server(args, phase, output):
         if sock.connect_ex(('127.0.0.1', args.port)) == 0:
             raise RuntimeError(f'Port {args.port} is occupied; no existing process will be stopped')
     command = server_command(args, phase)
+    if (command[0] != str(args.binary)
+            or sha256_file(Path(command[0])) != args.pinned_binary_sha256):
+        raise RuntimeError('Server command does not use the recorded pinned executable')
     (output / 'server-command.json').write_text(json.dumps(command, indent=2))
     with (output / 'server.log').open('w') as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -214,6 +343,8 @@ def main():
     parser.add_argument('--context-harness', type=Path, required=True)
     parser.add_argument('--context-python', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True, help='New output directory')
+    parser.add_argument('--checkpoint-verification', choices=['sha256', 'metadata'], default='sha256',
+                        help='sha256 reads all checkpoint payloads once before testing; metadata only hashes non-weight files and records weight file stats (not content verification)')
     parser.add_argument('--port', type=int, default=9999)
     parser.add_argument('--phase', choices=['all', 'llmprobe', 'context'], default='all')
     parser.add_argument('--mtp', action='store_true', help='Exercise MTP in both external suites')
@@ -238,7 +369,20 @@ def main():
             parser.error('Context Python requires openai, matplotlib, numpy and psutil; install them before starting model tests')
     args.output = args.output.absolute()
     args.output.mkdir(parents=True, exist_ok=False)
-    metadata = {'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
+    if os.environ.get('MACAFM_MLX_METALLIB'):
+        parser.error('Unset MACAFM_MLX_METALLIB; qualification uses the pinned runtime bundle')
+    original_binary = str(args.binary)
+    args.binary, runtime_manifest = pin_runtime(args.binary, args.output / 'runtime')
+    args.pinned_binary_sha256 = runtime_manifest[args.binary.name]
+    if not any((args.binary.parent / name).is_file() for name in (
+            'default.metallib', 'AFMKit_AFMKitMLX.bundle/default.metallib',
+            'AFMKit_AFMKitMLX.bundle/Contents/Resources/default.metallib')):
+        parser.error('Candidate requires a sibling MLX metallib or resource bundle for relocation')
+    metadata = {'binary_sha256': runtime_manifest[args.binary.name],
+                'original_binary': original_binary, 'pinned_binary': str(args.binary),
+                'runtime_manifest': runtime_manifest,
+                'checkpoint': checkpoint_identity(args.model, args.checkpoint_verification),
+                'checkpoint_mutation_check': 'non-weight SHA-256; weight size/inode/device/mtime/ctime before and after each phase',
                 'model': str(args.model), 'speculation': 'mtp' if args.mtp else 'off',
                 'mtp_depth': args.mtp_depth if args.mtp else None,
                 'prefill_step_size': args.prefill_step_size,
@@ -247,8 +391,9 @@ def main():
                 'qwen_mtp_profile': args.qwen_mtp_profile,
                 'qwen_environment': {k: v for k, v in os.environ.items() if k.startswith('AFM_QWEN_')},
                 'harnesses': {}}
-    for name, path in [('llmprobe', args.llmprobe.parent), ('context', args.context_harness)]:
-        metadata['harnesses'][name] = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+    for name, path, entrypoint in [('llmprobe', args.llmprobe.parent, args.llmprobe),
+                                    ('context', args.context_harness, None)]:
+        metadata['harnesses'][name] = harness_identity(path, entrypoint)
     (args.output / 'metadata.json').write_text(json.dumps(metadata, indent=2))
     results = {}
     phases = ['llmprobe', 'context'] if args.phase == 'all' else [args.phase]
@@ -269,6 +414,8 @@ def main():
         (output / 'test-command.json').write_text(json.dumps(command, indent=2))
         print(f'Starting {phase}: {output}', flush=True)
         try:
+            before = verify_provenance(args, metadata)
+            (output / 'provenance-before.json').write_text(json.dumps(before, indent=2))
             with server(args, phase, output) as owner:
                 code = run(command, output / f'{phase}.log', args.context_harness if phase == 'context' else None, owner=owner)
             result = {'exit_code': code, 'passed': code == 0}
@@ -286,6 +433,12 @@ def main():
                 result['passed'] = result['passed'] and coverage['passed']
         except Exception as error:
             result = {'passed': False, 'error': str(error)}
+        try:
+            after = verify_provenance(args, metadata)
+            (output / 'provenance-after.json').write_text(json.dumps(after, indent=2))
+            result['provenance_verified'] = True
+        except Exception as error:
+            result.update(passed=False, provenance_verified=False, provenance_error=str(error))
         results[phase] = result
         (args.output / 'results.json').write_text(json.dumps(results, indent=2))
         print(f'{phase}: {result}', flush=True)
