@@ -119,6 +119,33 @@ continues to use the earlier frozen `415f1a...` binary, not this experiment.
 
 ## Evidence root
 
+## Native reference compatibility check
+
+The latest reference release remains mlx-serve 26.10.1. A fresh direct native
+community load fails with `FileNotFound` after loading the weights. Its loader
+requires `ngram_table.bin`; the native checkpoint stores quantized embedding
+shards instead. However, a sidecar repack alone is **not** a valid remedy:
+`src/model.zig` also explicitly assumes the reference converter has folded
+every zero-centered norm's `1 + weight`. AFM detects the native shard layout
+and preserves its unfurled norms. No checkpoint weights were modified and no
+native reference performance number is claimed. Evidence:
+`native-reference-recheck/`; reference source revision
+`02bee553f48cd3bc7d82aba0f8073820bd924738`.
+
+After removing the rejected HC routing switch, the clean rebuilt binary
+`9e92db0b2b265dac5e19066d933219e63a369968985c000cbc0668e9d25c8487`
+passed both native and overlay eight-cell regression gates, preserving all
+twelve outputs per checkpoint. Overlay decode was 113.04/109.61/98.85/98.48
+tok/s versus reference 100.81/107.58/99.29/98.90 at 0.5/1/2/4K. Native decode
+was 89.59/85.95/77.87/85.94, with no native reference counterpart.
+
+The comprehensive per-case judge lacked paired responses for seeded
+streaming/non-streaming comparisons. The saved outputs are identical. The
+harness now supplies the matching checkpoint/prompt peer, without changing
+the measured results or manufacturing success; three pairing tests pass.
+The original judge scores are retained, with a separate paired-evidence
+rescore rather than silently overwriting the original report.
+
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
 
 - `fixed-prompts-control/`
