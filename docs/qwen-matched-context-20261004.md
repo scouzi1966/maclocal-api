@@ -173,6 +173,19 @@ must wait for the active shell process to exit.
 
 ## Evidence root
 
+## Independent review and provenance gate
+
+Independent review found no concrete defect in the retained runtime-row HC
+change or paired-judge evidence handling. It did identify that missing tuning,
+checkpoint revision, and warmup metadata could be accepted when absent in both
+runs. The corrected checker requires explicit tuning and schedule fields plus
+a checkpoint revision or manifest digest; 17 tests pass. The reviewer verified
+the fix. Earlier numerical/output checks above remain recorded results, but
+legacy records missing this provenance cannot independently qualify a release
+under the stricter gate. Raw metadata is not silently backfilled to obtain a pass.
+
+## Evidence root
+
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
 
 - `fixed-prompts-control/`

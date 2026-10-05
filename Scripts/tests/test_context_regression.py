@@ -14,8 +14,9 @@ spec.loader.exec_module(gate)
 
 class ContextRegressionTests(unittest.TestCase):
     def fixture(self, speed=100):
-        metadata = dict(checkpoint="same", community_revision="revision", binary_sha256="a" * 64,
+        metadata = dict(checkpoint="same", community_revision="a" * 40, binary_sha256="a" * 64,
                         config_sha256="b" * 64, server_arguments=["mlx", "--mtp"],
+                        tuning_overrides={},
                         experiment=dict(trials_per_context=2, in_process_warm_context_pass=True,
                                         warm_marker_epoch="warm"))
         rows = [dict(context_size="2k", prompt_tokens=2048, generation_tokens=128,
@@ -67,6 +68,30 @@ class ContextRegressionTests(unittest.TestCase):
         for run in (old, new):
             run[0]["tuning_overrides"] = dict(verify_async_ladder=0)
         with self.assertRaisesRegex(ValueError, "Tuning overrides"):
+            self.check(old, new)
+
+    def test_missing_provenance_is_not_proof_of_clean_execution(self):
+        for key in ("tuning_overrides", "community_revision"):
+            old, new = self.fixture(), self.fixture()
+            for run in (old, new):
+                del run[0][key]
+            with self.assertRaisesRegex(ValueError, "Missing"):
+                self.check(old, new)
+        for key in ("trials_per_context", "in_process_warm_context_pass", "warm_marker_epoch"):
+            old, new = self.fixture(), self.fixture()
+            for run in (old, new):
+                del run[0]["experiment"][key]
+            with self.assertRaisesRegex(ValueError, "schedule"):
+                self.check(old, new)
+
+    def test_local_checkpoint_requires_matching_manifest(self):
+        old, new = self.fixture(), self.fixture()
+        for run in (old, new):
+            del run[0]["community_revision"]
+            run[0]["checkpoint_manifest_sha256"] = "d" * 64
+        self.assertTrue(self.check(old, new)["passed"])
+        new[0]["checkpoint_manifest_sha256"] = "e" * 64
+        with self.assertRaisesRegex(ValueError, "manifests"):
             self.check(old, new)
 
     def test_twenty_percent_loss_fails(self):

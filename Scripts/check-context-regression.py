@@ -75,6 +75,16 @@ def compare(baseline, candidate, tolerance):
                 raise ValueError("Missing or invalid identity digest: " + key)
         if not metadata.get("server_arguments"):
             raise ValueError("Missing server startup arguments")
+        if not isinstance(metadata.get("tuning_overrides"), dict):
+            raise ValueError("Missing explicit tuning provenance; legacy evidence needs verification")
+        revision = metadata.get("community_revision", "")
+        manifest = metadata.get("checkpoint_manifest_sha256", "")
+        if not (re.fullmatch(r"[0-9a-f]{40}", revision)
+                or re.fullmatch(r"[0-9a-f]{64}", manifest)):
+            raise ValueError("Missing checkpoint revision or manifest; config alone does not identify weights")
+        for key in ("trials_per_context", "in_process_warm_context_pass", "warm_marker_epoch"):
+            if key not in metadata["experiment"]:
+                raise ValueError("Missing explicit workload schedule: " + key)
         if metadata.get("diagnostic_only") or metadata["experiment"].get("diagnostic_only"):
             raise ValueError("Diagnostic runs cannot qualify clean performance")
         if any(value is not None for value in metadata.get("tuning_overrides", {}).values()):
@@ -87,6 +97,8 @@ def compare(baseline, candidate, tolerance):
         raise ValueError("Checkpoint configuration digests differ")
     if old_meta.get("community_revision") != new_meta.get("community_revision"):
         raise ValueError("Checkpoint revisions differ")
+    if old_meta.get("checkpoint_manifest_sha256") != new_meta.get("checkpoint_manifest_sha256"):
+        raise ValueError("Checkpoint manifests differ")
     if old_meta.get("benchmark_arguments") != new_meta.get("benchmark_arguments"):
         raise ValueError("Client workload or sampling arguments differ")
     for key in ("trials_per_context", "in_process_warm_context_pass", "warm_marker_epoch"):
