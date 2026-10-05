@@ -314,6 +314,17 @@ Supported checkpoints can also use speculative decoding:
 - `--mtp` for compatible Qwen models. Qwen3.8 automatically prefetches the
   separately published MTP head matching the base checkpoint's quantization;
   use `--mtp-model <repo-or-path>` to override it.
+- For Qwen Next, the qualified opt-in throughput recipe is
+  `--mtp --mtp-depth 3 --qwen-mtp-profile throughput-v2`.
+  The earlier `throughput-v1` profile remains available. Choose draft depth
+  separately with `--mtp-depth`.
+  The CLI selection overrides `AFM_QWEN_MTP_PROFILE`. `--qwen-mtp-profile off`
+  disables the profile defaults while preserving individual tuning overrides.
+  Omitting the option preserves the environment/provider defaults. The profile
+  remains opt-in. Performance depends on the checkpoint and workload; see the
+  [matched-context qualification](docs/qwen-matched-context-20261004.md) for
+  exact checkpoints, settings, results, and remaining gaps. No tuning
+  environment variables are required for the qualified recipe.
 - `--eagle3 <drafter-directory>` for supported dense Gemma4 models
 - `--dspark-support <support.gguf>` for compatible DwarfStar DSpark workflows
 

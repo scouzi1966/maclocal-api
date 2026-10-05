@@ -13,6 +13,7 @@ import Darwin
 // `@Option` flag parsing it needs is supplied here. It's a String-RawRepresentable enum, so
 // ExpressibleByArgument's default rawValue-based init applies — an empty conformance suffices.
 extension TelegramReplyFormat: ExpressibleByArgument {}
+extension QwenMTPCLIProfile: ExpressibleByArgument {}
 
 // Global references for signal handling. Accessed from the C signal handler
 // (a nonisolated context), so these opt out of the main-actor isolation that
@@ -292,7 +293,8 @@ struct MlxCommand: ParsableCommand {
           --disable-prefix-caching: Disable the radix prefix cache (enabled by default)
           --enable-prefix-caching: Deprecated compatibility option; prefix caching is already enabled by default
           --mtp: Enable serial MTP self-speculative decoding for compatible Qwen models
-          --mtp-depth: MTP draft depth compatibility setting
+          --mtp-depth: Maximum MTP draft depth for supported model runtimes
+          --qwen-mtp-profile: Select the Qwen Next MTP tuning profile (throughput-v1, throughput-v2 or off)
           --mtp-model: Override the automatic MTP head with a Hugging Face repo, local directory, or .safetensors file
           --dspark-support: DwarfStar DSpark support GGUF for speculative decoding
           --dspark-draft-tokens: Maximum DSpark speculative tokens per cycle (default: 5)
@@ -553,11 +555,14 @@ struct MlxCommand: ParsableCommand {
 
     var enablePrefixCaching: Bool { !disablePrefixCaching }
 
-    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Qwen 3.8 automatically downloads and uses the matching quantized MTP head; concurrent and batch requests safely use autoregressive decoding.")
+    @Flag(name: .long, help: "Enable MTP self-speculative decoding. Supported Qwen models use an in-checkpoint or matching external MTP head; concurrent and batch requests may fall back to autoregressive decoding.")
     var mtp: Bool = false
 
-    @Option(name: .long, help: "MTP draft depth (accepted for compatibility; the loop currently uses the fixed depth-2-bonus structure from mlx-lm PR #990 — ~+50% decode vs AR on M4 Pro — so this value is not used).")
+    @Option(name: .long, help: "Maximum number of MTP draft tokens per verification cycle for supported model runtimes. Greater depth can reduce throughput when drafts are rejected; benchmark with your model and workload.")
     var mtpDepth: Int = 1
+
+    @Option(name: .customLong("qwen-mtp-profile"), help: "Qwen Next MTP tuning profile: throughput-v1, throughput-v2 or off. Overrides AFM_QWEN_MTP_PROFILE; individual tuning overrides remain effective. Use with --mtp.")
+    var qwenMTPProfile: QwenMTPCLIProfile?
 
     @Option(name: .customLong("mtp-model"), help: "Override the automatically selected MTP head with a Hugging Face repo, local directory, or .safetensors file.")
     var mtpModel: String?
@@ -761,6 +766,19 @@ struct MlxCommand: ParsableCommand {
         let resolvedMedia = resolvedMediaURLs.map(\.path)
 
         emitCompatibilityWarnings()
+
+        // Set process-start configuration before any provider/model initializes.
+        // Profile expansion and kernel settings remain owned by AFMKit.
+        let selectedQwenProfile: QwenMTPCLIProfile?
+        do {
+            selectedQwenProfile = try QwenMTPCLIProfile.resolve(
+                option: qwenMTPProfile, environment: ProcessInfo.processInfo.environment)
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
+        if let selectedQwenProfile {
+            setenv(QwenMTPCLIProfile.environmentKey, selectedQwenProfile.rawValue, 1)
+        }
 
         let kernelEngine = AFMMLXKernelEngine(configuredValue: mlxKernels)
         if kernelEngine.rawValue != mlxKernels.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

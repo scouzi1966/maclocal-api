@@ -14,6 +14,9 @@ port="${AFM_PROMPTFOO_PORT:-9999}"
 no_think="${AFM_NO_THINK:-0}"
 dspark_support="${AFM_DSPARK_SUPPORT:-}"
 mtp_model="${AFM_MTP_MODEL:-}"
+mtp_depth="${AFM_MTP_DEPTH:-}"
+prefill_step_size="${AFM_PREFILL_STEP_SIZE:-}"
+concurrent_capacity="${AFM_CONCURRENT_CAPACITY:-}"
 load_timeout="${AFM_PROMPTFOO_LOAD_TIMEOUT_SECONDS:-60}"
 summary_minimum_mtime_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
 server_pid=""
@@ -33,6 +36,18 @@ if [[ "$load_timeout" != <-> || "$load_timeout" -lt 1 ]]; then
 fi
 if [[ -n "$dspark_support" && ! -f "$dspark_support" ]]; then
   echo "AFM_DSPARK_SUPPORT must name an existing support GGUF file" >&2
+  exit 1
+fi
+if [[ -n "$mtp_depth" && ( "${AFM_MTP:-0}" != "1" || "$mtp_depth" != <-> || "$mtp_depth" -lt 1 ) ]]; then
+  echo "AFM_MTP_DEPTH requires AFM_MTP=1 and a positive integer" >&2
+  exit 1
+fi
+if [[ -n "$prefill_step_size" && ( "$prefill_step_size" != <-> || "$prefill_step_size" -lt 1 ) ]]; then
+  echo "AFM_PREFILL_STEP_SIZE must be a positive integer" >&2
+  exit 1
+fi
+if [[ -n "$concurrent_capacity" && ( "$concurrent_capacity" != <-> || "$concurrent_capacity" -lt 1 ) ]]; then
+  echo "AFM_CONCURRENT_CAPACITY must be a positive integer" >&2
   exit 1
 fi
 if [[ -n "$mtp_model" && ( "${AFM_MTP:-0}" != "1" || ! -d "$mtp_model" ) ]]; then
@@ -83,7 +98,13 @@ wait_for_health() {
       echo "AFM server exited before becoming healthy on :${port}" >&2
       return 1
     fi
-    if curl -sf "$health_url" >/dev/null 2>&1; then
+    local listener_pid
+    listener_pid=$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    if [[ -n "$listener_pid" && "$listener_pid" != "$server_pid" ]]; then
+      echo "Port $port belongs to another process; refusing to test it" >&2
+      return 1
+    fi
+    if [[ "$listener_pid" == "$server_pid" ]] && curl -sf "$health_url" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -122,6 +143,12 @@ start_server() {
   local -a extra_args=()
   local log_file="${out_dir}/server-${profile}.log"
 
+  # Explicit concurrency phases retain their two-slot test contract. Other
+  # phases may qualify a chosen scheduler capacity without duplicate flags.
+  if [[ -n "$concurrent_capacity" && "$profile" != grammar-enabled-concurrent && "$profile" != grammar-enabled-concurrent-cache ]]; then
+    extra_args+=(--concurrent "$concurrent_capacity")
+  fi
+
   case "$profile" in
     default)
       ;;
@@ -157,9 +184,15 @@ start_server() {
   # MTP path without accepting an arbitrary string of shell arguments.
   if [[ "${AFM_MTP:-0}" == "1" ]]; then
     extra_args+=(--mtp)
+    if [[ -n "$mtp_depth" ]]; then
+      extra_args+=(--mtp-depth "$mtp_depth")
+    fi
     if [[ -n "$mtp_model" ]]; then
       extra_args+=(--mtp-model "$mtp_model")
     fi
+  fi
+  if [[ -n "$prefill_step_size" ]]; then
+    extra_args+=(--prefill-step-size "$prefill_step_size")
   fi
   if [[ -n "$dspark_support" ]]; then
     extra_args+=(--dspark-support "$dspark_support")

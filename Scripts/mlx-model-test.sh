@@ -542,12 +542,11 @@ fi
 
 # If reanalysing, skip all test execution
 if [ -z "$REANALYSE_FILE" ]; then
-# Check for stale server on our port
-STALE_PID=$(lsof -ti :"$PORT" 2>/dev/null || true)
+# Refuse occupied ports; an unrelated server is not ours to terminate.
+STALE_PID=$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
 if [ -n "$STALE_PID" ]; then
-  echo "Warning: found existing process on port $PORT (PID $STALE_PID) — killing it"
-  kill -KILL $STALE_PID 2>/dev/null || true
-  sleep 1
+  echo "Error: port $PORT is occupied; refusing to stop another process" >&2
+  exit 1
 fi
 
 mkdir -p "$(dirname "$RESULTS_FILE")" "$SERVER_LOG_DIR"
@@ -914,7 +913,13 @@ trap cleanup INT TERM
 wait_for_server() {
   local deadline=$((SECONDS + TIMEOUT_LOAD))
   while [ $SECONDS -lt $deadline ]; do
-    if curl -s "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+    local listener_pid
+    listener_pid=$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$listener_pid" ] && [ "$listener_pid" != "$SERVER_PID" ]; then
+      echo "Error: port $PORT belongs to another process" >&2
+      return 1
+    fi
+    if [ "$listener_pid" = "$SERVER_PID" ] && curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
       return 0
     fi
     if ! kill -0 $SERVER_PID 2>/dev/null; then
@@ -1426,13 +1431,13 @@ print(f'API: {api}' if api else 'API: (none)')
     SERVER_EXTRA_ARGS+=("${AFM_EXTRA[@]}")
   fi
 
-  # Kill anything already listening on our port (stale server from previous run)
+  # A listener appearing between variants may belong to another workload.
   local stale_pid
-  stale_pid=$(lsof -ti :"$PORT" 2>/dev/null || true)
+  stale_pid=$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
   if [ -n "$stale_pid" ]; then
-    echo "  Warning: killing stale process on port $PORT (PID $stale_pid)"
-    kill -KILL $stale_pid 2>/dev/null || true
-    sleep 1
+    record_failed_run "$run_config" "Port $PORT is occupied by another process" "0"
+    OVERALL_STATUS=1
+    return
   fi
 
   # Start server
@@ -1965,6 +1970,23 @@ $test_spec"
 
 TEST RESULT:
 $jsonl_line"
+
+        paired_evidence=$(echo "$jsonl_line" | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
+import json, sys
+from mlx_model_test_oracle import paired_judge_evidence
+result = json.load(sys.stdin)
+with open(sys.argv[1]) as source:
+    records = [json.loads(line) for line in source if line.strip()]
+peers = paired_judge_evidence(result, records)
+if peers:
+    print(json.dumps(peers))
+' "$RESULTS_FILE")
+        if [ -n "$paired_evidence" ]; then
+          PERTEST_INPUT="$PERTEST_INPUT
+
+PAIRED RESULTS (comparison evidence only; score the TEST RESULT above):
+$paired_evidence"
+        fi
 
         case "$tool" in
           claude)

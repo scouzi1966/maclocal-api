@@ -308,7 +308,7 @@ def config_panel(r):
     if classification and classification != "conformant":
         perf_badges.append(config_badge("classification", classification, "#f0883e"))
     perf_badges.append(config_badge("load", f'{r.get("load_time_s", "?")}s', "#8b949e"))
-    perf_badges.append(config_badge("gen", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
+    perf_badges.append(config_badge("request", f'{r.get("gen_time_s", "?")}s', "#8b949e"))
     perf_badges.append(config_badge("prompt_tok", r.get("prompt_tokens", "?"), "#8b949e"))
     cached_tokens = r.get("cached_input_tokens", 0)
     if cached_tokens:
@@ -712,7 +712,7 @@ MathJax = {{
   <div class="card"><div class="label">Passed</div><div class="value green">{len(ok)}</div></div>
   <div class="card"><div class="label">Failed</div><div class="value red">{len(fail)}</div></div>
   <div class="card"><div class="label">Skipped</div><div class="value yellow">{len(skipped)}</div></div>
-  <div class="card"><div class="label">Best tok/s</div><div class="value yellow">{best_tps}</div></div>
+  <div class="card"><div class="label">Best output tok/s (end-to-end)</div><div class="value yellow">{best_tps}</div></div>
   <div class="card"><div class="label">Fastest</div><div class="value" style="font-size:1rem;color:#d29922">{best_model}</div></div>
 </div>
 
@@ -726,8 +726,8 @@ MathJax = {{
   <div class="card"><div class="label">Forced-Parser Compatibility Experiments</div><div class="value yellow">{ratio_text(forced_parser_passed, forced_parser_results)}</div></div>
 </div>
 
-<h2>Performance Ranking (by tokens/sec)</h2>
-<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Click a row to jump to its full response below.</p>
+<h2>Performance Ranking (end-to-end output tokens/sec)</h2>
+<p style="color:#8b949e;font-size:0.85rem;margin-bottom:0.5rem">Output tokens divided by total API request time, including prompt processing, generation, and request overhead; model loading is excluded. This is not engine-only decode throughput or input prefill speed. Click a row to jump to its full response below.</p>
 <table>
 <tr>
   <th title="Rank by tok/s">#</th>
@@ -738,7 +738,7 @@ MathJax = {{
   <th>Temp</th>
   <th>Load (s)</th>
   <th>Tokens</th>
-  <th>Gen (s)</th>
+  <th>Request (s)</th>
   <th style="min-width:200px">Tokens/sec</th>
   <th>Prompt</th>
 </tr>

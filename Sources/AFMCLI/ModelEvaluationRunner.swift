@@ -446,6 +446,11 @@ extension MlxCommand {
         }
         if mtp { args.append("--mtp") }
         if mtpDepth != 1 { args += ["--mtp-depth", String(mtpDepth)] }
+        if let profile = try? QwenMTPCLIProfile.resolve(
+            option: qwenMTPProfile, environment: ProcessInfo.processInfo.environment)
+        {
+            args += ["--qwen-mtp-profile", profile.rawValue]
+        }
         if let mtpModel { args += ["--mtp-model", shellQuote(mtpModel)] }
         if let eagle3 { args += ["--eagle3", shellQuote(eagle3)] }
         if let parser = toolCallParser { args += ["--tool-call-parser", shellQuote(parser)] }

@@ -47,6 +47,16 @@ Verify the archive with `shasum -a 256` and `tar -tzf`, check existing assets wi
 
 ## Nightly Version Contract
 
+Before full nightly qualification or publication, reconcile performance against
+the retained winning binary on the exact checkpoint, prompts, sampling settings,
+warmup schedule and concurrency. Run `Scripts/check-context-regression.py` on
+the paired raw Context reports. Preserve both historical peaks and all-trial
+means; never replace a baseline with a slower candidate or use independent CSV
+phase peaks as means. A failed/missing performance gate blocks promotion, even
+when API assertions pass. Changed outputs require separate quality review.
+Named tuning profiles must test actual kernel activation, not just expansion
+of a settings dictionary. Repeat the performance gate after the final build.
+
 Resolve nightly identifiers with `Scripts/nightly-version.sh`; do not assemble them independently in release scripts. Homebrew and every installed `afm --version` must report the canonical `v<base>-next.<YYYYMMDD>.<sha>` value. Python distribution metadata uses the equivalent PEP 440 form `<base>.dev<YYYYMMDD>+<sha>`, because the canonical display value is not a valid Python package version. `Scripts/build-nightly-wheel.sh` must smoke-test the bundled command and fail unless its runtime version exactly matches the canonical Homebrew version.
 
 ## Commit & Pull Request Guidelines
