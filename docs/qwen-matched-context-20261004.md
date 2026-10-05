@@ -332,14 +332,16 @@ The same diagnostic on the shared ddalcu overlay does not reproduce the native
 
 | Context | AFM profile prefill/decode | Reference prefill/decode |
 |---|---:|---:|
-| 0.5K | 941.26 / 69.33 | 1014.62 / 72.01 |
-| 1K | 1075.84 / 68.79 | 1171.51 / 69.68 |
-| 2K | 1213.00 / 62.20 | 1285.04 / 63.28 |
-| 4K | 1249.16 / 62.61 | 1356.80 / 64.78 |
+| 0.5K | 905.94 / 69.33 | 1014.62 / 72.01 |
+| 1K | 1046.08 / 68.79 | 1171.51 / 69.68 |
+| 2K | 1196.61 / 62.20 | 1285.04 / 63.28 |
+| 4K | 1236.15 / 62.61 | 1356.80 / 64.78 |
 
-All twelve outputs match the ordinary overlay MTP-off control. This single
-diagnostic is inside 10% at every cell, but is not a repeatability guarantee or
-a default-policy decision. Evidence: `overlay-off-throughput-profile-diagnostic/`;
+All twelve outputs match the ordinary overlay MTP-off control. Prefill uses
+client end-to-end `prompt_tps_e2e`, consistently with the preceding tables,
+not the higher server-reported `prompt_tps`. The 0.5K and 1K prefill gaps remain
+about 10.7%; this diagnostic does not close them or justify a default-policy
+decision. Evidence: `overlay-off-throughput-profile-diagnostic/`;
 reference: `tiny-fixed-overlay-reference-mtp-off/`. The native checkpoint uses
 quantized HC injection weights while this overlay uses BF16 injection weights,
 so a native-specific fusion gain must not be advertised as universal.
