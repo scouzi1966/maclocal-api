@@ -237,12 +237,60 @@ lets the Qwen3VL processor used by Qwen Next upscale valid tiny inputs using
 its existing minimum pixel budget. Ordinary geometry and text execution are
 unchanged; other shared-helper callers retain their prior default policy.
 Review also corrected fractional aspect-ratio validation. Six focused tests
-pass; live tiny-image requalification is pending on the rebuilt artifact.
+pass. Live rebuilt tests correctly identify red 1x1 and blue 2x4 images,
+alongside the 64x64 controls. Full llmprobe restores all three vision probes:
+283/283 conformance, 100% capability/fidelity and unchanged 6/8 agentic tasks.
+The sampled Messages delimiter case changes from HTTP 500 to a protocol pass
+but still has 0/3 exact-content warnings; do not attribute that to this image fix.
+All seven Context sizes through 32K complete, with saved responses.
 
 The external qualification gate now rejects missing/unsupported expected vision
 probes even with a perfect reduced conformance headline. Its 22 offline tests
 pass, and it rejects the saved 280/280 report. Independent review found no
 remaining issue in these fixes. Do not count that report as release-qualified.
+
+## Corrected artifact: MTP-on/off matrix
+
+Binary SHA256:
+`84675472a44a7b604d0305e212c2800470680a0681ac11a96b6b588e8d9db2d2`.
+Provider `aba2fe7f`; coverage gate consumer `ba323e7`. No tuning environment
+overrides. Same fixed 12 prompts and prompt-token counts per arm. Values are
+three-trial means, single request, cache off, reasoning off. MTP-on uses depth
+3 and throughput-v2; MTP-off omits the MTP profile. Both use 8192 prefill chunks.
+
+Shared ddalcu vision-overlay, same weights on AFM and mlx-serve 26.10.1:
+
+| MTP | Context | AFM prefill | Reference prefill | AFM decode | Reference decode |
+|---|---|---:|---:|---:|---:|
+| On | 0.5K | 953.56 | 1026.81 | 112.45 | 104.24 |
+| On | 1K | 1108.03 | 1175.69 | 107.81 | 104.19 |
+| On | 2K | 1284.39 | 1284.75 | 97.98 | 97.54 |
+| On | 4K | 1332.46 | 1343.58 | 98.28 | 100.14 |
+| Off | 0.5K | 905.15 | 1014.62 | 68.90 | 72.01 |
+| Off | 1K | 1051.84 | 1171.51 | 68.32 | 69.68 |
+| Off | 2K | 1199.40 | 1285.04 | 62.06 | 63.28 |
+| Off | 4K | 1237.98 | 1356.80 | 62.66 | 64.78 |
+
+MTP-on is within 10% for every cell. MTP-off decode is 1.9–4.3% behind;
+prefill is 6.7–10.8% behind. The 0.5K and 1K prefill cells do not meet the 10%
+target. No claim of universally achieved parity is made.
+
+Native-community checkpoint, same native revision as above:
+
+| Context | MTP-on prefill/decode | MTP-off prefill/decode | Same-checkpoint reference |
+|---|---:|---:|---|
+| 0.5K | 949.85 / 89.41 | 918.86 / 35.53 | Cannot load native layout |
+| 1K | 1114.53 / 85.80 | 1048.75 / 35.49 | Cannot load native layout |
+| 2K | 1293.85 / 79.63 | 1199.76 / 34.29 | Cannot load native layout |
+| 4K | 1340.51 / 86.59 | 1238.94 / 34.47 | Cannot load native layout |
+
+Native and overlay MTP-on/off each pass all eight 3% rebuild regression
+checks against the frozen control, with identical outputs. The native MTP-off
+control differs by under 0.9% in every cell: its lower speed is not a rebuild
+regression. All 48 output texts match their respective controls. The native historical
+fast-binary gap remains open. Concurrent aggregate throughput, cache-enabled
+performance and the separate AFM-converted checkpoint are not refreshed by
+this matrix. Evidence: `tiny-fixed-*` and `tiny-image-fixed-native-full/`.
 
 ## Evidence root
 
