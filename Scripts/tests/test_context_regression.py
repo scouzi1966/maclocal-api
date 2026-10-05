@@ -14,7 +14,8 @@ spec.loader.exec_module(gate)
 
 class ContextRegressionTests(unittest.TestCase):
     def fixture(self, speed=100):
-        metadata = dict(checkpoint="same", community_revision="revision", binary_sha256="sha",
+        metadata = dict(checkpoint="same", community_revision="revision", binary_sha256="a" * 64,
+                        config_sha256="b" * 64, server_arguments=["mlx", "--mtp"],
                         experiment=dict(trials_per_context=2, in_process_warm_context_pass=True,
                                         warm_marker_epoch="warm"))
         rows = [dict(context_size="2k", prompt_tokens=2048, generation_tokens=128,
@@ -42,9 +43,30 @@ class ContextRegressionTests(unittest.TestCase):
 
     def test_changed_checkpoint_config_rejected(self):
         old, new = self.fixture(), self.fixture()
-        old[0]["config_sha256"] = "before"
-        new[0]["config_sha256"] = "after"
+        old[0]["config_sha256"] = "b" * 64
+        new[0]["config_sha256"] = "c" * 64
         with self.assertRaisesRegex(ValueError, "configuration"):
+            self.check(old, new)
+
+    def test_missing_identity_cannot_match_another_missing_identity(self):
+        for key in ("config_sha256", "binary_sha256", "server_arguments"):
+            old, new = self.fixture(), self.fixture()
+            del old[0][key]
+            del new[0][key]
+            with self.assertRaises(ValueError):
+                self.check(old, new)
+
+    def test_changed_server_settings_are_not_a_regression_control(self):
+        new = self.fixture()
+        new[0]["server_arguments"] = ["mlx", "--mtp", "--mtp-depth", "7"]
+        with self.assertRaisesRegex(ValueError, "startup configuration"):
+            self.check(self.fixture(), new)
+
+    def test_tuning_overrides_rejected_even_when_identical(self):
+        old, new = self.fixture(), self.fixture()
+        for run in (old, new):
+            run[0]["tuning_overrides"] = dict(verify_async_ladder=0)
+        with self.assertRaisesRegex(ValueError, "Tuning overrides"):
             self.check(old, new)
 
     def test_twenty_percent_loss_fails(self):
@@ -114,6 +136,7 @@ class ContextRegressionTests(unittest.TestCase):
             save("result.json", dict(status="completed"))
             command = ["python", "context.py", "output", "--contexts", "2", "--max-tokens", "128"]
             save("executed-test-command.json", command)
+            save("server-command.json", ["/path/to/afm", "mlx", "--mtp"])
             save_lines("raw-trial-results.jsonl", rows)
             save_lines("paired-transcripts.jsonl", texts)
             save_lines("stream-usage.jsonl", usage)

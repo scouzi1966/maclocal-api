@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from statistics import mean
 
@@ -25,6 +26,10 @@ def load_run(directory):
         raise ValueError("Run did not complete")
     command = json.loads((directory / "executed-test-command.json").read_text())
     metadata["benchmark_arguments"] = command[3:]
+    server = json.loads((directory / "server-command.json").read_text())
+    if not isinstance(server, list) or len(server) < 2 or not all(isinstance(x, str) for x in server):
+        raise ValueError("Missing server startup arguments")
+    metadata["server_arguments"] = server[1:]  # Binary identity is tracked separately.
     trials = records(directory / "raw-trial-results.jsonl")
     transcripts = records(directory / "paired-transcripts.jsonl")
     usage = records(directory / "stream-usage.jsonl")
@@ -65,8 +70,17 @@ def compare(baseline, candidate, tolerance):
     old_meta, old, old_text = load_run(baseline)
     new_meta, new, new_text = load_run(candidate)
     for metadata in (old_meta, new_meta):
+        for key in ("config_sha256", "binary_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", metadata.get(key, "")):
+                raise ValueError("Missing or invalid identity digest: " + key)
+        if not metadata.get("server_arguments"):
+            raise ValueError("Missing server startup arguments")
         if metadata.get("diagnostic_only") or metadata["experiment"].get("diagnostic_only"):
             raise ValueError("Diagnostic runs cannot qualify clean performance")
+        if any(value is not None for value in metadata.get("tuning_overrides", {}).values()):
+            raise ValueError("Tuning overrides cannot qualify a transparent release configuration")
+    if old_meta.get("server_arguments") != new_meta.get("server_arguments"):
+        raise ValueError("Server startup configuration differs")
     if old_meta["checkpoint"] != new_meta["checkpoint"]:
         raise ValueError("Checkpoint paths differ")
     if old_meta.get("config_sha256") != new_meta.get("config_sha256"):
