@@ -73,9 +73,9 @@ API qualification completed on the experimental binary: **116/116 passed,
 two capability skips**. Coverage includes prefix cache, concurrent/batch
 dispatch, grammar, tool parsing, stop/streaming, and sampling interactions.
 Evidence: `dynamic-rows-native-api/assertions/`. This is not a rerun of source
-XCTest. The comprehensive suite with `codex-glm` as judge is running from the
-frozen `candidate-runtime-hc-20261004` binary. Broader release qualification
-and historical-performance recovery are still pending.
+XCTest. The comprehensive suite with `codex-glm` as judge subsequently completed
+on the frozen `candidate-runtime-hc-20261004` binary; results are recorded below.
+Broader release qualification and historical-performance recovery remain pending.
 
 ## Rejected submission-cadence screen
 
@@ -171,8 +171,6 @@ all 91 judge scores were saved. HTML was regenerated from those saved results;
 no inference rerun or score replacement was performed. Future harness edits
 must wait for the active shell process to exit.
 
-## Evidence root
-
 ## Independent review and provenance gate
 
 Independent review found no concrete defect in the retained runtime-row HC
@@ -183,6 +181,46 @@ a checkpoint revision or manifest digest; 17 tests pass. The reviewer verified
 the fix. Earlier numerical/output checks above remain recorded results, but
 legacy records missing this provenance cannot independently qualify a release
 under the stricter gate. Raw metadata is not silently backfilled to obtain a pass.
+
+## Completed Promptfoo regression qualification
+
+The runtime-row candidate completed all 406 cases on the native community
+checkpoint, with MTP depth 3, throughput-v2, vision enabled, and no provider
+tuning environment overrides. Case identity and actual request evidence match
+the qualified AFM control: 357 shared passes, 49 shared failures, and zero
+candidate-only failures. Native conformance is 76/76, model/agent behavior
+82/99, and forced-parser experiments 199/231. The 17 behavioral failures remain
+unresolved rather than automatically attributed to model quality. This is an
+AFM regression comparison, not a same-checkpoint reference-engine comparison.
+Evidence: `runtime-promptfoo-comparison.json` and `runtime-hc-promptfoo/`.
+
+## Fresh provenance-complete rebuild checks
+
+The clean rebuilt binary is
+`1f50eb823d9584fbc1ff15334a5dc938e64470f6154d3ad179808ea26c1d044b`.
+Both native-community and shared-overlay comparisons against frozen `415f1a31`
+pass all eight 3% performance checks and preserve all twelve responses per
+checkpoint. Metadata now records explicit launch/sampling/schedule settings,
+HF revision and a weight-identity manifest. Weight provenance uses HF download
+metadata, same-file checks and before/after mutation checks, not a fresh full
+payload rehash. Overlay weights are hardlinks to the ddalcu source revision
+`6d3eaa041ef4a8c081c3a987a57afc21258c492a`.
+
+Fresh shared-overlay comparison, same settings as above, three-trial means:
+
+| Context | AFM prefill/decode | mlx-serve prefill/decode | AFM difference prefill/decode |
+|---|---:|---:|---:|
+| 0.5K | 951.69 / 113.43 | 1032.91 / 105.26 | -7.9% / +7.8% |
+| 1K | 1110.42 / 109.84 | 1171.02 / 103.96 | -5.2% / +5.7% |
+| 2K | 1282.66 / 98.90 | 1288.43 / 97.49 | -0.4% / +1.4% |
+| 4K | 1334.20 / 98.40 | 1361.73 / 100.66 | -2.0% / -2.2% |
+
+All twelve cross-engine prompt hashes match. This is single-request MTP-on,
+cache-off performance, not a refreshed concurrency, MTP-off or semantic quality
+comparison. Native-community rebuilt decode means are 89.41/85.81/79.34/83.97
+tok/s; no same-checkpoint reference is available. Its historical speed deficit
+remains open. Evidence: `provenance-native-{control,restored}/` and
+`provenance-overlay-{control,restored,reference}/`.
 
 ## Evidence root
 
