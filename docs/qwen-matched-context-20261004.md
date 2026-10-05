@@ -346,6 +346,60 @@ reference: `tiny-fixed-overlay-reference-mtp-off/`. The native checkpoint uses
 quantized HC injection weights while this overlay uses BF16 injection weights,
 so a native-specific fusion gain must not be advertised as universal.
 
+## Responses error fix: rebuilt-binary regression check
+
+Consumer fix `362e7c9` renders Responses validation failures as an OpenAI
+`error.message` object while preserving status and thrown retry headers.
+Independent review completed. All ten Responses tests pass; the full consumer
+suite passes 360 XCTest cases (two skips, no failures) and 145 Swift Testing
+cases. The release build passed, and five live malformed/missing-input and
+unknown-response checks passed. Evidence: `responses-error-live-check/`.
+
+Binary SHA-256:
+`f51ccf58ab05515542617b475b2a6453154a1cac270801fa298032baea8a8024`.
+Provider remains `aba2fe7f`. The diagnostic binary is preserved under
+`candidate-response-fix/`, with build/test logs and provenance; it is not a
+packaged or published nightly.
+
+Against the preceding `84675472...` binary, all 32 timing checks pass the 3%
+regression limit, and all 48 generated outputs match across native/overlay and
+MTP on/off. Each `response-fixed-*` directory contains its `regression-gate.json`.
+This does not erase the native historical-fast-binary deficit.
+
+Shared ddalcu overlay, same checkpoint and reference binary as above. Each
+entry is three-trial mean end-to-end prefill / decode tok/s, not phase peaks:
+
+| MTP | Context | Rebuilt AFM | mlx-serve 26.10.1 |
+|---|---|---:|---:|
+| On | 0.5K | 956.40 / 112.88 | 1026.81 / 104.24 |
+| On | 1K | 1111.89 / 110.20 | 1175.69 / 104.19 |
+| On | 2K | 1285.03 / 98.76 | 1284.75 / 97.54 |
+| On | 4K | 1333.27 / 99.25 | 1343.58 / 100.14 |
+| Off | 0.5K | 908.82 / 69.22 | 1014.62 / 72.01 |
+| Off | 1K | 1053.95 / 68.37 | 1171.51 / 69.68 |
+| Off | 2K | 1192.60 / 62.24 | 1285.04 / 63.28 |
+| Off | 4K | 1229.72 / 62.45 | 1356.80 / 64.78 |
+
+MTP on uses throughput-v2/depth 3; MTP off here uses no profile. The two
+smallest MTP-off prefill cells remain outside the 10% target. Reference values
+are the earlier same-session reference runs, not a new reference execution.
+
+Native community rebuilt AFM (no compatible same-checkpoint reference run):
+
+| Context | MTP on prefill/decode | MTP off prefill/decode |
+|---|---:|---:|
+| 0.5K | 953.88 / 89.61 | 916.75 / 35.60 |
+| 1K | 1115.73 / 86.09 | 1055.29 / 35.45 |
+| 2K | 1294.75 / 79.24 | 1202.44 / 34.35 |
+| 4K | 1334.68 / 85.37 | 1239.18 / 34.47 |
+
+Full live llmprobe, Promptfoo and AI-judge results earlier in this document
+belong to their recorded binary identities, not this new binary. This rebuild
+has source-unit, targeted live-error and exact-output/performance regression
+coverage. Fresh cache-enabled aggregate-throughput and final immutable-package
+installation qualification remain outstanding; no claim of nightly readiness
+is made from this regression check alone.
+
 ## Evidence root
 
 `/Volumes/edata/afm-release-artifacts/nightly-qualification-20261004`
