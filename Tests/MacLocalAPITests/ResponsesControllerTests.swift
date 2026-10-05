@@ -157,6 +157,58 @@ final class ResponsesControllerTests: XCTestCase {
         }
     }
 
+    func testInvalidInputHasOpenAIErrorMessageWithoutInvokingInference() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "should not run")
+        for body in ["{}", "[]", "{", #"{"input":42}"#] {
+            try await post(body) { response in
+                XCTAssertEqual(response.status, .badRequest)
+                let json = try Self.json(response.body.string)
+                let error = try XCTUnwrap(json["error"] as? [String: Any])
+                XCTAssertFalse(try XCTUnwrap(error["message"] as? String).isEmpty)
+                XCTAssertEqual(error["type"] as? String, "invalid_request_error")
+            }
+        }
+        let requests = await recorder.all()
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testUnknownPreviousResponsePreservesNotFoundAndErrorMessage() async throws {
+        try register(content: "should not run")
+        try await post(#"{"input":"hello","previous_response_id":"missing"}"#) { response in
+            XCTAssertEqual(response.status, .notFound)
+            let json = try Self.json(response.body.string)
+            let error = try XCTUnwrap(json["error"] as? [String: Any])
+            XCTAssertEqual(error["message"] as? String, "Unknown previous_response_id: missing")
+        }
+    }
+
+    func testThrownRateLimitPreservesStatusAndRetryHeader() async throws {
+        try app.register(collection: ResponsesController(defaultModelID: "test-model") { _ in
+            throw Abort(.tooManyRequests, headers: ["Retry-After": "7"], reason: "Server is busy")
+        })
+        try await post(#"{"input":"hello"}"#) { response in
+            XCTAssertEqual(response.status, .tooManyRequests)
+            XCTAssertEqual(response.headers.first(name: "Retry-After"), "7")
+            let json = try Self.json(response.body.string)
+            let error = try XCTUnwrap(json["error"] as? [String: Any])
+            XCTAssertEqual(error["message"] as? String, "Server is busy")
+        }
+    }
+
+    func testThrownServerErrorRetainsServerErrorClassification() async throws {
+        try app.register(collection: ResponsesController(defaultModelID: "test-model") { _ in
+            throw Abort(.internalServerError, reason: "Generation failed")
+        })
+        try await post(#"{"input":"hello"}"#) { response in
+            XCTAssertEqual(response.status, .internalServerError)
+            let json = try Self.json(response.body.string)
+            let error = try XCTUnwrap(json["error"] as? [String: Any])
+            XCTAssertEqual(error["message"] as? String, "Generation failed")
+            XCTAssertEqual(error["type"] as? String, "server_error")
+        }
+    }
+
     private func register(
         recorder: ResponsesChatRecorder = ResponsesChatRecorder(),
         content: String
