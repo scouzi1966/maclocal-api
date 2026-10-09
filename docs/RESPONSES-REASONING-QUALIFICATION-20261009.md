@@ -554,6 +554,109 @@ was changed. A source audit found no `F_NOCACHE` or analogous invalidation polic
 in either sidecar's mapped/positional-read paths; warming policy remains a
 relevant difference, not proof of the entire cold-prefill delay.
 
+### Completed browser-independent Orbital comparison
+
+`orbitalBrowserIndependent20261009` finished both engines sequentially under
+`isolated-cli-browser-independent-v1`. The reference ran first; AFM followed
+from the same empty fixture, not from the reference's solution. Both used the
+same checkpoint, MTP off, prefix caching on, temperature 0, top-p 1, top-k 0,
+seed 123 and medium reasoning. AFM retained default mapped n-gram residency.
+The binaries were unchanged from the tool-limit qualification above. The
+reference was release 26.10.1, executable SHA-256
+`46d017b5f6e49890e654dbefd2b750eda44b627a20f4ec7a01015a4d0d8ea1e0`.
+
+Independent audit confirmed equivalent initial workspace manifests and first
+requests after removing engine/session identifiers. Their normalized request
+SHA-256 was
+`cb2be68491be823d5b4ef70c2f98a089738dacdfc5d44c045d1fe1074e25e543`.
+No acceptance assertions were changed. No browser-repair detour, broad process
+termination, or previous-solution access was observed. Both agents wrote some
+preview logs/scripts under `/tmp`, a limited workspace-rule deviation. Both
+owned-workspace cleanup records verified no remaining processes.
+
+| Measurement | AFM | Reference |
+| --- | ---: | ---: |
+| Agent wall time (s) | 588.724 | 732.122 |
+| Sum of HTTP request durations (s) | 559.482 | 708.013 |
+| Other elapsed time (s) | 29.241 | 24.109 |
+| Requests | 42 | 47 |
+| Generated output tokens | 29,838 | 41,517 |
+| Output tokens / summed HTTP second | 53.331 | 58.639 |
+| First successful project build elapsed (s) | 265.200 | 490.484 |
+| First-build output tokens | 15,094 | 27,569 |
+| Physically reused / total input tokens | 729,134 / 797,463 | 827,392 / 904,107 |
+| Physical cache reuse | 91.43% | 91.51% |
+| Compactions | 1 | 1 |
+| Compaction duration / outputs | 39.258 s / 1,153 | 42.425 s / 1,393 |
+| Self-authored tests | 15/15 | 11/11 |
+| Agent final answer | Present, 1,943 characters | Empty; incomplete |
+| Original independent application checks | 8/10 executed; mobile not executed | 9/11 |
+
+The AFM run used 19.6% less wall time than the reference run, which ended
+without a final answer, while generating 28.1% fewer tokens. Its output per
+summed HTTP second was 9.05% lower. These are different generated solutions and
+conversation trajectories: neither rate nor the first-build improvement is a
+matched-input raw-decode comparison. AFM's project-only server counters,
+excluding the four-token startup warmup, give 66.680 seconds of prefill and
+486.219 seconds of decode, or 61.367 decode tokens/second. The reference log
+does not contain an equivalent decode-stage duration; no pure-decode ratio is
+claimed. Reference API `cached_tokens` is still zero, but its server log
+independently records the physical reuse in the table.
+
+Both compactions returned useful nonempty summaries without callable output.
+AFM request 026 supplied a 3,173-character handoff and preserved the persistent
+environment restrictions. No recurrence of the earlier empty-handoff protocol
+defect was seen in this pair.
+
+The independent application failures are material:
+
+- AFM initializes `last` with `performance.now()` and accepts a slightly older
+  first animation-frame timestamp. Its negative delta reaches `advanceTime`,
+  throws, and prevents the next frame from being scheduled. Time remains zero.
+  Its successful pause assertion can consequently be vacuous; it is not proof
+  of correct pause during motion. The original failure was reproduced by an
+  unchanged evaluator rerun on the unchanged archived project.
+- AFM's original nominal 8/11 includes an `evaluation setup/continuation` row:
+  mobile screenshot capture timed out before the mobile-overflow assertion.
+  This is **not** an executed mobile failure or pass. Its relationship to the
+  stopped rendering remains incompletely established; do not automatically
+  attribute it to unrelated infrastructure.
+- Reference animation advances time despite its pause flag. Its other failed
+  check is a lowercase selection value/diagnostic (`boreal` versus `Boreal`),
+  not wholly broken visual selection. The task explicitly requires capitalized
+  option values; the diagnostics field's casing is less explicitly specified.
+
+A separate read-only mobile diagnostic found stable geometry and no horizontal
+overflow on AFM's archived project. It also reproduced the negative-delta
+exception. That diagnostic calls `__orbitDiagnostics()`, which itself renders,
+and then captured a screenshot successfully in 0.370 seconds. Because it
+forces rendering and has a longer capture deadline, it is not an unchanged
+acceptance rerun and does not replace the original score. Source hashes before
+and after the diagnostic matched. Evidence is retained under
+`evaluation-rechecks/afm-01` and `evaluation-rechecks/afm-mobile-diagnostic`.
+
+The reference's final request 047 spent 86.550 seconds generating 5,589 tokens
+of repetitive reasoning. Its near-repeat detector ended generation, logging
+`finish_reason=stop details=repetition_loop tier=near_repeat trim_start=1493`.
+The wire nevertheless returned `status: completed`, no visible answer and no
+repetition-stop cause. This was not a timeout or the harness output budget.
+Source review confirms streaming Responses does not apply the logged tail
+trim and maps this stop to completed; the client did not discard an answer
+present on the wire. This does not prove AFM would generate the same loop from
+the identical input.
+
+AFM request 025 returned schema-invalid arguments wrapped under `arguments`
+instead of top-level `cmd`; Codex rejected them. It cost 25.811 seconds and
+1,520 output tokens. Generation versus parsing remains unattributed without
+raw-output evidence. Preview-only work cost AFM 68.961 seconds / 3,548 tokens
+versus reference 52.218 seconds / 2,989 tokens. These categories explain observed
+work; subtracting them is not a verified counterfactual completion time.
+
+This pair shows working cache reuse, useful compaction, and no recurrence of
+the earlier large AFM elapsed-time deficit. It **does not establish successful
+full-project quality parity or release qualification**. Both archived solutions,
+all original reports, and the unsuccessful evaluator rerun remain intact.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
