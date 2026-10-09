@@ -330,6 +330,89 @@ Thus zero reasoning detail is a reporting defect, not the cause of compaction
 timing in this configuration when total usage is correct. Incorrect total
 usage remains relevant, which is why the accepted-token counter fix matters.
 
+### Identical-history latency replay and first-use sensitivity
+
+The next diagnostic replayed six saved AFM histories and six saved reference
+histories through both frozen engines, one request and one engine at a time.
+Every model-normalized wire-request hash matched across engines. The candidate
+was the accepted-token build, SHA
+`91d8945c2932db1dab366285d3474fcd8148717cc3e5e1758d357e0985bc37c6`;
+the reference and checkpoint were unchanged. MTP remained off, prefix caching
+and thinking on, temperature 0, top-p 1, top-k 0, seed 123. The diagnostic capped
+output at 512 tokens. No returned tool was executed and no generated response
+was fed into the next captured history. These are latency probes, not completed
+coding or quality scores. Selecting nonadjacent histories creates large prefix
+jumps that differ from the original full-project cache trajectory.
+
+Evidence directories under the root above:
+
+- `orbitalMatchedAFM20261009`: AFM first, then reference, six AFM histories.
+- `orbitalMatchedReference20261009`: reference first, then AFM, six reference histories.
+- `orbitalMatchedAFMWarmRepeat20261009`: repeat of the six AFM histories, same
+  binary and default residency policy, after the preceding runs.
+
+The first AFM chain was strongly first-use sensitive:
+
+| Saved AFM request | AFM first / warm-repeat wall (s) | Reference wall (s) | AFM / reference output tokens |
+| --- | ---: | ---: | ---: |
+| 001 | 93.742 / 6.202 | 6.388 | 67 / 69 |
+| 002 | 7.897 / 3.030 | 1.886 | 121 / 61 |
+| 012 | 34.745 / 9.668 | 9.732 | 103 / 104 |
+| 013 | 9.765 / 8.981 | 4.058 | 512 / 233 |
+| 030 | 33.380 / 13.483 | 12.839 | 512 / 512 |
+| 031 | 9.181 / 9.011 | 8.233 | 512 / 512 |
+
+All six AFM output arrays were identical after removing only generated item/call
+IDs; their counts and input hashes also matched across the first and
+warm-repeat chains. AFM's first 6,669-token prompt spent 92.578 seconds in
+prefill, not model startup or decode. Its large-suffix request 012 spent 32.981
+seconds in prefill and 1.687 seconds decoding. Cache-reuse lengths matched the
+reference's physical server logs, including 6,638, 7,469, 17,371, 17,672 and
+23,869 tokens. Reference API `cached_tokens: 0` does not mean it failed to reuse
+those tokens. AFM warm request 031 is 9.44% slower in wall time; request 030 is
+5.01% slower. These include prefill and are not pure-decode ratios.
+
+The reverse-order chain produced these equal-output comparisons:
+
+| Saved reference request | AFM wall (s) | Reference wall (s) | AFM latency difference | Outputs each |
+| --- | ---: | ---: | ---: | ---: |
+| 018 | 23.225 | 22.894 | +1.45% | 512 |
+| 019 | 8.958 | 8.319 | +7.68% | 512 |
+| 020, no-tools compaction | 29.454 | 28.983 | +1.63% | 512 |
+
+The compaction input is not token-identical despite matching wire input:
+AFM reports 27,435 versus 27,359 reference prompt tokens. A separate traced
+capture localized all 76 extra AFM tokens to 19 empty historical thinking
+blocks: `[248068, 271, 248069, 271]`, or `<think>\n\n</think>\n\n`, per older
+assistant tool turn. There are no other token differences in that capture.
+The reference defaults `preserve_thinking` to false; AFM leaves it undefined,
+which this checkpoint's template treats as true. No default was changed to
+imitate the reference. Evidence is in
+`orbitalNoToolsPromptCapture20261009/audit-comparison/`; its traced diagnostic
+reference executable is not the binary used for the timing table. The reference emitted its first
+semantic reasoning chunk at 21.139 seconds, before completion at 28.983 seconds;
+AFM buffered to completion. Tool-bearing responses in this diagnostic did not
+show that semantic-streaming lead in either engine. Lifecycle first bytes must
+not be counted as generated-token TTFT.
+
+A source audit established a relevant policy difference, not complete causal
+proof: AFM `mapped` residency does not warm the sidecar; the reference starts
+background sequential warming by default, and its log records the 29.8 GiB
+table warmed in 8.4 seconds. AFM already offers explicit
+`--qwen-ngram-residency prewarm`, which waits for warming. Provider commit
+`8dbe6a8c2031464cb283c177243076b43cf00074` replaced earlier unconditional
+background warming with the explicit policy. No residency default was changed
+in this qualification. Page residency, kernel preparation and filesystem/order
+effects are not separately measured here; do not claim the whole cold delay
+has a proven single cause or count startup warming as free performance.
+
+The capped probes also exposed a Responses terminal-status defect: a salvaged partial tool
+call at the output limit can be reported as completed. Preserve those records
+as regression evidence; they are neither safe-to-execute tool calls nor a
+512-token coding-quality result. A targeted length-status correction is under
+development. None of these diagnostics establish full-project or release
+qualification.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
