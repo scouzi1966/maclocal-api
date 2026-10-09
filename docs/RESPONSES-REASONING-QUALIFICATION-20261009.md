@@ -409,9 +409,44 @@ has a proven single cause or count startup warming as free performance.
 The capped probes also exposed a Responses terminal-status defect: a salvaged partial tool
 call at the output limit can be reported as completed. Preserve those records
 as regression evidence; they are neither safe-to-execute tool calls nor a
-512-token coding-quality result. A targeted length-status correction is under
-development. None of these diagnostics establish full-project or release
+512-token coding-quality result. A targeted length-status correction passed
+the tests below. None of these diagnostics establish full-project or release
 qualification.
+
+### Token-limit status correction
+
+The tool-call finalizer previously chose `tool_calls` before examining the
+output cap; the non-streaming tool-response constructor also hardcoded that
+reason. Consequently the Responses adapter could label a capped, salvaged
+call as completed. The correction preserves `length` through finalization,
+the tool-response constructor, the Responses resource, its output items and
+its SSE terminal event. Arguments and reasoning remain available. Under-budget
+calls and explicit-stop precedence keep their previous behavior.
+
+The provider currently exposes a token count rather than exact EOS-versus-cap
+termination evidence, so naturally complete calls at exactly the cap are
+conservatively marked length, matching the existing text convention. Native
+Qwen unfinished-envelope salvage remains unchanged. Accurate incomplete status
+does **not** guarantee that clients will refuse to execute retained partial
+arguments; changing that policy requires separate qualification.
+
+Validation was sequential, through `Scripts/swiftpm-reliable.sh`:
+
+- Restoring the old finalizer precedence reproduced four failing tests / 11
+  failed assertions among seven regression tests (`tool-length-red.log`).
+- Corrected consumer suite: 41 XCTest plus 15 Swift Testing cases passed,
+  zero failures (`tool-length-green.log`), including eight new contracts.
+- Provider constructors: three tests passed, zero failures
+  (`tool-length-provider-green.log`).
+- Independent review found no blocking issue; it prompted an added text-only
+  incomplete-item regression. There are no new model forwards, tokenizations,
+  GPU synchronizations, sampling or cache-policy changes.
+
+The defaulted initializer parameter preserves ordinary source call sites, not
+binary ABI or typed references to the previous initializer signature. These
+repositories build the SwiftPM dependency from source. Integration still needs
+an exact provider version bump. Live capped replay of the rebuilt binary and a
+fresh full coding comparison remain outstanding at this checkpoint.
 
 ### Outstanding checks
 

@@ -730,7 +730,7 @@ struct MLXChatCompletionsController: RouteCollection {
             // If we got tool calls, return a tool_calls response
             if let toolCalls = finalizedTurn.toolCalls, !toolCalls.isEmpty {
                 if veryVerbose {
-                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=tool_calls\(Self.reset)"); fflush(stdout)
+                    print("\(Self.orange)[\(Self.timestamp())] MLX done: stream=false\n  prompt_tokens=\(result.promptTokens) completion_tokens=\(completionTok)\n  prompt=\(String(format: "%.2f", promptTime))s gen=\(String(format: "%.2f", generateTime))s tok/s=\(String(format: "%.1f", tokPerSec))\n  finish_reason=\(finalizedTurn.finishReason)\(Self.reset)"); fflush(stdout)
                     for tc in toolCalls {
                         print("\(Self.gold)[\(Self.timestamp())] SEND tool_call: \(tc.function.name)\n  id=\(tc.id)\n  args=\(tc.function.arguments)\(Self.reset)")
                     }
@@ -746,6 +746,7 @@ struct MLXChatCompletionsController: RouteCollection {
                     toolCalls: toolCalls,
                     reasoningContent: finalizedTurn.reasoningContent,
                     logprobs: choiceLogprobs,
+                    finishReason: finalizedTurn.finishReason,
                     promptTokens: result.promptTokens,
                     completionTokens: completionTok,
                     cachedTokens: result.cachedTokens,
@@ -2492,7 +2493,10 @@ struct MLXChatCompletionsController: RouteCollection {
             // Extract channels before returning, just as the streaming path does;
             // continue suppressing tool syntax from visible assistant content.
             return FinalizedAssistantTurn(
-                finishReason: "tool_calls",
+                // A parsed call can be salvaged from a truncated envelope. Its
+                // presence must not hide the token limit. Preserve its data,
+                // but use the same conservative cap convention as text output.
+                finishReason: !stoppedBySequence && completionTokens >= maxTokens ? "length" : "tool_calls",
                 content: nil,
                 reasoningContent: reasoningContent,
                 toolCalls: effectiveToolCalls

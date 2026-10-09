@@ -311,10 +311,10 @@ struct ResponsesController: RouteCollection {
             throw Abort(.internalServerError, reason: "Chat generation returned an invalid response")
         }
 
-        let output = makeOutput(message: message)
         let usage = makeUsage(envelope["usage"])
         let finishReason = choice["finish_reason"]?.stringValue
         let responseStatus = finishReason == "length" ? "incomplete" : "completed"
+        let output = makeOutput(message: message, status: responseStatus)
         let resource = makeResource(
             request: requestBody,
             id: responseID,
@@ -479,7 +479,7 @@ struct ResponsesController: RouteCollection {
         return .object(body)
     }
 
-    private static func makeOutput(message: [String: ResponsesJSON]) -> [ResponsesJSON] {
+    private static func makeOutput(message: [String: ResponsesJSON], status: String) -> [ResponsesJSON] {
         var output: [ResponsesJSON] = []
         if let reasoning = message["reasoning_content"]?.stringValue, !reasoning.isEmpty {
             output.append(.object([
@@ -501,7 +501,7 @@ struct ResponsesController: RouteCollection {
                     "call_id": .string(callID),
                     "name": function["name"] ?? .string(""),
                     "arguments": function["arguments"] ?? .string("{}"),
-                    "status": .string("completed")
+                    "status": .string(status)
                 ]))
             }
         }
@@ -509,7 +509,7 @@ struct ResponsesController: RouteCollection {
             output.append(.object([
                 "type": .string("message"),
                 "id": .string("msg_\(UUID().uuidString.lowercased().prefix(12))"),
-                "status": .string("completed"),
+                "status": .string(status),
                 "role": .string("assistant"),
                 "content": .array([.object([
                     "type": .string("output_text"),
