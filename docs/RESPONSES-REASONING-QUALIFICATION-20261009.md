@@ -239,7 +239,7 @@ verified empty. Generated solutions were not manually repaired.
 | Agent outcome | Completed; 1,822-character final report | Incomplete; empty final report |
 | Independent project acceptance | 10/11 | 7/11 |
 | Last observed self-authored test result | 11/11 | 10/11 |
-| Compactions | 0 | 2, both valid |
+| Compactions | 0 | 3, all valid |
 | Sum of HTTP request time | 559.219 s | 1,062.174 s |
 | Remaining wall time | 24.119 s | 17.073 s |
 | Reported input/cache tokens | 541,524 / 516,443 (95.37% reuse) | 1,325,069 / 0; server logs prove reuse |
@@ -276,8 +276,8 @@ verification function, and the resulting browser-exception failure. The
 raycast result does not prove all normal pointer selection is broken. Its
 requests 1–12 used 229.982 backend seconds / 13,598 tokens on implementation
 and pure-math tests. Requests 13–75 used another 832.192 seconds / 46,402 tokens
-after starting a self-authored WebGL mock-test detour, including 129.965 seconds
-/ 5,739 tokens for two useful compaction handoffs. That detour contained real
+after starting a self-authored WebGL mock-test detour, including 193.681 seconds
+/ 8,571 tokens for three useful compaction handoffs. That detour contained real
 test additions and repairs; do not label the entire tail wasted work.
 
 AFM's own final tests passed 11/11; these are separate from the independent
@@ -304,6 +304,12 @@ descriptive version label `diagnostic-cache-fix-85ede4af`. The frozen binary
 SHA-256 and explicit `cb7d619` / `f12b2d32` source commits above identify the
 actual candidate; that inherited label does not. Preserve the original
 manifest and this correction together rather than rewriting archived evidence.
+
+Audit correction: the first writeup missed reference compaction request 068.
+Enumerating all no-tools compaction requests identifies 020, 040, and 068.
+The third used 63.716 seconds / 2,832 tokens and returned a useful handoff.
+This corrects the compaction subtotal, not the overall elapsed/token totals
+or acceptance scores.
 
 ### Reasoning usage and Codex compaction
 
