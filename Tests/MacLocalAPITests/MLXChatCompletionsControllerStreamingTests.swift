@@ -19,6 +19,77 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testNoToolsProviderCallFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: false)
+    }
+
+    func testOmittedToolsProviderCallFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: false)
+    }
+
+    func testNoToolsProviderCallFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: true, delta: false)
+    }
+
+    func testOmittedToolsProviderCallFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: false)
+    }
+
+    func testNoToolsProviderDeltaFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: true, delta: true)
+    }
+
+    func testOmittedToolsProviderDeltaFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: true)
+    }
+
+    /// A provider violation is not a successful empty answer. Actual raw markup
+    /// belongs in ordinary text; already-extracted calls must never be executed
+    /// when this request offered no tools, including compaction requests.
+    private func assertNoToolsProviderViolation(stream: Bool, emptyArray: Bool, delta: Bool) async throws {
+        let call = ResponseToolCall(index: 0, id: "call_unoffered", type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
+        let chunk = delta
+            ? AFMServerStreamChunk(text: "", toolCallDeltas: [StreamDeltaToolCall(
+                index: 0, id: "call_unoffered", type: "function",
+                function: StreamDeltaFunction(name: "read_file", arguments: call.function.arguments))])
+            : AFMServerStreamChunk(text: "", toolCalls: [call])
+        let service = FakeMLXChatService(
+            generateResult: (modelID: "test-model", content: "", promptTokens: 2,
+                completionTokens: 3, tokenLogprobs: nil, toolCalls: [call],
+                cachedTokens: 0, promptTime: 0, generateTime: 0, stoppedBySequence: false),
+            streamingResult: makeStreamingResult(chunks: [chunk]))
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        var payload: [String: Any] = ["model": "test-model", "stream": stream,
+            "messages": [["role": "user", "content": "Create a handoff summary."]],
+            "tool_choice": "auto"]
+        if emptyArray { payload["tools"] = [Any]() }
+        let body = ByteBuffer(data: try JSONSerialization.data(withJSONObject: payload))
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+            headers: requestHeaders(for: body), body: body) { response async throws in
+            XCTAssertEqual(response.status, stream ? .ok : .internalServerError)
+            let events: [[String: Any]]
+            if stream {
+                events = response.body.string.split(separator: "\n").compactMap { line in
+                    guard line.hasPrefix("data: ") else { return nil }
+                    return (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any]
+                }
+                XCTAssertContains(response.body.string, "data: [DONE]")
+            } else {
+                events = [try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])]
+            }
+            XCTAssertTrue(events.contains { $0["error"] != nil }, "Provider violation must produce an error, not an empty successful answer")
+            for event in events {
+                for choice in event["choices"] as? [[String: Any]] ?? [] {
+                    XCTAssertNil((choice["delta"] as? [String: Any])?["tool_calls"])
+                    XCTAssertNil((choice["message"] as? [String: Any])?["tool_calls"])
+                    XCTAssertNotEqual(choice["finish_reason"] as? String, "tool_calls")
+                }
+            }
+        }
+    }
+
     // Deterministic regression: exercise the real chat finalizer, not a fabricated
     // chat envelope. The Responses API currently calls this non-streaming path
     // even when its external caller asks for SSE.
