@@ -17,7 +17,8 @@ Evidence root (untracked):
 
 | Check | Result |
 | --- | --- |
-| Final targeted XCTest suite | 87 passed, 0 failed |
+| Final targeted XCTest suite | 93 passed, 0 failed |
+| Provider raw/no-tools contracts | 4 passed, 0 failed |
 | Qwen tool qualification | 4 passed, 0 failed |
 | Reporter self-tests | 16 passed, 0 failed |
 | Structured-output regression before fix | 8 failures, all missing known reasoning |
@@ -46,9 +47,33 @@ The reference omits tool `strict:false` metadata from its rendered prompt. Remov
 
 Records: `reasoningStrictReplay20261009/`. All requests and raw SSE responses are retained. The AFM live checker in that directory passed all 27 assertions.
 
+### Exact prompt capture and Orbital bottleneck
+
+The sequential diagnostic captures under `promptCaptureAFM20261009/comparison/`
+reconstructed every token for the first three saved Orbital requests. All 21
+extra AFM tokens are explained by four redundant `strict:false` fields plus
+escaped forward slashes in tool descriptions. Outside those tool-definition
+spans the token sequences match. This is a diagnostic result, not throughput
+qualification: logging was enabled and generation was limited to one token.
+
+The earlier complete Orbital run in `fixedThreeProjects20261008/` took AFM
+747.903 seconds / 39,930 output tokens / 44 requests versus the reference's
+359.689 seconds / 21,242 tokens / 25 requests. Acceptance was 11/11 versus
+10/11. AFM spent 659.599 seconds decoding and 71.609 seconds prefilling;
+non-request wall time was only 12.396 versus 13.623 seconds. The primary gap
+was generation volume and extra turns, not shell-execution overhead. AFM
+request 11 alone generated 11,068 tokens and took 184.441 seconds. It is the
+next exact-request replay target before repeating the full project.
+
+These older coding runs do not demonstrate end-to-end parity. Near-parity
+claims for isolated decoding must not be generalized to agent completion time.
+
 ## Remaining qualification
 
-- Larger dashboard comparison is running under `reasoningDashboard20261009/`; do not infer its result from the small task.
+- Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
+- AFM compaction request 20 supplied `tools:[]`, but its response contained a structured tool call and no answer. Codex resumed with an empty handoff and reread files. Earlier archived AFM compactions produced nonempty handoffs, so do not claim this explains every previous timing gap.
+- The request-local no-tools parser fix and fail-closed consumer guard subsequently passed 93 consumer XCTest tests plus 4 Qwen qualification tests. Replaying the failed compaction now preserves emitted markup as ordinary text, with no callable output. The provider/model still emits tool-like text rather than a useful summary; the reference produced a proper handoff. Protocol repair is not behavioral parity.
+- That replay is recorded under `noToolsCompactionReplay20261009/`, AFM SHA `48dcac1da94e94af60ddd44472ff27c769e839bfcc902f724e521c9ea5825625`. The diagnostic bounded output at 2,048 tokens; both stopped below it. AFM: 26,952 input/661 output, 32.29s wall, 61.3 decode tok/s. Reference: 26,882 input/1,197 output, 39.60s wall. These walls include prefill and different generated lengths; do not equate them with quality or isolated throughput.
 - Explain remaining full-project token-volume and elapsed-time divergence before claiming parity.
 - AFM still reports zero reasoning-token usage despite delivering reasoning; accounting correctness is a separate remaining gap. Do not fabricate a token count from character length.
 - Verify full release packaging and immutable AFMKit dependency pin before publishing. This diagnostic candidate uses paired local worktrees.

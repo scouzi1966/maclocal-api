@@ -694,6 +694,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     cancelHandle.cancel()
                 }
             }
+            if !hasTools, !(result.toolCalls?.isEmpty ?? true) {
+                throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+            }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
             let generateTime = result.generateTime
@@ -1195,6 +1198,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     var stopPreview = streamingStopFilter
                     if !extractThinking { _ = stopPreview.consume(piece) }
                     let allowCurrentSemanticPayload = !providerReportedStop && !stopPreview.stopped
+
+                    if allowCurrentSemanticPayload, effectiveTools?.isEmpty ?? true,
+                       !(streamChunk.toolCallDeltas?.isEmpty ?? true) || !(streamChunk.toolCalls?.isEmpty ?? true) {
+                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+                    }
 
                     if allowCurrentSemanticPayload,
                        let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
