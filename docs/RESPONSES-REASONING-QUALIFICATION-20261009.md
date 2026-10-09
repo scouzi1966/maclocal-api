@@ -827,6 +827,62 @@ Next isolate stock q4/q8 projection costs at the actual 512-expert,
 2,560/640-wide, ten-route geometry, and host graph/submission overhead before
 claiming the remaining gap is exclusively quantization cost.
 
+The cache-limit hypothesis is not a q4/q8 differentiator at this geometry.
+Gate/up concatenation would retain approximately 900 MiB per layer for q4,
+or 1,700 MiB for q8 (packed weights plus BF16 affine metadata). Both exceed
+the same 512 MiB limit. Do not raise the limit across 48 layers merely to
+test a proposed speedup; that would add large duplicate banks.
+
+Host-only diagnostics preserve normal deferred scheduling and do not explicitly
+synchronize after blocks. In `communityEightBitHostProfile20261009`, warmed
+32-forward windows report approximately 38.6ms total, including 32.2ms in
+submission. In `fourBitHostProfile20261009`, the second 32-forward window reports
+13.77ms total, including 8.49ms in submission. `asyncEval` may wait inside MLX,
+so submission is not pure CPU work; CPU call-stack capture is the next check.
+Both runs use the same binary, prompt and 128-token cap; q4 stops after 87 tokens,
+q8 reaches the cap. These are diagnostic windows, not equivalent coding outcomes.
+
+The initial real-geometry stock projection microbenchmarks also expose an
+important measurement limitation: per-call `eval` adds about 0.3ms of host and
+synchronization overhead. Amortizing 32 independent singleton graphs in each
+evaluation gives gate medians 0.105ms q4 / 0.109ms q8 and down medians
+0.103ms q4 / 0.110ms q8. This synthetic single-bank probe is not a complete
+model or serving-concurrency benchmark: it has different working-set behavior,
+does not cover shared experts, HC, PLE, attention, or the vocabulary head,
+and cannot establish an expected whole-model speed ratio. The initial pipeline
+probe also did not squeeze its singleton output dimension before summing;
+its pipeline result is excluded until the corrected diagnostic is rerun.
+
+During this investigation, system swap usage was zero, pageouts/swapouts were
+zero, and memory pressure was low. These snapshots do not support a system-wide
+swap explanation, but do not rule out GPU allocation/residency or encoding costs.
+
+The corrected operator diagnostic is committed in AFMKit as `b9eb5393`.
+Both explicit q4/q8 processes passed; logs are `four-bit-projection-corrected-20261009.log`
+and `eight-bit-projection-corrected-20261009.log`. Corrected stock expert-pipeline
+amortized medians are 0.301ms q4 and 0.314ms q8. These synthetic numbers do not
+include a whole-model working set or compiled model tails, and are not a
+claim that q8 compute or bandwidth cost is only 4% higher in real inference.
+
+Active decode stack capture succeeded under
+`communityEightBitActiveDecodeSample20261009/afm-cache/decode-process-sample.txt`.
+Its timestamp 18:42:12 precedes generation completion 18:42:22 and falls inside
+the 11.21-second generation phase. The generation thread has 2,718 sampled
+stacks: 1,984 enter `mlx_async_eval`, of which 1,502 reach the condition-variable
+wait at `mlx/transforms.cpp:280` (`scheduler::wait_for_one`). This proves actual
+scheduler waiting, not that the waiting is avoidable or caused solely by encoding.
+Do not use the preceding capture that began after generation had completed:
+the first visible function-call delta is too late to trigger this diagnostic.
+
+Source inspection shows MLX's commit byte budget counts each referenced input's
+whole allocation (`CommandEncoder::set_input_array`), not just the selected
+expert rows. Ultra defaults are 50 ops or 50 MiB per command buffer. However,
+the controlled `MLX_MAX_MB_PER_BUFFER=4096` A/B
+(`communityEightBitEncoder4096MB20261009`) only improves decode to 23.0/22.9
+tok/s from 22.2/22.1, with unchanged output lengths and cache-hit token counts.
+Thus frequent commits contribute modestly; changing this budget alone does
+not resolve the remaining gap. No scheduler limit or memory limit was patched.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
