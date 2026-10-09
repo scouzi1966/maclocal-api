@@ -778,6 +778,55 @@ decisions. No measurement yet attributes a fraction of runtime to this path,
 and it has not been newly enabled. The requested 30–33 decode tok/s range remains
 unmet; the measured q8 expert-fusion replay reached about 23 tok/s.
 
+### Eight-bit gap isolation: controlled HC and combined experiments
+
+All measurements below use frozen binary `c29590da5a94a02a9fded1ee4ea7521a0d6cfba5fb9bb768b9d4a72a5ccbd937`,
+MTP off, prefix cache on, and the same saved agentic requests 001 and 008.
+Each server runs alone. The 8-bit checkpoint and provider commit are unchanged
+from the dispatch diagnostic above. Experimental flags are explicit, not defaults.
+
+| 8-bit mode | First request decode tok/s | Growing-prefix request decode tok/s | Artifact folder |
+|---|---:|---:|---|
+| Ordinary, no tuning | 22.2 | 22.1 | `communityEightBitHCControl20261009` |
+| Quantized HC fusion only | 23.7 | 23.6 | `communityEightBitHCEnabled20261009` |
+| Quantized HC plus q8 expert fusion | 25.0 | 24.9 | `communityEightBitHCAndMoE20261009` |
+
+The HC-only improvement is approximately 7%; combined improvement is approximately
+13%. Both experiments preserve the two control outputs after normalizing generated
+item/call identifiers and parsing JSON arguments. This is bounded replay evidence,
+not broad quality qualification. The first request emits 245 tokens, the second
+reaches its 512-token cap. All modes reuse 7,375 of 20,578 input tokens on request 008.
+The prior quantized-HC quality concern remains; no default is changed.
+
+Matched 4-bit checkpoint replays (`fourBitMatchedControl20261009`) using the same
+binary and saved prompts decode at 60.4 tok/s on both requests. Its first output
+is 87 tokens, not 245, so completion walls and quality are not equivalent across
+quantizations. Second-request prefill is also distinct: 4-bit 54.38s versus
+8-bit control 10.71s. Record this separately from decode and do not attribute
+it to a decoded-token regression. Combined q8 is about 41% of this matched
+4-bit decode rate; ordinary q8 is about 37%. Half-rate would be 30.2 tok/s.
+
+Synchronization-heavy block profiles (`communityEightBitBlockProfile20261009`
+and `fourBitBlockProfile20261009`) provide diagnostic graph evidence, not production
+time attribution. They disable deferred HC scheduling and force a GPU evaluation
+after every block. Last-ten-singleton median GPU operation counts are:
+
+| Block | 4-bit diagnostic | 8-bit diagnostic |
+|---|---:|---:|
+| PLE | 56 | 200 |
+| HC read | 288 | 2,016 |
+| GDN | 288 | 288 |
+| Attention | 397 | 397 |
+| HC write | 96 | 672 |
+| Routed/shared MLP | 720 | 1,104 |
+
+These confirm additional native-checkpoint graph work in HC, MLP and PLE;
+they do not prove these operation ratios survive normal compiled execution.
+HC's real A/B gain is much smaller than its synchronized timing difference.
+Next isolate stock q4/q8 projection costs at the actual 512-expert,
+2,560/640-wide, ten-route geometry, and host graph/submission overhead before
+claiming the remaining gap is exclusively quantization cost.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
