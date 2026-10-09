@@ -445,8 +445,37 @@ Validation was sequential, through `Scripts/swiftpm-reliable.sh`:
 The defaulted initializer parameter preserves ordinary source call sites, not
 binary ABI or typed references to the previous initializer signature. These
 repositories build the SwiftPM dependency from source. Integration still needs
-an exact provider version bump. Live capped replay of the rebuilt binary and a
-fresh full coding comparison remain outstanding at this checkpoint.
+an exact provider version bump.
+
+The subsequent release build succeeded in 206.93 seconds from consumer
+`17ee40c302c997b84e0693ac6a7fdfbd7b3f5c9e` and provider
+`c01bfe4f08d6adab5eb10b4279c32d305144ffee`. Frozen executable:
+`toolLengthRuntime20261009/afm`, SHA-256
+`8483d51f434b9215dc101d7bb64a2ffdce3b0eb6f163ae33ea8e277ca1811f94`.
+This is a paired-worktree qualification binary reporting `v0.9.20`, not a
+published nightly or an immutable-provider release package.
+
+Live replay (`orbitalToolLengthReplay20261009`) confirmed the saved request 013
+now returns an incomplete resource and incomplete function-call item at 512
+tokens, with identical arguments and reasoning. All six saved histories
+preserved input hashes, token counts, generated content and cache reuse, apart
+from generated IDs and the intentional status correction. The follow-on live
+reasoning suite passed 27/27 assertions, zero failures or uncovered checks.
+
+First-use prefill delays recurred after rebuilding: request 001 took 68.350 s
+(67.170 s prefill, 1.102 s decode), and request 012 took 34.824 s. This run does
+not qualify latency non-regression from its first-use samples. Request 031 took
+9.166 s versus the prior AFM warm 9.011 s and reference 8.233 s: +1.73% versus
+the previous AFM measurement and +11.33% versus reference, not a claimed 10%
+gate pass. A one-second process sample during replay label 005 found the active
+path in mapped n-gram gather/dequantization. Only two stack samples were
+captured; this is not a complete profile or proof of all cold latency. That
+request's timing is excluded explicitly in `diagnostic-interference.json`.
+
+The next fresh, sequential full-project comparison is
+`orbitalConfirmed20261009`, AFM first then reference, unchanged local-preview
+profile, same checkpoint, and separate fresh fixture copies. At this checkpoint
+it is running and has no final completion or acceptance result.
 
 ### Outstanding checks
 
