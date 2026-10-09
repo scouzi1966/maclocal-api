@@ -87,6 +87,53 @@ final class ResponsesControllerTests: XCTestCase {
         }
     }
 
+    func testReasoningInputDoesNotInsertAnEmptyUserTurn() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+        let body = #"""
+        {"input":[
+          {"type":"message","role":"user","content":"Inspect the file"},
+          {"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Inspect first"}]},
+          {"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{}"},
+          {"type":"function_call_output","call_id":"call_1","output":"file contents"}
+        ]}
+        """#
+        try await post(body) { response in XCTAssertEqual(response.status, .ok) }
+        let recorded = await recorder.last()
+        let messages = try XCTUnwrap(try XCTUnwrap(recorded).foundationObject["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.compactMap { $0["role"] as? String }, ["user", "assistant", "tool"])
+    }
+
+    func testExplicitGenerationOptionsReachChatBackend() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+        let body = #"""
+        {"input":"hello","top_k":7,"min_p":0.05,"seed":123,"repetition_penalty":1.1,
+         "chat_template_kwargs":{"enable_thinking":false,"custom_flag":"preserved"}}
+        """#
+        try await post(body) { response in XCTAssertEqual(response.status, .ok) }
+        let recorded = await recorder.last()
+        let chat = try XCTUnwrap(recorded).foundationObject
+        XCTAssertEqual(chat["top_k"] as? Int, 7)
+        XCTAssertEqual(chat["min_p"] as? Double, 0.05)
+        XCTAssertEqual(chat["seed"] as? Int, 123)
+        XCTAssertEqual(chat["repetition_penalty"] as? Double, 1.1)
+        let kwargs = try XCTUnwrap(chat["chat_template_kwargs"] as? [String: Any])
+        XCTAssertEqual(kwargs["enable_thinking"] as? Bool, false)
+        XCTAssertEqual(kwargs["custom_flag"] as? String, "preserved")
+    }
+
+    func testReasoningNoneOverridesThinkingWithoutDroppingOtherKwargs() async throws {
+        let recorder = ResponsesChatRecorder()
+        try register(recorder: recorder, content: "hello")
+        let body = #"{"input":"hello","reasoning":{"effort":"none"},"chat_template_kwargs":{"enable_thinking":true,"custom_flag":"preserved"}}"#
+        try await post(body) { response in XCTAssertEqual(response.status, .ok) }
+        let recorded = await recorder.last()
+        let kwargs = try XCTUnwrap(try XCTUnwrap(recorded).foundationObject["chat_template_kwargs"] as? [String: Any])
+        XCTAssertEqual(kwargs["enable_thinking"] as? Bool, false)
+        XCTAssertEqual(kwargs["custom_flag"] as? String, "preserved")
+    }
+
     func testOmittedReasoningPreservesProviderDefault() async throws {
         let recorder = ResponsesChatRecorder()
         try register(recorder: recorder, content: "hello")

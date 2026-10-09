@@ -345,6 +345,10 @@ struct ResponsesController: RouteCollection {
         for item in items {
             guard let object = item.objectValue else { continue }
             switch object["type"]?.stringValue {
+            case "reasoning":
+                // Reasoning metadata is not a user turn. Native templates
+                // regenerate reasoning; never inject an empty user message.
+                continue
             case "function_call":
                 let callID = object["call_id"]?.stringValue ?? "call_\(UUID().uuidString.lowercased().prefix(12))"
                 messages.append(.object([
@@ -410,6 +414,11 @@ struct ResponsesController: RouteCollection {
         let mappings = [
             ("temperature", "temperature"),
             ("top_p", "top_p"),
+            ("top_k", "top_k"),
+            ("min_p", "min_p"),
+            ("seed", "seed"),
+            ("repetition_penalty", "repetition_penalty"),
+            ("chat_template_kwargs", "chat_template_kwargs"),
             ("max_output_tokens", "max_tokens"),
             ("parallel_tool_calls", "parallel_tool_calls"),
             ("presence_penalty", "presence_penalty"),
@@ -421,9 +430,9 @@ struct ResponsesController: RouteCollection {
         if let effort = request["reasoning"]?["effort"]?.stringValue {
             body["reasoning_effort"] = .string(effort)
             if effort == "none" {
-                body["chat_template_kwargs"] = .object([
-                    "enable_thinking": .bool(false)
-                ])
+                var kwargs = body["chat_template_kwargs"]?.objectValue ?? [:]
+                kwargs["enable_thinking"] = .bool(false)
+                body["chat_template_kwargs"] = .object(kwargs)
             }
         }
         if let tools = request["tools"]?.arrayValue {
