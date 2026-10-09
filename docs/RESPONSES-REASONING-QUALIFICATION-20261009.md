@@ -472,10 +472,87 @@ path in mapped n-gram gather/dequantization. Only two stack samples were
 captured; this is not a complete profile or proof of all cold latency. That
 request's timing is excluded explicitly in `diagnostic-interference.json`.
 
-The next fresh, sequential full-project comparison is
-`orbitalConfirmed20261009`, AFM first then reference, unchanged local-preview
-profile, same checkpoint, and separate fresh fixture copies. At this checkpoint
-it is running and has no final completion or acceptance result.
+### Aborted browser-environment run
+
+`orbitalConfirmed20261009` started with AFM using the unchanged local-preview
+profile, checkpoint and fresh fixture. It was **aborted before the reference
+started**. Neither final agent completion nor independent acceptance was
+established; this is not a completed-project timing or parity result.
+
+The local-preview preflight proved loopback HTTP access, not Chromium launch.
+The coding agent's browser attempts encountered a missing expected browser,
+macOS sandbox Mach-port permission failures and EGL initialization errors.
+Meanwhile, persistent client instructions requested browser verification and
+fixture instructions still said no network, with the localhost exception only
+in the direct prompt. The agent spent substantial effort repairing this
+environment instead of completing the application.
+
+| Available phase | Requests | Generated tokens | Summed HTTP time (s) |
+| --- | --- | ---: | ---: |
+| Implementation through first successful build | 001–028 | 27,627 | 491.307 |
+| Verification preparation / first compaction | 029–037 | 5,396 | 120.129 |
+| Browser troubleshooting | 038–074 | 18,230 | 338.706 |
+| Second compaction / recovery | 075–078 | 3,728 | 89.268 |
+| All completed requests | 78 | 54,981 | 1,039.410 |
+
+From the first blocked browser attempt onward, 41 requests consumed 21,958
+tokens and 427.974 backend seconds. These are observed phases, not a claim that
+all of that work was avoidable or that it measures engine throughput alone.
+Both no-tools compactions (031 and 075) returned useful nonempty summaries and
+no callable output. All 78 completed responses were HTTP 200/completed. Reported
+cache reuse was 1,256,592 / 1,367,010 input tokens (91.92%). At the last completed
+tool event, elapsed time was 1,094.105 seconds; that excludes in-flight work and
+abort cleanup and is not completed-project time.
+
+Scope contamination also occurred: request 048 invoked installed Chrome without
+an isolated profile; request 064 attempted broad browser-name `pkill` commands.
+Captured output does not establish whether unrelated processes received those
+signals. The parent stopped only verified benchmark-owned processes; its
+workspace cleanup reported no remaining processes and did not signal the user's
+browser. The original workspace was archived outside the shared live project,
+and `interruption.json` records the abort. No previous solution remains in the
+next live project directory.
+
+A new, separately labelled opt-in `isolated-cli-browser-independent-v1` profile
+removes the instruction conflict without loosening application acceptance.
+Both engines receive the same durable environment block, including compaction
+requests: build the real application, run project tests/build/localhost HTTP,
+do not search for or repair browsers, and leave actual browser evaluation to the
+independent evaluator. Process cleanup is restricted in instructions to owned,
+individually captured child PIDs. Those instructions are not claimed to be a
+new OS-level isolation mechanism. Sixteen offline harness contracts passed.
+The three acceptance script hashes are pinned to the prior frozen snapshot;
+the 11 acceptance checks are unchanged. Original fixtures and old runs remain
+untouched. New-profile results must not be pooled with the old profile as if
+they were unchanged repetitions.
+
+### Explicit prewarm diagnostic
+
+`orbitalPrewarmProbe20261009` used the same frozen application binary and six
+captured requests, with only `--qwen-ngram-residency prewarm` added to AFM.
+The harness executed no generated tools and sent no extra warmup generation
+requests. The existing engine startup behavior was retained. Startup to a
+successful `/v1/models` response took 11.110 seconds, including a logged 7.5
+seconds warming 29.8 GiB. All six request hashes, output arrays (apart from IDs)
+and usage counts matched the preceding default-policy replay.
+
+| Captured request | AFM prewarm wall (s) | Prior AFM warm wall (s) | Reference wall (s) | AFM / reference outputs |
+| --- | ---: | ---: | ---: | ---: |
+| 001 | 6.212 | 6.202 | 6.388 | 67 / 69 |
+| 002 | 2.982 | 3.030 | 1.886 | 121 / 61 |
+| 012 | 9.650 | 9.668 | 9.732 | 103 / 104 |
+| 013 | 8.921 | 8.981 | 4.058 | 512 / 233 |
+| 030 | 13.388 | 13.483 | 12.839 | 512 / 512 |
+| 031 | 8.937 | 9.011 | 8.233 | 512 / 512 |
+
+The six requests totaled 50.090 seconds, close to the earlier warm default
+total of 50.374 seconds. The final two equal-output requests are 4.27% and 8.55%
+slower than reference wall time. These are bounded latency probes, not coding
+quality or pure-decode scores. The filesystem was already warm after prior
+work; this run does not causally establish a cold-start improvement. No default
+was changed. A source audit found no `F_NOCACHE` or analogous invalidation policy
+in either sidecar's mapped/positional-read paths; warming policy remains a
+relevant difference, not proof of the entire cold-prefill delay.
 
 ### Outstanding checks
 
