@@ -657,6 +657,127 @@ the earlier large AFM elapsed-time deficit. It **does not establish successful
 full-project quality parity or release qualification**. Both archived solutions,
 all original reports, and the unsuccessful evaluator rerun remain intact.
 
+### Native community 8-bit checkpoint
+
+The downloaded checkpoint is
+`/Volumes/edata/models/vesta-test-cache/mlx-community/Qwen3.8-Flash-Next-oQ8e-mtp`.
+Its config SHA-256 is
+`88793ae9905553224f329afde5859dfeb2e60401eb60e19dd0d6f222a3d7429d`.
+All 36 indexed shards are present (194,858,557,249 bytes). The published HF
+revision checked was `2a9de025436ea977720e4e3d6f369b185838e791`.
+The repository does not publish `ngram_table.bin`; its PLE data is stored in
+native quantized tensor shards. The pinned reference failed after weight
+precomputation because it requires that sidecar. No paired 8-bit performance
+result is available, and the user's instruction was to set aside conversion.
+
+AFM initially rejected the shared `ngram_embedding.weight_scale` parameter.
+Provider commit `283c3dd21bf7449b6405ccef80e79c007bf4a22c` adds shared-scale
+loading and applies it once after row dequantization. This checkpoint's value
+is BF16, shape `[1]`, exactly one. Twelve targeted tests passed, including
+nested checkpoint loading, non-unit scales, strict legacy loading, q8 lookup
+and the q4 CPU path. Independent source review found no blocking issue.
+
+The release build took 115.97 seconds. Frozen executable
+`sharedScaleRuntime20261009/afm` has SHA-256
+`b361ca39d8072cee7d967a5f107e292625c65f51b7a116c04872643ae6daf661`.
+It loads the untouched checkpoint and passed three API smoke requests covering
+ordinary output, a growing cached conversation and a required tool call.
+Growing-prefix reuse was 598 / 627 input tokens. Short-response decoding was
+22.48–22.55 tok/s; reported peak MLX memory reached 180.3 GiB. The same smoke
+with the 4-bit checkpoint passed, with 61.70–66.63 tok/s on its growing/tool
+requests and 68.4 GiB peak MLX memory. These short samples and different storage
+layouts do not establish a pure bit-width scaling law or coding-quality score.
+
+`--mtp` on the native 8-bit checkpoint still fails preflight, reporting that no
+compatible sidecar is resolved despite embedded MTP tensors. The current
+validator assumes an older native MTP tensor layout; compatibility with the
+checkpoint's heterogeneous quantized predictors remains unqualified. Do not
+advertise this smoke as MTP support or vision-input qualification.
+
+### Full 8-bit Orbital run and bounded optimization probes
+
+`orbitalCommunity8bitCoding20261009` ran AFM alone with the same 20-minute
+coding budget, fresh workspace and unchanged browser-independent acceptance
+profile. MTP was off, prefix caching on, with no tuning environment settings.
+The run timed out at 1,200.017 seconds with no final answer. Nine completed
+responses delivered 22,423 tokens; request ten was interrupted and its saved
+metrics report `BrokenPipeError`, without terminal usage. Do not equate the
+delivered token count with every internally generated token. Summed HTTP
+durations include post-timeout draining and exceed the coding wall limit, so
+they must not be subtracted from that wall to produce a negative overhead.
+
+The unfinished project passed only the two pure-math checks. Browser checks
+found repeated `lastSelected` initialization errors and unavailable
+diagnostics; mobile capture failed before the overflow check. The nominal
+saved score is 2/11, including that setup/continuation row. This is an
+unfinished-project outcome, not a completed coding-quality comparison.
+Cleanup verified that the owned model, client and workspace processes stopped.
+The app-server restart lost the original terminal handle but the OS processes
+remained live; the run was monitored and was not restarted or duplicated.
+
+The user proposed an 8-bit decode expectation near half the prior 4-bit rate,
+approximately 30–33 tok/s. The 8-bit baseline remained around 22 tok/s.
+The checkpoints have the same 48 layers, hidden width 2560, 512 experts,
+10 routed experts/token and expert width 640, so that gap is not explained by
+different expert counts or model depth.
+
+Provider commit `ea0e1e3b2a284cb9b49090e93eda1bfc261e502c` extends the existing
+resident row reader to q8/group-32 BF16 storage. Thirteen targeted tests passed,
+including exact CPU/GPU equality across the actual 160-dimensional row width.
+This is available through the existing explicit CPU lookup switch/profile;
+the profile itself is opt-in. An earlier review confused the profile's
+throughput defaults with ordinary serving defaults. A no-setting replay did
+not activate CPU lookup and produced no speed improvement.
+
+Controlled replays used the same captured Orbital requests 001 and 008, a
+512-token cap, fresh sequential servers and no execution of generated tools.
+All normalized request hashes and all output content (excluding generated IDs)
+matched the baseline in both the CPU and fused-expert experiments below.
+
+| Decode probe | Original GPU lookup | Explicit CPU row lookup | Experimental q8 expert fusion |
+| --- | ---: | ---: | ---: |
+| 245-output request: generation (s) | 11.084 | 10.855 | 10.535 |
+| 245-output request: decode tok/s | 22.10 | 22.57 | 23.26 |
+| 512-output request: generation (s) | 23.325 | 22.898 | 22.162 |
+| 512-output request: decode tok/s | 21.95 | 22.36 | 23.10 |
+
+CPU lookup improved these probes by about 2%, with no table copy or residency
+change. That benefit does not justify a new default or explain most of the
+gap. Its evidence is in `communityEightBitGPUReplay20261009`,
+`communityEightBitCPUReplay20261009` (switch unset), and
+`communityEightBitCPUEnabledReplay20261009` (switch one). The last folder has
+an explicit provenance correction for a mistyped consumer commit; executable
+identity, requests and results are unchanged.
+
+The existing Qwen fused expert dispatcher accepts q4 only. Local experiment
+`f592ea8a6949ed4662ed8c8ab2ddc502100356f8` adds an opt-in q8/group-64 scalar
+decode path, using MLX's byte-wise dot/bias order and BF16 projection, activation
+and weighted-reduction boundaries. Its real-dimension operator test passed a
+2% normalized maximum-error bound against stock operations; the existing q4
+test also passed. That tolerance test alone is not token or quality parity.
+The captured whole-model output match is separate evidence. Its frozen binary
+SHA-256 is `9480f8153e6b1f3b378d36668afb0778bbe473ec190e39a7ee80487087c207f7`.
+The measured gain is only about 5%, still below the requested range. Review
+prompted narrower geometry/expert-count guards; the tightened operator test
+passed and the consumer release build passed (117.44 seconds). Default q8 fusion remains disabled. No new default or release was
+published on the strength of these bounded probes.
+
+Dispatch-only replay `communityEightBitDispatchDiagnostic20261009/` used provider
+`12e10ec33c0e9c7a4635cebe7b09a15a0062bf72`, frozen binary SHA-256
+`c29590da5a94a02a9fded1ee4ea7521a0d6cfba5fb9bb768b9d4a72a5ccbd937`,
+the same captured first request, and a 16-token cap. With diagnostic logging and
+experimental q8 fusion explicitly enabled, all 48 expert layers reported BF16
+inputs, logits and scores, group 64, fused execution, and no MTP verification
+policy. This rules out a silent expert-dispatch fallback for that probe; its
+instrumented timing is excluded from performance comparisons.
+
+Read-only source review also identified a distinct native-checkpoint fallback:
+quantized HC injection prevents full HyperConnection fusion by default. The
+source preserves this fallback because earlier fused reductions changed tool
+decisions. No measurement yet attributes a fraction of runtime to this path,
+and it has not been newly enabled. The requested 30–33 decode tok/s range remains
+unmet; the measured q8 expert-fusion replay reached about 23 tok/s.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
