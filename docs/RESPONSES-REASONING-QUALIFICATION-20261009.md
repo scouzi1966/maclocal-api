@@ -68,6 +68,47 @@ next exact-request replay target before repeating the full project.
 These older coding runs do not demonstrate end-to-end parity. Near-parity
 claims for isolated decoding must not be generalized to agent completion time.
 
+### Normalized candidate: saved request 11
+
+Provider checkpoint `136d8e55` omits default-false strict metadata only in the
+native tool-prompt shim and avoids needless forward-slash escaping. It does not
+change strict enforcement, kernels, cache policy, or sampling. Provider tests:
+20 Qwen tool tests plus 4 raw/no-tools tests passed; consumer 93 XCTest plus
+4 Qwen qualification tests passed. Independent source review found no blocking
+issue. Consumer checkpoint: `6839b05`.
+
+The exact rendered text of saved Orbital request 11 now matches the reference.
+Two whitespace tokenization differences remain: AFM uses checkpoint token 13488
+for `\n  \n`; the reference splits it into 198 and 2228. The checkpoint's greedy
+whitespace regex and explicit BPE merge support AFM's form. We did not change
+AFM tokenization to imitate the reference difference or alter the release
+reference binary. Capture: `orbital11Capture20261009/comparison/`.
+
+The subsequent non-traced, cold replay (`orbital11Replay20261009/`) used the
+original 16,384-token output limit and the unchanged release reference:
+
+| Engine | Input tokens | Output tokens | Wall time |
+| --- | ---: | ---: | ---: |
+| AFM | 15,477 | 5,599 | 104.140 s |
+| Reference | 15,479 | 6,570 | 115.290 s |
+
+Both returned reasoning and an `exec_command` call, but generated different
+code. This is not project acceptance or proof of end-to-end parity. It also
+must not be treated as a controlled causal comparison to the old warm request
+11: input serialization and cache state differed. AFM cold prefill was 12.07 s
+and decode 91.97 s / 60.9 tok/s. Candidate binary SHA:
+`0e8edd40a46341bab51da5ad7725a45e43ba622a7c4ef2eac1d6951646441156`.
+
+The fresh full-project qualification is `orbitalNormalized20261009/`. Its
+shared execution directory is `/Volumes/edata/afm-isolated-coding-20261009/orbital`,
+outside prior results. Each engine starts a new ephemeral Codex process and a
+new fixture copy containing only TASK.md, AGENTS.md, package files, and installed
+dependencies. Initial file hashes and client/launcher hashes are recorded.
+After an engine finishes and requests drain, its working tree is moved out to
+the evidence archive; the next engine starts from a fresh copy at the same
+path. Inference and acceptance runs are sequential. No generated solution is
+manually repaired.
+
 ## Remaining qualification
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
