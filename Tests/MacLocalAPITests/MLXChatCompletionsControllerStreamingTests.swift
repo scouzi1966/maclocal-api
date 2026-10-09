@@ -19,6 +19,92 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    // Deterministic regression: exercise the real chat finalizer, not a fabricated
+    // chat envelope. The Responses API currently calls this non-streaming path
+    // even when its external caller asks for SSE.
+    func testReasoningContractRetainsThinkingAlongsideToolCallsInBothAPIs() async throws {
+        let thought = "I must read the file before editing it."
+        let call = ResponseToolCall(index: 0, id: "call_read", type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>", thinkEndTag: "</think>",
+            generateResult: (modelID: "test-model", content: "<think>\(thought)</think>",
+                promptTokens: 12, completionTokens: 9, tokenLogprobs: nil,
+                toolCalls: [call], cachedTokens: 0, promptTime: 0.01,
+                generateTime: 0.01, stoppedBySequence: false),
+            streamingResult: (modelID: "test-model", stream: AsyncThrowingStream { continuation in
+                for text in ["<thi", "nk>I must read the file ", "before editing it.</thi", "nk>"] {
+                    continuation.yield(AFMServerStreamChunk(text: text))
+                }
+                continuation.yield(AFMServerStreamChunk(text: "", toolCalls: [call]))
+                continuation.yield(AFMServerStreamChunk(text: "", promptTokens: 12,
+                    completionTokens: 9, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01))
+                continuation.finish()
+            }, promptTokens: 12, toolCallStartTag: "<tool_call>", toolCallEndTag: "</tool_call>",
+                thinkStartTag: "<think>", thinkEndTag: "</think>"))
+        let controller = MLXChatCompletionsController(modelID: "test-model",
+            service: service, temperature: nil, repetitionPenalty: nil)
+        try controller.boot(routes: app)
+        try app.register(collection: ResponsesController(defaultModelID: "test-model") { request in
+            try await controller.chatCompletions(req: request)
+        })
+
+        for stream in [false, true] {
+            let body = ByteBuffer(string: #"{"model":"test-model","messages":[{"role":"user","content":"Read README.md"}],"stream":\#(stream),"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]}"#)
+            try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+                headers: requestHeaders(for: body), body: body) { response async in
+                XCTAssertEqual(response.status, .ok)
+                var messages: [[String: Any]] = []
+                if stream {
+                    messages = response.body.string.split(separator: "\n").compactMap { line in
+                        guard line.hasPrefix("data: "),
+                            let payload = (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any],
+                            let choices = payload["choices"] as? [[String: Any]] else { return nil }
+                        return choices.first?["delta"] as? [String: Any]
+                    }
+                } else {
+                    let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
+                    let choices = try XCTUnwrap(payload["choices"] as? [[String: Any]])
+                    messages = [try XCTUnwrap(choices.first?["message"] as? [String: Any])]
+                }
+                XCTAssertEqual(messages.compactMap { $0["reasoning_content"] as? String }.joined(), thought)
+                XCTAssertTrue(messages.contains { ($0["tool_calls"] as? [[String: Any]])?.isEmpty == false })
+                let visible = messages.compactMap { $0["content"] as? String }.joined()
+                XCTAssertFalse(visible.contains(thought))
+                XCTAssertFalse(visible.contains("<think>"))
+                XCTAssertFalse(visible.contains("</think>"))
+            }
+        }
+
+        // Responses streaming is compared structurally, not by stochastic wording.
+        for stream in [false, true] {
+            let json = #"{"input":"Read README.md","stream":\#(stream),"tools":[{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}"#
+            let body = ByteBuffer(string: json)
+            try await app.testable(method: .running(port: 0)).test(.POST, "/v1/responses",
+                headers: requestHeaders(for: body), body: body) { response async in
+                XCTAssertEqual(response.status, .ok)
+                let payload: [String: Any]
+                if stream {
+                    let events = response.body.string.split(separator: "\n").compactMap { line -> [String: Any]? in
+                        guard line.hasPrefix("data: ") else { return nil }
+                        return (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any]
+                    }
+                    payload = try XCTUnwrap(events.last { ($0["type"] as? String) == "response.completed" }?["response"] as? [String: Any])
+                } else {
+                    payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
+                }
+                let output = try XCTUnwrap(payload["output"] as? [[String: Any]])
+                XCTAssertEqual(output.filter { ($0["type"] as? String) == "function_call" }.count, 1)
+                let reasoning = try XCTUnwrap(output.first { ($0["type"] as? String) == "reasoning" },
+                    "Reasoning was emitted by the mock provider and must not disappear on a tool turn")
+                let parts = try XCTUnwrap(reasoning["content"] as? [[String: Any]])
+                XCTAssertEqual(parts.compactMap { $0["text"] as? String }.joined(), thought)
+                XCTAssertFalse(response.body.string.contains("<think>"))
+                XCTAssertFalse(response.body.string.contains("</think>"))
+            }
+        }
+    }
+
     func testStreamingStopFilterWithholdsDelimiterSplitAcrossChunks() {
         var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
 
