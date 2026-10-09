@@ -52,7 +52,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         for stream in [false, true] {
             let body = ByteBuffer(string: #"{"model":"test-model","messages":[{"role":"user","content":"Read README.md"}],"stream":\#(stream),"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]}"#)
             try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
-                headers: requestHeaders(for: body), body: body) { response async in
+                headers: requestHeaders(for: body), body: body) { response async throws in
                 XCTAssertEqual(response.status, .ok)
                 var messages: [[String: Any]] = []
                 if stream {
@@ -81,7 +81,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             let json = #"{"input":"Read README.md","stream":\#(stream),"tools":[{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}"#
             let body = ByteBuffer(string: json)
             try await app.testable(method: .running(port: 0)).test(.POST, "/v1/responses",
-                headers: requestHeaders(for: body), body: body) { response async in
+                headers: requestHeaders(for: body), body: body) { response async throws in
                 XCTAssertEqual(response.status, .ok)
                 let payload: [String: Any]
                 if stream {
