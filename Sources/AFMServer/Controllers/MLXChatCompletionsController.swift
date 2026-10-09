@@ -739,6 +739,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let response = ChatCompletionResponse(
                     model: result.modelID,
                     toolCalls: toolCalls,
+                    reasoningContent: finalizedTurn.reasoningContent,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
                     completionTokens: completionTok,
@@ -2439,15 +2440,6 @@ struct MLXChatCompletionsController: RouteCollection {
            calls.count > 1 {
             effectiveToolCalls = [calls[0]]
         }
-        if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
-            return FinalizedAssistantTurn(
-                finishReason: "tool_calls",
-                content: nil,
-                reasoningContent: nil,
-                toolCalls: effectiveToolCalls
-            )
-        }
-
         let cleanedContent = sanitizeContent(content)
         let finalContent: String
         let reasoningContent: String?
@@ -2464,6 +2456,17 @@ struct MLXChatCompletionsController: RouteCollection {
         } else {
             finalContent = cleanedContent
             reasoningContent = nil
+        }
+        if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
+            // Tool selection does not invalidate reasoning already generated.
+            // Extract channels before returning, just as the streaming path does;
+            // continue suppressing tool syntax from visible assistant content.
+            return FinalizedAssistantTurn(
+                finishReason: "tool_calls",
+                content: nil,
+                reasoningContent: reasoningContent,
+                toolCalls: effectiveToolCalls
+            )
         }
         let visibleStop = trimAtFirstStop(finalContent, stopSequences: stopSequences)
 

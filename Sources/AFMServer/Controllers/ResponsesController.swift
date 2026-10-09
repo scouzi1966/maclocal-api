@@ -656,6 +656,24 @@ struct ResponsesController: RouteCollection {
                     "item_id": .string(itemID), "output_index": .number(Double(index)),
                     "content_index": .number(0), "part": part
                 ]))
+            } else if itemObject["type"]?.stringValue == "reasoning" {
+                // Deliver the same reasoning carried by the JSON resource to
+                // streaming clients, instead of only exposing it at completion.
+                for (contentIndex, part) in (itemObject["content"]?.arrayValue ?? []).enumerated() {
+                    guard let text = part["text"]?.stringValue else { continue }
+                    let fields: [String: ResponsesJSON] = [
+                        "item_id": .string(itemID), "output_index": .number(Double(index)),
+                        "content_index": .number(Double(contentIndex))
+                    ]
+                    if !text.isEmpty {
+                        var deltaFields = fields
+                        deltaFields["delta"] = .string(text)
+                        events.append(event("response.reasoning_text.delta", sequence: &sequence, fields: deltaFields))
+                    }
+                    var doneFields = fields
+                    doneFields["text"] = .string(text)
+                    events.append(event("response.reasoning_text.done", sequence: &sequence, fields: doneFields))
+                }
             } else if itemObject["type"]?.stringValue == "function_call" {
                 let arguments = itemObject["arguments"]?.stringValue ?? "{}"
                 events.append(event("response.function_call_arguments.delta", sequence: &sequence, fields: [
