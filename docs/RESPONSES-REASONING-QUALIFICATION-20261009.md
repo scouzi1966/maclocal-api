@@ -220,6 +220,110 @@ repeated the older wording without the exception; retain this limitation
 when interpreting verification behavior. Do not alter instructions midway
 through a pair.
 
+### Completed preview-enabled pair
+
+The `orbitalPreview20261009/` pair is complete. It used the accepted-token
+candidate above, the unchanged release reference, and the identical checkpoint.
+MTP was off, prefix caching and reasoning were on, and sampling was temperature
+0 / top-p 1 / top-k 0 / seed 123. Initial fixture hashes and first-request contents
+matched after excluding the engine's model alias and client metadata/IDs.
+The reference ran first; inference and independent acceptance remained
+sequential. Both engine processes exited and both workspace-cleanup checks
+verified empty. Generated solutions were not manually repaired.
+
+| Metric | AFM | Reference |
+| --- | ---: | ---: |
+| Agent wall time | 583.338 s | 1,079.247 s, budget-censored |
+| Requests | 31 | 75 |
+| Output tokens | 32,432 | 60,000 |
+| Agent outcome | Completed; 1,822-character final report | Incomplete; empty final report |
+| Independent project acceptance | 10/11 | 7/11 |
+| Last observed self-authored test result | 11/11 | 10/11 |
+| Compactions | 0 | 2, both valid |
+| Sum of HTTP request time | 559.219 s | 1,062.174 s |
+| Remaining wall time | 24.119 s | 17.073 s |
+| Reported input/cache tokens | 541,524 / 516,443 (95.37% reuse) | 1,325,069 / 0; server logs prove reuse |
+
+AFM's project-only generation logs reconcile to exactly 31 requests and 32,432
+output tokens: 30.430 seconds prefilling and 522.512 seconds decoding, or
+62.069 decode tok/s. This excludes the separate four-token startup warmup.
+The reference logs do not supply an equivalent isolated decode duration for
+this pair, so no same-pair pure-decode gap is claimed. Output tokens divided
+by total agent wall time happen to be almost identical: 55.597 versus 55.594
+tok/s. These are descriptive whole-run rates, not a controlled raw-throughput
+comparison: prompts, generated solutions, and completion outcomes diverged.
+
+The shorter AFM run follows fewer generated tokens and turns, not a new
+kernel optimization. AFM's reported project-only decode rate is 62.07 versus
+the earlier 60.72 tok/s; this is not a controlled regression measurement.
+Differing context trajectories and the corrected token counter prevent an
+isolated speedup claim. Nor may the
+583.338/1,079.247 ratio be advertised as a normal-completion speedup: the
+reference exhausted the common output budget and did not finish.
+
+Both applications render real three-dimensional scenes and fit the mobile
+viewport. Desktop and mobile screenshots were inspected. AFM passes animation,
+raycasting, and browser-exception checks. Its single scored failure is a
+lowercase `boreal` selection identifier where the evaluator expects `Boreal`.
+The dropdown and details update work; nevertheless its lowercase option values
+also disagree with the explicit task contract. Keep the score at 10/11, not
+11/11, and classify this as generated-project behavior rather than an engine
+transport bug.
+
+The reference has the same selection-contract mismatch, plus a negative-delta
+exception that stops animation, a null-distance failure in the exposed raycast
+verification function, and the resulting browser-exception failure. The
+raycast result does not prove all normal pointer selection is broken. Its
+requests 1–12 used 229.982 backend seconds / 13,598 tokens on implementation
+and pure-math tests. Requests 13–75 used another 832.192 seconds / 46,402 tokens
+after starting a self-authored WebGL mock-test detour, including 129.965 seconds
+/ 5,739 tokens for two useful compaction handoffs. That detour contained real
+test additions and repairs; do not label the entire tail wasted work.
+
+AFM's own final tests passed 11/11; these are separate from the independent
+10/11 acceptance score. It actually served local previews, although background
+preview processes ended between tool calls and led to additional restarts.
+Eight preview-only requests consumed 49.142 backend seconds / 2,702 tokens.
+This was not an observed network denial or proof of an engine defect. Reference
+never attempted an actual preview. AFM's final report claimed the preview was
+left running, but cleanup found no remaining process; this is a narrow
+generated-report overclaim, not a verified running server. AFM created its own
+temporary debug/log
+files outside the project under `/tmp`; no reads of previous solutions or
+evaluation files were observed. All retained qualification artifacts remain
+on the evidence volume, not in `/tmp`.
+
+These runs support the concrete reasoning, tool-boundary, cache-reuse and
+accounting repairs. They do not establish universal coding-quality superiority,
+reproducible completed-task parity, or release qualification. Preserve both
+this pair and the prior, differently configured pair; do not pool their times
+as interchangeable repetitions.
+
+Provenance caveat: the round's `target.json` retains the stale inherited
+descriptive version label `diagnostic-cache-fix-85ede4af`. The frozen binary
+SHA-256 and explicit `cb7d619` / `f12b2d32` source commits above identify the
+actual candidate; that inherited label does not. Preserve the original
+manifest and this correction together rather than rewriting archived evidence.
+
+### Reasoning usage and Codex compaction
+
+A read-only audit matched the installed Codex 0.160.0 package to official
+tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`.
+Its [Responses usage conversion](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/codex-api/src/sse/responses.rs)
+copies `total_tokens` unchanged and stores reasoning-token detail separately.
+Its [active-context calculation](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/context_manager/history.rs)
+uses the last total plus estimates for newer local items, not the reasoning
+breakdown. A separate response-header switch concerns earlier encrypted
+reasoning items; the inspected AFM responses contain plain summaries, not
+encrypted content. Do not add that header as a speculative fix.
+
+Concrete retained evidence: normalized AFM response 025 reported 27,061 input
+plus 1,871 output = 28,932 total tokens, with reasoning detail zero. Request
+026 was the no-tools compaction, matching the configured 28,000 threshold.
+Thus zero reasoning detail is a reporting defect, not the cause of compaction
+timing in this configuration when total usage is correct. Incorrect total
+usage remains relevant, which is why the accepted-token counter fix matters.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
