@@ -114,7 +114,7 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 XCTAssertEqual(output.filter { ($0["type"] as? String) == "function_call" }.count, 1)
                 let reasoning = try XCTUnwrap(output.first { ($0["type"] as? String) == "reasoning" },
                     "Reasoning was emitted by the mock provider and must not disappear on a tool turn")
-                let parts = try XCTUnwrap(reasoning["content"] as? [[String: Any]])
+                let parts = try XCTUnwrap(reasoning["summary"] as? [[String: Any]])
                 XCTAssertEqual(parts.compactMap { $0["text"] as? String }.joined(), thought)
                 XCTAssertFalse(response.body.string.contains("<think>"))
                 XCTAssertFalse(response.body.string.contains("</think>"))

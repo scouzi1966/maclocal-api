@@ -485,8 +485,9 @@ struct ResponsesController: RouteCollection {
             output.append(.object([
                 "type": .string("reasoning"),
                 "id": .string("rs_\(UUID().uuidString.lowercased().prefix(12))"),
-                "content": .array([.object(["type": .string("reasoning_text"), "text": .string(reasoning)])]),
-                "summary": .array([])
+                // Responses clients consume public reasoning through summary
+                // parts. Do not duplicate it in content and emit it twice.
+                "summary": .array([.object(["type": .string("summary_text"), "text": .string(reasoning)])])
             ]))
         }
         if let toolCalls = message["tool_calls"]?.arrayValue {
@@ -659,20 +660,26 @@ struct ResponsesController: RouteCollection {
             } else if itemObject["type"]?.stringValue == "reasoning" {
                 // Deliver the same reasoning carried by the JSON resource to
                 // streaming clients, instead of only exposing it at completion.
-                for (contentIndex, part) in (itemObject["content"]?.arrayValue ?? []).enumerated() {
+                for (contentIndex, part) in (itemObject["summary"]?.arrayValue ?? []).enumerated() {
                     guard let text = part["text"]?.stringValue else { continue }
                     let fields: [String: ResponsesJSON] = [
                         "item_id": .string(itemID), "output_index": .number(Double(index)),
-                        "content_index": .number(Double(contentIndex))
+                        "summary_index": .number(Double(contentIndex))
                     ]
+                    var addedFields = fields
+                    addedFields["part"] = .object(["type": .string("summary_text"), "text": .string("")])
+                    events.append(event("response.reasoning_summary_part.added", sequence: &sequence, fields: addedFields))
                     if !text.isEmpty {
                         var deltaFields = fields
                         deltaFields["delta"] = .string(text)
-                        events.append(event("response.reasoning_text.delta", sequence: &sequence, fields: deltaFields))
+                        events.append(event("response.reasoning_summary_text.delta", sequence: &sequence, fields: deltaFields))
                     }
                     var doneFields = fields
                     doneFields["text"] = .string(text)
-                    events.append(event("response.reasoning_text.done", sequence: &sequence, fields: doneFields))
+                    events.append(event("response.reasoning_summary_text.done", sequence: &sequence, fields: doneFields))
+                    var partDoneFields = fields
+                    partDoneFields["part"] = part
+                    events.append(event("response.reasoning_summary_part.done", sequence: &sequence, fields: partDoneFields))
                 }
             } else if itemObject["type"]?.stringValue == "function_call" {
                 let arguments = itemObject["arguments"]?.stringValue ?? "{}"
