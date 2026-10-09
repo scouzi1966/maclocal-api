@@ -43,7 +43,7 @@ This small task proves client delivery, not full-project quality or performance 
 
 ### Prompt normalization diagnostic
 
-The reference omits tool `strict:false` metadata from its rendered prompt. Removing only this redundant field from identical captured requests reduced the AFM/reference prompt-token difference from 21 to 1. The captured growing-prefix follow-up took AFM 2.80 s versus reference 2.58 s. Outputs differed (104 versus 102 tokens); this is not an isolated decode-throughput measurement. No production normalization default was changed.
+The reference omits tool `strict:false` metadata from its rendered prompt. Removing only this redundant field from identical captured requests reduced the AFM/reference prompt-token difference from 21 to 1. The captured growing-prefix follow-up took AFM 2.80 s versus reference 2.58 s. Outputs differed (104 versus 102 tokens); this is not an isolated decode-throughput measurement. At that diagnostic stage no production normalization default had changed; the later provider checkpoint below incorporates the verified normalization.
 
 Records: `reasoningStrictReplay20261009/`. All requests and raw SSE responses are retained. The AFM live checker in that directory passed all 27 assertions.
 
@@ -108,6 +108,74 @@ After an engine finishes and requests drain, its working tree is moved out to
 the evidence archive; the next engine starts from a fresh copy at the same
 path. Inference and acceptance runs are sequential. No generated solution is
 manually repaired.
+
+### Fresh normalized full-project pair
+
+The completed `orbitalNormalized20261009/` pair retained the frozen candidate
+SHA `0e8edd40a46341bab51da5ad7725a45e43ba622a7c4ef2eac1d6951646441156`
+and release reference SHA above. MTP was off, prefix cache and reasoning were
+on, with the same checkpoint, sampling, tools, initial file hashes, canonical
+workspace path, Codex executable, launcher implementation, and catalog.
+Inference and independent browser acceptance were sequential.
+
+| Metric | AFM | Reference |
+| --- | ---: | ---: |
+| Agent wall time | 511.390 s | 1,078.934 s, budget-censored |
+| Requests | 34 | 70 |
+| Reported output tokens | 26,391 | 60,000 |
+| Independent project acceptance | 11/11 | 11/11 |
+| Compactions | 1 | 2 |
+| Sum of HTTP request time | 496.149 s | 1,050.248 s |
+| Remaining wall time | 15.241 s | 28.686 s |
+| Delivered reasoning characters | 41,821 | 147,819 |
+| Final summary | Present | Empty; incomplete response |
+
+Reference request 070 consumed the final 1,498 tokens of the common 60,000-token
+budget in reasoning and returned `status: incomplete` / `max_output_tokens`.
+Codex nevertheless exited zero. This is not a normal agent completion, and
+the ratio of these elapsed values must **not** be advertised as a 2.11x
+completion-speed win. Passing artifact acceptance is a separate outcome from
+finishing the agent task with a final report.
+
+AFM improved over the earlier AFM Orbital run (747.903 s / 39,930 reported
+output tokens / 44 requests, also 11/11 acceptance). Its weighted reported
+decode rate was essentially unchanged, 60.54 versus 60.72 tok/s. The shorter
+run primarily reflects fewer generated tokens and turns, not a new kernel
+speedup. Multiple fixes and workspace normalization changed together; one
+pair cannot assign causality or establish general engine parity.
+
+Both models spent substantial time revisiting completed work. AFM requests
+22–34 used 160.364 backend seconds / 7,786 tokens after implementation and
+self-tests were complete. Reference requests 49–70, after its second valid
+compaction, used 300.698 seconds / 17,988 tokens, mostly re-verification and
+attempts to start a preview server despite the sandbox's socket restriction.
+Some earlier late reference changes genuinely improved tests and documentation;
+the entire tail must not be called wasted. Both engines preserved reasoning
+and useful compaction handoffs in this run, with no recurrence of the previous
+undeclared-tool failure.
+
+Reporting caveats:
+
+- Output-token figures are the frozen binaries' reported usage. A separate
+  source audit found AFM's serial token counter incremented on detokenized
+  chunks rather than every accepted token; buffered Unicode can undercount.
+  The exact discrepancy cannot be reconstructed from final text alone.
+- AFM delivered reasoning but still reported zero reasoning-token usage.
+  This does not mean reasoning was absent or excluded from completion totals.
+- AFM reported 484,959 cached input tokens. Reference API usage reported zero,
+  while its server logs prove hot-cache reuse. Do not infer no reference cache
+  reuse from its API usage field.
+- Both engines buffered semantic reasoning/tool output until near request
+  completion. Reference's earlier lifecycle events are not early reasoning.
+
+The next paired run must separate these outcomes and verify local-preview
+permissions before inference. A sandbox preflight confirmed loopback serving
+works with the network proxy enabled and local binding allowed, while direct
+and proxied external connections are denied. This is a **new harness profile**,
+not an unchanged repeat of the socket-restricted comparison. The official
+[Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+documents the proxy and local-binding controls. Keep both engines identical
+within that new pair and retain this original evidence.
 
 ## Remaining qualification
 
