@@ -90,6 +90,23 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                         return (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any]
                     }
                     payload = try XCTUnwrap(events.last { ($0["type"] as? String) == "response.completed" }?["response"] as? [String: Any])
+                    let terminalOutput = try XCTUnwrap(payload["output"] as? [[String: Any]])
+                    let terminalReasoning = try XCTUnwrap(terminalOutput.first { ($0["type"] as? String) == "reasoning" })
+                    let reasoningID = try XCTUnwrap(terminalReasoning["id"] as? String)
+                    let delivered = events.filter { ($0["item_id"] as? String) == reasoningID }
+                    let deltaTypes = ["response.reasoning_text.delta", "response.reasoning_summary_text.delta"]
+                    let doneTypes = ["response.reasoning_text.done", "response.reasoning_summary_text.done"]
+                    let deltas = delivered.filter { deltaTypes.contains($0["type"] as? String ?? "") }
+                    let completed = delivered.filter { doneTypes.contains($0["type"] as? String ?? "") }
+                    XCTAssertEqual(deltas.compactMap { $0["delta"] as? String }.joined(), thought,
+                        "Reasoning in terminal JSON alone does not prove SSE client delivery")
+                    XCTAssertEqual(completed.count, 1)
+                    XCTAssertEqual(completed.first?["text"] as? String, thought)
+                    let doneItems = events.filter { ($0["type"] as? String) == "response.output_item.done" }
+                        .compactMap { $0["item"] as? [String: Any] }
+                        .filter { ($0["id"] as? String) == reasoningID }
+                    XCTAssertEqual(doneItems.count, 1)
+                    XCTAssertEqual(doneItems.first as NSDictionary?, terminalReasoning as NSDictionary)
                 } else {
                     payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
                 }

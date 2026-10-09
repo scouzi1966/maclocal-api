@@ -24,7 +24,7 @@ Scripts/swiftpm-reliable.sh test -c release --filter 'ResponsesReasoningContract
 | Effort `none` defeats template on | Assert off while retaining other kwargs |
 | Sampling and template settings reach both external transport paths | Assert `seed`, `top_k`, temperature, top-p, thinking and effort in captured requests |
 | Reasoning survives a tool turn | Mock provider emits known reasoning + structured tool call; use the real chat controller and Responses adapter |
-| Streaming/non-streaming consistency | Inspect structured reasoning/tool content in chat JSON/SSE and Responses JSON/SSE; do not require stochastic word-for-word agreement |
+| Streaming/non-streaming consistency | Inspect structured reasoning/tool content in chat JSON/SSE and Responses JSON/SSE; require reasoning-specific delta/done delivery and matching `output_item.done`, not only terminal JSON |
 | No raw thinking tags or hidden-text leakage | Split tags across streaming chunks; assert extracted reasoning and clean visible content |
 
 The known mock reasoning **must** be preserved. Its absence fails a deterministic
@@ -79,3 +79,11 @@ Mutation fixtures verify that missing reasoning, dropped tools, leaked split
 tags, ignored off, truncated output, and missing SSE completion cannot become
 false passes. These validate the harness, **not AFM**. Run the Swift and live
 gates before claiming that the application regressions are fixed.
+
+The SSE checker accepts both `response.reasoning_text.delta/done` with
+`content_index` and `response.reasoning_summary_text.delta/done` with
+`summary_index`. It checks item IDs, output indices, lifecycle order, delta
+assembly, the matching completed item, and terminal consistency. A terminal
+`response.completed` containing reasoning without those delivery events fails.
+Content-only reasoning with an empty summary is not rejected solely for lacking
+a summary; client-specific display/round-trip support requires separate evidence.
