@@ -179,6 +179,49 @@ within that new pair and retain this original evidence.
 
 ## Remaining qualification
 
+### Accepted-token accounting checkpoint
+
+Provider commit `f12b2d32c18ed9ff169b3c912e2502393a930a05` fixes the
+serial-generation counter described above. It increments for each accepted
+non-EOS/non-unknown token before detokenization, rather than only when the
+detokenizer emits text. Cancellation and special-token filtering retain their
+existing placement. No sampling, cache, kernel, or token-limit policy changes
+are included, and no GPU read or retokenization was added.
+
+The actual generation-path regression tests cover ASCII output, three UTF-8
+tokens producing one euro character, and a token limit reached before a
+Unicode character can be emitted. Before the fix, the latter two cases failed
+(counts 1 instead of 3 and 0 instead of 2); after the fix all three passed.
+Independent review found no blocking issue. Logs are
+`generation-count-red-pinned.log` and `generation-count-green.log` under the
+evidence root. The isolated test package uses the production dependency
+revisions; an initial unconstrained dependency-resolution attempt failed on a
+newer compiler-incompatible dependency and is not a production build failure.
+
+The release-optimized qualification build completed in 214.33 seconds using
+consumer `cb7d6194b5d136a571d4f848757fa430082a4e22` and this provider commit.
+Binary: `acceptedTokenRuntime20261009/afm`; SHA-256:
+`91d8945c2932db1dab366285d3474fcd8148717cc3e5e1758d357e0985bc37c6`.
+This is a paired-worktree qualification binary, not a published nightly.
+The fix does not reconstruct earlier counts and is not an explanation for
+the large differences in generated code, number of turns, or elapsed time.
+Reasoning-token breakdown remains a separate unresolved accounting item.
+
+This binary is frozen for the sequential, reference-first
+`orbitalPreview20261009/` pair. That profile permits local preview servers,
+disables the Codex daemon for both clients, records incomplete/budget outcomes
+explicitly, and cleans only verified newly created preview children before
+archiving a workspace. It is not an unchanged repeat of the previous pair.
+The startup preflight verified local binding and denied the tested direct and
+proxied public connections; this is not a blanket claim of private-LAN
+isolation. The fixture's older "no network" wording remains alongside the
+new direct instruction allowing localhost. The reference's first compaction
+repeated the older wording without the exception; retain this limitation
+when interpreting verification behavior. Do not alter instructions midway
+through a pair.
+
+### Outstanding checks
+
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
 - AFM compaction request 20 supplied `tools:[]`, but its response contained a structured tool call and no answer. Codex resumed with an empty handoff and reread files. Earlier archived AFM compactions produced nonempty handoffs, so do not claim this explains every previous timing gap.
 - The request-local no-tools parser fix and fail-closed consumer guard subsequently passed 93 consumer XCTest tests plus 4 Qwen qualification tests. Replaying the failed compaction now preserves emitted markup as ordinary text, with no callable output. The provider/model still emits tool-like text rather than a useful summary; the reference produced a proper handoff. Protocol repair is not behavioral parity.
