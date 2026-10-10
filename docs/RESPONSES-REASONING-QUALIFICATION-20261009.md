@@ -1156,6 +1156,68 @@ and API behavior, and benchmark actual decode independently of the publisher's
 MTP-on numbers. No kernel port or new production default is included in this
 investigation checkpoint.
 
+### Measured exact hybrid kernel experiment (test target only)
+
+An eight-bit-only test adaptation of the oMLX exact hybrid design now lives in
+`MLXLMTests/QwenHCProjectionDiagnostic.swift`, with upstream credit and license
+notices. It computes the 320 down rows and four injection rows together while
+retaining their different stock fast/general QMV traversals. The physical affine
+weights, scales and biases are unchanged. It is not part of model loading or
+the serving binary. A test-only pair of projection wrappers shares the combined
+result for the identical normalized input and falls back for prefill/batch shapes.
+
+The real native8 checkpoint passed the raw projection gate: all 768 output fields
+matched bitwise across 96 pairs and four seeded inputs, maximum difference zero.
+The full-model comparison at KV=512, three warmups and 32 fixed-token forwards
+also matched all 32 full-vocabulary tensors bitwise. Unlike the FP32 ablation,
+this experiment showed zero numerical difference in the measured cases.
+
+Both full-model arms disabled HC fusion to isolate the projection change.
+Per-iteration timing was added after two anomalous process runs:
+
+| Native8 Release forward, MTP off | Reported median ms | Mean ms | Min/max ms |
+|---|---:|---:|---:|
+| Stock split projections | 45.065 | 45.089 | 44.755 / 45.813 |
+| Exact hybrid projections | 29.077 | 29.658 | 28.627 / 45.311 |
+
+The warmed diagnostic shows about 35% lower median latency, or 1.55x forward
+throughput. The earlier hybrid capture run averaged 29.026ms; the preceding
+stock repeat averaged 44.919ms. Both modes reported 3,816 operations/forward:
+lower operation count alone does not explain the improvement. Active allocation
+increased by about 1.5MiB, not a dense-weight cache.
+
+Retain the adverse records as well: initial stock mean 109.106ms and first hybrid
+repeat mean 597.353ms, followed in the same processes by no-head phases of
+44.258ms and 28.802ms respectively. Their cause is unresolved; they are not used
+to inflate the warmed speedup. New sample logs preserve every iteration instead
+of reporting only the mean. No competing inference process was observed, the
+local Ollama server reported no loaded models, and system swap usage was zero;
+ordinary browser/display activity was present. Do not claim all tail latency or
+startup behavior is qualified.
+
+Artifacts in the external evaluation root:
+- `eight-bit-hybrid-equivalence-20261009.log`
+- `eight-bit-hybrid-{stock,combined}-forward-20261009.log`
+- `eight-bit-hybrid-{stock,combined}-logits-20261009.safetensors`
+- `eight-bit-hybrid-{stock,combined}-repeat-20261009.log`
+- `eight-bit-hybrid-{stock,combined}-samples-20261009.log`
+- `eight-bit-hybrid-opt-in-guards-20261009.log`
+
+Activate only within the Release test target using
+`QWEN4_FORWARD_BENCH_HYBRID_INJECT=1`,
+`AFM_QWEN_FUSED_HYPER_CONNECTION=0`, the exact checkpoint via
+`QWEN4_FORWARD_BENCH_MODEL`, `QWEN4_FORWARD_BENCH_KV=512`, and
+`QWEN4_FORWARD_BENCH_ITERATIONS=32`. Invoke the reliable wrapper with filter
+`Qwen4ExpTests.testExactCheckpointDecodeForwardMicrobenchmark`. For stock,
+omit the hybrid diagnostic variable while keeping every other setting equal.
+The separate equality filter is
+`Qwen4ExpTests.testExactCheckpointHybridProjectionEquivalence`.
+
+This does **not** yet establish AFM HTTP decode throughput, free-running coding
+quality, MTP, radix cache, model-switch or concurrent qualification. It provides
+a measured precision-preserving kernel candidate for that next integration;
+normal AFM commands and production defaults remain unchanged.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
