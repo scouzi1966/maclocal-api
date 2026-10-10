@@ -1075,6 +1075,56 @@ component times cannot be subtracted directly from serving latency. Native8
 reference parity remains unmeasured because the reference cannot load this exact
 checkpoint without its missing sidecar. No production speedup is claimed here.
 
+### Whole-model injection ablation: material gain, numerical risk
+
+The Release forward diagnostic now supports a **test-only**
+`QWEN4_FORWARD_BENCH_DENSE_INJECT=1` substitution using the same native8 affine
+values restored to FP32. Both arms explicitly set
+`AFM_QWEN_FUSED_HYPER_CONNECTION=0`: otherwise changing the module's type could
+also enable a different compact HC algorithm and confound the attribution.
+No serving implementation, checkpoint file or default was changed. The test
+requires fusion disabled before it permits this diagnostic substitution.
+
+At KV=512, three warmups and 32 fixed-token decode forwards:
+
+| Exact native8 checkpoint, MTP off | Full forward ms | Ops/forward | Without LM head ms |
+|---|---:|---:|---:|
+| Stock injection, HC fusion disabled | 44.965 | 3816 | 44.033 |
+| Same-affine-values FP32 injection, HC fusion disabled | 27.879 | 3960 | 27.092 |
+
+This is a 17.086ms / 38.0% latency reduction (1.61x forward throughput), despite
+more graph operations and roughly 11MiB more active allocation. It establishes
+that the tiny injection execution path contributes materially to the full-model
+penalty, not only to an isolated microbenchmark. It does not measure HTTP
+decode throughput, generated conversation quality, batching or MTP.
+
+The captured 32 full-vocabulary tensors are **not** bitwise equivalent:
+0/32 exact tensors, 32/32 matching argmax IDs, maximum absolute difference
+12.25 and mean absolute difference 0.52464; all values remained finite.
+This is teacher-forced fixed-token history, not proof of equal free-running
+generation. The model's compounded numerical differences make this substitution
+unqualified for production, even though the simpler isolated projection check
+matched on its one input. A safe fix must preserve relevant projection reduction
+and rounding semantics or independently pass broader quality qualification.
+
+Artifacts under the external evaluation root:
+`eight-bit-injection-stock-full-forward-20261009.log`,
+`eight-bit-injection-dense-full-forward-20261009.log`, and corresponding
+`eight-bit-injection-{stock,dense}-full-logits-20261009.safetensors` captures.
+
+A second sequential pair, without logits capture, reproduced the gain:
+stock 45.648ms versus diagnostic FP32 27.645ms (39.4% lower latency).
+Both tests passed. Logs are `eight-bit-injection-stock-repeat-20261009.log`
+and `eight-bit-injection-dense-repeat-20261009.log`.
+
+The live community model card was checked on October 9. It identifies oMLX
+v0.6.4 as the conversion and benchmark engine, using importance-aware oQe,
+8-bit/group64 and preserved MTP. Its reported 42.1–47.5 decode tok/s uses
+Lightning MTP depth 3, thinking off and temperature zero on M3 Ultra 256GB.
+These are publisher claims, not our reproduced measurements, and are not
+comparable to the AFM MTP-off controls above. Model-card source:
+https://huggingface.co/mlx-community/Qwen3.8-Flash-Next-oQ8e-mtp/blob/main/README.md
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
