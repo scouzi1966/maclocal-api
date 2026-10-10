@@ -788,8 +788,8 @@ from the dispatch diagnostic above. Experimental flags are explicit, not default
 | 8-bit mode | First request decode tok/s | Growing-prefix request decode tok/s | Artifact folder |
 |---|---:|---:|---|
 | Ordinary, no tuning | 22.2 | 22.1 | `communityEightBitHCControl20261009` |
-| Quantized HC fusion only | 23.7 | 23.6 | `communityEightBitHCEnabled20261009` |
-| Quantized HC plus q8 expert fusion | 25.0 | 24.9 | `communityEightBitHCAndMoE20261009` |
+| Partial native HC normalization/mix | 23.7 | 23.6 | `communityEightBitHCEnabled20261009` |
+| Partial native HC plus q8 expert fusion | 25.0 | 24.9 | `communityEightBitHCAndMoE20261009` |
 
 The HC-only improvement is approximately 7%; combined improvement is approximately
 13%. Both experiments preserve the two control outputs after normalizing generated
@@ -882,6 +882,144 @@ the controlled `MLX_MAX_MB_PER_BUFFER=4096` A/B
 tok/s from 22.2/22.1, with unchanged output lengths and cache-hit token counts.
 Thus frequent commits contribute modestly; changing this budget alone does
 not resolve the remaining gap. No scheduler limit or memory limit was patched.
+
+### Whole-model isolation and negative experiments
+
+The existing forward-only diagnostic now accepts the vision wrapper's text child
+and supplies host token IDs, as AFM's iterator does. This removes HTTP, parsing,
+sampling and detokenization, but retains the normal trunk and mutable caches.
+Both checkpoints use a 512-token synthetic prefill and 32 fixed-token forwards.
+This is a performance probe, not a coding or model-quality score.
+
+| Mode | Full forward ms | Without vocabulary head ms | GPU ops/forward |
+|---|---:|---:|---:|
+| Fast q4 checkpoint, defaults | 14.448 | 13.542 | 1,370 |
+| Native q8, defaults | 44.784 | 43.851 | 3,720 |
+| Native q8, partial HC + expert fusion | 39.362 | 38.721 | 2,138 |
+| Native q8, stock AR HC compilation prototype | 46.153 | 45.120 | 3,192 |
+| Native q8, reverted control | 45.145 | 44.068 | 3,720 |
+
+Logs respectively: `four-bit-whole-forward-benchmark-20261009.log`,
+`eight-bit-whole-forward-benchmark-fixed-20261009.log`,
+`eight-bit-fused-whole-forward-benchmark-20261009.log`,
+`eight-bit-compiled-ar-hc-whole-forward-fixed-20261009.log`, and
+`eight-bit-post-revert-whole-forward-20261009.log`.
+Build/submission time includes GPU scheduler waits; final evaluation time is
+another host wall interval, not a separate GPU hardware counter. The diagnostic
+now labels these correctly. Head omission uses a continuing cache, not an
+identical snapshot, so its roughly 1ms delta is approximate; the isolated head
+probe independently agrees with that scale. The large slowdown persists without
+the API or vocabulary head.
+
+The reverted native control reports active MLX allocation 192,274,593,214 bytes,
+peak 192,925,663,559, and allocation limit 522,268,023,193. Together with the
+captured wait at `transforms.cpp:280`, this supports task-queue throttling rather
+than exceeding the allocation limit. Increasing both encoder budgets to 4,096
+MiB/1,000 ops did not resolve it: live decode remained 22.6/22.5 tok/s
+(`communityEightBitEncoderBothBudgets20261009`). Waiting is evidence that work
+has not completed, not proof that increasing a scheduler limit would help.
+
+### What the actual kernels show
+
+A temporary lookup-name hook in `metal/device.cpp`, bounded by explicit test
+window markers, recorded 1,370 q4 and 2,138 partially fused q8 lookups per forward.
+They agree with the command-buffer operation totals. The hook was removed;
+no core logging or runtime default remains changed. Logs are
+`four-bit-kernel-lookups-20261009.log` and
+`eight-bit-fused-kernel-lookups-20261009.log`; these instrumented times are excluded.
+
+The q4 path executes 96 compact HC-down and 96 compact HC-up/mix kernels per
+forward. Native q8 executes **none** of those compact projection kernels, even
+with `AFM_QWEN_FUSED_QUANTIZED_HC=1`. `Qwen4ExpHyperConnectionFusion.call` explicitly
+returns a composed path for quantized injection: it fuses normalization and final
+mixing but retains stock down/up/injection projections. This preserves MLX's
+reductions because earlier custom replacements changed native tool decisions.
+Thus "HC enabled" must not be presented as "full HC fusion enabled".
+
+For the partially fused run, q8 has 713 ordinary quantized projection lookups
+versus q4's 425, and 203 float32-to-BF16 copy lookups versus 11. These are stage
+boundaries, not evidence that the entire model accidentally widens to FP32.
+The remaining differences include native PLE row gathers/dequantization/scatter
+instead of the q4 mapped-table path. Kernel counts locate work; they do not
+assign a proportional share of wall time to it.
+
+### Actual-bank component probes
+
+All 96 real HC banks were measured with explicit pending injection, both eager
+and compiled, using the same BF16 input. Reads are independent in this probe;
+the full trunk's dependency and overlap behavior is intentionally not reproduced.
+
+| HC mode | Eager sweep ms | Compiled sweep ms | Eager/compiled ops |
+|---|---:|---:|---:|
+| q4 compact path | 3.682 | 2.598 | 288 / 288 |
+| Native q8 ordinary fallback | 25.142 | 4.195 | 2,688 / 1,632 |
+| Native q8 partial fusion | 9.781 | 7.728 | 1,248 / 768 |
+
+Logs: `four-bit-hc-banks-20261009.log`,
+`eight-bit-default-hc-banks-equivalence-20261009.log`, and
+`eight-bit-partial-hc-banks-equivalence-20261009.log`.
+Compiled/eager output fields match bitwise (288/288) on the native test input.
+An explicit partial-versus-stock check also matches 288/288 fields with zero
+maximum difference (`eight-bit-hc-partial-vs-stock-20261009.log`). This is one
+input with actual weights, not broad language/tool qualification.
+
+The promising isolated stock-HC compilation was tested in the full model and
+**regressed**, as the whole-forward table shows. That prototype was removed,
+including its test-only model switch. It is not an implementation recommendation.
+Independent component speedups cannot simply be added or projected into the trunk.
+
+A dependent chain over the real 48 routed expert banks, with synthetic RMS
+boundaries and dispersed fixed routes, distinguishes generic from specialized
+execution. Logs are `four-bit-real-routed-chain-20261009.log` and
+`eight-bit-real-routed-chain-20261009.log`.
+
+| Routed chain | q4 ms | q8 ms |
+|---|---:|---:|
+| Stock eager | 21.572 | 22.220 |
+| Stock compiled | 11.203 | 11.371 |
+| Specialized fused eager | 4.243 | 5.226 |
+| Specialized fused compiled | 4.153 | 5.145 |
+
+The q4 specialized path is a serving default; q8 remains opt-in. These are not
+complete decoder times: routes are fixed, normalization is synthetic, and router,
+shared experts, HC, attention, and PLE are excluded. The contrast supports an
+implementation-path penalty beyond a simple bit-width ratio, not a claim that
+generic q8 should have the same latency as q4 in every real prompt.
+
+### Scalar-construction experiment: correct but not faster
+
+MLX Swift's BF16 scalar constructor schedules a Float32-to-BF16 cast. A temporary
+opt-in CPU-leaf prototype bypassed it only for exactly representable normal
+values/zeros, leaving nonfinite, subnormal, and nonexact values unchanged.
+The scalar bit tests passed, and all 32 saved full-vocabulary logits tensors
+matched bitwise against the original constructor.
+
+Nevertheless, 245 removed operations did not improve full-model throughput:
+native-leaf 45.776ms / 3,475 ops versus original 44.575ms / 3,720 ops. Logs and
+captures are `eight-bit-native-scalar-full-forward-20261009.log`,
+`eight-bit-stock-scalar-full-forward-20261009.log`, and their corresponding
+`*-scalar-logits-20261009.safetensors` files. The prototype and its environment
+switch were removed. The retained scalar test records bit-pattern compatibility;
+no changed constructor or new default ships from this experiment.
+
+### Interpretation and next implementation boundary
+
+The supported evidence identifies a real execution-path difference: native q8
+quantizes the tiny HC injection matrices, preventing the compact legacy HC path,
+and lacks a default-qualified specialized expert path. Architecture fields agree
+apart from the equivalent RoPE `type`/`rope_type` spelling. The labels also hide
+mixed precision: q4 routers are quantized while native q8 routers are BF16; both
+vocabulary heads are q8 (groups 64 and 128). Isolated router/head probes did not
+show a large penalty from those latter differences.
+
+Partial HC and expert optimizations recover about 12–13% end to end, but the
+requested roughly half-q4 decode rate remains unmet. The analysis does **not**
+claim exact additive production-time attribution for every remaining millisecond.
+A meaningful next kernel experiment must retain native quantized projection
+reductions and BF16 rounding boundaries while compacting HC execution, followed
+by actual-model/API quality and latency qualification. Do not dequantize or
+requantize the checkpoint, enable the old quality-changing fusion, or promote
+the rejected compilation/scalar experiments merely to improve a benchmark.
 
 ### Outstanding checks
 
