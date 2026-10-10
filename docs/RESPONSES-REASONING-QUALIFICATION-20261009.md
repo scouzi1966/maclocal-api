@@ -1125,6 +1125,37 @@ These are publisher claims, not our reproduced measurements, and are not
 comparable to the AFM MTP-off controls above. Model-card source:
 https://huggingface.co/mlx-community/Qwen3.8-Flash-Next-oQ8e-mtp/blob/main/README.md
 
+### Checkpoint-intended engine: lossless hybrid projection design
+
+Read-only inspection of oMLX v0.6.4 found an exact hybrid HC projection kernel,
+enabled for BF16 single-token GPU decode with affine bits 4/5/6/8, group64,
+K=10,240, 320 down rows and four injection rows. It retains the two physical
+weight banks and produces their 324 combined outputs in one dispatch. The
+first 320 rows reproduce the fast MLX QMV traversal; the final four reproduce
+the standalone small-output general QMV traversal. It does **not** restore the
+injection matrix to dense FP32 or simply concatenate all rows under one generic
+QMV traversal. The source explicitly rejected the latter because it changes
+BF16 results. Per-HC graph compilation is also applied, but the guarded compiled
+hybrid path is bypassed for MTP-enabled or target-verification execution.
+
+Its upstream test checks raw projection and full HC output bit equality across
+bits 4/5/6/8 and seeded inputs, plus fallback behavior for other shapes/types.
+This is source evidence of a concrete precision-preserving design, not an AFM
+benchmark or independently reproduced oMLX throughput result. Our earlier
+compiled-stock full-model experiment regressed, so per-HC compilation alone
+must not be presented as a demonstrated AFM optimization.
+
+Public source/test reference:
+https://github.com/jundot/omlx/blob/v0.6.4/tests/test_qwen4_hc_projection.py
+
+The next implementation experiment should preserve each bank's exact reduction
+order while co-dispatching it with useful work, rather than promoting the
+quality-changing FP32 ablation. Any port must retain upstream license/credit,
+validate against AFM's own pinned MLX arithmetic, qualify whole-model logits
+and API behavior, and benchmark actual decode independently of the publisher's
+MTP-on numbers. No kernel port or new production default is included in this
+investigation checkpoint.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
