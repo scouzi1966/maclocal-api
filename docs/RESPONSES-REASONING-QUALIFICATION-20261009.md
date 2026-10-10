@@ -1021,6 +1021,60 @@ by actual-model/API quality and latency qualification. Do not dequantize or
 requantize the checkpoint, enable the old quality-changing fusion, or promote
 the rejected compilation/scalar experiments merely to improve a benchmark.
 
+### Native8 tiny-injection bottleneck: same-weight control
+
+The retained `testExactCheckpointInjectionChainMicrobenchmark` isolates all 96
+actual HC injection projections (10,240 inputs, four outputs) using a dependent
+sigmoid/broadcast chain, three warmups and eight timed sweeps. Command batching
+is normal: no forced per-primitive command-buffer commits or GPU profiling flags.
+This is a component diagnostic, not a whole-model timing or quality assertion.
+
+| Projection implementation | Median 96-bank chain, ms | Operations per sweep |
+|---|---:|---:|
+| Native8 checkpoint's stock affine QMV | 16.416 | 288 |
+| Same native8 affine values restored to FP32, diagnostic only | 2.063 | 480 |
+| Fast4 checkpoint's dense BF16 injection | 1.662 | 288 |
+
+Sources are `eight-bit-injection-same-weights-dense-20261009.log` and
+`four-bit-injection-chain-20261009.log` under the external evaluation root.
+The FP32 control casts scales/biases before dequantization, retains the checkpoint's
+affine values without a BF16 weight rounding step, and casts the projection result
+back to BF16. All 96 four-value projection tensors matched bitwise on one common
+seeded input (maximum absolute difference zero). This does **not** establish
+equivalence across arbitrary inputs, dependent chains, model logits or tool calls.
+No checkpoint or production model parameter was modified.
+
+After removing all temporary runtime profiling hooks, the rebuilt Release test
+passed again: native QMV 16.719ms versus FP32 control 2.034ms, with 96/96
+projection tensors equal on the test input. The clean-runtime record is
+`eight-bit-injection-clean-runtime-20261009.log`. A no-model run also confirmed
+that the diagnostic skips safely unless its checkpoint is explicitly selected.
+
+MLX's `backend/metal/quantized.cpp` QMV selects an eight-output tile with two
+SIMD groups. Four output rows miss its fast-path divisibility guard. In
+`backend/metal/kernels/quantized.h`, `qmv_impl` returns the second SIMD group
+immediately: only one 32-lane group processes the matrix. Eight-bit packing
+advances 128 input values per iteration, leaving about 80 serial input iterations
+for K=10,240. This geometry, together with the same-weight control using more
+bytes but about eight times less wall time, identifies an implementation penalty
+beyond the expected quantized-weight bandwidth ratio.
+
+Normal command-buffer GPU interval diagnostics also recorded approximately
+42.60ms busy GPU time per native8 forward versus 13.05ms for fast4. Their buffers
+mix HC, attention, GDN and expert kernels, so those intervals cannot assign exact
+per-kernel shares. Forced per-primitive profiling increased native8 wall latency
+to roughly 1,544ms per forward and is excluded from performance claims. All
+temporary GPU timing, phase and forced-commit hooks were removed from source.
+
+The next optimization candidates are a compact quantized small-output kernel or
+a load-time FP32 cache for only the tiny injection matrices (about 15MiB total).
+The latter is a hypothesis, not an approved/default implementation: floating-point
+reduction order can change results. Either requires whole-model numerical,
+API/tool quality, cache/model-switch, memory and throughput qualification. These
+component times cannot be subtracted directly from serving latency. Native8
+reference parity remains unmeasured because the reference cannot load this exact
+checkpoint without its missing sidecar. No production speedup is claimed here.
+
 ### Outstanding checks
 
 - Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
