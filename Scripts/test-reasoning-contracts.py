@@ -131,6 +131,16 @@ def inspect_response(resource, events, thinking):
         add("explicit thinking off", "FAIL" if has_reasoning else "PASS", "reasoning was returned despite explicit off" if has_reasoning else "")
     if events:
         errors = reasoning_stream_errors(output, events)
+        for event in events:
+            if event.get("type") != "response.output_item.added":
+                continue
+            item = event.get("item") or {}
+            kind = item.get("type")
+            field = {"reasoning": "summary", "message": "content", "function_call": "arguments"}.get(kind)
+            if field and item.get(field):
+                errors.append(f"initial {kind} item contains completed {field}; additive deltas can duplicate it")
+            if "status" in item and item["status"] != "in_progress":
+                errors.append("initial output item is not in progress")
         add("reasoning SSE delivery matches terminal output", "FAIL" if errors else "PASS", "; ".join(errors))
     return checks
 
@@ -237,6 +247,22 @@ class ReporterTests(unittest.TestCase):
     def test_terminal_only_reasoning_fails_stream_delivery(self):
         resource = self.fixture()
         events = [{"type": "response.completed", "response": resource}]
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
+
+    def test_completed_initial_summary_fails_even_when_done_is_correct(self):
+        resource, events = self.stream_fixture(summary=True)
+        events[0]["item"] = json.loads(json.dumps(resource["output"][0]))
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
+
+    def test_completed_initial_function_arguments_fail(self):
+        resource, events = self.stream_fixture(summary=True)
+        events.insert(-1, {"type": "response.output_item.added", "item": resource["output"][1]})
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
+
+    def test_completed_initial_message_content_fails(self):
+        resource, events = self.stream_fixture(summary=True)
+        events.insert(-1, {"type": "response.output_item.added", "item": {
+            "type": "message", "content": [{"type": "output_text", "text": "answer"}]}})
         self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
 
     def test_item_events_without_deltas_fail(self):
