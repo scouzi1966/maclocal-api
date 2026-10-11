@@ -43,10 +43,39 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: true)
     }
 
+    func testConcurrentEmptyToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: true, maxConcurrent: 2)
+    }
+
+    func testConcurrentOmittedToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true, maxConcurrent: 2)
+    }
+
+    func testConcurrentDisabledToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, disableOfferedTools: true)
+    }
+
+    func testConcurrentEmptyToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: true,
+            maxConcurrent: 2, responses: true)
+    }
+
+    func testConcurrentOmittedToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, responses: true)
+    }
+
+    func testConcurrentDisabledToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, disableOfferedTools: true, responses: true)
+    }
+
     /// A provider violation is not a successful empty answer. Actual raw markup
     /// belongs in ordinary text; already-extracted calls must never be executed
     /// when this request offered no tools, including compaction requests.
-    private func assertNoToolsProviderViolation(stream: Bool, emptyArray: Bool, delta: Bool) async throws {
+    private func assertNoToolsProviderViolation(stream: Bool, emptyArray: Bool, delta: Bool,
+        maxConcurrent: Int = 1, disableOfferedTools: Bool = false, responses: Bool = false) async throws {
         let call = ResponseToolCall(index: 0, id: "call_unoffered", type: "function",
             function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
         let chunk = delta
@@ -55,18 +84,36 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
                 function: StreamDeltaFunction(name: "read_file", arguments: call.function.arguments))])
             : AFMServerStreamChunk(text: "", toolCalls: [call])
         let service = FakeMLXChatService(
+            maxConcurrent: maxConcurrent,
             generateResult: (modelID: "test-model", content: "", promptTokens: 2,
                 completionTokens: 3, tokenLogprobs: nil, toolCalls: [call],
                 cachedTokens: 0, promptTime: 0, generateTime: 0, stoppedBySequence: false),
             streamingResult: makeStreamingResult(chunks: [chunk]))
-        try MLXChatCompletionsController(modelID: "test-model", service: service,
-            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        let controller = MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil)
+        try controller.boot(routes: app)
+        if responses {
+            try app.register(collection: ResponsesController(defaultModelID: "test-model") { request in
+                try await controller.chatCompletions(req: request)
+            })
+        }
         var payload: [String: Any] = ["model": "test-model", "stream": stream,
             "messages": [["role": "user", "content": "Create a handoff summary."]],
             "tool_choice": "auto"]
         if emptyArray { payload["tools"] = [Any]() }
+        if disableOfferedTools {
+            payload["tool_choice"] = "none"
+            let function: [String: Any] = ["name": "read_file", "parameters": ["type": "object"]]
+            payload["tools"] = responses
+                ? [["type": "function", "name": "read_file", "parameters": ["type": "object"]]]
+                : [["type": "function", "function": function]]
+        }
+        if responses {
+            payload.removeValue(forKey: "messages")
+            payload["input"] = "Create a handoff summary."
+        }
         let body = ByteBuffer(data: try JSONSerialization.data(withJSONObject: payload))
-        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+        try await app.testable(method: .running(port: 0)).test(.POST, responses ? "/v1/responses" : "/v1/chat/completions",
             headers: requestHeaders(for: body), body: body) { response async throws in
             XCTAssertEqual(response.status, stream ? .ok : .internalServerError)
             let events: [[String: Any]]
@@ -79,7 +126,10 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
             } else {
                 events = [try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])]
             }
-            XCTAssertTrue(events.contains { $0["error"] != nil }, "Provider violation must produce an error, not an empty successful answer")
+            XCTAssertTrue(events.contains {
+                guard let error = $0["error"] else { return false }
+                return !(error is NSNull)
+            }, "Provider violation must produce an error, not an empty successful answer")
             for event in events {
                 for choice in event["choices"] as? [[String: Any]] ?? [] {
                     XCTAssertNil((choice["delta"] as? [String: Any])?["tool_calls"])

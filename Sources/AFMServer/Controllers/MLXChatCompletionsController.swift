@@ -599,6 +599,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 var stoppedBySequence = false
 
                 for try await chunk in streamResult.stream {
+                    if !hasTools, !(chunk.toolCallDeltas?.isEmpty ?? true) {
+                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+                    }
                     fullText += chunk.text
                     if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
                     if let tc = chunk.toolCalls { completedToolCalls.consume(tc) }

@@ -630,8 +630,19 @@ struct ResponsesController: RouteCollection {
         for (index, item) in output.enumerated() {
             guard let itemObject = item.objectValue else { continue }
             let itemID = itemObject["id"]?.stringValue ?? "item_\(index)"
+            // SDKs retain the initial item and append subsequent deltas. An
+            // already-complete snapshot here duplicates text/arguments until
+            // output_item.done replaces it. Keep the canonical final item intact.
+            var initialItem = itemObject
+            if initialItem["status"] != nil { initialItem["status"] = .string("in_progress") }
+            switch itemObject["type"]?.stringValue {
+            case "reasoning": initialItem["summary"] = .array([])
+            case "message": initialItem["content"] = .array([])
+            case "function_call": initialItem["arguments"] = .string("")
+            default: break
+            }
             events.append(event("response.output_item.added", sequence: &sequence, fields: [
-                "output_index": .number(Double(index)), "item": item
+                "output_index": .number(Double(index)), "item": .object(initialItem)
             ]))
             if itemObject["type"]?.stringValue == "message",
                let part = itemObject["content"]?.arrayValue?.first,
