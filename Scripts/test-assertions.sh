@@ -27,6 +27,7 @@ TIER="smoke"
 BIN=".build/release/afm"
 SECTION=""  # empty = run all sections; set to a number to run only that section
 GRAMMAR_CONSTRAINTS=false  # set via --grammar-constraints when server has --enable-grammar-constraints
+REASONING_CONTRACTS=false  # explicit qualification of a reasoning + tools capable checkpoint
 SAFE_PARTIAL_CACHE_MISS=false
 STRICT_TOOL_GRAMMAR_CAPABILITY="${AFM_ASSERTIONS_STRICT_TOOL_GRAMMAR:-auto}"
 MODEL_SUPPORTS_TOOL_CALLING=true
@@ -53,6 +54,7 @@ Options:
   --bin BIN
   --section SECTION
   --grammar-constraints
+  --reasoning-contracts  Add Responses reasoning/tool-turn qualification (six requests)
   --help
 
 Optional real FLUX image integration test:
@@ -77,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --bin) BIN="$2"; shift 2 ;;
     --section) SECTION="$2"; shift 2 ;;
     --grammar-constraints) GRAMMAR_CONSTRAINTS=true; shift ;;
+    --reasoning-contracts) REASONING_CONTRACTS=true; shift ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -4627,6 +4630,37 @@ print(content.strip())
     else
       run_test "PairwiseSmoke" "cache idempotency (same seed → same output)" "r1='$C1' vs r2='$C2'" "FAIL: mismatch" "$dur"
     fi
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Responses reasoning contracts (opt in for reasoning + tools checkpoints).
+# The offline Swift contracts also run automatically in Section U. Missing live
+# reasoning is uncovered qualification, not a successful extraction test.
+# ═══════════════════════════════════════════════════════════════════════════════
+if $REASONING_CONTRACTS && min_tier smoke; then
+  echo "🧠 Responses reasoning + tool-turn contracts"
+  reasoning_output="$RAW_REQUEST_DIR/reasoning-contracts"
+  reasoning_status=0
+  python3 "$SCRIPT_DIR/test-reasoning-contracts.py" \
+    --base-url "$BASE_URL" --model "$MODEL" --output-dir "$reasoning_output" \
+    --timeout "$REQUEST_TIMEOUT" || reasoning_status=$?
+  if [ -f "$reasoning_output/report.json" ]; then
+    reasoning_rows="$WORK_ROOT/reasoning-contracts-${TIMESTAMP}.tsv"
+    python3 - "$reasoning_output/report.json" > "$reasoning_rows" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+for result in report['results']:
+    for check in result['checks']:
+        actual = 'PASS' if check['status'] == 'PASS' else check['status'] + ': ' + check['detail']
+        # UNCOVERED is a non-success qualification gate, not model incapability.
+        print('\t'.join([result['case'] + ': ' + check['name'], actual.replace('\t', ' ').replace('\n', ' '), str(round(result['seconds'] * 1000))]))
+PY
+    while IFS=$'\t' read -r reasoning_name reasoning_actual reasoning_ms; do
+      run_test "ReasoningContract" "$reasoning_name" "observable reasoning/tool contract; absent evidence is not a pass" "$reasoning_actual" "$reasoning_ms"
+    done < "$reasoning_rows"
+  else
+    run_test "ReasoningContract" "Reasoning harness execution" "report.json" "FAIL: harness exit $reasoning_status without report" 0
   fi
 fi
 

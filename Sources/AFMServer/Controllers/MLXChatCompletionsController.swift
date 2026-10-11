@@ -599,6 +599,9 @@ struct MLXChatCompletionsController: RouteCollection {
                 var stoppedBySequence = false
 
                 for try await chunk in streamResult.stream {
+                    if !hasTools, !(chunk.toolCallDeltas?.isEmpty ?? true) {
+                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+                    }
                     fullText += chunk.text
                     if let lp = chunk.logprobs { allLogprobs.append(contentsOf: lp) }
                     if let tc = chunk.toolCalls { completedToolCalls.consume(tc) }
@@ -694,6 +697,9 @@ struct MLXChatCompletionsController: RouteCollection {
                     cancelHandle.cancel()
                 }
             }
+            if !hasTools, !(result.toolCalls?.isEmpty ?? true) {
+                throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+            }
             let completionTok = result.completionTokens
             let promptTime = result.promptTime
             let generateTime = result.generateTime
@@ -718,6 +724,8 @@ struct MLXChatCompletionsController: RouteCollection {
                 completionTokens: completionTok,
                 maxTokens: effectiveMaxTokens,
                 sanitizeContent: sanitizeContent,
+                extractLeadingStructuredThinking: (!rawOutput || isWebUI)
+                    && Self.requiresStructuredOutputSanitization(effectiveResponseFormat),
                 responseChannelFormat: service.responseChannelFormat,
                 stopSequences: effectiveStop
                 )
@@ -739,6 +747,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 let response = ChatCompletionResponse(
                     model: result.modelID,
                     toolCalls: toolCalls,
+                    reasoningContent: finalizedTurn.reasoningContent,
                     logprobs: choiceLogprobs,
                     promptTokens: result.promptTokens,
                     completionTokens: completionTok,
@@ -1193,6 +1202,11 @@ struct MLXChatCompletionsController: RouteCollection {
                     if !extractThinking { _ = stopPreview.consume(piece) }
                     let allowCurrentSemanticPayload = !providerReportedStop && !stopPreview.stopped
 
+                    if allowCurrentSemanticPayload, effectiveTools?.isEmpty ?? true,
+                       !(streamChunk.toolCallDeltas?.isEmpty ?? true) || !(streamChunk.toolCalls?.isEmpty ?? true) {
+                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+                    }
+
                     if allowCurrentSemanticPayload,
                        let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {
                         let filtered = deltas.filter {
@@ -1516,6 +1530,8 @@ struct MLXChatCompletionsController: RouteCollection {
                     completionTokens: completionTokens,
                     maxTokens: effectiveMaxTokens,
                     sanitizeContent: sanitizeContent,
+                    extractLeadingStructuredThinking: (!self.rawOutput || req.headers.first(name: .origin) != nil)
+                        && deferStructuredOutputContent,
                     responseChannelFormat: responseChannelFormat,
                     stopSequences: effectiveStop
                 )
@@ -1668,8 +1684,7 @@ struct MLXChatCompletionsController: RouteCollection {
                 }
 
                 if deferStructuredOutputContent,
-                   finalizedTurn.toolCalls == nil,
-                   finalizedTurn.content != nil || finalizedTurn.reasoningContent != nil || !logprobBuffer.isEmpty {
+                   finalizedTurn.reasoningContent != nil || (finalizedTurn.toolCalls == nil && (finalizedTurn.content != nil || !logprobBuffer.isEmpty)) {
                     let visibleContent = streamingStopFilter.consume(finalizedTurn.content ?? "")
                     if visibleContent != (finalizedTurn.content ?? "") { logprobBuffer = [] }
                     if streamingStopFilter.stopped { stoppedBySequence = true }
@@ -1678,7 +1693,7 @@ struct MLXChatCompletionsController: RouteCollection {
                         model: res.modelID,
                         content: visibleContent,
                         reasoningContent: finalizedTurn.reasoningContent,
-                        logprobs: logprobBuffer.isEmpty ? nil : Self.buildChoiceLogprobs(logprobBuffer),
+                        logprobs: finalizedTurn.toolCalls == nil && !logprobBuffer.isEmpty ? Self.buildChoiceLogprobs(logprobBuffer) : nil,
                         isFirst: false
                     )
                     logprobBuffer = []
@@ -2429,6 +2444,7 @@ struct MLXChatCompletionsController: RouteCollection {
         completionTokens: Int,
         maxTokens: Int,
         sanitizeContent: (String) -> String,
+        extractLeadingStructuredThinking: Bool = false,
         responseChannelFormat: AFMResponseChannelFormat = .none,
         stopSequences: [String]? = nil
     ) -> FinalizedAssistantTurn {
@@ -2439,19 +2455,28 @@ struct MLXChatCompletionsController: RouteCollection {
            calls.count > 1 {
             effectiveToolCalls = [calls[0]]
         }
-        if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
-            return FinalizedAssistantTurn(
-                finishReason: "tool_calls",
-                content: nil,
-                reasoningContent: nil,
-                toolCalls: effectiveToolCalls
-            )
-        }
-
         let cleanedContent = sanitizeContent(content)
         let finalContent: String
         let reasoningContent: String?
-        if extractThinking && responseChannelFormat == .harmony {
+        if extractLeadingStructuredThinking {
+            // Only a leading control block is reasoning. Markers inside JSON
+            // strings remain opaque data, including after a leading block.
+            let leading = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !thinkStartTag.isEmpty, !thinkEndTag.isEmpty, leading.hasPrefix(thinkStartTag) {
+                let afterStart = leading.dropFirst(thinkStartTag.count)
+                if let end = afterStart.range(of: thinkEndTag) {
+                    reasoningContent = String(afterStart[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    finalContent = sanitizeContent(String(afterStart[end.upperBound...]))
+                } else {
+                    // A truncated reasoning block must not leak as JSON data.
+                    reasoningContent = String(afterStart).trimmingCharacters(in: .whitespacesAndNewlines)
+                    finalContent = ""
+                }
+            } else {
+                finalContent = cleanedContent
+                reasoningContent = nil
+            }
+        } else if extractThinking && responseChannelFormat == .harmony {
             (finalContent, reasoningContent) = extractHarmonyContent(from: cleanedContent)
         } else if extractThinking && responseChannelFormat == .muse {
             (finalContent, reasoningContent) = extractMuseResponseContent(from: cleanedContent)
@@ -2464,6 +2489,17 @@ struct MLXChatCompletionsController: RouteCollection {
         } else {
             finalContent = cleanedContent
             reasoningContent = nil
+        }
+        if let effectiveToolCalls, !effectiveToolCalls.isEmpty {
+            // Tool selection does not invalidate reasoning already generated.
+            // Extract channels before returning, just as the streaming path does;
+            // continue suppressing tool syntax from visible assistant content.
+            return FinalizedAssistantTurn(
+                finishReason: "tool_calls",
+                content: nil,
+                reasoningContent: reasoningContent,
+                toolCalls: effectiveToolCalls
+            )
         }
         let visibleStop = trimAtFirstStop(finalContent, stopSequences: stopSequences)
 

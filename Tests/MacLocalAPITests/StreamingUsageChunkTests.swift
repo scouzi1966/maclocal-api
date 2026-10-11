@@ -52,6 +52,29 @@ final class StreamingUsageChunkTests: XCTestCase {
         XCTAssertNil(finalized.toolCalls)
     }
 
+    func testStructuredReasoningTruncationRetainsPartialReasoningWithoutVisibleLeak() {
+        let thought = "Inspect README before changing it"
+        let format = ResponseFormat(type: "json_object", jsonSchema: nil)
+        let finalized = MLXChatCompletionsController.finalizeAssistantTurn(
+            content: " \n<think>\(thought)",
+            toolCalls: nil,
+            toolChoice: nil,
+            extractThinking: false,
+            thinkStartTag: "<think>",
+            thinkEndTag: "</think>",
+            stoppedBySequence: false,
+            completionTokens: 20,
+            maxTokens: 20,
+            sanitizeContent: { MLXChatCompletionsController.sanitizeStructuredOutput($0, responseFormat: format) },
+            extractLeadingStructuredThinking: true
+        )
+
+        XCTAssertEqual(finalized.reasoningContent, thought)
+        XCTAssertEqual(finalized.content, "", "Unclosed reasoning must not become visible JSON or be fabricated into {}")
+        XCTAssertEqual(finalized.finishReason, "length", "Truncated reasoning must remain an incomplete generation")
+        XCTAssertNil(finalized.toolCalls)
+    }
+
     func testFinalizeAssistantTurnFiltersToolCallsToNamedChoice() {
         let wrongToolCall = ResponseToolCall(
             index: 0,

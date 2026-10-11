@@ -345,6 +345,10 @@ struct ResponsesController: RouteCollection {
         for item in items {
             guard let object = item.objectValue else { continue }
             switch object["type"]?.stringValue {
+            case "reasoning":
+                // Reasoning metadata is not a user turn. Native templates
+                // regenerate reasoning; never inject an empty user message.
+                continue
             case "function_call":
                 let callID = object["call_id"]?.stringValue ?? "call_\(UUID().uuidString.lowercased().prefix(12))"
                 messages.append(.object([
@@ -410,6 +414,11 @@ struct ResponsesController: RouteCollection {
         let mappings = [
             ("temperature", "temperature"),
             ("top_p", "top_p"),
+            ("top_k", "top_k"),
+            ("min_p", "min_p"),
+            ("seed", "seed"),
+            ("repetition_penalty", "repetition_penalty"),
+            ("chat_template_kwargs", "chat_template_kwargs"),
             ("max_output_tokens", "max_tokens"),
             ("parallel_tool_calls", "parallel_tool_calls"),
             ("presence_penalty", "presence_penalty"),
@@ -421,9 +430,9 @@ struct ResponsesController: RouteCollection {
         if let effort = request["reasoning"]?["effort"]?.stringValue {
             body["reasoning_effort"] = .string(effort)
             if effort == "none" {
-                body["chat_template_kwargs"] = .object([
-                    "enable_thinking": .bool(false)
-                ])
+                var kwargs = body["chat_template_kwargs"]?.objectValue ?? [:]
+                kwargs["enable_thinking"] = .bool(false)
+                body["chat_template_kwargs"] = .object(kwargs)
             }
         }
         if let tools = request["tools"]?.arrayValue {
@@ -476,8 +485,9 @@ struct ResponsesController: RouteCollection {
             output.append(.object([
                 "type": .string("reasoning"),
                 "id": .string("rs_\(UUID().uuidString.lowercased().prefix(12))"),
-                "content": .array([.object(["type": .string("reasoning_text"), "text": .string(reasoning)])]),
-                "summary": .array([])
+                // Responses clients consume public reasoning through summary
+                // parts. Do not duplicate it in content and emit it twice.
+                "summary": .array([.object(["type": .string("summary_text"), "text": .string(reasoning)])])
             ]))
         }
         if let toolCalls = message["tool_calls"]?.arrayValue {
@@ -620,8 +630,19 @@ struct ResponsesController: RouteCollection {
         for (index, item) in output.enumerated() {
             guard let itemObject = item.objectValue else { continue }
             let itemID = itemObject["id"]?.stringValue ?? "item_\(index)"
+            // SDKs retain the initial item and append subsequent deltas. An
+            // already-complete snapshot here duplicates text/arguments until
+            // output_item.done replaces it. Keep the canonical final item intact.
+            var initialItem = itemObject
+            if initialItem["status"] != nil { initialItem["status"] = .string("in_progress") }
+            switch itemObject["type"]?.stringValue {
+            case "reasoning": initialItem["summary"] = .array([])
+            case "message": initialItem["content"] = .array([])
+            case "function_call": initialItem["arguments"] = .string("")
+            default: break
+            }
             events.append(event("response.output_item.added", sequence: &sequence, fields: [
-                "output_index": .number(Double(index)), "item": item
+                "output_index": .number(Double(index)), "item": .object(initialItem)
             ]))
             if itemObject["type"]?.stringValue == "message",
                let part = itemObject["content"]?.arrayValue?.first,
@@ -647,6 +668,30 @@ struct ResponsesController: RouteCollection {
                     "item_id": .string(itemID), "output_index": .number(Double(index)),
                     "content_index": .number(0), "part": part
                 ]))
+            } else if itemObject["type"]?.stringValue == "reasoning" {
+                // Deliver the same reasoning carried by the JSON resource to
+                // streaming clients, instead of only exposing it at completion.
+                for (contentIndex, part) in (itemObject["summary"]?.arrayValue ?? []).enumerated() {
+                    guard let text = part["text"]?.stringValue else { continue }
+                    let fields: [String: ResponsesJSON] = [
+                        "item_id": .string(itemID), "output_index": .number(Double(index)),
+                        "summary_index": .number(Double(contentIndex))
+                    ]
+                    var addedFields = fields
+                    addedFields["part"] = .object(["type": .string("summary_text"), "text": .string("")])
+                    events.append(event("response.reasoning_summary_part.added", sequence: &sequence, fields: addedFields))
+                    if !text.isEmpty {
+                        var deltaFields = fields
+                        deltaFields["delta"] = .string(text)
+                        events.append(event("response.reasoning_summary_text.delta", sequence: &sequence, fields: deltaFields))
+                    }
+                    var doneFields = fields
+                    doneFields["text"] = .string(text)
+                    events.append(event("response.reasoning_summary_text.done", sequence: &sequence, fields: doneFields))
+                    var partDoneFields = fields
+                    partDoneFields["part"] = part
+                    events.append(event("response.reasoning_summary_part.done", sequence: &sequence, fields: partDoneFields))
+                }
             } else if itemObject["type"]?.stringValue == "function_call" {
                 let arguments = itemObject["arguments"]?.stringValue ?? "{}"
                 events.append(event("response.function_call_arguments.delta", sequence: &sequence, fields: [
