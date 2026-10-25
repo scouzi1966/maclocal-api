@@ -19,7 +19,8 @@ build: resolve-release-dependencies
 		--product afm \
 		-Xswiftc -disable-upcoming-feature \
 		-Xswiftc MemberImportVisibility
-	@AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+	@set -e; AFM_BIN="$$(Scripts/find-afm-binary.sh release)"; \
+		Scripts/stage-splash-runtime.sh "$$(dirname "$$AFM_BIN")"; \
 		Scripts/check-tree-sitter-highlighting.sh "$$AFM_BIN"; \
 		strip "$$AFM_BIN"; \
 		echo "✅ Build complete: $$AFM_BIN"; \
@@ -108,6 +109,7 @@ release-gate:
 debug: resolve-release-dependencies
 	@echo "🐛 Building debug version..."
 	@Scripts/swiftpm-reliable.sh build
+	@Scripts/stage-splash-runtime.sh "$$(dirname "$$(Scripts/find-afm-binary.sh debug)")"
 	@Scripts/check-tree-sitter-highlighting.sh "$$(Scripts/find-afm-binary.sh debug)"
 	@echo "✅ Debug build complete: $$(Scripts/find-afm-binary.sh debug)"
 

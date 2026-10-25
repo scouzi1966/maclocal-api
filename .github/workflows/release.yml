@@ -53,7 +53,8 @@ jobs:
         cp -R Resources/webui/. release-package/Resources/webui/
         Scripts/verify-webui.sh release-package/Resources/webui
 
-        for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+        Scripts/stage-splash-runtime.sh ".build/arm64-apple-macosx/release"
+        for BUNDLE_NAME in MacLocalAPI_AFMEvaluationHost.bundle AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
           BUNDLE_DIR=.build/arm64-apple-macosx/release/$BUNDLE_NAME
           test -d "$BUNDLE_DIR"
           cp -r "$BUNDLE_DIR" release-package/

@@ -349,6 +349,7 @@ restore_buildinfo
 trap - EXIT
 
 FINAL_DIR="$(dirname "$FINAL_BIN")"
+"$SCRIPTS_DIR/stage-splash-runtime.sh" "$FINAL_DIR"
 
 # The AFM evaluation host owns the bundled, no-judge evaluation suites. Keep
 # its SwiftPM resource bundle beside the executable in every install layout.
@@ -450,7 +451,7 @@ if $DO_INSTALL; then
   # Provider resources must remain beside the relocated executable. Keep both
   # immutable SwiftPM bundles in libexec and expose sibling symlinks, matching
   # the Homebrew, tarball, and wheel layouts.
-  for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle; do
+  for BUNDLE_NAME in AFMKit_AFMKitMLX.bundle AFMKit_AFMKitDwarfStar.bundle AFMKit_AFMKitSplash.bundle splash-runtime; do
     BUNDLE_SRC="$FINAL_DIR/$BUNDLE_NAME"
     if [ ! -d "$BUNDLE_SRC" ]; then
       log_error "Required AFMKit provider bundle missing: $BUNDLE_SRC"
