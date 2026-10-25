@@ -19,6 +19,246 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await app.asyncShutdown()
     }
 
+    func testNoToolsProviderCallFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: false)
+    }
+
+    func testOmittedToolsProviderCallFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: false)
+    }
+
+    func testNoToolsProviderCallFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: true, delta: false)
+    }
+
+    func testOmittedToolsProviderCallFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: false)
+    }
+
+    func testNoToolsProviderDeltaFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: true, delta: true)
+    }
+
+    func testOmittedToolsProviderDeltaFailsStreamingWithoutCallableDelta() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: true)
+    }
+
+    func testOmittedToolsProviderDeltaAfterStopStillFailsStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false,
+            delta: true, stopBeforeViolation: true)
+    }
+
+    func testOmittedToolsProviderCallMarkedStoppedStillFailsStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false,
+            delta: false, violationMarkedStopped: true)
+    }
+
+    func testConcurrentEmptyToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: true, maxConcurrent: 2)
+    }
+
+    func testConcurrentOmittedToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true, maxConcurrent: 2)
+    }
+
+    func testConcurrentDisabledToolsProviderDeltaFailsNonStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, disableOfferedTools: true)
+    }
+
+    func testConcurrentEmptyToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: true,
+            maxConcurrent: 2, responses: true)
+    }
+
+    func testConcurrentOmittedToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, responses: true)
+    }
+
+    func testConcurrentDisabledToolsProviderDeltaFailsResponses() async throws {
+        try await assertNoToolsProviderViolation(stream: false, emptyArray: false, delta: true,
+            maxConcurrent: 2, disableOfferedTools: true, responses: true)
+    }
+
+    /// A provider violation is not a successful empty answer. Actual raw markup
+    /// belongs in ordinary text; already-extracted calls must never be executed
+    /// when this request offered no tools, including compaction requests.
+    private func assertNoToolsProviderViolation(stream: Bool, emptyArray: Bool, delta: Bool,
+        maxConcurrent: Int = 1, disableOfferedTools: Bool = false, responses: Bool = false,
+        stopBeforeViolation: Bool = false, violationMarkedStopped: Bool = false) async throws {
+        let call = ResponseToolCall(index: 0, id: "call_unoffered", type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
+        let chunk = delta
+            ? AFMServerStreamChunk(text: "", toolCallDeltas: [StreamDeltaToolCall(
+                index: 0, id: "call_unoffered", type: "function",
+                function: StreamDeltaFunction(name: "read_file", arguments: call.function.arguments))],
+                stoppedBySequence: violationMarkedStopped)
+            : AFMServerStreamChunk(text: "", toolCalls: [call],
+                stoppedBySequence: violationMarkedStopped)
+        let chunks = stopBeforeViolation
+            ? [AFMServerStreamChunk(text: "visible", stoppedBySequence: true), chunk]
+            : [chunk]
+        let service = FakeMLXChatService(
+            maxConcurrent: maxConcurrent,
+            generateResult: (modelID: "test-model", content: "", promptTokens: 2,
+                completionTokens: 3, tokenLogprobs: nil, toolCalls: [call],
+                cachedTokens: 0, promptTime: 0, generateTime: 0, stoppedBySequence: false),
+            streamingResult: makeStreamingResult(chunks: chunks))
+        let controller = MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil)
+        try controller.boot(routes: app)
+        if responses {
+            try app.register(collection: ResponsesController(defaultModelID: "test-model") { request in
+                try await controller.chatCompletions(req: request)
+            })
+        }
+        var payload: [String: Any] = ["model": "test-model", "stream": stream,
+            "messages": [["role": "user", "content": "Create a handoff summary."]],
+            "tool_choice": "auto"]
+        if emptyArray { payload["tools"] = [Any]() }
+        if disableOfferedTools {
+            payload["tool_choice"] = "none"
+            let function: [String: Any] = ["name": "read_file", "parameters": ["type": "object"]]
+            payload["tools"] = responses
+                ? [["type": "function", "name": "read_file", "parameters": ["type": "object"]]]
+                : [["type": "function", "function": function]]
+        }
+        if responses {
+            payload.removeValue(forKey: "messages")
+            payload["input"] = "Create a handoff summary."
+        }
+        let body = ByteBuffer(data: try JSONSerialization.data(withJSONObject: payload))
+        try await app.testable(method: .running(port: 0)).test(.POST, responses ? "/v1/responses" : "/v1/chat/completions",
+            headers: requestHeaders(for: body), body: body) { response async throws in
+            XCTAssertEqual(response.status, stream ? .ok : .internalServerError)
+            let events: [[String: Any]]
+            if stream {
+                events = response.body.string.split(separator: "\n").compactMap { line in
+                    guard line.hasPrefix("data: ") else { return nil }
+                    return (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any]
+                }
+                XCTAssertContains(response.body.string, "data: [DONE]")
+            } else {
+                events = [try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])]
+            }
+            XCTAssertTrue(events.contains {
+                guard let error = $0["error"] else { return false }
+                return !(error is NSNull)
+            }, "Provider violation must produce an error, not an empty successful answer")
+            for event in events {
+                for choice in event["choices"] as? [[String: Any]] ?? [] {
+                    XCTAssertNil((choice["delta"] as? [String: Any])?["tool_calls"])
+                    XCTAssertNil((choice["message"] as? [String: Any])?["tool_calls"])
+                    XCTAssertNotEqual(choice["finish_reason"] as? String, "tool_calls")
+                }
+            }
+        }
+    }
+
+    // Deterministic regression: exercise the real chat finalizer, not a fabricated
+    // chat envelope. The Responses API currently calls this non-streaming path
+    // even when its external caller asks for SSE.
+    func testReasoningContractRetainsThinkingAlongsideToolCallsInBothAPIs() async throws {
+        let thought = "I must read the file before editing it."
+        let call = ResponseToolCall(index: 0, id: "call_read", type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>", thinkEndTag: "</think>",
+            generateResult: (modelID: "test-model", content: "<think>\(thought)</think>",
+                promptTokens: 12, completionTokens: 9, tokenLogprobs: nil,
+                toolCalls: [call], cachedTokens: 0, promptTime: 0.01,
+                generateTime: 0.01, stoppedBySequence: false),
+            streamingResult: (modelID: "test-model", stream: AsyncThrowingStream { continuation in
+                for text in ["<thi", "nk>I must read the file ", "before editing it.</thi", "nk>"] {
+                    continuation.yield(AFMServerStreamChunk(text: text))
+                }
+                continuation.yield(AFMServerStreamChunk(text: "", toolCalls: [call]))
+                continuation.yield(AFMServerStreamChunk(text: "", promptTokens: 12,
+                    completionTokens: 9, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01))
+                continuation.finish()
+            }, promptTokens: 12, toolCallStartTag: "<tool_call>", toolCallEndTag: "</tool_call>",
+                thinkStartTag: "<think>", thinkEndTag: "</think>"))
+        let controller = MLXChatCompletionsController(modelID: "test-model",
+            service: service, temperature: nil, repetitionPenalty: nil)
+        try controller.boot(routes: app)
+        try app.register(collection: ResponsesController(defaultModelID: "test-model") { request in
+            try await controller.chatCompletions(req: request)
+        })
+
+        for stream in [false, true] {
+            let body = ByteBuffer(string: #"{"model":"test-model","messages":[{"role":"user","content":"Read README.md"}],"stream":\#(stream),"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]}"#)
+            try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+                headers: requestHeaders(for: body), body: body) { response async throws in
+                XCTAssertEqual(response.status, .ok)
+                var messages: [[String: Any]] = []
+                if stream {
+                    messages = response.body.string.split(separator: "\n").compactMap { line in
+                        guard line.hasPrefix("data: "),
+                            let payload = (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any],
+                            let choices = payload["choices"] as? [[String: Any]] else { return nil }
+                        return choices.first?["delta"] as? [String: Any]
+                    }
+                } else {
+                    let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
+                    let choices = try XCTUnwrap(payload["choices"] as? [[String: Any]])
+                    messages = [try XCTUnwrap(choices.first?["message"] as? [String: Any])]
+                }
+                XCTAssertEqual(messages.compactMap { $0["reasoning_content"] as? String }.joined(), thought)
+                XCTAssertTrue(messages.contains { ($0["tool_calls"] as? [[String: Any]])?.isEmpty == false })
+                let visible = messages.compactMap { $0["content"] as? String }.joined()
+                XCTAssertFalse(visible.contains(thought))
+                XCTAssertFalse(visible.contains("<think>"))
+                XCTAssertFalse(visible.contains("</think>"))
+            }
+        }
+
+        // Responses streaming is compared structurally, not by stochastic wording.
+        for stream in [false, true] {
+            let json = #"{"input":"Read README.md","stream":\#(stream),"tools":[{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}"#
+            let body = ByteBuffer(string: json)
+            try await app.testable(method: .running(port: 0)).test(.POST, "/v1/responses",
+                headers: requestHeaders(for: body), body: body) { response async throws in
+                XCTAssertEqual(response.status, .ok)
+                let payload: [String: Any]
+                if stream {
+                    let events = response.body.string.split(separator: "\n").compactMap { line -> [String: Any]? in
+                        guard line.hasPrefix("data: ") else { return nil }
+                        return (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any]
+                    }
+                    payload = try XCTUnwrap(events.last { ($0["type"] as? String) == "response.completed" }?["response"] as? [String: Any])
+                    let terminalOutput = try XCTUnwrap(payload["output"] as? [[String: Any]])
+                    let terminalReasoning = try XCTUnwrap(terminalOutput.first { ($0["type"] as? String) == "reasoning" })
+                    let reasoningID = try XCTUnwrap(terminalReasoning["id"] as? String)
+                    let delivered = events.filter { ($0["item_id"] as? String) == reasoningID }
+                    let deltaTypes = ["response.reasoning_text.delta", "response.reasoning_summary_text.delta"]
+                    let doneTypes = ["response.reasoning_text.done", "response.reasoning_summary_text.done"]
+                    let deltas = delivered.filter { deltaTypes.contains($0["type"] as? String ?? "") }
+                    let completed = delivered.filter { doneTypes.contains($0["type"] as? String ?? "") }
+                    XCTAssertEqual(deltas.compactMap { $0["delta"] as? String }.joined(), thought,
+                        "Reasoning in terminal JSON alone does not prove SSE client delivery")
+                    XCTAssertEqual(completed.count, 1)
+                    XCTAssertEqual(completed.first?["text"] as? String, thought)
+                    let doneItems = events.filter { ($0["type"] as? String) == "response.output_item.done" }
+                        .compactMap { $0["item"] as? [String: Any] }
+                        .filter { ($0["id"] as? String) == reasoningID }
+                    XCTAssertEqual(doneItems.count, 1)
+                    XCTAssertEqual(doneItems.first as NSDictionary?, terminalReasoning as NSDictionary)
+                } else {
+                    payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
+                }
+                let output = try XCTUnwrap(payload["output"] as? [[String: Any]])
+                XCTAssertEqual(output.filter { ($0["type"] as? String) == "function_call" }.count, 1)
+                let reasoning = try XCTUnwrap(output.first { ($0["type"] as? String) == "reasoning" },
+                    "Reasoning was emitted by the mock provider and must not disappear on a tool turn")
+                let parts = try XCTUnwrap(reasoning["summary"] as? [[String: Any]])
+                XCTAssertEqual(parts.compactMap { $0["text"] as? String }.joined(), thought)
+                XCTAssertFalse(response.body.string.contains("<think>"))
+                XCTAssertFalse(response.body.string.contains("</think>"))
+            }
+        }
+    }
+
     func testStreamingStopFilterWithholdsDelimiterSplitAcrossChunks() {
         var filter = StreamingStopSequenceFilter(stopSequences: ["STOP"])
 
@@ -1280,6 +1520,108 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         XCTAssertContains(readme.body.string, "\"read_file\"")
         XCTAssertContains(readme.body.string, "\\\"path\\\":\\\"README.md\\\"")
         XCTAssertFalse(readme.body.string.contains("\"get_weather\""))
+    }
+
+    func testReasoningStructuredJSONObjectAnswerJSON() async throws {
+        try await assertStructuredReasoningContract(schema: false, stream: false, withTool: false)
+    }
+
+    func testReasoningStructuredJSONObjectAnswerSSE() async throws {
+        try await assertStructuredReasoningContract(schema: false, stream: true, withTool: false)
+    }
+
+    func testReasoningStructuredJSONObjectToolJSON() async throws {
+        try await assertStructuredReasoningContract(schema: false, stream: false, withTool: true)
+    }
+
+    func testReasoningStructuredJSONObjectToolSSE() async throws {
+        try await assertStructuredReasoningContract(schema: false, stream: true, withTool: true)
+    }
+
+    func testReasoningStructuredJSONSchemaAnswerJSON() async throws {
+        try await assertStructuredReasoningContract(schema: true, stream: false, withTool: false)
+    }
+
+    func testReasoningStructuredJSONSchemaAnswerSSE() async throws {
+        try await assertStructuredReasoningContract(schema: true, stream: true, withTool: false)
+    }
+
+    func testReasoningStructuredJSONSchemaToolJSON() async throws {
+        try await assertStructuredReasoningContract(schema: true, stream: false, withTool: true)
+    }
+
+    func testReasoningStructuredJSONSchemaToolSSE() async throws {
+        try await assertStructuredReasoningContract(schema: true, stream: true, withTool: true)
+    }
+
+    /// Known provider reasoning must survive structured-output finalization.
+    /// Literal marker text inside the actual JSON remains application data.
+    /// These fixtures intentionally fail until the combined-mode gap is fixed;
+    /// they must not weaken the existing literal-marker preservation tests.
+    private func assertStructuredReasoningContract(schema: Bool, stream: Bool, withTool: Bool) async throws {
+        let thought = "Inspect the file before editing."
+        let visibleJSON = #"{"ok":true,"note":"<think>literal data</think>"}"#
+        let rawParts = ["<thi", "nk>\(thought)</thi", "nk>\n```json\n", visibleJSON, "\n```"]
+        let call = ResponseToolCall(index: 0, id: "call_structured_read", type: "function",
+            function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
+        let service = FakeMLXChatService(
+            thinkStartTag: "<think>", thinkEndTag: "</think>",
+            generateResult: (modelID: "test-model", content: rawParts.joined(),
+                promptTokens: 12, completionTokens: 9, tokenLogprobs: nil,
+                toolCalls: withTool ? [call] : nil, cachedTokens: 0,
+                promptTime: 0.01, generateTime: 0.01, stoppedBySequence: false),
+            streamingResult: (modelID: "test-model", stream: AsyncThrowingStream { continuation in
+                for text in rawParts { continuation.yield(AFMServerStreamChunk(text: text)) }
+                if withTool { continuation.yield(AFMServerStreamChunk(text: "", toolCalls: [call])) }
+                continuation.yield(AFMServerStreamChunk(text: "", promptTokens: 12,
+                    completionTokens: 9, cachedTokens: 0, promptTime: 0.01, generateTime: 0.01))
+                continuation.finish()
+            }, promptTokens: 12, toolCallStartTag: "<tool_call>", toolCallEndTag: "</tool_call>",
+                thinkStartTag: "<think>", thinkEndTag: "</think>"))
+        try MLXChatCompletionsController(modelID: "test-model", service: service,
+            temperature: nil, repetitionPenalty: nil).boot(routes: app)
+        let format = schema
+            ? #"{"type":"json_schema","json_schema":{"name":"result","strict":true,"schema":{"type":"object","properties":{"ok":{"type":"boolean"},"note":{"type":"string"}},"required":["ok","note"],"additionalProperties":false}}}"#
+            : #"{"type":"json_object"}"#
+        let body = try requestBody(stream: stream, toolsJSON: withTool ? Self.dualToolsJSON : "[]",
+            responseFormatJSON: format)
+        try await app.testable(method: .running(port: 0)).test(.POST, "/v1/chat/completions",
+            headers: requestHeaders(for: body), body: body) { response async throws in
+            XCTAssertEqual(response.status, .ok)
+            var messages: [[String: Any]] = []
+            var finishes: [String] = []
+            if stream {
+                for line in response.body.string.split(separator: "\n") where line.hasPrefix("data: ") {
+                    guard let object = (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(6).utf8))) as? [String: Any],
+                          let choices = object["choices"] as? [[String: Any]] else { continue }
+                    for choice in choices {
+                        if let delta = choice["delta"] as? [String: Any] { messages.append(delta) }
+                        if let finish = choice["finish_reason"] as? String { finishes.append(finish) }
+                    }
+                }
+            } else {
+                let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.body.string.utf8)) as? [String: Any])
+                let choices = try XCTUnwrap(object["choices"] as? [[String: Any]])
+                messages = [try XCTUnwrap(choices.first?["message"] as? [String: Any])]
+                finishes = choices.compactMap { $0["finish_reason"] as? String }
+            }
+            let reasoning = messages.compactMap { $0["reasoning_content"] as? String }.joined()
+            let visible = messages.compactMap { $0["content"] as? String }.joined()
+            XCTAssertEqual(reasoning, thought, "Known leading reasoning must not be discarded by structured-output policy")
+            XCTAssertFalse(reasoning.contains("literal data"), "JSON string values are not model reasoning")
+            XCTAssertFalse(visible.contains(thought), "Private reasoning must not leak into structured visible content")
+            XCTAssertFalse(visible.contains("```"))
+            let calls = messages.flatMap { $0["tool_calls"] as? [[String: Any]] ?? [] }
+            if withTool {
+                XCTAssertEqual(visible, "", "A tool turn continues suppressing incidental visible JSON")
+                XCTAssertTrue(calls.contains { (($0["function"] as? [String: Any])?["name"] as? String) == "read_file" })
+                XCTAssertEqual(finishes, ["tool_calls"])
+            } else {
+                XCTAssertEqual(visible, visibleJSON, "Preserve literal thinking markers inside JSON byte-for-byte")
+                XCTAssertTrue(calls.isEmpty)
+                XCTAssertEqual(finishes, ["stop"])
+            }
+        }
     }
 
     func testNonStreamingStructuredOutputStripsMarkdownFences() async throws {

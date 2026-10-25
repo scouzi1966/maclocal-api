@@ -23,9 +23,10 @@ if [[ "$LOCAL_AFMKIT_PATH" == "$WORK_ROOT"/* ]]; then
 fi
 
 mkdir -p "$PACKAGE_ROOT"
-# The production release lock intentionally pins published packages. Do not
-# copy it into this disposable workspace, which substitutes local paths.
-rm -f "$PACKAGE_ROOT/Package.resolved"
+# Seed remote dependency versions from the release graph. SwiftPM removes
+# local-path substitutions during resolution; unrelated dependencies must not
+# silently float during paired-provider regression comparisons.
+cp "$ROOT_DIR/Package.resolved" "$PACKAGE_ROOT/Package.resolved"
 rsync -a "$ROOT_DIR/Package.swift" "$PACKAGE_ROOT/Package.swift"
 mkdir -p "$PACKAGE_ROOT/Sources" "$PACKAGE_ROOT/Tests"
 rsync -a --delete "$ROOT_DIR/Sources/" "$PACKAGE_ROOT/Sources/"

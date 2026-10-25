@@ -1,0 +1,79 @@
+# Responses reasoning qualification — 2026-10-09
+
+## Confirmed fixes
+
+1. Incoming Responses reasoning items no longer become empty user messages.
+2. Responses forwards sampling/template controls to chat generation, including an explicit reasoning-off override.
+3. Tool-call finalization and AFMKit response construction preserve generated reasoning beside tool calls.
+4. Responses exposes public reasoning through summary parts and matching SSE lifecycle events. Content-only reasoning events passed generic protocol checks but the tested Codex client did not consume them. Summary events were consumed and echoed on the next request.
+5. Structured-output finalization preserves an anchored leading reasoning block without parsing literal thinking tags inside JSON. Truncated leading reasoning is withheld from visible structured content. Tool content and log-probability suppression remain unchanged.
+
+These are boundary changes, not model, kernel, cache-policy, or sampler optimizations. Responses SSE remains buffered until generation completes; this patch does not claim incremental-generation latency improvements.
+
+## Evidence
+
+Evidence root (untracked):
+`/Volumes/edata/dev/CODEX/codex-local-coding-eval-20261007`
+
+| Check | Result |
+| --- | --- |
+| Final targeted XCTest suite | 93 passed, 0 failed |
+| Provider raw/no-tools contracts | 4 passed, 0 failed |
+| Qwen tool qualification | 4 passed, 0 failed |
+| Reporter self-tests | 16 passed, 0 failed |
+| Structured-output regression before fix | 8 failures, all missing known reasoning |
+| Live AFM reasoning contracts | 27 passed, 0 failed, 0 uncovered |
+| Same live contracts on reference | 25 passed, 2 failed (`enable_thinking:false`); `reasoning.effort:none` passed |
+
+The live comparison used the identical checkpoint:
+`/Volumes/edata2/models/qualification/Qwen3.8-Flash-Next-ddalcu-vision-overlay-20261001`
+
+Configuration: MTP off, prefix cache enabled, temperature 0, top-p 1, top-k 0, no tuning environment variables. Reference binary SHA: `46d017b5f6e49890e654dbefd2b750eda44b627a20f4ec7a01015a4d0d8ea1e0`. AFM candidate SHA: `a4f689e25a3d7bf887f8c9e365d15a49a07229cf717aa464acce59cccbc059da`.
+
+### Actual Codex round trip
+
+Both engines created a small Python function and verified its result using tools. Both exposed reasoning events to Codex, and both subsequent requests echoed a reasoning item.
+
+| Engine | Elapsed | Output tokens | Requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| AFM | 10.15 s | 186 | 2 | Completed; 6,731 cached input tokens |
+| Reference | 13.29 s | 333 | 3 | Completed; reported cached usage is not comparable to AFM's |
+
+This small task proves client delivery, not full-project quality or performance parity. Raw records: `reasoningSummaryCodex20261009/results/`.
+
+### Prompt normalization diagnostic
+
+The reference omits tool `strict:false` metadata from its rendered prompt. Removing only this redundant field from identical captured requests reduced the AFM/reference prompt-token difference from 21 to 1. The captured growing-prefix follow-up took AFM 2.80 s versus reference 2.58 s. Outputs differed (104 versus 102 tokens); this is not an isolated decode-throughput measurement. No production normalization default was changed.
+
+Records: `reasoningStrictReplay20261009/`. All requests and raw SSE responses are retained. The AFM live checker in that directory passed all 27 assertions.
+
+### Exact prompt capture and Orbital bottleneck
+
+The sequential diagnostic captures under `promptCaptureAFM20261009/comparison/`
+reconstructed every token for the first three saved Orbital requests. All 21
+extra AFM tokens are explained by four redundant `strict:false` fields plus
+escaped forward slashes in tool descriptions. Outside those tool-definition
+spans the token sequences match. This is a diagnostic result, not throughput
+qualification: logging was enabled and generation was limited to one token.
+
+The earlier complete Orbital run in `fixedThreeProjects20261008/` took AFM
+747.903 seconds / 39,930 output tokens / 44 requests versus the reference's
+359.689 seconds / 21,242 tokens / 25 requests. Acceptance was 11/11 versus
+10/11. AFM spent 659.599 seconds decoding and 71.609 seconds prefilling;
+non-request wall time was only 12.396 versus 13.623 seconds. The primary gap
+was generation volume and extra turns, not shell-execution overhead. AFM
+request 11 alone generated 11,068 tokens and took 184.441 seconds. It is the
+next exact-request replay target before repeating the full project.
+
+These older coding runs do not demonstrate end-to-end parity. Near-parity
+claims for isolated decoding must not be generalized to agent completion time.
+
+## Remaining qualification
+
+- Larger dashboard comparison is under `reasoningDashboard20261009/`. AFM exhausted the 80-request harness cap after 1,106.41 seconds and 55,292 output tokens; the reference completed in 215.35 seconds, 14 requests and 12,477 tokens. Both generated projects passed 15/16 acceptance checks. The 429 is a harness budget response, not server overload. This is a failed completion qualification, not a release-ready result.
+- AFM compaction request 20 supplied `tools:[]`, but its response contained a structured tool call and no answer. Codex resumed with an empty handoff and reread files. Earlier archived AFM compactions produced nonempty handoffs, so do not claim this explains every previous timing gap.
+- The request-local no-tools parser fix and fail-closed consumer guard subsequently passed 93 consumer XCTest tests plus 4 Qwen qualification tests. Replaying the failed compaction now preserves emitted markup as ordinary text, with no callable output. The provider/model still emits tool-like text rather than a useful summary; the reference produced a proper handoff. Protocol repair is not behavioral parity.
+- That replay is recorded under `noToolsCompactionReplay20261009/`, AFM SHA `48dcac1da94e94af60ddd44472ff27c769e839bfcc902f724e521c9ea5825625`. The diagnostic bounded output at 2,048 tokens; both stopped below it. AFM: 26,952 input/661 output, 32.29s wall, 61.3 decode tok/s. Reference: 26,882 input/1,197 output, 39.60s wall. These walls include prefill and different generated lengths; do not equate them with quality or isolated throughput.
+- Explain remaining full-project token-volume and elapsed-time divergence before claiming parity.
+- AFM still reports zero reasoning-token usage despite delivering reasoning; accounting correctness is a separate remaining gap. Do not fabricate a token count from character length.
+- Verify full release packaging and immutable AFMKit dependency pin before publishing. This diagnostic candidate uses paired local worktrees.
