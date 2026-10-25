@@ -1194,6 +1194,14 @@ struct MLXChatCompletionsController: RouteCollection {
                     if let pt = streamChunk.promptTime { realPromptTime = pt }
                     if let gt = streamChunk.generateTime { realGenerateTime = gt }
 
+                    // A provider must not return a call that this request never
+                    // offered, even after a visible stop or in a stop-marked
+                    // chunk. Check before suppressing post-stop payload.
+                    if effectiveTools?.isEmpty ?? true,
+                       !(streamChunk.toolCallDeltas?.isEmpty ?? true) || !(streamChunk.toolCalls?.isEmpty ?? true) {
+                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
+                    }
+
                     // Once either the provider or the visible-content filter has
                     // stopped, drain only telemetry from subsequent chunks.
                     guard !suppressPayload else { continue }
@@ -1201,11 +1209,6 @@ struct MLXChatCompletionsController: RouteCollection {
                     var stopPreview = streamingStopFilter
                     if !extractThinking { _ = stopPreview.consume(piece) }
                     let allowCurrentSemanticPayload = !providerReportedStop && !stopPreview.stopped
-
-                    if allowCurrentSemanticPayload, effectiveTools?.isEmpty ?? true,
-                       !(streamChunk.toolCallDeltas?.isEmpty ?? true) || !(streamChunk.toolCalls?.isEmpty ?? true) {
-                        throw Abort(.internalServerError, reason: "Provider returned tool calls for a request without tools.")
-                    }
 
                     if allowCurrentSemanticPayload,
                        let deltas = streamChunk.toolCallDeltas, !deltas.isEmpty {

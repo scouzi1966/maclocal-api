@@ -87,6 +87,24 @@ def reasoning_stream_errors(output, events):
                 if not (added[0] < min(index for index, _ in deltas)
                         <= max(index for index, _ in deltas) < completed[0][0] < done[0][0]):
                     errors.append("reasoning lifecycle order is invalid")
+                if field == "summary":
+                    part_base = "response.reasoning_summary_part"
+                    part_added = [(index, event) for index, event in enumerate(events)
+                                  if event.get("type") == part_base + ".added"
+                                  and event.get("item_id") == item_id
+                                  and event.get("summary_index") == part_index]
+                    part_done = [(index, event) for index, event in enumerate(events)
+                                 if event.get("type") == part_base + ".done"
+                                 and event.get("item_id") == item_id
+                                 and event.get("summary_index") == part_index]
+                    if (len(part_added) != 1 or len(part_done) != 1
+                            or part_added[0][1].get("output_index") != output_index
+                            or part_done[0][1].get("output_index") != output_index
+                            or part_added[0][1].get("part") != {"type": "summary_text", "text": ""}
+                            or part_done[0][1].get("part") != part
+                            or not (added[0] < part_added[0][0] < min(index for index, _ in deltas)
+                                    < completed[0][0] < part_done[0][0] < done[0][0])):
+                        errors.append(f"summary[{part_index}] lacks ordered part added/done delivery")
                 delivered_parts += 1
         if not delivered_parts:
             errors.append("reasoning item contains no delivered text part")
@@ -208,6 +226,11 @@ class ReporterTests(unittest.TestCase):
             {"type": "response.output_item.done", "item": item},
             {"type": "response.completed", "response": resource},
         ]
+        if summary:
+            events.insert(1, {**base, "type": "response.reasoning_summary_part.added",
+                              "part": {"type": "summary_text", "text": ""}})
+            events.insert(5, {**base, "type": "response.reasoning_summary_part.done",
+                              "part": item[field][0]})
         return resource, events
 
     def test_valid_reasoning_and_tool(self):
@@ -243,6 +266,20 @@ class ReporterTests(unittest.TestCase):
     def test_summary_channel_is_accepted_without_content(self):
         resource, events = self.stream_fixture(summary=True)
         self.assertEqual(set(self.statuses(resource, events).values()), {"PASS"})
+
+    def test_summary_part_lifecycle_is_required(self):
+        resource, events = self.stream_fixture(summary=True)
+        events = [event for event in events if event["type"] != "response.reasoning_summary_part.added"]
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
+
+        resource, events = self.stream_fixture(summary=True)
+        events = [event for event in events if event["type"] != "response.reasoning_summary_part.done"]
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
+
+    def test_summary_part_done_must_follow_text_done(self):
+        resource, events = self.stream_fixture(summary=True)
+        events[4], events[5] = events[5], events[4]
+        self.assertEqual(self.statuses(resource, events)["reasoning SSE delivery matches terminal output"], "FAIL")
 
     def test_terminal_only_reasoning_fails_stream_delivery(self):
         resource = self.fixture()

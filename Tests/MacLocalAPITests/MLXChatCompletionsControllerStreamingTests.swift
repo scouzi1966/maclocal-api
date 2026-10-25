@@ -43,6 +43,16 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
         try await assertNoToolsProviderViolation(stream: true, emptyArray: false, delta: true)
     }
 
+    func testOmittedToolsProviderDeltaAfterStopStillFailsStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false,
+            delta: true, stopBeforeViolation: true)
+    }
+
+    func testOmittedToolsProviderCallMarkedStoppedStillFailsStreaming() async throws {
+        try await assertNoToolsProviderViolation(stream: true, emptyArray: false,
+            delta: false, violationMarkedStopped: true)
+    }
+
     func testConcurrentEmptyToolsProviderDeltaFailsNonStreaming() async throws {
         try await assertNoToolsProviderViolation(stream: false, emptyArray: true, delta: true, maxConcurrent: 2)
     }
@@ -75,20 +85,26 @@ final class MLXChatCompletionsControllerStreamingTests: XCTestCase {
     /// belongs in ordinary text; already-extracted calls must never be executed
     /// when this request offered no tools, including compaction requests.
     private func assertNoToolsProviderViolation(stream: Bool, emptyArray: Bool, delta: Bool,
-        maxConcurrent: Int = 1, disableOfferedTools: Bool = false, responses: Bool = false) async throws {
+        maxConcurrent: Int = 1, disableOfferedTools: Bool = false, responses: Bool = false,
+        stopBeforeViolation: Bool = false, violationMarkedStopped: Bool = false) async throws {
         let call = ResponseToolCall(index: 0, id: "call_unoffered", type: "function",
             function: ResponseToolCallFunction(name: "read_file", arguments: #"{"path":"README.md"}"#))
         let chunk = delta
             ? AFMServerStreamChunk(text: "", toolCallDeltas: [StreamDeltaToolCall(
                 index: 0, id: "call_unoffered", type: "function",
-                function: StreamDeltaFunction(name: "read_file", arguments: call.function.arguments))])
-            : AFMServerStreamChunk(text: "", toolCalls: [call])
+                function: StreamDeltaFunction(name: "read_file", arguments: call.function.arguments))],
+                stoppedBySequence: violationMarkedStopped)
+            : AFMServerStreamChunk(text: "", toolCalls: [call],
+                stoppedBySequence: violationMarkedStopped)
+        let chunks = stopBeforeViolation
+            ? [AFMServerStreamChunk(text: "visible", stoppedBySequence: true), chunk]
+            : [chunk]
         let service = FakeMLXChatService(
             maxConcurrent: maxConcurrent,
             generateResult: (modelID: "test-model", content: "", promptTokens: 2,
                 completionTokens: 3, tokenLogprobs: nil, toolCalls: [call],
                 cachedTokens: 0, promptTime: 0, generateTime: 0, stoppedBySequence: false),
-            streamingResult: makeStreamingResult(chunks: [chunk]))
+            streamingResult: makeStreamingResult(chunks: chunks))
         let controller = MLXChatCompletionsController(modelID: "test-model", service: service,
             temperature: nil, repetitionPenalty: nil)
         try controller.boot(routes: app)
