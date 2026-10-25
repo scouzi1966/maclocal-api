@@ -105,6 +105,10 @@ Optional runner and CLI structured-output settings:
   Set to `1` to add `--no-think` to every server started by
   `run-promptfoo-agentic.sh` and to CLI guided-json checks. The runner accepts
   only `0` or `1`; unset and `0` preserve the model's default reasoning mode.
+- `AFM_VLM`
+  Set to `1` when the exact checkpoint includes vision weights. The runner
+  passes `--vlm` to capability discovery, every server profile, and CLI
+  guided-json checks. Unset or `0` leaves the flag off.
 
 ## Suggested server matrix
 

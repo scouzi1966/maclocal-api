@@ -12,6 +12,7 @@ out_dir="${AFM_PROMPTFOO_OUT_DIR:-/Volumes/edata/promptfoo/data/maclocal-api/cur
 mode="${1:-all}"
 port="${AFM_PROMPTFOO_PORT:-9999}"
 no_think="${AFM_NO_THINK:-0}"
+vlm="${AFM_VLM:-0}"
 dspark_support="${AFM_DSPARK_SUPPORT:-}"
 mtp_model="${AFM_MTP_MODEL:-}"
 mtp_depth="${AFM_MTP_DEPTH:-}"
@@ -27,6 +28,10 @@ capability_timeout=20
 
 if [[ "$no_think" != "0" && "$no_think" != "1" ]]; then
   echo "AFM_NO_THINK must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "$vlm" != "0" && "$vlm" != "1" ]]; then
+  echo "AFM_VLM must be 0 or 1" >&2
   exit 1
 fi
 
@@ -202,6 +207,9 @@ start_server() {
   # Promptfoo profile without accepting an arbitrary string of CLI arguments.
   if [[ "$no_think" == "1" ]]; then
     extra_args+=(--no-think)
+  fi
+  if [[ "$vlm" == "1" ]]; then
+    extra_args+=(--vlm)
   fi
 
   cleanup

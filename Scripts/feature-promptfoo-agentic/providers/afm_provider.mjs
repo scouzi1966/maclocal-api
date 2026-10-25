@@ -173,6 +173,9 @@ export default class AfmPromptfooProvider {
       if (this.config.noThink || readEnv('AFM_NO_THINK') === '1') {
         args.push('--no-think');
       }
+      if (readEnv('AFM_VLM') === '1') {
+        args.push('--vlm');
+      }
 
       // Match the runner's server profiles. Argument arrays preserve local
       // checkpoint paths without interpreting them as shell commands.
